@@ -435,8 +435,11 @@ function EmbedCodesTab() {
             <EmbedCodeRow
               key={program.id}
               label={program.name}
-              snippet={`<iframe src="${baseUrl}/register/${program.id}" style="width:100%;min-height:500px;border:none;" title="Register - ${program.name}"></iframe>`}
-              category={`${program.type === "academy" ? "Academy" : program.type === "holiday_camp" ? "Holiday Camp" : program.type === "trials" ? "Trials" : program.type === "open_training" ? "Open Training" : "Event"} · ID: ${program.id}`}
+              snippet={program.slug
+                ? `<iframe src="${baseUrl}/register/${program.slug}" style="width:100%;min-height:500px;border:none;" title="Register - ${program.name}"></iframe>`
+                : `<iframe src="${baseUrl}/register/${program.id}" style="width:100%;min-height:500px;border:none;" title="Register - ${program.name}"></iframe>`
+              }
+              category={`${program.type === "academy" ? "Academy" : program.type === "holiday_camp" ? "Holiday Camp" : program.type === "trials" ? "Trials" : program.type === "open_training" ? "Open Training" : "Event"} · ${program.slug || `ID: ${program.id}`}`}
             />
           ))}
         </div>
@@ -460,10 +463,17 @@ function EmbedCodesTab() {
   );
 }
 
-function IntegrationsTab() {
+function IntegrationsTab({ data, onChange }: { data: SettingsMap; onChange: (key: string, value: string) => void }) {
   return (
     <div className="px-5 py-2">
-      <div className="mb-4">
+      <div className="mb-5">
+        <h4 className="text-[11px] text-blue-300/25 uppercase tracking-wider font-medium mb-1" data-testid="text-tracking-heading">Conversion Tracking</h4>
+        <p className="text-[10px] text-white/20 mb-4">Configure ad platform tracking for public registration pages</p>
+        <SettingField label="Meta Pixel ID" settingKey="tracking_fb_pixel_id" value={data.tracking_fb_pixel_id} onChange={onChange} hint="Facebook/Meta Pixel ID for conversion tracking (e.g. 123456789012345)" testId="input-tracking_fb_pixel_id" />
+        <SettingField label="Google Ads Conversion ID" settingKey="tracking_gads_conversion_id" value={data.tracking_gads_conversion_id} onChange={onChange} hint="Google Ads conversion ID/label for registration tracking (e.g. AW-123456789/abcDefGhI)" testId="input-tracking_gads_conversion_id" />
+        <SettingField label="Meta CAPI Access Token" settingKey="tracking_meta_capi_token" value={data.tracking_meta_capi_token} onChange={onChange} hint="Server-side Meta Conversions API access token" testId="input-tracking_meta_capi_token" />
+      </div>
+      <div className="border-t border-white/[0.04] pt-4 mb-4">
         <h4 className="text-[11px] text-blue-300/25 uppercase tracking-wider font-medium mb-1">Connected Services</h4>
         <p className="text-[10px] text-white/20">Manage external integrations and API connections</p>
       </div>
@@ -554,7 +564,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Settings</h1>
           <p className="text-blue-400/35 text-[13px] mt-1">Club configuration, registrations, finances and integrations</p>
         </div>
-        {activeTab !== "integrations" && activeTab !== "embed" && (
+        {activeTab !== "embed" && (
           <Button
             onClick={handleSave}
             disabled={!hasChanges || saveMutation.isPending}
@@ -611,12 +621,12 @@ export default function SettingsPage() {
             {activeTab === "financial" && <FinancialTab data={localSettings} onChange={handleChange} />}
             {activeTab === "emails" && <EmailsTab data={localSettings} onChange={handleChange} editingTemplate={editingTemplate} setEditingTemplate={setEditingTemplate} />}
             {activeTab === "embed" && <EmbedCodesTab />}
-            {activeTab === "integrations" && <IntegrationsTab />}
+            {activeTab === "integrations" && <IntegrationsTab data={localSettings} onChange={handleChange} />}
           </>
         )}
       </div>
 
-      {hasChanges && activeTab !== "integrations" && activeTab !== "embed" && (
+      {hasChanges && activeTab !== "embed" && (
         <div className="fixed bottom-6 right-6 z-40 animate-fade-in-up" style={{ animationDelay: "0ms", opacity: 0 }}>
           <Button
             onClick={handleSave}

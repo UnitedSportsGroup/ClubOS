@@ -6,7 +6,7 @@ import { z } from "zod";
 export const roleEnum = pgEnum("role_type", ["admin", "manager", "coach", "finance", "marketing", "registrar"]);
 export const contactTypeEnum = pgEnum("contact_type", ["player", "guardian", "staff", "volunteer", "sponsor"]);
 export const genderEnum = pgEnum("gender_type", ["male", "female", "other"]);
-export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event"]);
+export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training"]);
 export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
 
@@ -60,8 +60,10 @@ export const contactRelationships = pgTable("contact_relationships", {
 export const programs = pgTable("programs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
+  slug: text("slug").unique(),
   type: programTypeEnum("type").notNull(),
   description: text("description"),
+  heroImage: text("hero_image"),
   location: text("location"),
   startDate: date("start_date"),
   endDate: date("end_date"),
@@ -92,6 +94,13 @@ export const registrations = pgTable("registrations", {
   status: registrationStatusEnum("status").notNull().default("pending"),
   amountPaid: decimal("amount_paid", { precision: 10, scale: 2 }).default("0"),
   notes: text("notes"),
+  source: text("source"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  fbclid: text("fbclid"),
+  gclid: text("gclid"),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
 });
 

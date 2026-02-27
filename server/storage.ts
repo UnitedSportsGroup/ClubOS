@@ -20,6 +20,7 @@ export interface IStorage {
 
   getContacts(): Promise<Contact[]>;
   getContact(id: number): Promise<Contact | undefined>;
+  findContactByEmail(email: string): Promise<Contact | undefined>;
   createContact(contact: InsertContact): Promise<Contact>;
   updateContact(id: number, contact: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: number): Promise<void>;
@@ -29,6 +30,7 @@ export interface IStorage {
 
   getPrograms(): Promise<Program[]>;
   getProgram(id: number): Promise<Program | undefined>;
+  getProgramBySlug(slug: string): Promise<Program | undefined>;
   createProgram(program: InsertProgram): Promise<Program>;
   updateProgram(id: number, program: Partial<InsertProgram>): Promise<Program | undefined>;
 
@@ -103,6 +105,13 @@ export class DatabaseStorage implements IStorage {
     return contact;
   }
 
+  async findContactByEmail(email: string): Promise<Contact | undefined> {
+    const [contact] = await db.select().from(contacts).where(
+      and(eq(contacts.email, email), eq(contacts.type, "guardian"))
+    );
+    return contact;
+  }
+
   async createContact(contact: InsertContact): Promise<Contact> {
     const [created] = await db.insert(contacts).values(contact).returning();
     return created;
@@ -150,6 +159,11 @@ export class DatabaseStorage implements IStorage {
 
   async getProgram(id: number): Promise<Program | undefined> {
     const [program] = await db.select().from(programs).where(eq(programs.id, id));
+    return program;
+  }
+
+  async getProgramBySlug(slug: string): Promise<Program | undefined> {
+    const [program] = await db.select().from(programs).where(eq(programs.slug, slug));
     return program;
   }
 

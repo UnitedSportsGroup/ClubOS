@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, insertRelationshipSchema } from "@shared/schema";
+import { z } from "zod";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -222,6 +223,169 @@ export async function registerRoutes(
       const logs = await storage.getAuditLogs();
       res.json(logs);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/programs/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const program = await storage.getProgramBySlug(slug);
+      if (!program || !program.isActive) {
+        return res.status(404).json({ message: "Programme not found" });
+      }
+      const allSettings = await storage.getSettings();
+      res.json({
+        program,
+        club: {
+          name: allSettings.club_name || "Christchurch United Football Club",
+          shortName: allSettings.club_short_name || "CUFC",
+          email: allSettings.club_email || "",
+          phone: allSettings.club_phone || "",
+          website: allSettings.club_website || "",
+          fbPixelId: allSettings.tracking_fb_pixel_id || "",
+          gadsConversionId: allSettings.tracking_gads_conversion_id || "",
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/programs", async (_req, res) => {
+    try {
+      const allPrograms = await storage.getPrograms();
+      const active = allPrograms.filter((p) => p.isActive && p.slug);
+      const allSettings = await storage.getSettings();
+      res.json({
+        programs: active.map((p) => ({
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          type: p.type,
+          description: p.description,
+          location: p.location,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          capacity: p.capacity,
+          ageMin: p.ageMin,
+          ageMax: p.ageMax,
+          fee: p.fee,
+        })),
+        club: {
+          name: allSettings.club_name || "Christchurch United Football Club",
+          shortName: allSettings.club_short_name || "CUFC",
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const publicRegistrationSchema = z.object({
+    programId: z.number(),
+    playerFirstName: z.string().min(1),
+    playerLastName: z.string().min(1),
+    playerDateOfBirth: z.string().min(1),
+    playerGender: z.enum(["male", "female", "other"]),
+    guardianFirstName: z.string().min(1),
+    guardianLastName: z.string().min(1),
+    guardianEmail: z.string().email(),
+    guardianPhone: z.string().min(1),
+    address: z.string().optional(),
+    school: z.string().optional(),
+    medicalNotes: z.string().optional(),
+    allergies: z.string().optional(),
+    emergencyContact: z.string().optional(),
+    emergencyPhone: z.string().optional(),
+    photoConsent: z.boolean().default(false),
+    medicalConsent: z.boolean().default(false),
+    newsletterConsent: z.boolean().default(true),
+    notes: z.string().optional(),
+    source: z.string().optional(),
+    utmSource: z.string().optional(),
+    utmMedium: z.string().optional(),
+    utmCampaign: z.string().optional(),
+    utmContent: z.string().optional(),
+    fbclid: z.string().optional(),
+    gclid: z.string().optional(),
+  });
+
+  app.post("/api/public/register", async (req, res) => {
+    try {
+      const parsed = publicRegistrationSchema.parse(req.body);
+
+      const program = await storage.getProgram(parsed.programId);
+      if (!program || !program.isActive) {
+        return res.status(404).json({ message: "Programme not found or inactive" });
+      }
+
+      let guardian = await storage.findContactByEmail(parsed.guardianEmail);
+      if (!guardian) {
+        guardian = await storage.createContact({
+          type: "guardian",
+          firstName: parsed.guardianFirstName,
+          lastName: parsed.guardianLastName,
+          email: parsed.guardianEmail,
+          phone: parsed.guardianPhone,
+          address: parsed.address || null,
+          newsletterConsent: parsed.newsletterConsent,
+        });
+      }
+
+      const player = await storage.createContact({
+        type: "player",
+        firstName: parsed.playerFirstName,
+        lastName: parsed.playerLastName,
+        dateOfBirth: parsed.playerDateOfBirth,
+        gender: parsed.playerGender,
+        school: parsed.school || null,
+        medicalNotes: parsed.medicalNotes || null,
+        allergies: parsed.allergies || null,
+        emergencyContact: parsed.emergencyContact || null,
+        emergencyPhone: parsed.emergencyPhone || null,
+        photoConsent: parsed.photoConsent,
+        medicalConsent: parsed.medicalConsent,
+      });
+
+      await storage.createRelationship({
+        guardianId: guardian.id,
+        playerId: player.id,
+        relationship: "parent",
+        isPrimaryContact: true,
+      });
+
+      const registration = await storage.createRegistration({
+        programId: parsed.programId,
+        contactId: player.id,
+        guardianId: guardian.id,
+        status: "pending",
+        notes: parsed.notes || null,
+        source: parsed.source || "landing_page",
+        utmSource: parsed.utmSource || null,
+        utmMedium: parsed.utmMedium || null,
+        utmCampaign: parsed.utmCampaign || null,
+        utmContent: parsed.utmContent || null,
+        fbclid: parsed.fbclid || null,
+        gclid: parsed.gclid || null,
+      });
+
+      await storage.createAuditLog({
+        action: "create",
+        entity: "registration",
+        entityId: registration.id,
+        details: `Public registration: ${parsed.playerFirstName} ${parsed.playerLastName} for ${program.name} (source: ${parsed.source || "landing_page"})`,
+      });
+
+      res.status(201).json({
+        success: true,
+        registrationId: registration.id,
+        message: "Registration successful",
+      });
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
       res.status(500).json({ message: error.message });
     }
   });

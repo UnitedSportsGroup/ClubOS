@@ -37,11 +37,11 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 - **users** - Staff users with RBAC roles
 - **contacts** - Players, guardians, staff, volunteers, sponsors
 - **contactRelationships** - Parent-player linking
-- **programs** - Holiday camps, academies, trials, events
+- **programs** - Holiday camps, academies, trials, events, open trainings. Each has a `slug` field for public-facing URLs
 - **programSessions** - Individual sessions within programs
-- **registrations** - Player-programme registrations with status tracking
+- **registrations** - Player-programme registrations with status tracking, UTM attribution (source, utm_source/medium/campaign/content, fbclid, gclid)
 - **auditLogs** - System activity tracking
-- **settings** - Key-value club configuration (club info, registration, financial, emails)
+- **settings** - Key-value club configuration (club info, registration, financial, emails, tracking pixel IDs)
 
 ## Key Commands
 - `npm run dev` - Start dev server
@@ -68,14 +68,27 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 3. Programme management
 4. Registration management
 5. Audit log
-6. Settings (tabbed: Club Info, Registration, Financial, Emails, Integrations) with persistent key-value storage
+6. Settings (tabbed: Club Info, Registration, Financial, Emails, Embed Codes, Integrations) with persistent key-value storage
+7. Public registration landing pages (`/register` index + `/register/:slug` per-programme)
+
+## Public Registration System
+- **Pages**: `client/src/pages/register.tsx` (per-programme form), `client/src/pages/register-index.tsx` (all programmes listing)
+- **Routes**: Public pages render without the admin sidebar/header (separate layout in App.tsx)
+- **URLs**: Slug-based (e.g. `/register/u4-u8-funino`, `/register/academy-u13`)
+- **Multi-step form**: Step 1 = Player Details, Step 2 = Guardian Details, Step 3 = Additional Info + Consents
+- **Backend flow**: Creates guardian contact (or reuses existing guardian by email), creates player contact, creates relationship, creates registration — all in one POST
+- **API**: `GET /api/public/programs` (all active), `GET /api/public/programs/:slug` (individual + club info), `POST /api/public/register` (submit registration)
+- **UTM tracking**: Captures utm_source, utm_medium, utm_campaign, utm_content, fbclid, gclid from URL params and stores on registration
+- **Conversion tracking**: Meta Pixel (auto-injected if FB Pixel ID configured in settings), Google Ads gtag (fires on submit if configured), Meta CAPI token field available
+- **Embed Codes tab**: Settings > Embed Codes lists all programmes with copyable iframe snippets using slug-based URLs
+- **Tracking config**: Settings > Integrations now has "Conversion Tracking" section for Meta Pixel ID, Google Ads Conversion ID, Meta CAPI Access Token
 
 ## Future Modules (Not Yet Built)
 - Stripe payments integration
 - Xero invoicing sync
 - Klaviyo email marketing
-- Meta Conversions API
+- Meta Conversions API (server-side events)
 - Shopify customer matching
 - COMET (NZF) adapter
-- Public registration pages
 - CSV import/export
+- Drag-to-reorder dashboard blocks
