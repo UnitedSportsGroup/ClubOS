@@ -21,11 +21,14 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
   - `seed.ts` - Seed data for demo
 - `shared/schema.ts` - Drizzle schema + Zod validation + TypeScript types
 
-## Color Theme
-- Primary: Deep club blue (HSL 217 91% 35%)
-- Gold accent: Warm gold (HSL 42 87% 50%)
-- Background: White / light grey
-- Font: Inter Tight / Inter
+## Color Theme (Dark Mode)
+- Background: Near-black dark blue-grey (HSL 225 15% 6%)
+- Cards/Surfaces: Subtle glass-like panels with white/[0.02] bg and white/[0.06] borders
+- Primary accent: Blue (HSL 217 91% 55%) with glow effects (shadow-blue-500/20)
+- Status colors: Emerald (success), Amber (pending), Red (error), Blue (info)
+- Text hierarchy: white/90 (headings), white/70 (body), white/40 (secondary), white/30 (tertiary)
+- Font: Inter (system-ui fallback)
+- Design language: Minimalist SaaS dark UI with gradient mesh background, blue glow accents, rounded-xl corners
 
 ## Data Model
 - **users** - Staff users with RBAC roles

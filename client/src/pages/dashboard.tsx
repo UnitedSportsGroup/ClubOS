@@ -12,6 +12,7 @@ import {
   ArrowRight,
   TrendingUp,
   Calendar,
+  Activity,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Contact, Program, Registration } from "@shared/schema";
@@ -21,35 +22,36 @@ function StatCard({
   value,
   icon: Icon,
   description,
-  color,
+  gradient,
   testId,
 }: {
   title: string;
   value: string | number;
   icon: any;
   description?: string;
-  color: string;
+  gradient: string;
   testId: string;
 }) {
   return (
-    <Card data-testid={testId}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-1">
-          <div className="flex flex-col gap-1">
-            <span className="text-sm text-muted-foreground">{title}</span>
-            <span className="text-2xl font-bold tracking-tight" data-testid={`${testId}-value`}>
-              {value}
-            </span>
-            {description && (
-              <span className="text-xs text-muted-foreground">{description}</span>
-            )}
-          </div>
-          <div className={`p-2.5 rounded-md ${color}`}>
-            <Icon className="w-5 h-5 text-white" />
+    <div
+      className={`relative rounded-xl border border-white/[0.06] p-5 overflow-hidden ${gradient}`}
+      data-testid={testId}
+    >
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-[13px] text-white/50 font-medium">{title}</span>
+          <div className="w-8 h-8 rounded-lg bg-white/[0.08] flex items-center justify-center">
+            <Icon className="w-4 h-4 text-white/60" />
           </div>
         </div>
-      </CardContent>
-    </Card>
+        <span className="text-3xl font-bold text-white tracking-tight" data-testid={`${testId}-value`}>
+          {value}
+        </span>
+        {description && (
+          <p className="text-[12px] text-white/40 mt-1.5">{description}</p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -69,17 +71,17 @@ function QuickAction({
   return (
     <Link href={href}>
       <div
-        className="flex items-center gap-4 p-4 rounded-md cursor-pointer border border-border hover-elevate"
+        className="flex items-center gap-4 p-3.5 rounded-xl cursor-pointer border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.1] transition-all duration-200 group"
         data-testid={testId}
       >
-        <div className="p-2 rounded-md bg-primary/10">
-          <Icon className="w-5 h-5 text-primary" />
+        <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+          <Icon className="w-4 h-4 text-blue-400" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm">{title}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="font-medium text-[13px] text-white/80">{title}</p>
+          <p className="text-[11px] text-white/35">{description}</p>
         </div>
-        <ArrowRight className="w-4 h-4 text-muted-foreground" />
+        <ArrowRight className="w-4 h-4 text-white/20 group-hover:text-white/40 transition-colors" />
       </div>
     </Link>
   );
@@ -108,35 +110,35 @@ export default function Dashboard() {
   const activePrograms = allPrograms?.filter((p) => p.isActive);
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-8 space-y-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">
+          <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">
             Welcome to ClubOS
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Christchurch United Football Club dashboard
+          <p className="text-white/40 text-[13px] mt-1">
+            Christchurch United Football Club
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button asChild data-testid="button-add-contact">
-            <Link href="/contacts?action=new">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add Contact
-            </Link>
-          </Button>
-        </div>
+        <Button
+          asChild
+          data-testid="button-add-contact"
+          className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg h-9 text-[13px] font-medium shadow-lg shadow-blue-500/20"
+        >
+          <Link href="/contacts?action=new">
+            <UserPlus className="w-4 h-4 mr-2" />
+            Add Contact
+          </Link>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {isLoading ? (
           <>
             {[1, 2, 3, 4].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-5">
-                  <Skeleton className="h-16 w-full" />
-                </CardContent>
-              </Card>
+              <div key={i} className="rounded-xl border border-white/[0.06] p-5 bg-white/[0.02]">
+                <Skeleton className="h-20 w-full bg-white/[0.04]" />
+              </div>
             ))}
           </>
         ) : (
@@ -146,14 +148,14 @@ export default function Dashboard() {
               value={stats?.totalContacts ?? 0}
               icon={Users}
               description={`${stats?.totalPlayers ?? 0} players · ${stats?.totalGuardians ?? 0} guardians`}
-              color="bg-primary"
+              gradient="bg-gradient-to-br from-blue-500/10 via-transparent to-transparent"
               testId="stat-total-members"
             />
             <StatCard
               title="Active Programmes"
               value={stats?.activePrograms ?? 0}
               icon={GraduationCap}
-              color="bg-emerald-600"
+              gradient="bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent"
               testId="stat-active-programs"
             />
             <StatCard
@@ -161,7 +163,7 @@ export default function Dashboard() {
               value={stats?.totalRegistrations ?? 0}
               icon={ClipboardCheck}
               description={`${stats?.pendingRegistrations ?? 0} pending`}
-              color="bg-gold"
+              gradient="bg-gradient-to-br from-amber-500/10 via-transparent to-transparent"
               testId="stat-registrations"
             />
             <StatCard
@@ -169,7 +171,7 @@ export default function Dashboard() {
               value="$0.00"
               icon={DollarSign}
               description="Revenue collected"
-              color="bg-violet-600"
+              gradient="bg-gradient-to-br from-violet-500/10 via-transparent to-transparent"
               testId="stat-revenue"
             />
           </>
@@ -177,92 +179,89 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-1 pb-3">
-              <CardTitle className="text-base font-semibold">Recent Contacts</CardTitle>
-              <Button variant="ghost" size="sm" asChild data-testid="link-view-all-contacts">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+              <h3 className="text-[14px] font-semibold text-white/80">Recent Contacts</h3>
+              <Button variant="ghost" size="sm" asChild data-testid="link-view-all-contacts" className="text-blue-400 hover:text-blue-300 text-[12px] h-7">
                 <Link href="/contacts">View all</Link>
               </Button>
-            </CardHeader>
-            <CardContent className="p-0">
+            </div>
+            <div>
               {recentContacts && recentContacts.length > 0 ? (
-                <div className="divide-y">
+                <div className="divide-y divide-white/[0.04]">
                   {recentContacts.map((contact) => (
                     <Link
                       key={contact.id}
                       href={`/contacts/${contact.id}`}
                     >
                       <div
-                        className="flex items-center gap-3 px-5 py-3 hover-elevate cursor-pointer"
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.03] cursor-pointer transition-colors"
                         data-testid={`row-contact-${contact.id}`}
                       >
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <span className="text-primary text-xs font-semibold">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-blue-400 text-[11px] font-semibold">
                             {contact.firstName[0]}{contact.lastName[0]}
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
+                          <p className="text-[13px] font-medium text-white/80 truncate">
                             {contact.firstName} {contact.lastName}
                           </p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-[11px] text-white/30 truncate">
                             {contact.email || contact.phone || "No contact info"}
                           </p>
                         </div>
-                        <Badge variant="secondary" className="text-[10px] capitalize">
+                        <span className="text-[10px] text-white/30 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
                           {contact.type}
-                        </Badge>
+                        </span>
                       </div>
                     </Link>
                   ))}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <Users className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No contacts yet</p>
-                  <Button variant="ghost" size="sm" className="mt-2" asChild>
-                    <Link href="/contacts?action=new">Add your first contact</Link>
-                  </Button>
+                  <Users className="w-10 h-10 text-white/10 mb-3" />
+                  <p className="text-[13px] text-white/30">No contacts yet</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-1 pb-3">
-              <CardTitle className="text-base font-semibold">Active Programmes</CardTitle>
-              <Button variant="ghost" size="sm" asChild data-testid="link-view-all-programs">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+              <h3 className="text-[14px] font-semibold text-white/80">Active Programmes</h3>
+              <Button variant="ghost" size="sm" asChild data-testid="link-view-all-programs" className="text-blue-400 hover:text-blue-300 text-[12px] h-7">
                 <Link href="/programs">View all</Link>
               </Button>
-            </CardHeader>
-            <CardContent className="p-0">
+            </div>
+            <div>
               {activePrograms && activePrograms.length > 0 ? (
-                <div className="divide-y">
+                <div className="divide-y divide-white/[0.04]">
                   {activePrograms.map((program) => (
                     <Link key={program.id} href={`/programs/${program.id}`}>
                       <div
-                        className="flex items-center gap-3 px-5 py-3 hover-elevate cursor-pointer"
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.03] cursor-pointer transition-colors"
                         data-testid={`row-program-${program.id}`}
                       >
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
-                          <GraduationCap className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                          <GraduationCap className="w-4 h-4 text-emerald-400" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{program.name}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-[13px] font-medium text-white/80 truncate">{program.name}</p>
+                          <p className="text-[11px] text-white/30">
                             {program.startDate && program.endDate
                               ? `${program.startDate} — ${program.endDate}`
                               : "Dates TBD"}
                           </p>
                         </div>
-                        <div className="text-right flex-shrink-0">
+                        <div className="text-right flex-shrink-0 flex items-center gap-2">
                           {program.fee && (
-                            <span className="text-sm font-medium">${program.fee}</span>
+                            <span className="text-[13px] font-medium text-white/60">${program.fee}</span>
                           )}
-                          <Badge variant="secondary" className="ml-2 text-[10px] capitalize">
+                          <span className="text-[10px] text-white/30 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
                             {program.type.replace("_", " ")}
-                          </Badge>
+                          </span>
                         </div>
                       </div>
                     </Link>
@@ -270,23 +269,20 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <GraduationCap className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No active programmes</p>
-                  <Button variant="ghost" size="sm" className="mt-2" asChild>
-                    <Link href="/programs?action=new">Create a programme</Link>
-                  </Button>
+                  <GraduationCap className="w-10 h-10 text-white/10 mb-3" />
+                  <p className="text-[13px] text-white/30">No active programmes</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-0">
+        <div className="space-y-6">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h3 className="text-[14px] font-semibold text-white/80">Quick Actions</h3>
+            </div>
+            <div className="p-3 space-y-2">
               <QuickAction
                 title="Register Player"
                 description="Add a new player to a programme"
@@ -311,12 +307,12 @@ export default function Dashboard() {
               <QuickAction
                 title="View Audit Log"
                 description="Track recent activity"
-                icon={TrendingUp}
+                icon={Activity}
                 href="/audit-log"
                 testId="action-view-audit"
               />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -2,9 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -79,6 +77,9 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
     },
   });
 
+  const inputClass = "bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 focus:bg-white/[0.06] rounded-lg text-[13px]";
+  const labelClass = "text-[12px] text-white/50 font-medium";
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
@@ -87,10 +88,10 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           name="programId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Programme *</FormLabel>
+              <FormLabel className={labelClass}>Programme *</FormLabel>
               <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
                 <FormControl>
-                  <SelectTrigger data-testid="select-reg-program">
+                  <SelectTrigger data-testid="select-reg-program" className={inputClass}>
                     <SelectValue placeholder="Select programme" />
                   </SelectTrigger>
                 </FormControl>
@@ -110,10 +111,10 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           name="contactId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Player *</FormLabel>
+              <FormLabel className={labelClass}>Player *</FormLabel>
               <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
                 <FormControl>
-                  <SelectTrigger data-testid="select-reg-player">
+                  <SelectTrigger data-testid="select-reg-player" className={inputClass}>
                     <SelectValue placeholder="Select player" />
                   </SelectTrigger>
                 </FormControl>
@@ -135,10 +136,10 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           name="status"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Status</FormLabel>
+              <FormLabel className={labelClass}>Status</FormLabel>
               <Select onValueChange={field.onChange} value={field.value ?? "pending"}>
                 <FormControl>
-                  <SelectTrigger data-testid="select-reg-status">
+                  <SelectTrigger data-testid="select-reg-status" className={inputClass}>
                     <SelectValue />
                   </SelectTrigger>
                 </FormControl>
@@ -159,9 +160,9 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
           name="notes"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Notes</FormLabel>
+              <FormLabel className={labelClass}>Notes</FormLabel>
               <FormControl>
-                <Textarea {...field} value={field.value ?? ""} data-testid="input-reg-notes" />
+                <Textarea {...field} value={field.value ?? ""} data-testid="input-reg-notes" className={inputClass} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -169,10 +170,15 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} data-testid="button-cancel">
+          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/50">
             Cancel
           </Button>
-          <Button type="submit" disabled={createMutation.isPending} data-testid="button-save-reg">
+          <Button
+            type="submit"
+            disabled={createMutation.isPending}
+            data-testid="button-save-reg"
+            className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg shadow-lg shadow-blue-500/20"
+          >
             {createMutation.isPending ? "Saving..." : "Register"}
           </Button>
         </div>
@@ -182,11 +188,11 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
 }
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  waitlisted: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  cancelled: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  refunded: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
+  pending: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  confirmed: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  waitlisted: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  cancelled: "text-red-400 bg-red-500/10 border-red-500/20",
+  refunded: "text-white/40 bg-white/[0.04] border-white/[0.06]",
 };
 
 export default function RegistrationsPage() {
@@ -197,88 +203,95 @@ export default function RegistrationsPage() {
   });
 
   return (
-    <div className="p-6 space-y-4 max-w-7xl mx-auto">
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Registrations</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Registrations</h1>
+          <p className="text-white/40 text-[13px] mt-1">
             Manage programme registrations
           </p>
         </div>
-        <Button onClick={() => setShowNewDialog(true)} data-testid="button-new-registration">
+        <Button
+          onClick={() => setShowNewDialog(true)}
+          data-testid="button-new-registration"
+          className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg h-9 text-[13px] font-medium shadow-lg shadow-blue-500/20"
+        >
           <Plus className="w-4 h-4 mr-2" />
           New Registration
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="divide-y">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="px-5 py-3">
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ))}
-            </div>
-          ) : registrations && registrations.length > 0 ? (
-            <div className="divide-y">
-              <div className="grid grid-cols-[1fr_1fr_120px_100px_120px] gap-3 px-5 py-2 text-xs font-medium text-muted-foreground border-b">
-                <span>Player</span>
-                <span>Programme</span>
-                <span>Status</span>
-                <span>Paid</span>
-                <span>Date</span>
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        {isLoading ? (
+          <div className="divide-y divide-white/[0.04]">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="px-5 py-3">
+                <Skeleton className="h-10 w-full bg-white/[0.04]" />
               </div>
+            ))}
+          </div>
+        ) : registrations && registrations.length > 0 ? (
+          <div>
+            <div className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 text-[11px] font-medium text-white/30 uppercase tracking-wider border-b border-white/[0.06]">
+              <span>Player</span>
+              <span>Programme</span>
+              <span>Status</span>
+              <span>Paid</span>
+              <span>Date</span>
+            </div>
+            <div className="divide-y divide-white/[0.04]">
               {registrations.map((reg) => (
                 <div
                   key={reg.id}
-                  className="grid grid-cols-[1fr_1fr_120px_100px_120px] gap-3 px-5 py-3 items-center"
+                  className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors"
                   data-testid={`row-registration-${reg.id}`}
                 >
                   <Link href={`/contacts/${reg.contactId}`}>
-                    <span className="text-sm font-medium text-primary cursor-pointer">
+                    <span className="text-[13px] font-medium text-blue-400 cursor-pointer hover:text-blue-300 transition-colors">
                       {reg.contact?.firstName} {reg.contact?.lastName}
                     </span>
                   </Link>
                   <Link href={`/programs/${reg.programId}`}>
-                    <span className="text-sm text-primary cursor-pointer truncate">
+                    <span className="text-[13px] text-blue-400 cursor-pointer hover:text-blue-300 transition-colors truncate">
                       {reg.program?.name}
                     </span>
                   </Link>
-                  <Badge
-                    className={`capitalize text-[10px] w-fit ${statusColors[reg.status] || ""}`}
-                    variant="outline"
-                  >
+                  <span className={`text-[10px] font-medium capitalize px-2 py-0.5 rounded-md border w-fit ${statusColors[reg.status] || ""}`}>
                     {reg.status}
-                  </Badge>
-                  <span className="text-sm">${reg.amountPaid || "0.00"}</span>
-                  <span className="text-xs text-muted-foreground">
+                  </span>
+                  <span className="text-[13px] text-white/50">${reg.amountPaid || "0.00"}</span>
+                  <span className="text-[11px] text-white/30">
                     {new Date(reg.registeredAt).toLocaleDateString()}
                   </span>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <ClipboardCheck className="w-12 h-12 text-muted-foreground/20 mb-4" />
-              <p className="text-sm font-medium text-muted-foreground">No registrations yet</p>
-              <p className="text-xs text-muted-foreground mt-1 mb-4">
-                Register a player for a programme to get started
-              </p>
-              <Button size="sm" onClick={() => setShowNewDialog(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                New Registration
-              </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mb-5">
+              <ClipboardCheck className="w-6 h-6 text-white/20" />
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <p className="text-[14px] font-medium text-white/50">No registrations yet</p>
+            <p className="text-[12px] text-white/25 mt-1.5 mb-5">
+              Register a player for a programme to get started
+            </p>
+            <Button
+              size="sm"
+              onClick={() => setShowNewDialog(true)}
+              className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Registration
+            </Button>
+          </div>
+        )}
+      </div>
 
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto bg-[hsl(225,14%,9%)] border-white/[0.08]">
           <DialogHeader>
-            <DialogTitle>New Registration</DialogTitle>
+            <DialogTitle className="text-white/90">New Registration</DialogTitle>
           </DialogHeader>
           <RegistrationForm onClose={() => setShowNewDialog(false)} />
         </DialogContent>

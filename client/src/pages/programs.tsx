@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -91,6 +90,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
     },
   });
 
+  const inputClass = "bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 focus:bg-white/[0.06] rounded-lg text-[13px]";
+  const labelClass = "text-[12px] text-white/50 font-medium";
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
@@ -99,9 +101,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Programme Name *</FormLabel>
+              <FormLabel className={labelClass}>Programme Name *</FormLabel>
               <FormControl>
-                <Input {...field} data-testid="input-program-name" />
+                <Input {...field} data-testid="input-program-name" className={inputClass} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -114,10 +116,10 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="type"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Type</FormLabel>
+                <FormLabel className={labelClass}>Type</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger data-testid="select-program-type">
+                    <SelectTrigger data-testid="select-program-type" className={inputClass}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
@@ -137,9 +139,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="fee"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Fee ($)</FormLabel>
+                <FormLabel className={labelClass}>Fee ($)</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value ?? ""} type="number" step="0.01" data-testid="input-fee" />
+                  <Input {...field} value={field.value ?? ""} type="number" step="0.01" data-testid="input-fee" className={inputClass} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -152,9 +154,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Description</FormLabel>
+              <FormLabel className={labelClass}>Description</FormLabel>
               <FormControl>
-                <Textarea {...field} value={field.value ?? ""} data-testid="input-description" />
+                <Textarea {...field} value={field.value ?? ""} data-testid="input-description" className={inputClass} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -166,9 +168,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
           name="location"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Location</FormLabel>
+              <FormLabel className={labelClass}>Location</FormLabel>
               <FormControl>
-                <Input {...field} value={field.value ?? ""} data-testid="input-location" />
+                <Input {...field} value={field.value ?? ""} data-testid="input-location" className={inputClass} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -181,9 +183,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="startDate"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Start Date</FormLabel>
+                <FormLabel className={labelClass}>Start Date</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value ?? ""} type="date" data-testid="input-start-date" />
+                  <Input {...field} value={field.value ?? ""} type="date" data-testid="input-start-date" className={inputClass} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -194,9 +196,9 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="endDate"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>End Date</FormLabel>
+                <FormLabel className={labelClass}>End Date</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value ?? ""} type="date" data-testid="input-end-date" />
+                  <Input {...field} value={field.value ?? ""} type="date" data-testid="input-end-date" className={inputClass} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -210,13 +212,14 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="capacity"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Capacity</FormLabel>
+                <FormLabel className={labelClass}>Capacity</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
                     value={field.value ?? ""}
                     onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
                     data-testid="input-capacity"
+                    className={inputClass}
                   />
                 </FormControl>
                 <FormMessage />
@@ -228,13 +231,14 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="ageMin"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Min Age</FormLabel>
+                <FormLabel className={labelClass}>Min Age</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
                     value={field.value ?? ""}
                     onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
                     data-testid="input-age-min"
+                    className={inputClass}
                   />
                 </FormControl>
                 <FormMessage />
@@ -246,13 +250,14 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
             name="ageMax"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Max Age</FormLabel>
+                <FormLabel className={labelClass}>Max Age</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
                     value={field.value ?? ""}
                     onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
                     data-testid="input-age-max"
+                    className={inputClass}
                   />
                 </FormControl>
                 <FormMessage />
@@ -262,10 +267,15 @@ function ProgramForm({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} data-testid="button-cancel">
+          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/50">
             Cancel
           </Button>
-          <Button type="submit" disabled={createMutation.isPending} data-testid="button-save-program">
+          <Button
+            type="submit"
+            disabled={createMutation.isPending}
+            data-testid="button-save-program"
+            className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg shadow-lg shadow-blue-500/20"
+          >
             {createMutation.isPending ? "Saving..." : "Save Programme"}
           </Button>
         </div>
@@ -287,162 +297,159 @@ function ProgramDetail({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 max-w-4xl mx-auto">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-48 w-full" />
+      <div className="p-8 space-y-4 max-w-4xl mx-auto">
+        <Skeleton className="h-8 w-64 bg-white/[0.04]" />
+        <Skeleton className="h-48 w-full bg-white/[0.04]" />
       </div>
     );
   }
 
   if (!program) {
     return (
-      <div className="p-6 text-center">
-        <p className="text-muted-foreground">Programme not found</p>
+      <div className="p-8 text-center">
+        <p className="text-white/40">Programme not found</p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-8 space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/programs")} data-testid="button-back">
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/programs")} data-testid="button-back" className="text-white/40 hover:text-white/60">
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold" data-testid="text-program-name">{program.name}</h1>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <Badge variant="secondary" className="capitalize">
+          <h1 className="text-xl font-semibold text-white" data-testid="text-program-name">{program.name}</h1>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <span className="text-[10px] text-white/40 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
               {program.type.replace("_", " ")}
-            </Badge>
-            <Badge variant={program.isActive ? "default" : "secondary"}>
+            </span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-md border ${
+              program.isActive 
+                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" 
+                : "text-white/30 bg-white/[0.04] border-white/[0.06]"
+            }`}>
               {program.isActive ? "Active" : "Inactive"}
-            </Badge>
+            </span>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-primary/10">
-                <Calendar className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Dates</p>
-                <p className="text-sm font-medium">
-                  {program.startDate && program.endDate
-                    ? `${program.startDate} — ${program.endDate}`
-                    : "TBD"}
-                </p>
-              </div>
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Calendar className="w-4 h-4 text-blue-400" />
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-emerald-100 dark:bg-emerald-900/30">
-                <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Capacity</p>
-                <p className="text-sm font-medium">
-                  {registrations?.length ?? 0} / {program.capacity ?? "Unlimited"}
-                </p>
-              </div>
+            <div>
+              <p className="text-[11px] text-white/30">Dates</p>
+              <p className="text-[13px] font-medium text-white/70">
+                {program.startDate && program.endDate ? `${program.startDate} — ${program.endDate}` : "TBD"}
+              </p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-md bg-gold/20">
-                <DollarSign className="w-4 h-4 text-gold" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Fee</p>
-                <p className="text-sm font-medium">
-                  {program.fee ? `$${program.fee}` : "Free"}
-                </p>
-              </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <Users className="w-4 h-4 text-emerald-400" />
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <p className="text-[11px] text-white/30">Capacity</p>
+              <p className="text-[13px] font-medium text-white/70">
+                {registrations?.length ?? 0} / {program.capacity ?? "Unlimited"}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <DollarSign className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-[11px] text-white/30">Fee</p>
+              <p className="text-[13px] font-medium text-white/70">
+                {program.fee ? `$${program.fee}` : "Free"}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {program.description && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Description</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{program.description}</p>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="px-5 py-3 border-b border-white/[0.06]">
+            <h3 className="text-[13px] font-semibold text-white/70">Description</h3>
+          </div>
+          <div className="p-5">
+            <p className="text-[13px] text-white/60 whitespace-pre-wrap">{program.description}</p>
+          </div>
+        </div>
       )}
 
       {program.location && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-[13px] text-white/40">
           <MapPin className="w-4 h-4" />
           <span>{program.location}</span>
         </div>
       )}
 
-      {program.ageMin !== null || program.ageMax !== null ? (
-        <p className="text-sm text-muted-foreground">
+      {(program.ageMin !== null || program.ageMax !== null) && (
+        <p className="text-[13px] text-white/40">
           Age range: {program.ageMin ?? 0} — {program.ageMax ?? "No limit"}
         </p>
-      ) : null}
+      )}
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-1 pb-3">
-          <CardTitle className="text-sm font-semibold">
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+          <h3 className="text-[14px] font-semibold text-white/80">
             Registered Players ({registrations?.length ?? 0})
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {registrations && registrations.length > 0 ? (
-            <div className="divide-y">
-              {registrations.map((reg) => (
-                <div
-                  key={reg.id}
-                  className="flex items-center gap-3 px-5 py-3"
-                  data-testid={`row-registration-${reg.id}`}
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-primary text-xs font-semibold">
-                      {reg.contact?.firstName?.[0]}{reg.contact?.lastName?.[0]}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">
-                      {reg.contact?.firstName} {reg.contact?.lastName}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Registered {new Date(reg.registeredAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={reg.status === "confirmed" ? "default" : "secondary"}
-                    className="capitalize text-[10px]"
-                  >
-                    {reg.status}
-                  </Badge>
-                  {reg.amountPaid && (
-                    <span className="text-sm text-muted-foreground">${reg.amountPaid}</span>
-                  )}
+          </h3>
+        </div>
+        {registrations && registrations.length > 0 ? (
+          <div className="divide-y divide-white/[0.04]">
+            {registrations.map((reg) => (
+              <div
+                key={reg.id}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.02] transition-colors"
+                data-testid={`row-registration-${reg.id}`}
+              >
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                  <span className="text-blue-400 text-[11px] font-semibold">
+                    {reg.contact?.firstName?.[0]}{reg.contact?.lastName?.[0]}
+                  </span>
                 </div>
-              ))}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-white/70">
+                    {reg.contact?.firstName} {reg.contact?.lastName}
+                  </p>
+                  <p className="text-[11px] text-white/30">
+                    Registered {new Date(reg.registeredAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <span className={`text-[10px] font-medium capitalize px-2 py-0.5 rounded-md border ${
+                  reg.status === "confirmed" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                  : reg.status === "pending" ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                  : "text-white/40 bg-white/[0.04] border-white/[0.06]"
+                }`}>
+                  {reg.status}
+                </span>
+                {reg.amountPaid && (
+                  <span className="text-[13px] text-white/40">${reg.amountPaid}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-14 text-center">
+            <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-4">
+              <ClipboardCheck className="w-5 h-5 text-white/15" />
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <ClipboardCheck className="w-10 h-10 text-muted-foreground/20 mb-3" />
-              <p className="text-sm text-muted-foreground">No registrations yet</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <p className="text-[13px] text-white/40">No registrations yet</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -460,15 +467,19 @@ export default function ProgramsPage() {
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-7xl mx-auto">
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Programmes</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Programmes</h1>
+          <p className="text-white/40 text-[13px] mt-1">
             Manage holiday camps, academies, trials, and events
           </p>
         </div>
-        <Button onClick={() => setShowNewDialog(true)} data-testid="button-new-program">
+        <Button
+          onClick={() => setShowNewDialog(true)}
+          data-testid="button-new-program"
+          className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg h-9 text-[13px] font-medium shadow-lg shadow-blue-500/20"
+        >
           <Plus className="w-4 h-4 mr-2" />
           New Programme
         </Button>
@@ -477,82 +488,91 @@ export default function ProgramsPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardContent className="p-5">
-                <Skeleton className="h-24 w-full" />
-              </CardContent>
-            </Card>
+            <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+              <Skeleton className="h-28 w-full bg-white/[0.04]" />
+            </div>
           ))}
         </div>
       ) : programs && programs.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {programs.map((program) => (
             <Link key={program.id} href={`/programs/${program.id}`}>
-              <Card className="cursor-pointer hover-elevate h-full" data-testid={`card-program-${program.id}`}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="p-2 rounded-md bg-primary/10">
-                      <GraduationCap className="w-5 h-5 text-primary" />
+              <div
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 cursor-pointer hover:bg-white/[0.04] hover:border-white/[0.1] transition-all duration-200 h-full group"
+                data-testid={`card-program-${program.id}`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-4">
+                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                    <GraduationCap className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-md border ${
+                    program.isActive
+                      ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                      : "text-white/30 bg-white/[0.04] border-white/[0.06]"
+                  }`}>
+                    {program.isActive ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <h3 className="font-semibold text-[14px] text-white/80 mb-1.5 line-clamp-2 group-hover:text-white transition-colors">{program.name}</h3>
+                <span className="text-[10px] text-white/30 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] inline-block mb-3">
+                  {program.type.replace("_", " ")}
+                </span>
+                <div className="space-y-2 mt-2">
+                  {program.startDate && (
+                    <div className="flex items-center gap-2 text-[12px] text-white/35">
+                      <Calendar className="w-3 h-3" />
+                      <span>{program.startDate} — {program.endDate}</span>
                     </div>
-                    <Badge variant={program.isActive ? "default" : "secondary"} className="text-[10px]">
-                      {program.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                  <h3 className="font-semibold text-sm mb-1 line-clamp-2">{program.name}</h3>
-                  <Badge variant="outline" className="capitalize text-[10px] mb-3">
-                    {program.type.replace("_", " ")}
-                  </Badge>
-                  <div className="space-y-1.5 mt-3">
-                    {program.startDate && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Calendar className="w-3 h-3" />
-                        <span>{program.startDate} — {program.endDate}</span>
-                      </div>
-                    )}
-                    {program.location && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <MapPin className="w-3 h-3" />
-                        <span>{program.location}</span>
-                      </div>
-                    )}
-                    {program.fee && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <DollarSign className="w-3 h-3" />
-                        <span>${program.fee}</span>
-                      </div>
-                    )}
-                    {program.capacity && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Users className="w-3 h-3" />
-                        <span>Capacity: {program.capacity}</span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                  )}
+                  {program.location && (
+                    <div className="flex items-center gap-2 text-[12px] text-white/35">
+                      <MapPin className="w-3 h-3" />
+                      <span>{program.location}</span>
+                    </div>
+                  )}
+                  {program.fee && (
+                    <div className="flex items-center gap-2 text-[12px] text-white/35">
+                      <DollarSign className="w-3 h-3" />
+                      <span>${program.fee}</span>
+                    </div>
+                  )}
+                  {program.capacity && (
+                    <div className="flex items-center gap-2 text-[12px] text-white/35">
+                      <Users className="w-3 h-3" />
+                      <span>Capacity: {program.capacity}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </Link>
           ))}
         </div>
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <GraduationCap className="w-12 h-12 text-muted-foreground/20 mb-4" />
-            <p className="text-sm font-medium text-muted-foreground">No programmes yet</p>
-            <p className="text-xs text-muted-foreground mt-1 mb-4">
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02]">
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mb-5">
+              <GraduationCap className="w-6 h-6 text-white/20" />
+            </div>
+            <p className="text-[14px] font-medium text-white/50">No programmes yet</p>
+            <p className="text-[12px] text-white/25 mt-1.5 mb-5">
               Create your first programme to start taking registrations
             </p>
-            <Button size="sm" onClick={() => setShowNewDialog(true)}>
+            <Button
+              size="sm"
+              onClick={() => setShowNewDialog(true)}
+              className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg"
+            >
               <Plus className="w-4 h-4 mr-2" />
               Create Programme
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto bg-[hsl(225,14%,9%)] border-white/[0.08]">
           <DialogHeader>
-            <DialogTitle>New Programme</DialogTitle>
+            <DialogTitle className="text-white/90">New Programme</DialogTitle>
           </DialogHeader>
           <ProgramForm onClose={() => setShowNewDialog(false)} />
         </DialogContent>
