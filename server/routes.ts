@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, insertRelationshipSchema } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, insertRelationshipSchema, insertSessionSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(
@@ -153,6 +153,231 @@ export async function registerRoutes(
       res.status(201).json(program);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/programs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const program = await storage.updateProgram(id, req.body);
+      if (!program) return res.status(404).json({ message: "Programme not found" });
+      res.json(program);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/programs/:id/sessions", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const sessions = await storage.getSessionsByProgram(id);
+      res.json(sessions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/programs/:id/sessions", async (req, res) => {
+    try {
+      const programId = parseInt(req.params.id);
+      if (isNaN(programId)) return res.status(400).json({ message: "Invalid ID" });
+      const sessionsData = Array.isArray(req.body) ? req.body : [req.body];
+      const parsed = sessionsData.map((s: any) => insertSessionSchema.parse({ ...s, programId }));
+      const created = await storage.createSessions(parsed);
+      res.status(201).json(created);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const session = await storage.updateSession(id, req.body);
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      res.json(session);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      await storage.deleteSession(id);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/programs/:id/sessions/date/:date", async (req, res) => {
+    try {
+      const programId = parseInt(req.params.id);
+      if (isNaN(programId)) return res.status(400).json({ message: "Invalid ID" });
+      await storage.deleteSessionsByProgramAndDate(programId, req.params.date);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/sessions/:id/bookings", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const bookings = await storage.getSessionBookings(id);
+      res.json(bookings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/programs/:id/bookings", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const bookings = await storage.getSessionBookingsByProgram(id);
+      res.json(bookings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/session-bookings", async (req, res) => {
+    try {
+      const bookingsData = Array.isArray(req.body) ? req.body : [req.body];
+      const bookingSchema = z.object({
+        sessionId: z.number(),
+        contactId: z.number(),
+        attended: z.boolean().optional(),
+        paid: z.boolean().optional(),
+        notes: z.string().optional().nullable(),
+      });
+      const parsed = bookingsData.map((b: any) => bookingSchema.parse(b));
+
+      for (const booking of parsed) {
+        const session = await storage.getSession(booking.sessionId);
+        if (!session) return res.status(404).json({ message: `Session ${booking.sessionId} not found` });
+        if (session.capacity) {
+          const existing = await storage.getSessionBookings(booking.sessionId);
+          if (existing.length >= session.capacity) {
+            return res.status(400).json({ message: `Session "${session.name}" on ${session.date} is full (${session.capacity} capacity)` });
+          }
+        }
+      }
+
+      const created = await storage.createSessionBookings(parsed);
+      res.status(201).json(created);
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return res.status(409).json({ message: "This player is already booked into one or more of the selected sessions" });
+      }
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/session-bookings/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const updated = await storage.updateSessionBooking(id, req.body);
+      if (!updated) return res.status(404).json({ message: "Booking not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/session-bookings/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      await storage.deleteSessionBooking(id);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/programs/:id/discounts", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const discounts = await storage.getProgramDiscounts(id);
+      res.json(discounts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/programs/:id/discounts", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const discountSchema = z.array(z.object({
+        minBookings: z.number().min(1),
+        discountPercent: z.string(),
+      }));
+      const parsed = discountSchema.parse(req.body);
+      const result = await storage.setProgramDiscounts(id, parsed);
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/programs/:id/report", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const program = await storage.getProgram(id);
+      if (!program) return res.status(404).json({ message: "Programme not found" });
+      const sessions = await storage.getSessionsByProgram(id);
+      const bookings = await storage.getSessionBookingsByProgram(id);
+      const registrations_data = await storage.getRegistrationsByProgram(id);
+
+      const sessionFilter = req.query.sessionId ? parseInt(req.query.sessionId as string) : undefined;
+      const filteredSessions = sessionFilter ? sessions.filter(s => s.id === sessionFilter) : sessions;
+      const filteredBookings = sessionFilter ? bookings.filter(b => b.sessionId === sessionFilter) : bookings;
+
+      const contactMap = new Map<number, { contact: any; sessions: any[]; totalBookings: number; attended: number }>();
+      for (const booking of filteredBookings) {
+        if (!booking.contact) continue;
+        if (!contactMap.has(booking.contactId)) {
+          contactMap.set(booking.contactId, {
+            contact: booking.contact,
+            sessions: [],
+            totalBookings: 0,
+            attended: 0,
+          });
+        }
+        const entry = contactMap.get(booking.contactId)!;
+        entry.sessions.push({
+          sessionId: booking.sessionId,
+          sessionName: booking.session?.name,
+          sessionDate: booking.session?.date,
+          attended: booking.attended,
+          paid: booking.paid,
+          notes: booking.notes,
+        });
+        entry.totalBookings++;
+        if (booking.attended) entry.attended++;
+      }
+
+      res.json({
+        program,
+        sessions: filteredSessions,
+        attendees: Array.from(contactMap.values()),
+        totalBookings: filteredBookings.length,
+        totalRegistrations: registrations_data.length,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

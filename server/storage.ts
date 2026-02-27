@@ -1,13 +1,16 @@
 import { db } from "./db";
-import { eq, desc, sql, and, ilike, or } from "drizzle-orm";
+import { eq, desc, sql, and, ilike, or, inArray, asc } from "drizzle-orm";
 import {
   users, contacts, contactRelationships, programs,
   programSessions, registrations, auditLogs, settings,
+  sessionBookings, programDiscounts,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
   type InsertProgram, type Program,
   type InsertSession, type ProgramSession,
+  type InsertSessionBooking, type SessionBooking,
+  type InsertDiscount, type ProgramDiscount,
   type InsertRegistration, type Registration,
   type InsertAuditLog, type AuditLog,
   type Setting,
@@ -33,6 +36,24 @@ export interface IStorage {
   getProgramBySlug(slug: string): Promise<Program | undefined>;
   createProgram(program: InsertProgram): Promise<Program>;
   updateProgram(id: number, program: Partial<InsertProgram>): Promise<Program | undefined>;
+
+  getSessionsByProgram(programId: number): Promise<ProgramSession[]>;
+  getSession(id: number): Promise<ProgramSession | undefined>;
+  createSession(session: InsertSession): Promise<ProgramSession>;
+  createSessions(sessions: InsertSession[]): Promise<ProgramSession[]>;
+  updateSession(id: number, data: Partial<InsertSession>): Promise<ProgramSession | undefined>;
+  deleteSession(id: number): Promise<void>;
+  deleteSessionsByProgramAndDate(programId: number, date: string): Promise<void>;
+
+  getSessionBookings(sessionId: number): Promise<(SessionBooking & { contact?: Contact })[]>;
+  getSessionBookingsByProgram(programId: number): Promise<(SessionBooking & { contact?: Contact; session?: ProgramSession })[]>;
+  createSessionBooking(booking: InsertSessionBooking): Promise<SessionBooking>;
+  createSessionBookings(bookings: InsertSessionBooking[]): Promise<SessionBooking[]>;
+  updateSessionBooking(id: number, data: Partial<InsertSessionBooking>): Promise<SessionBooking | undefined>;
+  deleteSessionBooking(id: number): Promise<void>;
+
+  getProgramDiscounts(programId: number): Promise<ProgramDiscount[]>;
+  setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]>;
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
@@ -175,6 +196,98 @@ export class DatabaseStorage implements IStorage {
   async updateProgram(id: number, data: Partial<InsertProgram>): Promise<Program | undefined> {
     const [updated] = await db.update(programs).set(data).where(eq(programs.id, id)).returning();
     return updated;
+  }
+
+  async getSessionsByProgram(programId: number): Promise<ProgramSession[]> {
+    return db.select().from(programSessions)
+      .where(eq(programSessions.programId, programId))
+      .orderBy(asc(programSessions.date), asc(programSessions.startTime));
+  }
+
+  async getSession(id: number): Promise<ProgramSession | undefined> {
+    const [session] = await db.select().from(programSessions).where(eq(programSessions.id, id));
+    return session;
+  }
+
+  async createSession(session: InsertSession): Promise<ProgramSession> {
+    const [created] = await db.insert(programSessions).values(session).returning();
+    return created;
+  }
+
+  async createSessions(sessions: InsertSession[]): Promise<ProgramSession[]> {
+    if (sessions.length === 0) return [];
+    return db.insert(programSessions).values(sessions).returning();
+  }
+
+  async updateSession(id: number, data: Partial<InsertSession>): Promise<ProgramSession | undefined> {
+    const [updated] = await db.update(programSessions).set(data).where(eq(programSessions.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSession(id: number): Promise<void> {
+    await db.delete(programSessions).where(eq(programSessions.id, id));
+  }
+
+  async deleteSessionsByProgramAndDate(programId: number, date: string): Promise<void> {
+    await db.delete(programSessions).where(
+      and(eq(programSessions.programId, programId), eq(programSessions.date, date))
+    );
+  }
+
+  async getSessionBookings(sessionId: number): Promise<(SessionBooking & { contact?: Contact })[]> {
+    const bookings = await db.select().from(sessionBookings)
+      .where(eq(sessionBookings.sessionId, sessionId))
+      .orderBy(asc(sessionBookings.createdAt));
+    return Promise.all(bookings.map(async (b) => {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, b.contactId));
+      return { ...b, contact };
+    }));
+  }
+
+  async getSessionBookingsByProgram(programId: number): Promise<(SessionBooking & { contact?: Contact; session?: ProgramSession })[]> {
+    const sessions = await this.getSessionsByProgram(programId);
+    if (sessions.length === 0) return [];
+    const sessionIds = sessions.map(s => s.id);
+    const bookings = await db.select().from(sessionBookings)
+      .where(inArray(sessionBookings.sessionId, sessionIds));
+    return Promise.all(bookings.map(async (b) => {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, b.contactId));
+      const session = sessions.find(s => s.id === b.sessionId);
+      return { ...b, contact, session };
+    }));
+  }
+
+  async createSessionBooking(booking: InsertSessionBooking): Promise<SessionBooking> {
+    const [created] = await db.insert(sessionBookings).values(booking).returning();
+    return created;
+  }
+
+  async createSessionBookings(bookings: InsertSessionBooking[]): Promise<SessionBooking[]> {
+    if (bookings.length === 0) return [];
+    return db.insert(sessionBookings).values(bookings).returning();
+  }
+
+  async updateSessionBooking(id: number, data: Partial<InsertSessionBooking>): Promise<SessionBooking | undefined> {
+    const [updated] = await db.update(sessionBookings).set(data).where(eq(sessionBookings.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSessionBooking(id: number): Promise<void> {
+    await db.delete(sessionBookings).where(eq(sessionBookings.id, id));
+  }
+
+  async getProgramDiscounts(programId: number): Promise<ProgramDiscount[]> {
+    return db.select().from(programDiscounts)
+      .where(eq(programDiscounts.programId, programId))
+      .orderBy(asc(programDiscounts.minBookings));
+  }
+
+  async setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]> {
+    await db.delete(programDiscounts).where(eq(programDiscounts.programId, programId));
+    if (discounts.length === 0) return [];
+    return db.insert(programDiscounts).values(
+      discounts.map(d => ({ programId, minBookings: d.minBookings, discountPercent: d.discountPercent }))
+    ).returning();
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {

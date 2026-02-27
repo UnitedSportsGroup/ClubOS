@@ -67,10 +67,14 @@ export const programs = pgTable("programs", {
   location: text("location"),
   startDate: date("start_date"),
   endDate: date("end_date"),
+  bookingsOpenDate: date("bookings_open_date"),
+  bookingsCloseDate: date("bookings_close_date"),
+  includeWeekends: boolean("include_weekends").default(false),
   capacity: integer("capacity"),
   ageMin: integer("age_min"),
   ageMax: integer("age_max"),
   fee: decimal("fee", { precision: 10, scale: 2 }),
+  fullDayCost: decimal("full_day_cost", { precision: 10, scale: 2 }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -83,7 +87,26 @@ export const programSessions = pgTable("program_sessions", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   venue: text("venue"),
+  rollTaker: text("roll_taker"),
+  cost: decimal("cost", { precision: 10, scale: 2 }),
   capacity: integer("capacity"),
+});
+
+export const sessionBookings = pgTable("session_bookings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  sessionId: integer("session_id").notNull().references(() => programSessions.id, { onDelete: "cascade" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  attended: boolean("attended").default(false),
+  paid: boolean("paid").default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const programDiscounts = pgTable("program_discounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  programId: integer("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+  minBookings: integer("min_bookings").notNull(),
+  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }).notNull(),
 });
 
 export const registrations = pgTable("registrations", {
@@ -129,6 +152,8 @@ export const insertContactSchema = createInsertSchema(contacts).omit({ id: true,
 export const insertRelationshipSchema = createInsertSchema(contactRelationships).omit({ id: true });
 export const insertProgramSchema = createInsertSchema(programs).omit({ id: true, createdAt: true });
 export const insertSessionSchema = createInsertSchema(programSessions).omit({ id: true });
+export const insertSessionBookingSchema = createInsertSchema(sessionBookings).omit({ id: true, createdAt: true });
+export const insertDiscountSchema = createInsertSchema(programDiscounts).omit({ id: true });
 export const insertRegistrationSchema = createInsertSchema(registrations).omit({ id: true, registeredAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
@@ -142,6 +167,10 @@ export type InsertProgram = z.infer<typeof insertProgramSchema>;
 export type Program = typeof programs.$inferSelect;
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type ProgramSession = typeof programSessions.$inferSelect;
+export type InsertSessionBooking = z.infer<typeof insertSessionBookingSchema>;
+export type SessionBooking = typeof sessionBookings.$inferSelect;
+export type InsertDiscount = z.infer<typeof insertDiscountSchema>;
+export type ProgramDiscount = typeof programDiscounts.$inferSelect;
 export type InsertRegistration = z.infer<typeof insertRegistrationSchema>;
 export type Registration = typeof registrations.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;

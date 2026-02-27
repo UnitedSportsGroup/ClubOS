@@ -37,8 +37,10 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 - **users** - Staff users with RBAC roles
 - **contacts** - Players, guardians, staff, volunteers, sponsors
 - **contactRelationships** - Parent-player linking
-- **programs** - Holiday camps, academies, trials, events, open trainings. Each has a `slug` field for public-facing URLs
-- **programSessions** - Individual sessions within programs
+- **programs** - Holiday camps, academies, trials, events, open trainings. Each has `slug`, `bookingsOpenDate`, `bookingsCloseDate`, `includeWeekends`, `fullDayCost` fields
+- **programSessions** - Individual sessions within programs with `cost`, `rollTaker`, `capacity` fields
+- **sessionBookings** - Per-session bookings for individual contacts with `attended`, `paid`, `notes` tracking
+- **programDiscounts** - Multi-booking discount tiers per programme (`minBookings`, `discountPercent`)
 - **registrations** - Player-programme registrations with status tracking, UTM attribution (source, utm_source/medium/campaign/content, fbclid, gclid)
 - **auditLogs** - System activity tracking
 - **settings** - Key-value club configuration (club info, registration, financial, emails, tracking pixel IDs)
@@ -65,11 +67,22 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 ## MVP Modules
 1. Modular dashboard with customisable blocks and academy analytics
 2. Contacts CRUD with parent-player relationships
-3. Programme management
+3. Programme management with sessions, bookings, attendance, and reports
 4. Registration management
 5. Audit log
 6. Settings (tabbed: Club Info, Registration, Financial, Emails, Embed Codes, Integrations) with persistent key-value storage
 7. Public registration landing pages (`/register` index + `/register/:slug` per-programme)
+
+## Holiday Camp / Programme Sessions System
+- **Programme Detail Tabs**: Sessions (date-grouped by week), Attendance (per-date roll marking), Registrations (legacy list)
+- **Sessions**: Created per-date with Morning/Afternoon (or custom) templates. Each has name, time, venue, roll taker, cost, capacity
+- **Add Date**: Modal lets admin pick dates; auto-creates sessions from existing templates
+- **Edit Sessions**: Bulk-edit session templates (name, cost, times, venue, roll taker, capacity) applies to all matching sessions
+- **Book Attendee**: Search players, show availability grid per date/session with booked/capacity counts, multi-select booking
+- **Attendance**: Per-date roll call with paid/attended checkboxes and notes per player
+- **Discounts**: Multi-booking discount tiers (e.g., 4+ bookings = 10% off)
+- **Reports**: Filter by session, view attendees with attendance stats, CSV export
+- **API Routes**: `GET/POST /api/programs/:id/sessions`, `PATCH/DELETE /api/sessions/:id`, `GET/POST /api/session-bookings`, `PATCH/DELETE /api/session-bookings/:id`, `GET/PUT /api/programs/:id/discounts`, `GET /api/programs/:id/report`
 
 ## Public Registration System
 - **Pages**: `client/src/pages/register.tsx` (per-programme form), `client/src/pages/register-index.tsx` (all programmes listing)
