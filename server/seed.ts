@@ -39,6 +39,36 @@ export async function seedDatabase() {
     newsletterConsent: true,
   }).returning();
 
+  const [guardian4] = await db.insert(contacts).values({
+    type: "guardian",
+    firstName: "Mike",
+    lastName: "Chen",
+    email: "mikechen@outlook.com",
+    phone: "027 332 1188",
+    address: "22 Papanui Road, Christchurch 8014",
+    newsletterConsent: true,
+  }).returning();
+
+  const [guardian5] = await db.insert(contacts).values({
+    type: "guardian",
+    firstName: "Lisa",
+    lastName: "Walker",
+    email: "lisa.walker@gmail.com",
+    phone: "021 990 5543",
+    address: "7 Bealey Avenue, Christchurch 8013",
+    newsletterConsent: true,
+  }).returning();
+
+  const [guardian6] = await db.insert(contacts).values({
+    type: "guardian",
+    firstName: "James",
+    lastName: "Kato",
+    email: "jameskato@yahoo.com",
+    phone: "022 187 4412",
+    address: "33 Marshland Road, Christchurch 8083",
+    newsletterConsent: true,
+  }).returning();
+
   const [player1] = await db.insert(contacts).values({
     type: "player",
     firstName: "Aarav",
@@ -112,6 +142,178 @@ export async function seedDatabase() {
     medicalConsent: true,
   }).returning();
 
+  const [player6] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Lucas",
+    lastName: "Chen",
+    gender: "male",
+    dateOfBirth: "2015-04-18",
+    school: "Papanui Primary",
+    schoolYear: "6",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "Mike Chen",
+    emergencyPhone: "027 332 1188",
+  }).returning();
+
+  const [player7] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Mia",
+    lastName: "Chen",
+    gender: "female",
+    dateOfBirth: "2016-09-22",
+    school: "Papanui Primary",
+    schoolYear: "5",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "Mike Chen",
+    emergencyPhone: "027 332 1188",
+  }).returning();
+
+  const [player8] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Ethan",
+    lastName: "Walker",
+    gender: "male",
+    dateOfBirth: "2014-02-11",
+    school: "Christchurch Boys' High",
+    schoolYear: "7",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "Lisa Walker",
+    emergencyPhone: "021 990 5543",
+    previousClub: "Cashmere Technical",
+  }).returning();
+
+  const [player9] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Sophie",
+    lastName: "Walker",
+    gender: "female",
+    dateOfBirth: "2012-07-03",
+    school: "Burnside High School",
+    schoolYear: "9",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "Lisa Walker",
+    emergencyPhone: "021 990 5543",
+  }).returning();
+
+  const [player10] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Kenji",
+    lastName: "Kato",
+    gender: "male",
+    dateOfBirth: "2011-01-28",
+    school: "Shirley Boys' High",
+    schoolYear: "10",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "James Kato",
+    emergencyPhone: "022 187 4412",
+    previousClub: "Halswell United",
+  }).returning();
+
+  const [player11] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Riku",
+    lastName: "Kato",
+    gender: "male",
+    dateOfBirth: "2013-05-15",
+    school: "Shirley Intermediate",
+    schoolYear: "8",
+    photoConsent: true,
+    medicalConsent: true,
+    emergencyContact: "James Kato",
+    emergencyPhone: "022 187 4412",
+  }).returning();
+
+  const [player12] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Olivia",
+    lastName: "Brown",
+    gender: "female",
+    dateOfBirth: "2010-11-20",
+    school: "Christchurch Girls' High",
+    schoolYear: "11",
+    photoConsent: true,
+    medicalConsent: true,
+  }).returning();
+
+  const [player13] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Noah",
+    lastName: "Singh",
+    gender: "male",
+    dateOfBirth: "2009-03-09",
+    school: "St Andrew's College",
+    schoolYear: "12",
+    photoConsent: true,
+    medicalConsent: true,
+    previousClub: "Selwyn United",
+  }).returning();
+
+  const [player14] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Isla",
+    lastName: "Thompson",
+    gender: "female",
+    dateOfBirth: "2007-08-14",
+    school: "Christchurch Girls' High",
+    schoolYear: "13",
+    photoConsent: true,
+    medicalConsent: true,
+  }).returning();
+
+  const [player15] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Liam",
+    lastName: "O'Brien",
+    gender: "male",
+    dateOfBirth: "2015-12-01",
+    school: "Heaton Normal",
+    schoolYear: "6",
+    photoConsent: true,
+    medicalConsent: true,
+  }).returning();
+
+  const [player16] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Yuki",
+    lastName: "Tanaka",
+    gender: "female",
+    dateOfBirth: "2016-06-25",
+    school: "Fendalton Open Air School",
+    schoolYear: "5",
+    photoConsent: true,
+    medicalConsent: true,
+  }).returning();
+
+  const [player17] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Marcus",
+    lastName: "Williams",
+    gender: "male",
+    dateOfBirth: "2012-10-08",
+    school: "Burnside High School",
+    schoolYear: "9",
+    photoConsent: true,
+    medicalConsent: true,
+    previousClub: "Ferrymead Bays",
+  }).returning();
+
+  const [player18] = await db.insert(contacts).values({
+    type: "player",
+    firstName: "Charlotte",
+    lastName: "Davis",
+    gender: "female",
+    dateOfBirth: "2011-04-17",
+    school: "Rangi Ruru Girls' School",
+    schoolYear: "10",
+    photoConsent: true,
+    medicalConsent: true,
+  }).returning();
+
   await db.insert(contacts).values({
     type: "staff",
     firstName: "Zachary",
@@ -134,6 +336,12 @@ export async function seedDatabase() {
     { guardianId: guardian1.id, playerId: player1.id, relationship: "father", isPrimaryContact: true },
     { guardianId: guardian2.id, playerId: player2.id, relationship: "mother", isPrimaryContact: true },
     { guardianId: guardian3.id, playerId: player3.id, relationship: "father", isPrimaryContact: true },
+    { guardianId: guardian4.id, playerId: player6.id, relationship: "father", isPrimaryContact: true },
+    { guardianId: guardian4.id, playerId: player7.id, relationship: "father", isPrimaryContact: true },
+    { guardianId: guardian5.id, playerId: player8.id, relationship: "mother", isPrimaryContact: true },
+    { guardianId: guardian5.id, playerId: player9.id, relationship: "mother", isPrimaryContact: true },
+    { guardianId: guardian6.id, playerId: player10.id, relationship: "father", isPrimaryContact: true },
+    { guardianId: guardian6.id, playerId: player11.id, relationship: "father", isPrimaryContact: true },
   ]);
 
   const [prog1] = await db.insert(programs).values({
@@ -178,6 +386,90 @@ export async function seedDatabase() {
     isActive: true,
   }).returning();
 
+  const [prog4] = await db.insert(programs).values({
+    name: "Pre-Academy: U11-U12",
+    type: "academy",
+    description: "Pre-Academy development programme for U11-U12 players. Focus on technical skills, tactical awareness and game understanding.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-06-30",
+    capacity: 40,
+    ageMin: 11,
+    ageMax: 12,
+    fee: "220.00",
+    isActive: true,
+  }).returning();
+
+  const [prog5] = await db.insert(programs).values({
+    name: "Academy: U13",
+    type: "academy",
+    description: "Academy programme for U13 age group. Intensive training, match play and player development pathway.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-11-30",
+    capacity: 22,
+    ageMin: 13,
+    ageMax: 13,
+    fee: "350.00",
+    isActive: true,
+  }).returning();
+
+  const [prog6] = await db.insert(programs).values({
+    name: "Academy: U14",
+    type: "academy",
+    description: "Academy programme for U14 age group.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-11-30",
+    capacity: 22,
+    ageMin: 14,
+    ageMax: 14,
+    fee: "350.00",
+    isActive: true,
+  }).returning();
+
+  const [prog7] = await db.insert(programs).values({
+    name: "Academy: U15",
+    type: "academy",
+    description: "Academy programme for U15 age group.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-11-30",
+    capacity: 22,
+    ageMin: 15,
+    ageMax: 15,
+    fee: "350.00",
+    isActive: true,
+  }).returning();
+
+  const [prog8] = await db.insert(programs).values({
+    name: "Academy: U17",
+    type: "academy",
+    description: "Academy programme for U17 age group. Senior academy pathway.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-11-30",
+    capacity: 22,
+    ageMin: 16,
+    ageMax: 17,
+    fee: "400.00",
+    isActive: true,
+  }).returning();
+
+  const [prog9] = await db.insert(programs).values({
+    name: "Academy: U20",
+    type: "academy",
+    description: "Academy programme for U20 age group. Pathway to senior football.",
+    location: "Christchurch Football Centre",
+    startDate: "2026-02-01",
+    endDate: "2026-11-30",
+    capacity: 22,
+    ageMin: 18,
+    ageMax: 20,
+    fee: "400.00",
+    isActive: true,
+  }).returning();
+
   await db.insert(programs).values({
     name: "Open Trainings: 4-8 Years",
     type: "event",
@@ -198,6 +490,30 @@ export async function seedDatabase() {
     { programId: prog1.id, contactId: player5.id, status: "pending", amountPaid: "0" },
     { programId: prog2.id, contactId: player1.id, guardianId: guardian1.id, status: "confirmed", amountPaid: "50.00" },
     { programId: prog2.id, contactId: player3.id, guardianId: guardian3.id, status: "pending", amountPaid: "0" },
+
+    { programId: prog3.id, contactId: player6.id, guardianId: guardian4.id, status: "confirmed", amountPaid: "180.00" },
+    { programId: prog3.id, contactId: player7.id, guardianId: guardian4.id, status: "confirmed", amountPaid: "180.00" },
+    { programId: prog3.id, contactId: player15.id, status: "confirmed", amountPaid: "180.00" },
+    { programId: prog3.id, contactId: player16.id, status: "pending", amountPaid: "0" },
+
+    { programId: prog4.id, contactId: player8.id, guardianId: guardian5.id, status: "confirmed", amountPaid: "220.00" },
+    { programId: prog4.id, contactId: player11.id, guardianId: guardian6.id, status: "confirmed", amountPaid: "220.00" },
+    { programId: prog4.id, contactId: player15.id, status: "pending", amountPaid: "0" },
+
+    { programId: prog5.id, contactId: player9.id, guardianId: guardian5.id, status: "confirmed", amountPaid: "350.00" },
+    { programId: prog5.id, contactId: player11.id, guardianId: guardian6.id, status: "confirmed", amountPaid: "350.00" },
+    { programId: prog5.id, contactId: player17.id, status: "confirmed", amountPaid: "350.00" },
+
+    { programId: prog6.id, contactId: player10.id, guardianId: guardian6.id, status: "confirmed", amountPaid: "350.00" },
+    { programId: prog6.id, contactId: player18.id, status: "confirmed", amountPaid: "350.00" },
+
+    { programId: prog7.id, contactId: player12.id, status: "confirmed", amountPaid: "350.00" },
+    { programId: prog7.id, contactId: player10.id, guardianId: guardian6.id, status: "pending", amountPaid: "0" },
+
+    { programId: prog8.id, contactId: player13.id, status: "confirmed", amountPaid: "400.00" },
+    { programId: prog8.id, contactId: player14.id, status: "confirmed", amountPaid: "400.00" },
+
+    { programId: prog9.id, contactId: player14.id, status: "pending", amountPaid: "0" },
   ]);
 
   await db.insert(auditLogs).values([

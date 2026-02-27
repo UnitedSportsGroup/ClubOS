@@ -180,6 +180,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/academy-stats", async (_req, res) => {
+    try {
+      const stats = await storage.getAcademyStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/audit-logs", async (_req, res) => {
     try {
       const logs = await storage.getAuditLogs();

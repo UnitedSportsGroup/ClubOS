@@ -47,8 +47,22 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 - `npm run db:push` - Push schema to database
 - `npm run build` - Production build
 
+## Modular Dashboard System
+- Dashboard blocks are customisable per-user via localStorage (`cufc-dashboard-blocks`)
+- Users can add/remove blocks via "Add Block" modal with search functionality
+- Default blocks: Academy Programmes, Recent Contacts, Active Programmes, Quick Actions
+- Block definitions live in `AVAILABLE_BLOCKS` array in `dashboard.tsx`
+- Block components: `client/src/components/dashboard/` directory
+- API: `GET /api/academy-stats` returns tier-grouped registration data with revenue
+
+### Academy Programmes Block
+- Three tiers: U4-U8 FUNino, U9-U12 Pre-Academy, U13-U20 Academy
+- Overview shows tier cards with registration counts, capacity bars, confirmed/pending breakdown
+- Click a tier to drill down into individual programme analytics (registrations, revenue, capacity)
+- Tier colours: emerald (U4-U8), amber (U9-U12), blue (U13-U20)
+
 ## MVP Modules
-1. Dashboard with stats and quick actions
+1. Modular dashboard with customisable blocks and academy analytics
 2. Contacts CRUD with parent-player relationships
 3. Programme management
 4. Registration management

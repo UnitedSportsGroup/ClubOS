@@ -46,6 +46,31 @@ export interface IStorage {
     totalRegistrations: number;
     pendingRegistrations: number;
   }>;
+
+  getAcademyStats(): Promise<{
+    tiers: {
+      key: string;
+      label: string;
+      ageRange: string;
+      programs: {
+        id: number;
+        name: string;
+        ageMin: number | null;
+        ageMax: number | null;
+        capacity: number | null;
+        fee: string | null;
+        totalRegistrations: number;
+        confirmedRegistrations: number;
+        pendingRegistrations: number;
+        revenue: number;
+      }[];
+      totalRegistrations: number;
+      confirmedRegistrations: number;
+      pendingRegistrations: number;
+      totalCapacity: number;
+      totalRevenue: number;
+    }[];
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -200,6 +225,62 @@ export class DatabaseStorage implements IStorage {
       totalRegistrations: Number(regStats?.total ?? 0),
       pendingRegistrations: Number(regStats?.pending ?? 0),
     };
+  }
+  async getAcademyStats() {
+    const academyPrograms = await db
+      .select()
+      .from(programs)
+      .where(and(eq(programs.type, "academy"), eq(programs.isActive, true)));
+
+    const allRegs = await db.select().from(registrations);
+
+    const tierDefs = [
+      { key: "u4-u8", label: "U4–U8 FUNino", ageRange: "4–8 years", minAge: 4, maxAge: 8 },
+      { key: "u9-u12", label: "U9–U12 Pre-Academy", ageRange: "9–12 years", minAge: 9, maxAge: 12 },
+      { key: "u13-u20", label: "U13–U20 Academy", ageRange: "13–20 years", minAge: 13, maxAge: 20 },
+    ];
+
+    const tiers = tierDefs.map((tier) => {
+      const tierProgs = academyPrograms.filter((p) => {
+        const progMin = p.ageMin ?? 0;
+        const progMax = p.ageMax ?? 99;
+        return progMin >= tier.minAge && progMax <= tier.maxAge;
+      });
+
+      const programStats = tierProgs.map((p) => {
+        const progRegs = allRegs.filter((r) => r.programId === p.id);
+        const confirmed = progRegs.filter((r) => r.status === "confirmed");
+        const pending = progRegs.filter((r) => r.status === "pending");
+        const revenue = confirmed.reduce((sum, r) => sum + parseFloat(r.amountPaid ?? "0"), 0);
+
+        return {
+          id: p.id,
+          name: p.name,
+          ageMin: p.ageMin,
+          ageMax: p.ageMax,
+          capacity: p.capacity,
+          fee: p.fee,
+          totalRegistrations: progRegs.length,
+          confirmedRegistrations: confirmed.length,
+          pendingRegistrations: pending.length,
+          revenue,
+        };
+      });
+
+      return {
+        key: tier.key,
+        label: tier.label,
+        ageRange: tier.ageRange,
+        programs: programStats,
+        totalRegistrations: programStats.reduce((s, p) => s + p.totalRegistrations, 0),
+        confirmedRegistrations: programStats.reduce((s, p) => s + p.confirmedRegistrations, 0),
+        pendingRegistrations: programStats.reduce((s, p) => s + p.pendingRegistrations, 0),
+        totalCapacity: programStats.reduce((s, p) => s + (p.capacity ?? 0), 0),
+        totalRevenue: programStats.reduce((s, p) => s + p.revenue, 0),
+      };
+    });
+
+    return { tiers };
   }
 }
 
