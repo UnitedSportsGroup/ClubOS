@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
+import type { Program } from "@shared/schema";
 import {
   Building2,
   ClipboardCheck,
@@ -24,6 +25,11 @@ import {
   FileText,
   Pencil,
   Check,
+  Code,
+  Copy,
+  CheckCheck,
+  GraduationCap,
+  Calendar,
 } from "lucide-react";
 
 type SettingsMap = Record<string, string>;
@@ -149,6 +155,7 @@ const TABS = [
   { key: "registration", label: "Registration", icon: ClipboardCheck },
   { key: "financial", label: "Financial", icon: DollarSign },
   { key: "emails", label: "Emails", icon: Mail },
+  { key: "embed", label: "Embed Codes", icon: Code },
   { key: "integrations", label: "Integrations", icon: Plug },
 ] as const;
 
@@ -340,6 +347,119 @@ function EmailsTab({ data, onChange, editingTemplate, setEditingTemplate }: {
   );
 }
 
+function EmbedCodeRow({ label, snippet, category }: { label: string; snippet: string; category?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      className="flex items-start gap-4 py-3.5 border-b border-white/[0.03] last:border-0"
+      data-testid={`embed-row-${label.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+    >
+      <div className="w-[180px] shrink-0">
+        <p className="text-[13px] font-medium text-white/65 leading-snug">{label}</p>
+        {category && <p className="text-[10px] text-white/20 mt-0.5">{category}</p>}
+      </div>
+      <div className="flex-1 min-w-0">
+        <code className="block text-[11px] text-blue-300/50 bg-blue-500/[0.04] border border-blue-500/[0.08] rounded-lg px-3 py-2.5 font-mono break-all leading-relaxed select-all">
+          {snippet}
+        </code>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleCopy}
+        className={`shrink-0 h-8 px-3 rounded-lg text-[11px] font-medium transition-all duration-200 ${
+          copied
+            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+            : "bg-blue-500/10 text-blue-400 border border-blue-500/15 hover:bg-blue-500/20 hover:text-blue-300"
+        }`}
+        data-testid={`button-copy-${label.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+      >
+        {copied ? <CheckCheck className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
+  );
+}
+
+function EmbedCodesTab() {
+  const { data: programs, isLoading } = useQuery<Program[]>({
+    queryKey: ["/api/programs"],
+  });
+
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+
+  const activePrograms = programs?.filter((p) => p.isActive) || [];
+
+  const addOnWidgets = [
+    { label: "All Programmes", snippet: `<iframe src="${baseUrl}/register" style="width:100%;min-height:600px;border:none;" title="CUFC Registration"></iframe>`, category: "Full registration portal" },
+    { label: "Holiday Programmes", snippet: `<iframe src="${baseUrl}/register?type=holiday_camp" style="width:100%;min-height:500px;border:none;" title="CUFC Holiday Programmes"></iframe>`, category: "Holiday camps only" },
+    { label: "Events Calendar", snippet: `<iframe src="${baseUrl}/calendar" style="width:100%;min-height:500px;border:none;" title="CUFC Events Calendar"></iframe>`, category: "Upcoming events & sessions" },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex gap-6">
+            <Skeleton className="h-5 w-40 bg-blue-500/[0.04]" />
+            <Skeleton className="h-9 flex-1 bg-blue-500/[0.04]" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 py-2">
+      <div className="mb-4">
+        <h4 className="text-[11px] text-blue-300/25 uppercase tracking-wider font-medium mb-1" data-testid="text-embed-programmes-heading">Programme Registration Forms</h4>
+        <p className="text-[10px] text-white/20" data-testid="text-embed-programmes-description">Copy the embed code and paste it into your website landing page HTML to display a registration form for each programme</p>
+      </div>
+
+      {activePrograms.length === 0 ? (
+        <div className="py-8 text-center">
+          <GraduationCap className="w-8 h-8 text-white/10 mx-auto mb-2" />
+          <p className="text-[13px] text-white/25">No active programmes found</p>
+          <p className="text-[10px] text-white/15 mt-1">Create programmes to generate embed codes</p>
+        </div>
+      ) : (
+        <div className="space-y-0">
+          {activePrograms.map((program) => (
+            <EmbedCodeRow
+              key={program.id}
+              label={program.name}
+              snippet={`<iframe src="${baseUrl}/register/${program.id}" style="width:100%;min-height:500px;border:none;" title="Register - ${program.name}"></iframe>`}
+              category={`${program.type === "academy" ? "Academy" : program.type === "holiday_camp" ? "Holiday Camp" : program.type === "trials" ? "Trials" : program.type === "open_training" ? "Open Training" : "Event"} · ID: ${program.id}`}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-6 pt-4 border-t border-white/[0.04]">
+        <h4 className="text-[11px] text-blue-300/25 uppercase tracking-wider font-medium mb-1" data-testid="text-embed-widgets-heading">Widgets</h4>
+        <p className="text-[10px] text-white/20 mb-3" data-testid="text-embed-widgets-description">General-purpose embeddable widgets for your website</p>
+        <div className="space-y-0">
+          {addOnWidgets.map((widget) => (
+            <EmbedCodeRow
+              key={widget.label}
+              label={widget.label}
+              snippet={widget.snippet}
+              category={widget.category}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IntegrationsTab() {
   return (
     <div className="px-5 py-2">
@@ -434,7 +554,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Settings</h1>
           <p className="text-blue-400/35 text-[13px] mt-1">Club configuration, registrations, finances and integrations</p>
         </div>
-        {activeTab !== "integrations" && (
+        {activeTab !== "integrations" && activeTab !== "embed" && (
           <Button
             onClick={handleSave}
             disabled={!hasChanges || saveMutation.isPending}
@@ -490,12 +610,13 @@ export default function SettingsPage() {
             {activeTab === "registration" && <RegistrationTab data={localSettings} onChange={handleChange} />}
             {activeTab === "financial" && <FinancialTab data={localSettings} onChange={handleChange} />}
             {activeTab === "emails" && <EmailsTab data={localSettings} onChange={handleChange} editingTemplate={editingTemplate} setEditingTemplate={setEditingTemplate} />}
+            {activeTab === "embed" && <EmbedCodesTab />}
             {activeTab === "integrations" && <IntegrationsTab />}
           </>
         )}
       </div>
 
-      {hasChanges && activeTab !== "integrations" && (
+      {hasChanges && activeTab !== "integrations" && activeTab !== "embed" && (
         <div className="fixed bottom-6 right-6 z-40 animate-fade-in-up" style={{ animationDelay: "0ms", opacity: 0 }}>
           <Button
             onClick={handleSave}
