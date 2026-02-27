@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, desc, sql, and, ilike, or } from "drizzle-orm";
 import {
   users, contacts, contactRelationships, programs,
-  programSessions, registrations, auditLogs,
+  programSessions, registrations, auditLogs, settings,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -10,6 +10,7 @@ import {
   type InsertSession, type ProgramSession,
   type InsertRegistration, type Registration,
   type InsertAuditLog, type AuditLog,
+  type Setting,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -46,6 +47,10 @@ export interface IStorage {
     totalRegistrations: number;
     pendingRegistrations: number;
   }>;
+
+  getSettings(): Promise<Record<string, string>>;
+  getSetting(key: string): Promise<string | null>;
+  upsertSettings(entries: { key: string; value: string }[]): Promise<void>;
 
   getAcademyStats(): Promise<{
     tiers: {
@@ -226,6 +231,32 @@ export class DatabaseStorage implements IStorage {
       pendingRegistrations: Number(regStats?.pending ?? 0),
     };
   }
+  async getSettings(): Promise<Record<string, string>> {
+    const rows = await db.select().from(settings);
+    const result: Record<string, string> = {};
+    for (const row of rows) {
+      result[row.key] = row.value ?? "";
+    }
+    return result;
+  }
+
+  async getSetting(key: string): Promise<string | null> {
+    const [row] = await db.select().from(settings).where(eq(settings.key, key));
+    return row?.value ?? null;
+  }
+
+  async upsertSettings(entries: { key: string; value: string }[]): Promise<void> {
+    for (const entry of entries) {
+      await db
+        .insert(settings)
+        .values({ key: entry.key, value: entry.value })
+        .onConflictDoUpdate({
+          target: settings.key,
+          set: { value: entry.value, updatedAt: new Date() },
+        });
+    }
+  }
+
   async getAcademyStats() {
     const academyPrograms = await db
       .select()

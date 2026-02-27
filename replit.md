@@ -41,6 +41,7 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 - **programSessions** - Individual sessions within programs
 - **registrations** - Player-programme registrations with status tracking
 - **auditLogs** - System activity tracking
+- **settings** - Key-value club configuration (club info, registration, financial, emails)
 
 ## Key Commands
 - `npm run dev` - Start dev server
@@ -67,7 +68,7 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
 3. Programme management
 4. Registration management
 5. Audit log
-6. Settings/Integrations overview (stubs)
+6. Settings (tabbed: Club Info, Registration, Financial, Emails, Integrations) with persistent key-value storage
 
 ## Future Modules (Not Yet Built)
 - Stripe payments integration

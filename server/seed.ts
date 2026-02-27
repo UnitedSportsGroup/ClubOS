@@ -1,8 +1,45 @@
 import { db } from "./db";
-import { contacts, programs, registrations, contactRelationships, auditLogs } from "@shared/schema";
+import { contacts, programs, registrations, contactRelationships, auditLogs, settings } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
 export async function seedDatabase() {
+  const [existingSettings] = await db.select({ count: sql<number>`count(*)` }).from(settings);
+  if (Number(existingSettings.count) === 0) {
+    await db.insert(settings).values([
+      { key: "club_name", value: "Christchurch United Football Club" },
+      { key: "club_short_name", value: "CUFC" },
+      { key: "club_email", value: "info@cufc.co.nz" },
+      { key: "club_phone", value: "021 446 212" },
+      { key: "club_website", value: "https://cufc.co.nz" },
+      { key: "club_address", value: "Christchurch Football Centre, 250 Westminster Street, Christchurch 8011" },
+      { key: "club_timezone", value: "Pacific/Auckland" },
+      { key: "reg_public_enabled", value: "true" },
+      { key: "reg_terms_mode", value: "pdf_email" },
+      { key: "reg_waitlist_enabled", value: "false" },
+      { key: "reg_comments_enabled", value: "true" },
+      { key: "reg_notification_to", value: "club_email" },
+      { key: "reg_notification_cc", value: "accounts@cufc.co.nz" },
+      { key: "reg_vaccine_statement", value: "" },
+      { key: "reg_priority_enabled", value: "false" },
+      { key: "fin_bank_name", value: "" },
+      { key: "fin_bank_account", value: "01-0635-0374823-00" },
+      { key: "fin_gst_number", value: "20-252-642" },
+      { key: "fin_show_address", value: "true" },
+      { key: "fin_payment_terms", value: "Shown on invoices/statements" },
+      { key: "fin_fees_email", value: "" },
+      { key: "fin_due_days", value: "0" },
+      { key: "fin_user_payments", value: "true" },
+      { key: "fin_reg_payments", value: "required" },
+      { key: "fin_holiday_payments", value: "required" },
+      { key: "email_new_registration", value: "Thank you for registering for a Christchurch United Football Club programme. If you have any queries, please contact us at info@cufc.co.nz" },
+      { key: "email_re_registration", value: "Thank you for registering for another programme with Christchurch United Football Club." },
+      { key: "email_fee_applied", value: "A fee has been applied to your account. Please log in to view details." },
+      { key: "email_reg_invitation", value: "You are invited to register for the upcoming term. Priority registration is now open." },
+      { key: "email_holiday_program", value: "Thank you for registering for a holiday programme with Christchurch United Football Club." },
+    ]);
+    console.log("Settings seeded successfully.");
+  }
+
   const [existing] = await db.select({ count: sql<number>`count(*)` }).from(contacts);
   if (Number(existing.count) > 0) return;
 

@@ -180,6 +180,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/settings", async (_req, res) => {
+    try {
+      const allSettings = await storage.getSettings();
+      res.json(allSettings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/settings", async (req, res) => {
+    try {
+      const entries = Object.entries(req.body).map(([key, value]) => ({
+        key,
+        value: String(value ?? ""),
+      }));
+      await storage.upsertSettings(entries);
+      await storage.createAuditLog({
+        action: "update",
+        entity: "settings",
+        details: `Updated settings: ${entries.map(e => e.key).join(", ")}`,
+      });
+      const updated = await storage.getSettings();
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/academy-stats", async (_req, res) => {
     try {
       const stats = await storage.getAcademyStats();
