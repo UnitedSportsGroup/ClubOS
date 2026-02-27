@@ -1,0 +1,158 @@
+You are my senior product engineer + architect. Build a production-ready web platform called “CUFC ClubOS” to replace Friendly Manager for Christchurch United Football Club.
+
+GOAL
+A modern internal Club CRM + registrations + payments + communications hub that we will use for years. This is NOT a prototype. It must be secure, auditable, maintainable, and easy for staff to use.
+
+TECH STACK (required)
+- Web app: Next.js (App Router) + TypeScript
+- UI: Tailwind + shadcn/ui components
+- Typography: Inter Tight (or closest available, fallback Inter)
+- Database: Postgres
+- ORM/migrations: Prisma
+- Auth: NextAuth (email magic link + Google OAuth) OR Clerk (if easier in Replit) — but must support staff RBAC.
+- Background jobs: use a simple queue approach (e.g., pg-boss, bullmq with redis if available, or a cron-like worker) for syncing to Xero/Klaviyo/Meta and processing webhooks reliably.
+- Logging: structured logs; error tracking hooks
+- Hosting: Replit Deployments (keep environment variables in secrets)
+
+DESIGN REQUIREMENTS
+- Modern minimal UI, extremely simple + intuitive for non-technical staff.
+- Color palette: Blue + Gold + White.
+  - Primary: deep club blue
+  - Accent: warm gold
+  - Background: white and very light grey
+- Layout: left sidebar navigation, top search bar, clean tables, fast forms.
+- Always prioritize speed: minimal clicks, smart defaults, keyboard friendly.
+- Provide a clean dashboard with key metrics and shortcuts.
+
+CORE MODULES (MVP + scalable)
+1) Staff & Permissions (RBAC)
+- Staff users
+- Roles: Admin, Manager, Coach, Finance, Marketing, Registrar (editable)
+- Permissions matrix: view/create/edit/delete by module
+- Audit log: record who did what and when (create/update/delete, payments events, exports)
+
+2) Contacts & Relationships
+- Contact types: Parent/Guardian, Player, Staff, Volunteer, Sponsor
+- Parent/Guardian can be linked to multiple Players; Player can have multiple Guardians.
+- Required fields for NZ football contexts:
+  - Player: first/last name, DOB, gender, nationality, place of birth, ethnicity (optional), address, school, year level, primary language (optional), medical notes, allergies, medications, emergency contact, doctor info (optional), consent flags (photo/video, medical treatment), preferred position, dominant foot, current team, previous clubs, NZF identifiers if available.
+  - Guardian: email, phone, address, relationship, marketing consent, invoice preference
+- Search + filters + tags + custom fields (admin definable)
+- Import/export CSV with field mapping.
+
+3) Programs & Registrations
+- Program types: Holiday Camp, Academy, Trials, Events
+- Each program has:
+  - name, season, location, dates/times, capacity, pricing rules, discount codes, age bands, terms & conditions, consent checkboxes
+- Registration flow:
+  - public registration page for a program (shareable link)
+  - can register one or multiple children in one checkout
+  - captures all required player/guardian data
+  - stores registration status: pending, paid, waitlisted, cancelled, refunded
+  - generates confirmation email + receipts
+
+4) Payments & Invoicing
+- Stripe integration:
+  - One-off payments (holiday camps)
+  - Optional subscriptions (academy monthly)
+  - webhooks to confirm payment and update statuses
+- Invoices:
+  - internal invoice objects tied to a guardian/company
+  - export invoice PDF
+  - store invoice status: draft/sent/paid/overdue/refunded
+- Xero integration:
+  - sync contacts
+  - sync invoices + payments
+  - handle idempotency, retries, and store external IDs.
+
+5) Communications (Klaviyo)
+- Sync contacts to Klaviyo with proper consent fields.
+- Create basic segment tags: “Holiday Camp Lead”, “Academy Active”, “Trials Registered”, “Merch Buyer”.
+- Event tracking: registration completed, payment completed, refund issued.
+
+6) Meta Conversions API (Tracking)
+- Server-side events:
+  - Lead (registration started)
+  - CompleteRegistration (registration submitted)
+  - Purchase (payment completed)
+- Include: event_id for dedupe, hashed PII (email/phone) where available, client IP/user agent, and link to Pixel ID + access token via secrets.
+- Provide a simple admin UI to configure Pixel ID, test events, and view last 50 events with statuses.
+
+7) Framer + Webflow Integration (Native feeling)
+- Provide embeddable public pages:
+  - /register/[programSlug]
+  - /forms/[formSlug] (for lead capture)
+- Provide an embed script or iframe-friendly mode that works inside Framer/Webflow
+- Provide webhook endpoints so Framer/Webflow form submits can POST into ClubOS if desired.
+- Ensure CORS is properly configured.
+
+8) Shopify Integration
+- Read-only MVP:
+  - connect Shopify store via Admin API token
+  - match customers by email
+  - show recent orders in the contact profile
+- Future-ready:
+  - ability to tag customers or trigger Klaviyo events based on merch purchases.
+
+9) COMET Integration (NZF)
+- Build the module as an adapter with clear interface:
+  - createPlayerRegistration(payload)
+  - updatePlayer(payload)
+  - lookupPlayer(query)
+- Implement it as a stub initially with logging + a UI explaining what fields are required.
+- If real API access is available, plug it in without changing the rest of the system.
+
+DATA MODEL (required entities)
+- User, Role, Permission, AuditLog
+- Contact (guardian/player/staff), ContactRelationship
+- Program, ProgramSession, ProgramPricingRule
+- Registration, RegistrationParticipant (supports multiple children)
+- Payment (Stripe), Invoice (internal), XeroSyncRecord
+- KlaviyoSyncRecord, MetaEventLog
+- ShopifyConnection, ShopifyOrderCache
+- CustomFieldDefinition, CustomFieldValue
+
+NON-FUNCTIONAL REQUIREMENTS
+- Security: RBAC enforced server-side on every action. No relying on client checks.
+- PII: encrypt sensitive fields at rest if feasible; at minimum lock down access and log access.
+- Reliability: all webhook handlers must be idempotent.
+- Backups: include a documented backup approach for Postgres.
+- Performance: tables must support pagination, searching, and filtering.
+- UX: staff should be able to do common tasks in under 3 clicks.
+
+DELIVERABLES
+1) Working app with:
+- staff login
+- contacts CRUD with parent-player linking
+- program creation
+- public registration flow
+- Stripe payment + webhook
+- invoice generation
+- basic Klaviyo + Meta event logging (can start as “log only”, then enable sending)
+- Shopify customer matching (read-only)
+- Comet adapter stub
+2) Seed data: roles + demo program + demo contacts
+3) Admin “Integrations” settings page for keys/tokens (stored in server env/secrets)
+4) A README with:
+- local + Replit setup steps
+- environment variables list
+- how to run migrations
+- webhook setup steps (Stripe)
+- how to embed registration pages in Framer/Webflow
+
+BUILD ORDER (follow strictly)
+Phase 1: Auth + RBAC + layout shell + DB schema + audit logging
+Phase 2: Contacts + relationships + CSV import/export
+Phase 3: Programs + registrations (no payments yet)
+Phase 4: Stripe checkout + webhooks + receipts
+Phase 5: Invoices + Xero sync worker
+Phase 6: Klaviyo sync + Meta CAPI
+Phase 7: Shopify read-only integration
+Phase 8: Comet adapter stub + UI
+
+IMPORTANT
+- Ask for screenshots ONLY if you need specific UI references. Otherwise build a superior clean UI based on typical club CRM.
+- Avoid overengineering; keep code clean, modular, and documented.
+- Always include server-side validation (zod) and meaningful error messages.
+
+Now start by scaffolding the project, defining the Prisma schema, and building Phase 1. Provide the file tree and implement the core RBAC pattern in the API layer.
