@@ -41,24 +41,24 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   return (
-    <Sidebar>
-      <SidebarHeader className="px-4 py-5 border-b border-white/[0.06]">
+    <Sidebar className="sidebar-gradient">
+      <SidebarHeader className="px-4 py-5 border-b border-blue-500/[0.08]">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse-glow">
             <span className="text-white font-bold text-xs tracking-tight">CU</span>
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-semibold text-[13px] text-white/90 tracking-tight truncate" data-testid="text-club-name">
               ClubOS
             </span>
-            <span className="text-[11px] text-white/40 tracking-normal">Christchurch United</span>
+            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">Christchurch United</span>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-white/25 font-medium mb-1 px-2">
-            Menu
+          <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
+            Navigation
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
@@ -71,10 +71,10 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       data-active={isActive}
-                      className={`rounded-lg h-9 transition-all duration-200 ${
-                        isActive 
-                          ? "bg-blue-500/15 text-blue-400 border border-blue-500/20" 
-                          : "text-white/50 border border-transparent"
+                      className={`rounded-xl h-9 transition-all duration-300 ${
+                        isActive
+                          ? "bg-gradient-to-r from-blue-500/15 to-blue-500/5 text-blue-400 border border-blue-500/25 shadow-[0_0_12px_rgba(3,86,197,0.1)]"
+                          : "text-white/40 border border-transparent hover:text-white/60 hover:bg-white/[0.03]"
                       }`}
                     >
                       <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
@@ -90,7 +90,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-auto">
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-white/25 font-medium mb-1 px-2">
+          <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
             System
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -102,10 +102,10 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       data-active={isActive}
-                      className={`rounded-lg h-9 transition-all duration-200 ${
-                        isActive 
-                          ? "bg-blue-500/15 text-blue-400 border border-blue-500/20" 
-                          : "text-white/50 border border-transparent"
+                      className={`rounded-xl h-9 transition-all duration-300 ${
+                        isActive
+                          ? "bg-gradient-to-r from-blue-500/15 to-blue-500/5 text-blue-400 border border-blue-500/25 shadow-[0_0_12px_rgba(3,86,197,0.1)]"
+                          : "text-white/40 border border-transparent hover:text-white/60 hover:bg-white/[0.03]"
                       }`}
                     >
                       <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(' ', '-')}`}>
@@ -120,18 +120,18 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-3 border-t border-white/[0.06]">
+      <SidebarFooter className="p-3 border-t border-blue-500/[0.08]">
         <div className="flex items-center gap-3 px-1">
           <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-[11px] font-semibold">
+            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-white text-[11px] font-semibold shadow-lg shadow-blue-500/20">
               DA
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-[13px] font-medium text-white/80 truncate" data-testid="text-user-name">Daniel Admin</span>
-            <span className="text-[11px] text-white/35">Administrator</span>
+            <span className="text-[13px] font-medium text-white/75 truncate" data-testid="text-user-name">Daniel Admin</span>
+            <span className="text-[10px] text-blue-400/30">Administrator</span>
           </div>
-          <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+          <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)] flex-shrink-0" />
         </div>
       </SidebarFooter>
     </Sidebar>

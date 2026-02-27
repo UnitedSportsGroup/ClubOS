@@ -21,14 +21,17 @@ Club management platform for Christchurch United Football Club. Replaces Friendl
   - `seed.ts` - Seed data for demo
 - `shared/schema.ts` - Drizzle schema + Zod validation + TypeScript types
 
-## Color Theme (Dark Mode)
-- Background: Near-black dark blue-grey (HSL 225 15% 6%)
-- Cards/Surfaces: Subtle glass-like panels with white/[0.02] bg and white/[0.06] borders
-- Primary accent: Blue (HSL 217 91% 55%) with glow effects (shadow-blue-500/20)
+## Color Theme (Premium Midnight Blue)
+- Background: Midnight blue-black #02060E (HSL 222 47% 4%)
+- Cards/Surfaces: Glassmorphic panels (`glass-card` class) with blue-tinted gradient backgrounds, blue-glow borders (rgba 3,86,197), and backdrop-blur
+- Primary accent: #0356C5 blue with animated glow effects (`glow-btn`, `animate-pulse-glow`)
 - Status colors: Emerald (success), Amber (pending), Red (error), Blue (info)
-- Text hierarchy: white/90 (headings), white/70 (body), white/40 (secondary), white/30 (tertiary)
+- Text hierarchy: white/90 (headings), white/75 (body), white/45 (secondary), white/25 (tertiary)
+- Labels: blue-300/25 with uppercase tracking-wider
 - Font: Inter (system-ui fallback)
-- Design language: Minimalist SaaS dark UI with gradient mesh background, blue glow accents, rounded-xl corners
+- Design language: Premium luxury SaaS dark UI with gradient-mesh background, glassmorphism cards, blue glow borders, staggered fadeInUp animations, and smooth micro-interactions
+- Custom CSS utilities: glass-card, glass-panel, glow-btn, glow-border, glow-border-strong, gradient-mesh, sidebar-gradient, premium-input, row-hover, stat-glow, animate-fade-in-up, animate-pulse-glow, animate-breathe
+- Accessibility: prefers-reduced-motion media query disables all animations and ensures content visibility
 
 ## Data Model
 - **users** - Staff users with RBAC roles

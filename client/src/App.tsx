@@ -16,7 +16,6 @@ import AuditLogPage from "@/pages/audit-log";
 import SettingsPage from "@/pages/settings";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
 function Router() {
@@ -47,25 +46,25 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
+          <div className="flex h-screen w-full" style={{ background: '#02060E' }}>
             <AppSidebar />
             <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center justify-between gap-4 px-6 h-14 border-b border-white/[0.06] flex-shrink-0 bg-background/80 backdrop-blur-xl">
+              <header className="flex items-center justify-between gap-4 px-6 h-14 border-b border-blue-500/[0.06] flex-shrink-0 backdrop-blur-2xl" style={{ background: 'rgba(2,6,14,0.7)' }}>
                 <div className="flex items-center gap-3">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white/40" />
+                  <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white/30 hover:text-white/50 transition-colors duration-300" />
                 </div>
                 <div className="relative max-w-md flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-blue-400/30" />
                   <Input
                     placeholder="Search anything..."
-                    className="pl-9 h-9 text-[13px] bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 focus:bg-white/[0.06] rounded-lg"
+                    className="pl-9 h-9 text-[13px] premium-input text-white/80 rounded-xl"
                     data-testid="input-global-search"
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="text-white/40 relative">
+                  <Button variant="ghost" size="icon" className="text-white/30 hover:text-white/50 relative transition-colors duration-300 rounded-xl">
                     <Bell className="w-4 h-4" />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(3,86,197,0.5)]" />
                   </Button>
                 </div>
               </header>

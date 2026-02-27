@@ -111,8 +111,8 @@ function ContactForm({
 
   const selectedType = form.watch("type");
 
-  const inputClass = "bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 focus:bg-white/[0.06] rounded-lg text-[13px]";
-  const labelClass = "text-[12px] text-white/50 font-medium";
+  const inputClass = "premium-input text-white/80 rounded-xl text-[13px]";
+  const labelClass = "text-[12px] text-white/45 font-medium";
 
   return (
     <Form {...form}>
@@ -321,7 +321,7 @@ function ContactForm({
                         data-testid="checkbox-photo-consent"
                       />
                     </FormControl>
-                    <FormLabel className="!mt-0 text-[12px] text-white/50">Photo/Video consent</FormLabel>
+                    <FormLabel className="!mt-0 text-[12px] text-white/45">Photo/Video consent</FormLabel>
                   </FormItem>
                 )}
               />
@@ -337,7 +337,7 @@ function ContactForm({
                         data-testid="checkbox-medical-consent"
                       />
                     </FormControl>
-                    <FormLabel className="!mt-0 text-[12px] text-white/50">Medical treatment consent</FormLabel>
+                    <FormLabel className="!mt-0 text-[12px] text-white/45">Medical treatment consent</FormLabel>
                   </FormItem>
                 )}
               />
@@ -374,14 +374,14 @@ function ContactForm({
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/50">
+          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/45 hover:text-white/60 transition-colors duration-300">
             Cancel
           </Button>
           <Button
             type="submit"
             disabled={createMutation.isPending}
             data-testid="button-save-contact"
-            className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg shadow-lg shadow-blue-500/20"
+            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl glow-btn"
           >
             {createMutation.isPending ? "Saving..." : "Save Contact"}
           </Button>
@@ -405,8 +405,8 @@ function ContactDetail({ id }: { id: string }) {
   if (isLoading) {
     return (
       <div className="p-8 space-y-4 max-w-4xl mx-auto">
-        <Skeleton className="h-8 w-48 bg-white/[0.04]" />
-        <Skeleton className="h-64 w-full bg-white/[0.04]" />
+        <Skeleton className="h-8 w-48 bg-blue-500/[0.04]" />
+        <Skeleton className="h-64 w-full bg-blue-500/[0.04]" />
       </div>
     );
   }
@@ -414,7 +414,7 @@ function ContactDetail({ id }: { id: string }) {
   if (!contact) {
     return (
       <div className="p-8 text-center">
-        <p className="text-white/40">Contact not found</p>
+        <p className="text-white/35">Contact not found</p>
       </div>
     );
   }
@@ -425,8 +425,8 @@ function ContactDetail({ id }: { id: string }) {
 
   return (
     <div className="p-8 space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/contacts")} data-testid="button-back" className="text-white/40 hover:text-white/60">
+      <div className="flex items-center gap-3 flex-wrap animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/contacts")} data-testid="button-back" className="text-white/30 hover:text-white/50 transition-colors duration-300 rounded-xl">
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -434,124 +434,124 @@ function ContactDetail({ id }: { id: string }) {
             {contact.firstName} {contact.lastName}
           </h1>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span className="text-[10px] text-blue-400 capitalize px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20">
+            <span className="text-[10px] text-blue-400 capitalize px-2.5 py-0.5 rounded-lg bg-blue-500/10 border border-blue-500/20 shadow-[0_0_8px_rgba(3,86,197,0.08)]">
               {contact.type}
             </span>
             {contact.gender && (
-              <span className="text-[10px] text-white/40 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
+              <span className="text-[10px] text-white/35 capitalize px-2.5 py-0.5 rounded-lg bg-blue-500/[0.04] border border-blue-500/[0.08]">
                 {contact.gender}
               </span>
             )}
             {age !== null && (
-              <span className="text-[13px] text-white/40">Age {age}</span>
+              <span className="text-[13px] text-white/35">Age {age}</span>
             )}
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/[0.06]">
-            <h3 className="text-[13px] font-semibold text-white/70">Contact Information</h3>
+        <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '50ms', opacity: 0 }}>
+          <div className="px-5 py-3 border-b border-blue-500/[0.08]">
+            <h3 className="text-[13px] font-semibold text-white/65">Contact Information</h3>
           </div>
           <div className="p-5 space-y-3">
             {contact.email && (
               <div className="flex items-center gap-3">
-                <Mail className="w-4 h-4 text-white/25" />
-                <span className="text-[13px] text-white/70" data-testid="text-contact-email">{contact.email}</span>
+                <Mail className="w-4 h-4 text-blue-400/30" />
+                <span className="text-[13px] text-white/65" data-testid="text-contact-email">{contact.email}</span>
               </div>
             )}
             {contact.phone && (
               <div className="flex items-center gap-3">
-                <Phone className="w-4 h-4 text-white/25" />
-                <span className="text-[13px] text-white/70" data-testid="text-contact-phone">{contact.phone}</span>
+                <Phone className="w-4 h-4 text-blue-400/30" />
+                <span className="text-[13px] text-white/65" data-testid="text-contact-phone">{contact.phone}</span>
               </div>
             )}
             {contact.alternatePhone && (
               <div className="flex items-center gap-3">
-                <Phone className="w-4 h-4 text-white/25" />
-                <span className="text-[13px] text-white/70">{contact.alternatePhone}</span>
+                <Phone className="w-4 h-4 text-blue-400/30" />
+                <span className="text-[13px] text-white/65">{contact.alternatePhone}</span>
               </div>
             )}
             {contact.address && (
               <div>
-                <span className="text-[11px] text-white/30">Address</span>
-                <p className="text-[13px] text-white/70">{contact.address}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Address</span>
+                <p className="text-[13px] text-white/65">{contact.address}</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/[0.06]">
-            <h3 className="text-[13px] font-semibold text-white/70">Personal Details</h3>
+        <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
+          <div className="px-5 py-3 border-b border-blue-500/[0.08]">
+            <h3 className="text-[13px] font-semibold text-white/65">Personal Details</h3>
           </div>
           <div className="p-5 space-y-3">
             {contact.dateOfBirth && (
               <div>
-                <span className="text-[11px] text-white/30">Date of Birth</span>
-                <p className="text-[13px] text-white/70">{contact.dateOfBirth}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Date of Birth</span>
+                <p className="text-[13px] text-white/65">{contact.dateOfBirth}</p>
               </div>
             )}
             {contact.nationality && (
               <div>
-                <span className="text-[11px] text-white/30">Nationality</span>
-                <p className="text-[13px] text-white/70">{contact.nationality}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Nationality</span>
+                <p className="text-[13px] text-white/65">{contact.nationality}</p>
               </div>
             )}
             {contact.school && (
               <div>
-                <span className="text-[11px] text-white/30">School</span>
-                <p className="text-[13px] text-white/70">{contact.school} {contact.schoolYear && `(Year ${contact.schoolYear})`}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">School</span>
+                <p className="text-[13px] text-white/65">{contact.school} {contact.schoolYear && `(Year ${contact.schoolYear})`}</p>
               </div>
             )}
             {contact.teamName && (
               <div>
-                <span className="text-[11px] text-white/30">Team</span>
-                <p className="text-[13px] text-white/70">{contact.teamName}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Team</span>
+                <p className="text-[13px] text-white/65">{contact.teamName}</p>
               </div>
             )}
             {contact.previousClub && (
               <div>
-                <span className="text-[11px] text-white/30">Previous Club</span>
-                <p className="text-[13px] text-white/70">{contact.previousClub}</p>
+                <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Previous Club</span>
+                <p className="text-[13px] text-white/65">{contact.previousClub}</p>
               </div>
             )}
           </div>
         </div>
 
         {contact.type === "player" && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-            <div className="px-5 py-3 border-b border-white/[0.06]">
-              <h3 className="text-[13px] font-semibold text-white/70">Medical & Consent</h3>
+          <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '150ms', opacity: 0 }}>
+            <div className="px-5 py-3 border-b border-blue-500/[0.08]">
+              <h3 className="text-[13px] font-semibold text-white/65">Medical & Consent</h3>
             </div>
             <div className="p-5 space-y-3">
               {contact.medicalNotes && (
                 <div>
-                  <span className="text-[11px] text-white/30">Medical Notes</span>
-                  <p className="text-[13px] text-white/70">{contact.medicalNotes}</p>
+                  <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Medical Notes</span>
+                  <p className="text-[13px] text-white/65">{contact.medicalNotes}</p>
                 </div>
               )}
               {contact.allergies && (
                 <div>
-                  <span className="text-[11px] text-white/30">Allergies</span>
-                  <p className="text-[13px] text-white/70">{contact.allergies}</p>
+                  <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Allergies</span>
+                  <p className="text-[13px] text-white/65">{contact.allergies}</p>
                 </div>
               )}
               <div className="flex gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${contact.photoConsent ? "bg-emerald-400" : "bg-white/15"}`} />
-                  <span className="text-[12px] text-white/50">Photo consent</span>
+                  <div className={`w-2 h-2 rounded-full ${contact.photoConsent ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]" : "bg-white/15"}`} />
+                  <span className="text-[12px] text-white/45">Photo consent</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${contact.medicalConsent ? "bg-emerald-400" : "bg-white/15"}`} />
-                  <span className="text-[12px] text-white/50">Medical consent</span>
+                  <div className={`w-2 h-2 rounded-full ${contact.medicalConsent ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]" : "bg-white/15"}`} />
+                  <span className="text-[12px] text-white/45">Medical consent</span>
                 </div>
               </div>
               {contact.emergencyContact && (
                 <div>
-                  <span className="text-[11px] text-white/30">Emergency Contact</span>
-                  <p className="text-[13px] text-white/70">{contact.emergencyContact} {contact.emergencyPhone && `— ${contact.emergencyPhone}`}</p>
+                  <span className="text-[10px] text-blue-300/25 uppercase tracking-wider">Emergency Contact</span>
+                  <p className="text-[13px] text-white/65">{contact.emergencyContact} {contact.emergencyPhone && `— ${contact.emergencyPhone}`}</p>
                 </div>
               )}
             </div>
@@ -559,10 +559,10 @@ function ContactDetail({ id }: { id: string }) {
         )}
 
         {relationships && relationships.length > 0 && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-            <div className="px-5 py-3 border-b border-white/[0.06]">
-              <h3 className="text-[13px] font-semibold text-white/70 flex items-center gap-2">
-                <LinkIcon className="w-3.5 h-3.5" />
+          <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '200ms', opacity: 0 }}>
+            <div className="px-5 py-3 border-b border-blue-500/[0.08]">
+              <h3 className="text-[13px] font-semibold text-white/65 flex items-center gap-2">
+                <LinkIcon className="w-3.5 h-3.5 text-blue-400/40" />
                 {contact.type === "player" ? "Parents / Guardians" : "Linked Players"}
               </h3>
             </div>
@@ -573,22 +573,22 @@ function ContactDetail({ id }: { id: string }) {
                 return (
                   <Link key={rel.id} href={`/contacts/${linked.id}`}>
                     <div
-                      className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors"
+                      className="flex items-center gap-3 p-2.5 rounded-xl row-hover cursor-pointer"
                       data-testid={`link-relationship-${rel.id}`}
                     >
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                        <span className="text-[11px] font-medium text-amber-400">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/8 border border-amber-500/15 flex items-center justify-center">
+                        <span className="text-[11px] font-medium text-amber-400/70">
                           {linked.firstName[0]}{linked.lastName[0]}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-white/70">{linked.firstName} {linked.lastName}</p>
-                        <p className="text-[11px] text-white/30 capitalize">
+                        <p className="text-[13px] font-medium text-white/65">{linked.firstName} {linked.lastName}</p>
+                        <p className="text-[11px] text-white/25 capitalize">
                           {rel.relationship}
                           {rel.isPrimaryContact && " · Primary Contact"}
                         </p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-white/15" />
+                      <ChevronRight className="w-4 h-4 text-white/10" />
                     </div>
                   </Link>
                 );
@@ -598,12 +598,12 @@ function ContactDetail({ id }: { id: string }) {
         )}
 
         {contact.notes && (
-          <div className="md:col-span-2 rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-            <div className="px-5 py-3 border-b border-white/[0.06]">
-              <h3 className="text-[13px] font-semibold text-white/70">Notes</h3>
+          <div className="md:col-span-2 rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '250ms', opacity: 0 }}>
+            <div className="px-5 py-3 border-b border-blue-500/[0.08]">
+              <h3 className="text-[13px] font-semibold text-white/65">Notes</h3>
             </div>
             <div className="p-5">
-              <p className="text-[13px] text-white/60 whitespace-pre-wrap">{contact.notes}</p>
+              <p className="text-[13px] text-white/55 whitespace-pre-wrap">{contact.notes}</p>
             </div>
           </div>
         )}
@@ -646,44 +646,44 @@ export default function ContactsPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center justify-between gap-4 flex-wrap animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">People</h1>
-          <p className="text-white/40 text-[13px] mt-1">
+          <p className="text-blue-400/35 text-[13px] mt-1">
             Manage players, guardians, staff, and contacts
           </p>
         </div>
         <Button
           onClick={() => setShowNewDialog(true)}
           data-testid="button-new-contact"
-          className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg h-9 text-[13px] font-medium shadow-lg shadow-blue-500/20"
+          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-9 text-[13px] font-medium glow-btn"
         >
           <UserPlus className="w-4 h-4 mr-2" />
           New Contact
         </Button>
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap animate-fade-in-up" style={{ animationDelay: '50ms', opacity: 0 }}>
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-blue-400/30" />
           <Input
             placeholder="Search contacts..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-[13px] bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 rounded-lg"
+            className="pl-9 h-9 text-[13px] premium-input text-white/80 rounded-xl"
             data-testid="input-search-contacts"
           />
         </div>
-        <div className="flex rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
+        <div className="flex rounded-xl border border-blue-500/[0.1] bg-blue-500/[0.03] p-0.5 backdrop-blur-sm">
           {tabs.map((tab) => (
             <button
               key={tab.value}
               onClick={() => setTypeFilter(tab.value)}
               data-testid={`tab-${tab.value === "all" ? "all" : tab.value === "player" ? "players" : tab.value === "guardian" ? "guardians" : tab.value}`}
-              className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all duration-300 ${
                 typeFilter === tab.value
-                  ? "bg-blue-500/15 text-blue-400 border border-blue-500/20"
-                  : "text-white/40 border border-transparent hover:text-white/60"
+                  ? "bg-blue-500/15 text-blue-400 border border-blue-500/25 shadow-[0_0_10px_rgba(3,86,197,0.08)]"
+                  : "text-white/35 border border-transparent hover:text-white/55"
               }`}
             >
               {tab.label}
@@ -692,43 +692,43 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+      <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {isLoading ? (
-          <div className="divide-y divide-white/[0.04]">
+          <div className="divide-y divide-blue-500/[0.04]">
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="px-5 py-3">
-                <Skeleton className="h-10 w-full bg-white/[0.04]" />
+                <Skeleton className="h-10 w-full bg-blue-500/[0.04]" />
               </div>
             ))}
           </div>
         ) : filteredContacts && filteredContacts.length > 0 ? (
           <div>
-            <div className="grid grid-cols-[1fr_150px_150px_100px] gap-3 px-5 py-3 text-[11px] font-medium text-white/30 uppercase tracking-wider border-b border-white/[0.06]">
+            <div className="grid grid-cols-[1fr_150px_150px_100px] gap-3 px-5 py-3 text-[10px] font-semibold text-blue-300/25 uppercase tracking-[0.15em] border-b border-blue-500/[0.08]">
               <span>Name</span>
               <span>Phone</span>
               <span>Email</span>
               <span>Type</span>
             </div>
-            <div className="divide-y divide-white/[0.04]">
+            <div className="divide-y divide-blue-500/[0.04]">
               {filteredContacts.map((contact) => (
                 <Link key={contact.id} href={`/contacts/${contact.id}`}>
                   <div
-                    className="grid grid-cols-[1fr_150px_150px_100px] gap-3 px-5 py-3 items-center hover:bg-white/[0.03] cursor-pointer transition-colors"
+                    className="grid grid-cols-[1fr_150px_150px_100px] gap-3 px-5 py-3 items-center row-hover cursor-pointer"
                     data-testid={`row-contact-${contact.id}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
-                        <span className="text-blue-400 text-[11px] font-semibold">
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/8 border border-blue-500/15 flex items-center justify-center flex-shrink-0">
+                        <span className="text-blue-400/70 text-[11px] font-semibold">
                           {contact.firstName[0]}{contact.lastName[0]}
                         </span>
                       </div>
-                      <span className="text-[13px] font-medium text-white/80 truncate">
+                      <span className="text-[13px] font-medium text-white/75 truncate">
                         {contact.firstName} {contact.lastName}
                       </span>
                     </div>
-                    <span className="text-[13px] text-white/40 truncate">{contact.phone || "—"}</span>
-                    <span className="text-[13px] text-white/40 truncate">{contact.email || "—"}</span>
-                    <span className="text-[10px] text-white/30 capitalize px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] w-fit">{contact.type}</span>
+                    <span className="text-[13px] text-white/35 truncate">{contact.phone || "—"}</span>
+                    <span className="text-[13px] text-white/35 truncate">{contact.email || "—"}</span>
+                    <span className="text-[10px] text-blue-300/30 capitalize px-2 py-0.5 rounded-lg bg-blue-500/[0.06] border border-blue-500/[0.08] w-fit">{contact.type}</span>
                   </div>
                 </Link>
               ))}
@@ -736,10 +736,10 @@ export default function ContactsPage() {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mb-5">
-              <Users className="w-6 h-6 text-white/20" />
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/[0.04] border border-blue-500/[0.1] flex items-center justify-center mb-5">
+              <Users className="w-6 h-6 text-blue-400/15" />
             </div>
-            <p className="text-[14px] font-medium text-white/50">
+            <p className="text-[14px] font-medium text-white/45">
               {searchQuery ? "No contacts match your search" : "No contacts yet"}
             </p>
             <p className="text-[12px] text-white/25 mt-1.5 mb-5">
@@ -749,7 +749,7 @@ export default function ContactsPage() {
               <Button
                 size="sm"
                 onClick={() => setShowNewDialog(true)}
-                className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg"
+                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl glow-btn"
               >
                 <UserPlus className="w-4 h-4 mr-2" />
                 Add Contact
@@ -760,15 +760,15 @@ export default function ContactsPage() {
       </div>
 
       {filteredContacts && (
-        <p className="text-[11px] text-white/25" data-testid="text-contact-count">
+        <p className="text-[11px] text-blue-300/20 animate-fade-in" data-testid="text-contact-count">
           Showing {filteredContacts.length} of {contacts?.length ?? 0} contacts
         </p>
       )}
 
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto bg-[hsl(225,14%,9%)] border-white/[0.08]">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto border-blue-500/[0.15] rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)' }}>
           <DialogHeader>
-            <DialogTitle className="text-white/90">New Contact</DialogTitle>
+            <DialogTitle className="text-white/85">New Contact</DialogTitle>
           </DialogHeader>
           <ContactForm onClose={() => setShowNewDialog(false)} />
         </DialogContent>

@@ -77,8 +77,8 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
     },
   });
 
-  const inputClass = "bg-white/[0.04] border-white/[0.08] text-white/80 placeholder:text-white/25 focus:border-blue-500/40 focus:bg-white/[0.06] rounded-lg text-[13px]";
-  const labelClass = "text-[12px] text-white/50 font-medium";
+  const inputClass = "premium-input text-white/80 rounded-xl text-[13px]";
+  const labelClass = "text-[12px] text-white/45 font-medium";
 
   return (
     <Form {...form}>
@@ -170,14 +170,14 @@ function RegistrationForm({ onClose }: { onClose: () => void }) {
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/50">
+          <Button type="button" variant="ghost" onClick={onClose} data-testid="button-cancel" className="text-white/45 hover:text-white/60 transition-colors duration-300">
             Cancel
           </Button>
           <Button
             type="submit"
             disabled={createMutation.isPending}
             data-testid="button-save-reg"
-            className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg shadow-lg shadow-blue-500/20"
+            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl glow-btn"
           >
             {createMutation.isPending ? "Saving..." : "Register"}
           </Button>
@@ -192,7 +192,7 @@ const statusColors: Record<string, string> = {
   confirmed: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   waitlisted: "text-blue-400 bg-blue-500/10 border-blue-500/20",
   cancelled: "text-red-400 bg-red-500/10 border-red-500/20",
-  refunded: "text-white/40 bg-white/[0.04] border-white/[0.06]",
+  refunded: "text-white/35 bg-blue-500/[0.04] border-blue-500/[0.08]",
 };
 
 export default function RegistrationsPage() {
@@ -204,63 +204,63 @@ export default function RegistrationsPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center justify-between gap-4 flex-wrap animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Registrations</h1>
-          <p className="text-white/40 text-[13px] mt-1">
+          <p className="text-blue-400/35 text-[13px] mt-1">
             Manage programme registrations
           </p>
         </div>
         <Button
           onClick={() => setShowNewDialog(true)}
           data-testid="button-new-registration"
-          className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg h-9 text-[13px] font-medium shadow-lg shadow-blue-500/20"
+          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-9 text-[13px] font-medium glow-btn"
         >
           <Plus className="w-4 h-4 mr-2" />
           New Registration
         </Button>
       </div>
 
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+      <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {isLoading ? (
-          <div className="divide-y divide-white/[0.04]">
+          <div className="divide-y divide-blue-500/[0.04]">
             {[1, 2, 3].map((i) => (
               <div key={i} className="px-5 py-3">
-                <Skeleton className="h-10 w-full bg-white/[0.04]" />
+                <Skeleton className="h-10 w-full bg-blue-500/[0.04]" />
               </div>
             ))}
           </div>
         ) : registrations && registrations.length > 0 ? (
           <div>
-            <div className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 text-[11px] font-medium text-white/30 uppercase tracking-wider border-b border-white/[0.06]">
+            <div className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 text-[10px] font-semibold text-blue-300/25 uppercase tracking-[0.15em] border-b border-blue-500/[0.08]">
               <span>Player</span>
               <span>Programme</span>
               <span>Status</span>
               <span>Paid</span>
               <span>Date</span>
             </div>
-            <div className="divide-y divide-white/[0.04]">
+            <div className="divide-y divide-blue-500/[0.04]">
               {registrations.map((reg) => (
                 <div
                   key={reg.id}
-                  className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors"
+                  className="grid grid-cols-[1fr_1fr_110px_90px_110px] gap-3 px-5 py-3 items-center row-hover"
                   data-testid={`row-registration-${reg.id}`}
                 >
                   <Link href={`/contacts/${reg.contactId}`}>
-                    <span className="text-[13px] font-medium text-blue-400 cursor-pointer hover:text-blue-300 transition-colors">
+                    <span className="text-[13px] font-medium text-blue-400/70 cursor-pointer hover:text-blue-400 transition-colors duration-300">
                       {reg.contact?.firstName} {reg.contact?.lastName}
                     </span>
                   </Link>
                   <Link href={`/programs/${reg.programId}`}>
-                    <span className="text-[13px] text-blue-400 cursor-pointer hover:text-blue-300 transition-colors truncate">
+                    <span className="text-[13px] text-blue-400/70 cursor-pointer hover:text-blue-400 transition-colors duration-300 truncate">
                       {reg.program?.name}
                     </span>
                   </Link>
-                  <span className={`text-[10px] font-medium capitalize px-2 py-0.5 rounded-md border w-fit ${statusColors[reg.status] || ""}`}>
+                  <span className={`text-[10px] font-medium capitalize px-2.5 py-0.5 rounded-lg border w-fit ${statusColors[reg.status] || ""}`}>
                     {reg.status}
                   </span>
-                  <span className="text-[13px] text-white/50">${reg.amountPaid || "0.00"}</span>
-                  <span className="text-[11px] text-white/30">
+                  <span className="text-[13px] text-white/40">${reg.amountPaid || "0.00"}</span>
+                  <span className="text-[11px] text-white/25">
                     {new Date(reg.registeredAt).toLocaleDateString()}
                   </span>
                 </div>
@@ -269,17 +269,17 @@ export default function RegistrationsPage() {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mb-5">
-              <ClipboardCheck className="w-6 h-6 text-white/20" />
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/[0.04] border border-blue-500/[0.1] flex items-center justify-center mb-5">
+              <ClipboardCheck className="w-6 h-6 text-blue-400/15" />
             </div>
-            <p className="text-[14px] font-medium text-white/50">No registrations yet</p>
+            <p className="text-[14px] font-medium text-white/45">No registrations yet</p>
             <p className="text-[12px] text-white/25 mt-1.5 mb-5">
               Register a player for a programme to get started
             </p>
             <Button
               size="sm"
               onClick={() => setShowNewDialog(true)}
-              className="bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg"
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl glow-btn"
             >
               <Plus className="w-4 h-4 mr-2" />
               New Registration
@@ -289,9 +289,9 @@ export default function RegistrationsPage() {
       </div>
 
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto bg-[hsl(225,14%,9%)] border-white/[0.08]">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto border-blue-500/[0.15] rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)' }}>
           <DialogHeader>
-            <DialogTitle className="text-white/90">New Registration</DialogTitle>
+            <DialogTitle className="text-white/85">New Registration</DialogTitle>
           </DialogHeader>
           <RegistrationForm onClose={() => setShowNewDialog(false)} />
         </DialogContent>
