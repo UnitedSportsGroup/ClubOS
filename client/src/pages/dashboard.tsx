@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,7 @@ import {
   X,
   LayoutGrid,
   TrendingUp,
+  GripVertical,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Contact, Program } from "@shared/schema";
@@ -348,8 +349,29 @@ function QuickActionsBlock() {
   );
 }
 
-function DashboardBlock({ id, onRemove }: { id: string; onRemove: () => void }) {
+function DashboardBlock({
+  id,
+  index,
+  onRemove,
+  dragState,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+}: {
+  id: string;
+  index: number;
+  onRemove: () => void;
+  dragState: { dragging: number | null; over: number | null };
+  onDragStart: (index: number) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
+  onDrop: (e: React.DragEvent, index: number) => void;
+}) {
   const blockDef = AVAILABLE_BLOCKS.find((b) => b.id === id);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const isDragHandle = useRef(false);
+
   if (!blockDef) return null;
 
   const blockComponent = (() => {
@@ -362,8 +384,48 @@ function DashboardBlock({ id, onRemove }: { id: string; onRemove: () => void }) 
     }
   })();
 
+  const isDragging = dragState.dragging === index;
+  const isOver = dragState.over === index && dragState.dragging !== index;
+  const showDropBefore = isOver && dragState.dragging !== null && dragState.dragging > index;
+  const showDropAfter = isOver && dragState.dragging !== null && dragState.dragging < index;
+
   return (
-    <div className={`relative group ${blockDef.width === "full" ? "lg:col-span-3" : ""}`}>
+    <div
+      className={`relative group transition-all duration-200 ${blockDef.width === "full" ? "lg:col-span-3" : ""} ${isDragging ? "opacity-40 scale-[0.98]" : ""}`}
+      draggable
+      onDragStart={(e) => {
+        if (!isDragHandle.current) {
+          e.preventDefault();
+          return;
+        }
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", String(index));
+        onDragStart(index);
+      }}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDragEnd={() => {
+        isDragHandle.current = false;
+        onDragEnd();
+      }}
+      onDrop={(e) => onDrop(e, index)}
+      data-testid={`draggable-block-${id}`}
+    >
+      {showDropBefore && (
+        <div className="absolute -top-3 left-0 right-0 h-1 rounded-full bg-blue-500/60 shadow-[0_0_12px_rgba(3,86,197,0.4)] z-30 animate-pulse" />
+      )}
+
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1">
+        <div
+          ref={handleRef}
+          onMouseDown={() => { isDragHandle.current = true; }}
+          onMouseUp={() => { isDragHandle.current = false; }}
+          className="w-7 h-7 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-grab active:cursor-grabbing hover:bg-white/[0.08] hover:border-blue-500/20"
+          data-testid={`drag-handle-${id}`}
+        >
+          <GripVertical className="w-3.5 h-3.5 text-white/30" />
+        </div>
+      </div>
+
       <button
         onClick={onRemove}
         className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-red-500/40 cursor-pointer"
@@ -373,13 +435,48 @@ function DashboardBlock({ id, onRemove }: { id: string; onRemove: () => void }) 
         <X className="w-3 h-3 text-red-400" />
       </button>
       {blockComponent}
+
+      {showDropAfter && (
+        <div className="absolute -bottom-3 left-0 right-0 h-1 rounded-full bg-blue-500/60 shadow-[0_0_12px_rgba(3,86,197,0.4)] z-30 animate-pulse" />
+      )}
     </div>
   );
 }
 
 export default function Dashboard() {
   const [showAddBlock, setShowAddBlock] = useState(false);
-  const { blockIds, addBlock, removeBlock } = useBlockLayout();
+  const { blockIds, addBlock, removeBlock, moveBlock } = useBlockLayout();
+
+  const [dragState, setDragState] = useState<{ dragging: number | null; over: number | null }>({
+    dragging: null,
+    over: null,
+  });
+
+  const handleDragStart = useCallback((index: number) => {
+    setDragState({ dragging: index, over: null });
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragState((prev) => ({ ...prev, over: index }));
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, toIndex: number) => {
+      e.preventDefault();
+      const fromIndex = dragState.dragging;
+      if (fromIndex !== null && fromIndex !== toIndex) {
+        moveBlock(fromIndex, toIndex);
+      }
+      setDragState({ dragging: null, over: null });
+    },
+    [dragState.dragging, moveBlock]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setDragState({ dragging: null, over: null });
+  }, []);
 
   const { data: stats, isLoading } = useQuery<{
     totalContacts: number;
@@ -476,12 +573,21 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div
+        className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+        onDragOver={(e) => e.preventDefault()}
+      >
         {blockIds.map((id, i) => (
           <DashboardBlock
             key={id}
             id={id}
+            index={i}
             onRemove={() => removeBlock(id)}
+            dragState={dragState}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDrop={handleDrop}
           />
         ))}
 
