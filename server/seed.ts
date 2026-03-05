@@ -6,9 +6,9 @@ import { hashPassword } from "./auth";
 export async function seedDatabase() {
   const [existingUsers] = await db.select({ count: sql<number>`count(*)` }).from(users);
   if (Number(existingUsers.count) === 0) {
-    const hashedPw = await hashPassword(process.env.ADMIN_SEED_PASSWORD || "admin123");
+    const hashedPw = await hashPassword(process.env.ADMIN_SEED_PASSWORD || "Growth2020!");
     await db.insert(users).values({
-      email: process.env.ADMIN_SEED_EMAIL || "admin@cufc.co.nz",
+      email: process.env.ADMIN_SEED_EMAIL || "daniel@cufc.co.nz",
       firstName: "Daniel",
       lastName: "Admin",
       password: hashedPw,

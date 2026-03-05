@@ -22,9 +22,7 @@ export default function PublicLanding() {
               <span className="text-[10px] text-blue-400/40 tracking-wider uppercase block">Holiday Camps</span>
             </div>
           </div>
-          <Link href="/admin/login">
-            <Button variant="ghost" className="text-white/30 hover:text-white/50 text-[12px] rounded-xl" data-testid="link-admin-login">Admin</Button>
-          </Link>
+          <div />
         </div>
       </header>
 

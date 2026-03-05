@@ -27,7 +27,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Auth
 - express-session with PgSession store (connect-pg-simple)
 - `requireAuth` middleware guards all `/api/admin/*` routes
-- Admin login: `admin@cufc.co.nz` / `admin123` (env `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD`)
+- Admin login: `daniel@cufc.co.nz` / `Growth2020!` (env `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD`)
 - Frontend AuthGuard component redirects to /admin/login if not authenticated
 
 ## Routing
