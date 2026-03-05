@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -124,7 +124,98 @@ export const registrations = pgTable("registrations", {
   utmContent: text("utm_content"),
   fbclid: text("fbclid"),
   gclid: text("gclid"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  subtotalCents: integer("subtotal_cents"),
+  discountCents: integer("discount_cents").default(0),
+  totalCents: integer("total_cents"),
+  currency: text("currency").default("NZD"),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
+});
+
+export const campPricing = pgTable("camp_pricing", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+  productType: text("product_type").notNull(),
+  priceCents: integer("price_cents").notNull(),
+  currency: text("currency").notNull().default("NZD"),
+});
+
+export const campDates = pgTable("camp_dates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  capacityFullDay: integer("capacity_full_day"),
+  capacityMorning: integer("capacity_morning"),
+  capacityAfternoon: integer("capacity_afternoon"),
+});
+
+export const campSettings = pgTable("camp_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").notNull().unique().references(() => programs.id, { onDelete: "cascade" }),
+  confirmationEmailSubject: text("confirmation_email_subject"),
+  confirmationEmailBody: text("confirmation_email_body"),
+  fromEmail: text("from_email"),
+  replyTo: text("reply_to"),
+});
+
+export const children = pgTable("children", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  parentId: integer("parent_id").notNull().references(() => contacts.id),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  dateOfBirth: date("date_of_birth"),
+  gender: text("gender"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const childMedical = pgTable("child_medical", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  childId: integer("child_id").notNull().unique().references(() => children.id, { onDelete: "cascade" }),
+  allergies: text("allergies"),
+  epiPen: boolean("epi_pen").default(false),
+  notes: text("notes"),
+});
+
+export const registrationItems = pgTable("registration_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  registrationId: integer("registration_id").notNull().references(() => registrations.id, { onDelete: "cascade" }),
+  childId: integer("child_id").notNull().references(() => children.id),
+  campDateId: integer("camp_date_id").notNull().references(() => campDates.id),
+  productType: text("product_type").notNull(),
+});
+
+export const attendance = pgTable("attendance", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").notNull().references(() => programs.id),
+  campDateId: integer("camp_date_id").notNull().references(() => campDates.id),
+  childId: integer("child_id").notNull().references(() => children.id),
+  checkedInAt: timestamp("checked_in_at"),
+  checkedOutAt: timestamp("checked_out_at"),
+  checkedInByUserId: integer("checked_in_by_user_id").references(() => users.id),
+  checkedOutByUserId: integer("checked_out_by_user_id").references(() => users.id),
+  note: text("note"),
+});
+
+export const emailLogs = pgTable("email_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").references(() => programs.id),
+  registrationId: integer("registration_id").references(() => registrations.id),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject"),
+  body: text("body"),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  providerMessageId: text("provider_message_id"),
+});
+
+export const metaEventLogs = pgTable("meta_event_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campId: integer("camp_id").references(() => programs.id),
+  registrationId: integer("registration_id").references(() => registrations.id),
+  eventName: text("event_name").notNull(),
+  payloadJson: text("payload_json"),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  success: boolean("success").default(false),
 });
 
 export const auditLogs = pgTable("audit_logs", {
@@ -156,6 +247,15 @@ export const insertSessionBookingSchema = createInsertSchema(sessionBookings).om
 export const insertDiscountSchema = createInsertSchema(programDiscounts).omit({ id: true });
 export const insertRegistrationSchema = createInsertSchema(registrations).omit({ id: true, registeredAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
+export const insertCampPricingSchema = createInsertSchema(campPricing).omit({ id: true });
+export const insertCampDateSchema = createInsertSchema(campDates).omit({ id: true });
+export const insertCampSettingsSchema = createInsertSchema(campSettings).omit({ id: true });
+export const insertChildSchema = createInsertSchema(children).omit({ id: true, createdAt: true });
+export const insertChildMedicalSchema = createInsertSchema(childMedical).omit({ id: true });
+export const insertRegistrationItemSchema = createInsertSchema(registrationItems).omit({ id: true });
+export const insertAttendanceSchema = createInsertSchema(attendance).omit({ id: true });
+export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({ id: true, sentAt: true });
+export const insertMetaEventLogSchema = createInsertSchema(metaEventLogs).omit({ id: true, sentAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -173,5 +273,23 @@ export type InsertDiscount = z.infer<typeof insertDiscountSchema>;
 export type ProgramDiscount = typeof programDiscounts.$inferSelect;
 export type InsertRegistration = z.infer<typeof insertRegistrationSchema>;
 export type Registration = typeof registrations.$inferSelect;
+export type InsertCampPricing = z.infer<typeof insertCampPricingSchema>;
+export type CampPricing = typeof campPricing.$inferSelect;
+export type InsertCampDate = z.infer<typeof insertCampDateSchema>;
+export type CampDate = typeof campDates.$inferSelect;
+export type InsertCampSettings = z.infer<typeof insertCampSettingsSchema>;
+export type CampSettings = typeof campSettings.$inferSelect;
+export type InsertChild = z.infer<typeof insertChildSchema>;
+export type Child = typeof children.$inferSelect;
+export type InsertChildMedical = z.infer<typeof insertChildMedicalSchema>;
+export type ChildMedical = typeof childMedical.$inferSelect;
+export type InsertRegistrationItem = z.infer<typeof insertRegistrationItemSchema>;
+export type RegistrationItem = typeof registrationItems.$inferSelect;
+export type InsertAttendance = z.infer<typeof insertAttendanceSchema>;
+export type Attendance = typeof attendance.$inferSelect;
+export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type InsertMetaEventLog = z.infer<typeof insertMetaEventLogSchema>;
+export type MetaEventLog = typeof metaEventLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;

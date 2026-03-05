@@ -1,0 +1,220 @@
+You are my senior product engineer + designer. Build and refactor my existing “ClubBase” web app into a Holiday Camps–only product that we can deploy and use in production within 3 days.
+
+PRIMARY GOAL
+Ship a working Holiday Camps system with:
+- Public booking pages at /:campSlug (e.g. /fundamentals, /world-cup)
+- Admin dashboard at /admin
+- Real multi-user backend with logins, shared data across devices
+- Stripe payments + webhooks
+- Meta Conversions API events for ad tracking (Purchase + InitiateCheckout)
+- Attendance roll with fast search for check-in/out on desktop + mobile
+- CRM export and “email list for each camp day” (parents attached to each child booked that day)
+- Confirmation email on successful booking (admin-editable template)
+
+IMPORTANT: Hide/remove all other ClubBase features for now. Only holiday camp-related features should remain visible in navigation and routes.
+
+DESIGN / UI STYLE
+Match the modern, minimal dark UI shown in the ClubOS dashboard screenshot (dark navy/black, soft gradients, rounded cards, subtle borders, clean typography). Keep it simple and fast.
+- Typography: Inter / Inter Tight style
+- Layout: left sidebar + top search bar (admin), dashboard cards, clean tables
+- Mobile-first for attendance and booking
+- Avoid clutter: only essential actions visible
+- Use consistent spacing, 12px–16px radius, subtle shadows
+
+TECH STACK (USE THIS)
+- Next.js (App Router) + TypeScript
+- Tailwind CSS + shadcn/ui components
+- Prisma ORM
+- Postgres database (Neon or Replit Postgres)
+- Auth: NextAuth (Credentials + magic link optional). Keep it simple: email+password for staff.
+- Email: Resend (preferred) or SendGrid (via API key)
+- Payments: Stripe Checkout + Webhooks
+- Meta Conversions API: server-side events (requires FB Pixel ID + Access Token env vars)
+
+DATA MODEL (PRISMA)
+Build robust schema that supports:
+Organization (club/tenant)
+User (staff) with roles: ADMIN, STAFF
+Camp
+- id, orgId, name, slug, description, location, heroImage, active, startDate, endDate
+CampSettings
+- confirmationEmailSubject, confirmationEmailBody (templated), fromEmail, replyTo
+CampPricing
+- campId, productType (FULL_DAY, MORNING, AFTERNOON), priceCents, currency
+CampDate
+- campId, date, capacityFullDay, capacityMorning, capacityAfternoon
+DiscountRule
+- campId, minBookings (e.g. 4), percentOff (e.g. 10)
+ParentContact
+- orgId, firstName, lastName, email, phone
+Child
+- parentId, firstName, lastName, dob, gender optional
+ChildMedical
+- childId, allergies, epiPen, notes
+Registration (order)
+- campId, parentId, status (PENDING, PAID, CANCELLED, REFUNDED)
+- stripeCheckoutSessionId, stripePaymentIntentId
+- subtotalCents, discountCents, totalCents, currency
+RegistrationItem
+- registrationId, childId, campDateId, productType (FULL_DAY/MORNING/AFTERNOON)
+Attendance
+- campId, campDateId, childId
+- checkedInAt, checkedOutAt
+- checkedInByUserId, checkedOutByUserId
+- note
+EmailLog
+- campId, registrationId, toEmail, subject, body, sentAt, providerMessageId
+MetaEventLog
+- campId, registrationId, eventName, payloadJson, sentAt, success
+
+SYSTEM ROUTES / PAGES
+
+PUBLIC (no login)
+- / (simple landing with “Select a camp” cards for active camps)
+- /[campSlug]
+  - Modern landing page: name, dates, location, description, schedule grid, pricing cards, FAQ, CTA “Book now”
+  - “Book now” opens embedded booking flow page section or /[campSlug]/book
+- /[campSlug]/book
+  Booking form:
+  1) Parent details (name, email, phone)
+  2) Add one or multiple children:
+     - child first/last name, DOB, medical/allergies/epi-pen tick/notes
+  3) Select attendance:
+     - choose dates (multi-select)
+     - for each date choose Full Day OR Morning OR Afternoon
+  4) Shows live price summary:
+     - calculates per-item prices
+     - applies DiscountRules based on number of bookings (interpret “bookings” as total selected sessions/items, like Friendly Manager)
+  5) Submit -> creates Registration(PENDING) -> creates Stripe Checkout Session -> redirects to Stripe hosted checkout
+
+- /[campSlug]/success?session_id=
+  - Verify payment with Stripe, mark Registration PAID, create Attendance placeholders, send confirmation email
+- /[campSlug]/cancel
+  - Show “booking cancelled” and allow restart
+
+ADMIN (login required, /admin)
+- /admin/login
+- /admin (Dashboard)
+  Show:
+  - Total members/contacts (parents)
+  - Active camps
+  - Registrations today/this week
+  - Revenue this month
+  - Quick actions: “Create camp”, “Add dates”, “View attendance today”, “Export emails”
+- /admin/camps
+  Camps list + create/edit
+- /admin/camps/[campId]
+  Tabs:
+  1) Overview
+  2) Dates & Capacity (add dates like Friendly Manager “Add Date”, set capacities for morning/afternoon/full day)
+  3) Pricing (set prices)
+  4) Discounts (rules like “4 bookings => 10% off”)
+  5) Confirmation Email Template (editable subject/body with variables)
+  6) Integrations (Stripe status, Meta CAPI settings display)
+- /admin/registrations
+  List + filter by camp, status, date range; search by parent/child
+  Registration detail view: parent, children, dates, totals, payment ids
+- /admin/attendance
+  Camp selector + date selector
+  Attendance Roll UI:
+  - Table grouped by session type (Full Day / Morning / Afternoon)
+  - Fast search box (type child name)
+  - One-tap Check-in / Check-out toggles
+  - Shows parent phone (tap-to-call on mobile)
+  - Notes field per child
+- /admin/crm
+  Exports:
+  - “Emails by camp day” export (CSV): date, child, parent name, parent email, phone, session type
+  - “All parents” export
+  - “All registrations” export
+- /admin/settings
+  Org name/logo (optional), staff users management
+
+HIDE / REMOVE OTHER FEATURES
+If the current app has nav items like People, Programs, Fees, Events etc, remove them from the UI and block those routes (404 or redirect to /admin). Only keep Camps, Registrations, Attendance, CRM, Settings.
+
+PAYMENTS (STRIPE)
+- Use Stripe Checkout (one-time payment)
+- Create line items from RegistrationItems (aggregate same session type if needed)
+- Store session id + payment intent id
+- Implement /api/stripe/webhook to handle checkout.session.completed
+  - Verify signature
+  - Mark Registration PAID
+  - Send confirmation email (idempotent)
+  - Trigger Meta Purchase event (idempotent)
+- Ensure idempotency: if webhook repeats, do not duplicate email/logs/attendance.
+
+META CONVERSIONS API
+- Capture fbp/fbc cookies, fbclid query param, client IP, user agent
+- Send:
+  - InitiateCheckout when user clicks “Proceed to payment” (server event)
+  - Purchase on successful payment (server event)
+- Hash PII per Meta requirements (SHA256 for email/phone)
+- Store logs in MetaEventLog
+
+CONFIRMATION EMAIL
+- Admin can edit template per camp
+- Use variables:
+  {{campName}}, {{campDates}}, {{location}}, {{parentName}}, {{childrenList}}, {{totalPaid}}, {{manageLink}}
+- Send after successful payment (success page + webhook safety)
+- Also show confirmation screen with key details
+
+SECURITY / ROLES
+- Only logged-in users can access /admin
+- Only ADMIN role can manage integrations, staff users, and delete camps
+- STAFF can manage attendance and view registrations
+
+PERFORMANCE / UX
+- Attendance must be snappy: server-side fetch for selected day, client search filter, optimistic UI toggles
+- Mobile attendance view: big buttons, minimal columns, sticky search
+- Admin tables should paginate and allow search
+
+DELIVERABLES
+1) Working DB migrations + seed script to create:
+   - One org “Christchurch United Football Club”
+   - One admin user (email/password in env or printed in console)
+   - Two camps: “Fundamentals Holiday Camp” slug fundamentals, and “World Cup Holiday Camp” slug world-cup
+   - Default pricing + sample dates
+2) Deployed app runs with:
+   - PUBLIC booking pages
+   - ADMIN login and dashboard
+   - Stripe checkout and webhook
+   - Confirmation email sending
+   - Attendance roll working
+   - CSV exports working
+
+ENV VARS (document in README)
+DATABASE_URL
+NEXTAUTH_SECRET
+ADMIN_SEED_EMAIL
+ADMIN_SEED_PASSWORD
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+STRIPE_PUBLISHABLE_KEY
+RESEND_API_KEY (or SENDGRID_API_KEY)
+FROM_EMAIL
+META_PIXEL_ID
+META_ACCESS_TOKEN
+
+IMPLEMENTATION NOTES
+- Use server actions or API routes where appropriate
+- Use Zod validation for forms
+- Use React Hook Form for booking/admin forms
+- Use shadcn/ui: Button, Card, Dialog, Tabs, Table, Input, Select, Badge, Toast
+- Keep styling consistent with dark UI and subtle borders
+
+ACCEPTANCE TESTS (must pass)
+- Create camp + dates + pricing in /admin
+- Book a camp publicly with 2 kids across multiple dates/sessions -> Stripe checkout -> paid -> confirmation email received
+- Attendance page for that date shows those kids and lets staff check in/out quickly
+- CRM export “Emails by camp day” contains correct parent emails for that day
+- Meta Purchase event logged on payment
+
+Now begin by:
+1) Scanning the existing repository structure
+2) Removing/isolating non-camp features from nav + routes
+3) Implementing Prisma schema + auth
+4) Building public booking + Stripe
+5) Building admin attendance + exports
+6) Adding email + Meta CAPI
+7) Final polish + README instructions

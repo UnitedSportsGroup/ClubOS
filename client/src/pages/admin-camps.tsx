@@ -1,0 +1,166 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { Tent, Plus, ArrowRight, Search, X } from "lucide-react";
+import { Link, useLocation, useSearch } from "wouter";
+import type { Program } from "@shared/schema";
+
+function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("Christchurch Football Centre, 250 Westminster St");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [ageMin, setAgeMin] = useState("3");
+  const [ageMax, setAgeMax] = useState("12");
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/camps", {
+        name, slug, description, location,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        ageMin: parseInt(ageMin) || null,
+        ageMax: parseInt(ageMax) || null,
+        isActive: true,
+      });
+      return res.json();
+    },
+    onSuccess: (camp: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
+      toast({ title: "Camp created" });
+      onClose();
+      window.location.href = `/admin/camps/${camp.id}`;
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg mx-4 rounded-2xl border border-blue-500/[0.15] overflow-hidden animate-fade-in-up" style={{ background: "linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)", animationDelay: "0ms", opacity: 0 }} data-testid="modal-create-camp">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-blue-500/[0.08]">
+          <h3 className="text-[14px] font-semibold text-white/80">Create Holiday Camp</h3>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.08] transition-colors cursor-pointer">
+            <X className="w-3.5 h-3.5 text-white/40" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Camp Name</label>
+              <Input value={name} onChange={e => setName(e.target.value)} placeholder="FUNdamentals Holiday Camp" className="premium-input text-white/80 rounded-xl" data-testid="input-camp-name" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">URL Slug</label>
+              <Input value={slug} onChange={e => setSlug(e.target.value)} placeholder="fundamentals" className="premium-input text-white/80 rounded-xl" data-testid="input-camp-slug" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Description</label>
+              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Fun holiday camp for young players..." className="w-full h-20 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid="input-camp-description" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Location</label>
+              <Input value={location} onChange={e => setLocation(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-location" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Start Date</label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-start" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">End Date</label>
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-end" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Min Age</label>
+              <Input type="number" value={ageMin} onChange={e => setAgeMin(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-age-min" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Max Age</label>
+              <Input type="number" value={ageMax} onChange={e => setAgeMax(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-age-max" />
+            </div>
+          </div>
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name || !slug} className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-10 text-[13px] glow-btn" data-testid="button-create-camp">
+            {createMutation.isPending ? "Creating..." : "Create Camp"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AdminCamps() {
+  const search = useSearch();
+  const [showCreate, setShowCreate] = useState(search.includes("action=new"));
+  const [filter, setFilter] = useState("");
+  const { data: camps, isLoading } = useQuery<Program[]>({ queryKey: ["/api/admin/camps"] });
+
+  const filtered = camps?.filter(c =>
+    c.name.toLowerCase().includes(filter.toLowerCase()) ||
+    c.slug?.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  return (
+    <div className="p-8 space-y-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between gap-4 flex-wrap animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
+        <div>
+          <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Camps</h1>
+          <p className="text-blue-400/35 text-[13px] mt-1">Manage your holiday camps</p>
+        </div>
+        <Button onClick={() => setShowCreate(true)} className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-9 text-[13px] font-medium glow-btn" data-testid="button-new-camp">
+          <Plus className="w-4 h-4 mr-1.5" /> New Camp
+        </Button>
+      </div>
+
+      <div className="relative animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+        <Input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search camps..." className="pl-10 premium-input text-white/80 rounded-xl h-10" data-testid="input-search-camps" />
+      </div>
+
+      <div className="space-y-3 animate-fade-in-up" style={{ animationDelay: '150ms', opacity: 0 }}>
+        {isLoading ? (
+          [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-2xl bg-blue-500/[0.04]" />)
+        ) : filtered && filtered.length > 0 ? (
+          filtered.map(camp => (
+            <Link key={camp.id} href={`/admin/camps/${camp.id}`}>
+              <div className="flex items-center gap-4 p-4 rounded-2xl glass-card cursor-pointer hover:border-blue-500/25 transition-all duration-300 group" data-testid={`card-camp-${camp.id}`}>
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/8 border border-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                  <Tent className="w-5 h-5 text-emerald-400/70" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[14px] font-medium text-white/80 truncate">{camp.name}</p>
+                    {camp.isActive && <span className="text-[9px] text-emerald-400/70 px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/15 uppercase tracking-wider">Active</span>}
+                  </div>
+                  <p className="text-[12px] text-white/30 mt-0.5">
+                    {camp.startDate && camp.endDate ? `${camp.startDate} — ${camp.endDate}` : "No dates set"}
+                    {camp.location && ` · ${camp.location}`}
+                    {camp.ageMin && camp.ageMax && ` · Ages ${camp.ageMin}-${camp.ageMax}`}
+                  </p>
+                  {camp.slug && <p className="text-[11px] text-blue-400/30 mt-0.5">/{camp.slug}</p>}
+                </div>
+                <ArrowRight className="w-4 h-4 text-white/15 group-hover:text-blue-400/50 group-hover:translate-x-0.5 transition-all duration-300" />
+              </div>
+            </Link>
+          ))
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-center glass-card rounded-2xl">
+            <Tent className="w-12 h-12 text-blue-400/10 mb-4" />
+            <h3 className="text-[15px] font-medium text-white/40 mb-1">No camps found</h3>
+            <p className="text-[12px] text-white/20 mb-4">Create your first holiday camp to get started</p>
+          </div>
+        )}
+      </div>
+
+      <CreateCampModal open={showCreate} onClose={() => setShowCreate(false)} />
+    </div>
+  );
+}

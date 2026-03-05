@@ -4,6 +4,9 @@ import {
   users, contacts, contactRelationships, programs,
   programSessions, registrations, auditLogs, settings,
   sessionBookings, programDiscounts,
+  campPricing, campDates, campSettings,
+  children, childMedical, registrationItems,
+  attendance, emailLogs, metaEventLogs,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -12,6 +15,15 @@ import {
   type InsertSessionBooking, type SessionBooking,
   type InsertDiscount, type ProgramDiscount,
   type InsertRegistration, type Registration,
+  type InsertCampPricing, type CampPricing,
+  type InsertCampDate, type CampDate,
+  type InsertCampSettings, type CampSettings,
+  type InsertChild, type Child,
+  type InsertChildMedical, type ChildMedical,
+  type InsertRegistrationItem, type RegistrationItem,
+  type InsertAttendance, type Attendance,
+  type InsertEmailLog, type EmailLog,
+  type InsertMetaEventLog, type MetaEventLog,
   type InsertAuditLog, type AuditLog,
   type Setting,
 } from "@shared/schema";
@@ -36,6 +48,7 @@ export interface IStorage {
   getProgramBySlug(slug: string): Promise<Program | undefined>;
   createProgram(program: InsertProgram): Promise<Program>;
   updateProgram(id: number, program: Partial<InsertProgram>): Promise<Program | undefined>;
+  deleteProgram(id: number): Promise<void>;
 
   getSessionsByProgram(programId: number): Promise<ProgramSession[]>;
   getSession(id: number): Promise<ProgramSession | undefined>;
@@ -57,7 +70,40 @@ export interface IStorage {
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
+  getRegistration(id: number): Promise<Registration | undefined>;
   createRegistration(reg: InsertRegistration): Promise<Registration>;
+  updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined>;
+
+  getCampPricing(campId: number): Promise<CampPricing[]>;
+  setCampPricing(campId: number, pricing: InsertCampPricing[]): Promise<CampPricing[]>;
+
+  getCampDates(campId: number): Promise<CampDate[]>;
+  getCampDate(id: number): Promise<CampDate | undefined>;
+  createCampDate(d: InsertCampDate): Promise<CampDate>;
+  updateCampDate(id: number, data: Partial<InsertCampDate>): Promise<CampDate | undefined>;
+  deleteCampDate(id: number): Promise<void>;
+
+  getCampSettings(campId: number): Promise<CampSettings | undefined>;
+  upsertCampSettings(campId: number, data: Partial<InsertCampSettings>): Promise<CampSettings>;
+
+  getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]>;
+  getChild(id: number): Promise<Child | undefined>;
+  createChild(c: InsertChild): Promise<Child>;
+  updateChild(id: number, data: Partial<InsertChild>): Promise<Child | undefined>;
+
+  getChildMedical(childId: number): Promise<ChildMedical | undefined>;
+  upsertChildMedical(childId: number, data: Partial<InsertChildMedical>): Promise<ChildMedical>;
+
+  getRegistrationItems(registrationId: number): Promise<(RegistrationItem & { child?: Child; campDate?: CampDate })[]>;
+  createRegistrationItems(items: InsertRegistrationItem[]): Promise<RegistrationItem[]>;
+
+  getAttendanceByDate(campId: number, campDateId: number): Promise<(Attendance & { child?: Child & { medical?: ChildMedical }; parent?: Contact })[]>;
+  createAttendance(a: InsertAttendance): Promise<Attendance>;
+  createAttendanceBulk(items: InsertAttendance[]): Promise<Attendance[]>;
+  updateAttendance(id: number, data: Partial<InsertAttendance>): Promise<Attendance | undefined>;
+
+  createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
+  createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog>;
 
   getAuditLogs(): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -71,34 +117,17 @@ export interface IStorage {
     pendingRegistrations: number;
   }>;
 
+  getCampStats(): Promise<{
+    totalParents: number;
+    activeCamps: number;
+    totalRegistrations: number;
+    paidRegistrations: number;
+    totalRevenueCents: number;
+  }>;
+
   getSettings(): Promise<Record<string, string>>;
   getSetting(key: string): Promise<string | null>;
   upsertSettings(entries: { key: string; value: string }[]): Promise<void>;
-
-  getAcademyStats(): Promise<{
-    tiers: {
-      key: string;
-      label: string;
-      ageRange: string;
-      programs: {
-        id: number;
-        name: string;
-        ageMin: number | null;
-        ageMax: number | null;
-        capacity: number | null;
-        fee: string | null;
-        totalRegistrations: number;
-        confirmedRegistrations: number;
-        pendingRegistrations: number;
-        revenue: number;
-      }[];
-      totalRegistrations: number;
-      confirmedRegistrations: number;
-      pendingRegistrations: number;
-      totalCapacity: number;
-      totalRevenue: number;
-    }[];
-  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -118,7 +147,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getContacts(): Promise<Contact[]> {
-    return db.select().from(contacts).orderBy(contacts.firstName, contacts.lastName);
+    return db.select().from(contacts).orderBy(asc(contacts.firstName));
   }
 
   async getContact(id: number): Promise<Contact | undefined> {
@@ -127,9 +156,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async findContactByEmail(email: string): Promise<Contact | undefined> {
-    const [contact] = await db.select().from(contacts).where(
-      and(eq(contacts.email, email), eq(contacts.type, "guardian"))
-    );
+    const [contact] = await db.select().from(contacts).where(eq(contacts.email, email));
     return contact;
   }
 
@@ -148,23 +175,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRelationships(contactId: number): Promise<(ContactRelationship & { guardian?: Contact; player?: Contact })[]> {
-    const rels = await db
-      .select()
-      .from(contactRelationships)
-      .where(
-        or(
-          eq(contactRelationships.guardianId, contactId),
-          eq(contactRelationships.playerId, contactId)
-        )
-      );
+    const rels = await db.select().from(contactRelationships)
+      .where(or(eq(contactRelationships.guardianId, contactId), eq(contactRelationships.playerId, contactId)));
 
-    const enriched = await Promise.all(
-      rels.map(async (rel) => {
-        const [guardian] = await db.select().from(contacts).where(eq(contacts.id, rel.guardianId));
-        const [player] = await db.select().from(contacts).where(eq(contacts.id, rel.playerId));
-        return { ...rel, guardian, player };
-      })
-    );
+    const enriched = await Promise.all(rels.map(async (rel) => {
+      const [guardian] = await db.select().from(contacts).where(eq(contacts.id, rel.guardianId));
+      const [player] = await db.select().from(contacts).where(eq(contacts.id, rel.playerId));
+      return { ...rel, guardian, player };
+    }));
 
     return enriched;
   }
@@ -198,6 +216,10 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async deleteProgram(id: number): Promise<void> {
+    await db.delete(programs).where(eq(programs.id, id));
+  }
+
   async getSessionsByProgram(programId: number): Promise<ProgramSession[]> {
     return db.select().from(programSessions)
       .where(eq(programSessions.programId, programId))
@@ -229,15 +251,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSessionsByProgramAndDate(programId: number, date: string): Promise<void> {
-    await db.delete(programSessions).where(
-      and(eq(programSessions.programId, programId), eq(programSessions.date, date))
-    );
+    await db.delete(programSessions)
+      .where(and(eq(programSessions.programId, programId), eq(programSessions.date, date)));
   }
 
   async getSessionBookings(sessionId: number): Promise<(SessionBooking & { contact?: Contact })[]> {
-    const bookings = await db.select().from(sessionBookings)
-      .where(eq(sessionBookings.sessionId, sessionId))
-      .orderBy(asc(sessionBookings.createdAt));
+    const bookings = await db.select().from(sessionBookings).where(eq(sessionBookings.sessionId, sessionId));
     return Promise.all(bookings.map(async (b) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, b.contactId));
       return { ...b, contact };
@@ -246,10 +265,9 @@ export class DatabaseStorage implements IStorage {
 
   async getSessionBookingsByProgram(programId: number): Promise<(SessionBooking & { contact?: Contact; session?: ProgramSession })[]> {
     const sessions = await this.getSessionsByProgram(programId);
-    if (sessions.length === 0) return [];
     const sessionIds = sessions.map(s => s.id);
-    const bookings = await db.select().from(sessionBookings)
-      .where(inArray(sessionBookings.sessionId, sessionIds));
+    if (sessionIds.length === 0) return [];
+    const bookings = await db.select().from(sessionBookings).where(inArray(sessionBookings.sessionId, sessionIds));
     return Promise.all(bookings.map(async (b) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, b.contactId));
       const session = sessions.find(s => s.id === b.sessionId);
@@ -285,36 +303,181 @@ export class DatabaseStorage implements IStorage {
   async setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]> {
     await db.delete(programDiscounts).where(eq(programDiscounts.programId, programId));
     if (discounts.length === 0) return [];
-    return db.insert(programDiscounts).values(
-      discounts.map(d => ({ programId, minBookings: d.minBookings, discountPercent: d.discountPercent }))
-    ).returning();
+    return db.insert(programDiscounts).values(discounts.map(d => ({ ...d, programId }))).returning();
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {
     const regs = await db.select().from(registrations).orderBy(desc(registrations.registeredAt));
-    const enriched = await Promise.all(
-      regs.map(async (reg) => {
-        const [contact] = await db.select().from(contacts).where(eq(contacts.id, reg.contactId));
-        const [program] = await db.select().from(programs).where(eq(programs.id, reg.programId));
-        return { ...reg, contact, program };
-      })
-    );
-    return enriched;
+    return Promise.all(regs.map(async (r) => {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
+      const [program] = await db.select().from(programs).where(eq(programs.id, r.programId));
+      return { ...r, contact, program };
+    }));
   }
 
   async getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]> {
     const regs = await db.select().from(registrations).where(eq(registrations.programId, programId));
-    const enriched = await Promise.all(
-      regs.map(async (reg) => {
-        const [contact] = await db.select().from(contacts).where(eq(contacts.id, reg.contactId));
-        return { ...reg, contact };
-      })
-    );
-    return enriched;
+    return Promise.all(regs.map(async (r) => {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
+      return { ...r, contact };
+    }));
+  }
+
+  async getRegistration(id: number): Promise<Registration | undefined> {
+    const [reg] = await db.select().from(registrations).where(eq(registrations.id, id));
+    return reg;
   }
 
   async createRegistration(reg: InsertRegistration): Promise<Registration> {
     const [created] = await db.insert(registrations).values(reg).returning();
+    return created;
+  }
+
+  async updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined> {
+    const [updated] = await db.update(registrations).set(data).where(eq(registrations.id, id)).returning();
+    return updated;
+  }
+
+  async getCampPricing(campId: number): Promise<CampPricing[]> {
+    return db.select().from(campPricing).where(eq(campPricing.campId, campId));
+  }
+
+  async setCampPricing(campId: number, pricing: InsertCampPricing[]): Promise<CampPricing[]> {
+    await db.delete(campPricing).where(eq(campPricing.campId, campId));
+    if (pricing.length === 0) return [];
+    return db.insert(campPricing).values(pricing).returning();
+  }
+
+  async getCampDates(campId: number): Promise<CampDate[]> {
+    return db.select().from(campDates).where(eq(campDates.campId, campId)).orderBy(asc(campDates.date));
+  }
+
+  async getCampDate(id: number): Promise<CampDate | undefined> {
+    const [d] = await db.select().from(campDates).where(eq(campDates.id, id));
+    return d;
+  }
+
+  async createCampDate(d: InsertCampDate): Promise<CampDate> {
+    const [created] = await db.insert(campDates).values(d).returning();
+    return created;
+  }
+
+  async updateCampDate(id: number, data: Partial<InsertCampDate>): Promise<CampDate | undefined> {
+    const [updated] = await db.update(campDates).set(data).where(eq(campDates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCampDate(id: number): Promise<void> {
+    await db.delete(campDates).where(eq(campDates.id, id));
+  }
+
+  async getCampSettings(campId: number): Promise<CampSettings | undefined> {
+    const [s] = await db.select().from(campSettings).where(eq(campSettings.campId, campId));
+    return s;
+  }
+
+  async upsertCampSettings(campId: number, data: Partial<InsertCampSettings>): Promise<CampSettings> {
+    const existing = await this.getCampSettings(campId);
+    if (existing) {
+      const [updated] = await db.update(campSettings).set(data).where(eq(campSettings.campId, campId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(campSettings).values({ ...data, campId }).returning();
+    return created;
+  }
+
+  async getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]> {
+    const kids = await db.select().from(children).where(eq(children.parentId, parentId));
+    return Promise.all(kids.map(async (c) => {
+      const [med] = await db.select().from(childMedical).where(eq(childMedical.childId, c.id));
+      return { ...c, medical: med || undefined };
+    }));
+  }
+
+  async getChild(id: number): Promise<Child | undefined> {
+    const [c] = await db.select().from(children).where(eq(children.id, id));
+    return c;
+  }
+
+  async createChild(c: InsertChild): Promise<Child> {
+    const [created] = await db.insert(children).values(c).returning();
+    return created;
+  }
+
+  async updateChild(id: number, data: Partial<InsertChild>): Promise<Child | undefined> {
+    const [updated] = await db.update(children).set(data).where(eq(children.id, id)).returning();
+    return updated;
+  }
+
+  async getChildMedical(childId: number): Promise<ChildMedical | undefined> {
+    const [med] = await db.select().from(childMedical).where(eq(childMedical.childId, childId));
+    return med;
+  }
+
+  async upsertChildMedical(childId: number, data: Partial<InsertChildMedical>): Promise<ChildMedical> {
+    const existing = await this.getChildMedical(childId);
+    if (existing) {
+      const [updated] = await db.update(childMedical).set(data).where(eq(childMedical.childId, childId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(childMedical).values({ ...data, childId }).returning();
+    return created;
+  }
+
+  async getRegistrationItems(registrationId: number): Promise<(RegistrationItem & { child?: Child; campDate?: CampDate })[]> {
+    const items = await db.select().from(registrationItems).where(eq(registrationItems.registrationId, registrationId));
+    return Promise.all(items.map(async (item) => {
+      const [child] = await db.select().from(children).where(eq(children.id, item.childId));
+      const [campDate] = await db.select().from(campDates).where(eq(campDates.id, item.campDateId));
+      return { ...item, child, campDate };
+    }));
+  }
+
+  async createRegistrationItems(items: InsertRegistrationItem[]): Promise<RegistrationItem[]> {
+    if (items.length === 0) return [];
+    return db.insert(registrationItems).values(items).returning();
+  }
+
+  async getAttendanceByDate(campId: number, campDateId: number): Promise<(Attendance & { child?: Child & { medical?: ChildMedical }; parent?: Contact })[]> {
+    const records = await db.select().from(attendance)
+      .where(and(eq(attendance.campId, campId), eq(attendance.campDateId, campDateId)));
+
+    return Promise.all(records.map(async (a) => {
+      const [child] = await db.select().from(children).where(eq(children.id, a.childId));
+      let parent: Contact | undefined;
+      let med: ChildMedical | undefined;
+      if (child) {
+        const [p] = await db.select().from(contacts).where(eq(contacts.id, child.parentId));
+        parent = p;
+        const [m] = await db.select().from(childMedical).where(eq(childMedical.childId, child.id));
+        med = m || undefined;
+      }
+      return { ...a, child: child ? { ...child, medical: med } : undefined, parent };
+    }));
+  }
+
+  async createAttendance(a: InsertAttendance): Promise<Attendance> {
+    const [created] = await db.insert(attendance).values(a).returning();
+    return created;
+  }
+
+  async createAttendanceBulk(items: InsertAttendance[]): Promise<Attendance[]> {
+    if (items.length === 0) return [];
+    return db.insert(attendance).values(items).returning();
+  }
+
+  async updateAttendance(id: number, data: Partial<InsertAttendance>): Promise<Attendance | undefined> {
+    const [updated] = await db.update(attendance).set(data).where(eq(attendance.id, id)).returning();
+    return updated;
+  }
+
+  async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
+    const [created] = await db.insert(emailLogs).values(log).returning();
+    return created;
+  }
+
+  async createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog> {
+    const [created] = await db.insert(metaEventLogs).values(log).returning();
     return created;
   }
 
@@ -327,37 +490,62 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getStats() {
-    const [contactStats] = await db
-      .select({
-        total: sql<number>`count(*)`,
-        players: sql<number>`count(*) filter (where ${contacts.type} = 'player')`,
-        guardians: sql<number>`count(*) filter (where ${contacts.type} = 'guardian')`,
-      })
-      .from(contacts);
-
-    const [programStats] = await db
-      .select({
-        active: sql<number>`count(*) filter (where ${programs.isActive} = true)`,
-      })
-      .from(programs);
-
-    const [regStats] = await db
-      .select({
-        total: sql<number>`count(*)`,
-        pending: sql<number>`count(*) filter (where ${registrations.status} = 'pending')`,
-      })
-      .from(registrations);
-
+  async getStats(): Promise<{
+    totalContacts: number;
+    totalPlayers: number;
+    totalGuardians: number;
+    activePrograms: number;
+    totalRegistrations: number;
+    pendingRegistrations: number;
+  }> {
+    const [tc] = await db.select({ count: sql<number>`count(*)` }).from(contacts);
+    const [tp] = await db.select({ count: sql<number>`count(*)` }).from(contacts).where(eq(contacts.type, "player"));
+    const [tg] = await db.select({ count: sql<number>`count(*)` }).from(contacts).where(eq(contacts.type, "guardian"));
+    const [ap] = await db.select({ count: sql<number>`count(*)` }).from(programs).where(eq(programs.isActive, true));
+    const [tr] = await db.select({ count: sql<number>`count(*)` }).from(registrations);
+    const [pr] = await db.select({ count: sql<number>`count(*)` }).from(registrations).where(eq(registrations.status, "pending"));
     return {
-      totalContacts: Number(contactStats?.total ?? 0),
-      totalPlayers: Number(contactStats?.players ?? 0),
-      totalGuardians: Number(contactStats?.guardians ?? 0),
-      activePrograms: Number(programStats?.active ?? 0),
-      totalRegistrations: Number(regStats?.total ?? 0),
-      pendingRegistrations: Number(regStats?.pending ?? 0),
+      totalContacts: Number(tc.count),
+      totalPlayers: Number(tp.count),
+      totalGuardians: Number(tg.count),
+      activePrograms: Number(ap.count),
+      totalRegistrations: Number(tr.count),
+      pendingRegistrations: Number(pr.count),
     };
   }
+
+  async getCampStats(): Promise<{
+    totalParents: number;
+    activeCamps: number;
+    totalRegistrations: number;
+    paidRegistrations: number;
+    totalRevenueCents: number;
+  }> {
+    const [tp] = await db.select({ count: sql<number>`count(*)` }).from(contacts).where(eq(contacts.type, "guardian"));
+    const [ac] = await db.select({ count: sql<number>`count(*)` }).from(programs)
+      .where(and(eq(programs.isActive, true), eq(programs.type, "holiday_camp")));
+    const campIds = await db.select({ id: programs.id }).from(programs).where(eq(programs.type, "holiday_camp"));
+    const ids = campIds.map(c => c.id);
+    let totalRegs = 0, paidRegs = 0, totalRev = 0;
+    if (ids.length > 0) {
+      const [tr] = await db.select({ count: sql<number>`count(*)` }).from(registrations).where(inArray(registrations.programId, ids));
+      const [pr] = await db.select({ count: sql<number>`count(*)` }).from(registrations)
+        .where(and(inArray(registrations.programId, ids), eq(registrations.status, "confirmed")));
+      const [rev] = await db.select({ total: sql<number>`COALESCE(SUM(total_cents), 0)` }).from(registrations)
+        .where(and(inArray(registrations.programId, ids), eq(registrations.status, "confirmed")));
+      totalRegs = Number(tr.count);
+      paidRegs = Number(pr.count);
+      totalRev = Number(rev.total);
+    }
+    return {
+      totalParents: Number(tp.count),
+      activeCamps: Number(ac.count),
+      totalRegistrations: totalRegs,
+      paidRegistrations: paidRegs,
+      totalRevenueCents: totalRev,
+    };
+  }
+
   async getSettings(): Promise<Record<string, string>> {
     const rows = await db.select().from(settings);
     const result: Record<string, string> = {};
@@ -374,71 +562,9 @@ export class DatabaseStorage implements IStorage {
 
   async upsertSettings(entries: { key: string; value: string }[]): Promise<void> {
     for (const entry of entries) {
-      await db
-        .insert(settings)
-        .values({ key: entry.key, value: entry.value })
-        .onConflictDoUpdate({
-          target: settings.key,
-          set: { value: entry.value, updatedAt: new Date() },
-        });
+      await db.insert(settings).values({ key: entry.key, value: entry.value })
+        .onConflictDoUpdate({ target: settings.key, set: { value: entry.value, updatedAt: new Date() } });
     }
-  }
-
-  async getAcademyStats() {
-    const academyPrograms = await db
-      .select()
-      .from(programs)
-      .where(and(eq(programs.type, "academy"), eq(programs.isActive, true)));
-
-    const allRegs = await db.select().from(registrations);
-
-    const tierDefs = [
-      { key: "u4-u8", label: "U4–U8 FUNino", ageRange: "4–8 years", minAge: 4, maxAge: 8 },
-      { key: "u9-u12", label: "U9–U12 Pre-Academy", ageRange: "9–12 years", minAge: 9, maxAge: 12 },
-      { key: "u13-u20", label: "U13–U20 Academy", ageRange: "13–20 years", minAge: 13, maxAge: 20 },
-    ];
-
-    const tiers = tierDefs.map((tier) => {
-      const tierProgs = academyPrograms.filter((p) => {
-        const progMin = p.ageMin ?? 0;
-        const progMax = p.ageMax ?? 99;
-        return progMin >= tier.minAge && progMax <= tier.maxAge;
-      });
-
-      const programStats = tierProgs.map((p) => {
-        const progRegs = allRegs.filter((r) => r.programId === p.id);
-        const confirmed = progRegs.filter((r) => r.status === "confirmed");
-        const pending = progRegs.filter((r) => r.status === "pending");
-        const revenue = confirmed.reduce((sum, r) => sum + parseFloat(r.amountPaid ?? "0"), 0);
-
-        return {
-          id: p.id,
-          name: p.name,
-          ageMin: p.ageMin,
-          ageMax: p.ageMax,
-          capacity: p.capacity,
-          fee: p.fee,
-          totalRegistrations: progRegs.length,
-          confirmedRegistrations: confirmed.length,
-          pendingRegistrations: pending.length,
-          revenue,
-        };
-      });
-
-      return {
-        key: tier.key,
-        label: tier.label,
-        ageRange: tier.ageRange,
-        programs: programStats,
-        totalRegistrations: programStats.reduce((s, p) => s + p.totalRegistrations, 0),
-        confirmedRegistrations: programStats.reduce((s, p) => s + p.confirmedRegistrations, 0),
-        pendingRegistrations: programStats.reduce((s, p) => s + p.pendingRegistrations, 0),
-        totalCapacity: programStats.reduce((s, p) => s + (p.capacity ?? 0), 0),
-        totalRevenue: programStats.reduce((s, p) => s + p.revenue, 0),
-      };
-    });
-
-    return { tiers };
   }
 }
 
