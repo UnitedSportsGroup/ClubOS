@@ -1,9 +1,12 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertContactSchema, insertProgramSchema, insertRegistrationSchema } from "@shared/schema";
 import { z } from "zod";
 import { requireAuth, verifyPassword } from "./auth";
+import { createCheckoutSession, constructWebhookEvent } from "./stripe";
+import { sendPurchaseEvent } from "./meta-capi";
+import { sendConfirmationEmail } from "./email";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -349,7 +352,7 @@ export async function registerRoutes(
 
   app.post("/api/public/book", async (req, res) => {
     try {
-      const { parent, children: childrenData, items, campSlug, utmSource, utmMedium, utmCampaign, fbclid } = req.body;
+      const { parent, children: childrenData, items, campSlug, utmSource, utmMedium, utmCampaign, fbclid, fbp, fbc, userAgent } = req.body;
 
       const camp = await storage.getProgramBySlug(campSlug);
       if (!camp) return res.status(404).json({ message: "Camp not found" });
@@ -456,14 +459,51 @@ export async function registerRoutes(
         // ignore duplicates
       }
 
-      res.status(201).json({
-        registrationId: registration.id,
-        subtotalCents,
-        discountCents,
-        totalCents,
-        currency: "NZD",
-        discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
-      });
+      if (totalCents > 0 && process.env.STRIPE_SECRET_KEY) {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers['host'] || 'localhost:5000';
+        const baseUrl = `${protocol}://${host}`;
+
+        const session = await createCheckoutSession({
+          registrationId: registration.id,
+          campName: camp.name,
+          totalCents,
+          currency: "NZD",
+          parentEmail: parent.email,
+          successUrl: `${baseUrl}/${campSlug}/success?registrationId=${registration.id}&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${baseUrl}/${campSlug}/book`,
+          metadata: {
+            campId: String(camp.id),
+            campSlug,
+            fbp: fbp || "",
+            fbc: fbc || "",
+            userAgent: userAgent || "",
+          },
+        });
+
+        await storage.updateRegistration(registration.id, {
+          stripeCheckoutSessionId: session.id,
+        });
+
+        res.status(201).json({
+          registrationId: registration.id,
+          subtotalCents,
+          discountCents,
+          totalCents,
+          currency: "NZD",
+          discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
+          checkoutUrl: session.url,
+        });
+      } else {
+        res.status(201).json({
+          registrationId: registration.id,
+          subtotalCents,
+          discountCents,
+          totalCents,
+          currency: "NZD",
+          discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
+        });
+      }
     } catch (error: any) {
       console.error("Booking error:", error);
       res.status(400).json({ message: error.message });
@@ -485,5 +525,141 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/stripe/webhook", async (req: Request, res: Response) => {
+    try {
+      const sig = req.headers["stripe-signature"] as string;
+      if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+        console.warn("[Stripe Webhook] Missing signature or webhook secret — rejecting event");
+        return res.status(400).json({ message: "Webhook signature verification required" });
+      }
+
+      const event = constructWebhookEvent(req.rawBody as Buffer, sig);
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as any;
+        const registrationId = parseInt(session.metadata?.registrationId);
+        if (registrationId) {
+          await handlePaymentSuccess(registrationId, session.id, session.metadata);
+        }
+      }
+
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("[Stripe Webhook] Error:", error.message);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/public/confirm-payment", async (req, res) => {
+    try {
+      const { registrationId, sessionId } = req.body;
+      if (!registrationId) return res.status(400).json({ message: "registrationId required" });
+      const reg = await storage.getRegistration(registrationId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      if (reg.status === "confirmed") return res.json({ ok: true, alreadyConfirmed: true });
+
+      if (reg.stripeCheckoutSessionId) {
+        if (sessionId && sessionId !== reg.stripeCheckoutSessionId) {
+          return res.status(403).json({ message: "Session mismatch" });
+        }
+        const { stripe } = await import("./stripe");
+        const session = await stripe.checkout.sessions.retrieve(reg.stripeCheckoutSessionId);
+        if (session.payment_status === "paid") {
+          const metaRegistrationId = session.metadata?.registrationId;
+          if (metaRegistrationId && parseInt(metaRegistrationId) !== reg.id) {
+            return res.status(403).json({ message: "Registration mismatch" });
+          }
+          await handlePaymentSuccess(reg.id, session.id, session.metadata as any);
+          return res.json({ ok: true });
+        }
+        return res.status(400).json({ message: "Payment not completed" });
+      }
+
+      return res.status(400).json({ message: "No checkout session" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/registrations/:id", async (req, res) => {
+    try {
+      const reg = await storage.getRegistration(parseInt(req.params.id));
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      const contact = await storage.getContact(reg.contactId);
+      const program = await storage.getProgram(reg.programId);
+      const items = await storage.getRegistrationItems(reg.id);
+      res.json({
+        id: reg.id,
+        status: reg.status,
+        totalCents: reg.totalCents,
+        discountCents: reg.discountCents,
+        subtotalCents: reg.subtotalCents,
+        currency: reg.currency,
+        campName: program?.name,
+        campSlug: program?.slug,
+        parentName: contact ? `${contact.firstName} ${contact.lastName}` : "",
+        parentEmail: contact?.email,
+        itemCount: items.length,
+        registeredAt: reg.registeredAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
+}
+
+async function handlePaymentSuccess(registrationId: number, stripeSessionId?: string, metadata?: Record<string, string>) {
+  const reg = await storage.getRegistration(registrationId);
+  if (!reg || reg.status === "confirmed") return;
+
+  await storage.updateRegistration(registrationId, {
+    status: "confirmed",
+  });
+
+  const contact = await storage.getContact(reg.contactId);
+  const program = await storage.getProgram(reg.programId);
+  const items = await storage.getRegistrationItems(registrationId);
+
+  if (!contact || !program) return;
+
+  const childIds = [...new Set(items.map(i => i.childId))];
+  const childrenNames: string[] = [];
+  for (const childId of childIds) {
+    const child = await storage.getChild(childId);
+    if (child) childrenNames.push(`${child.firstName} ${child.lastName}`);
+  }
+
+  const dates = await storage.getCampDates(program.id);
+  const dateLabels = dates.map(d => new Date(d.date + 'T12:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' }));
+
+  sendConfirmationEmail({
+    registrationId,
+    campId: program.id,
+    parentEmail: contact.email || "",
+    parentName: `${contact.firstName} ${contact.lastName}`,
+    childrenNames,
+    campName: program.name,
+    campDates: dateLabels.join(", "),
+    location: program.location || "TBD",
+    totalPaid: `$${((reg.totalCents || 0) / 100).toFixed(2)} NZD`,
+  }).catch(e => console.error("[Post-payment] Email error:", e));
+
+  const eventId = `purchase_${registrationId}_${Date.now()}`;
+  sendPurchaseEvent({
+    registrationId,
+    campId: program.id,
+    totalCents: reg.totalCents || 0,
+    currency: reg.currency || "NZD",
+    email: contact.email || "",
+    phone: contact.phone || undefined,
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    fbp: metadata?.fbp || undefined,
+    fbc: metadata?.fbc || undefined,
+    userAgent: metadata?.userAgent || undefined,
+    ipAddress: undefined,
+    eventId,
+  }).catch(e => console.error("[Post-payment] Meta CAPI error:", e));
 }

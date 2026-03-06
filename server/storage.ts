@@ -103,6 +103,7 @@ export interface IStorage {
   updateAttendance(id: number, data: Partial<InsertAttendance>): Promise<Attendance | undefined>;
 
   createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
+  getEmailLogByRegistration(registrationId: number): Promise<EmailLog | undefined>;
   createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog>;
 
   getAuditLogs(): Promise<AuditLog[]>;
@@ -474,6 +475,11 @@ export class DatabaseStorage implements IStorage {
   async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
     const [created] = await db.insert(emailLogs).values(log).returning();
     return created;
+  }
+
+  async getEmailLogByRegistration(registrationId: number): Promise<EmailLog | undefined> {
+    const [log] = await db.select().from(emailLogs).where(eq(emailLogs.registrationId, registrationId)).limit(1);
+    return log;
   }
 
   async createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog> {
