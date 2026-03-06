@@ -4,43 +4,35 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
   apiVersion: "2025-04-30.basil",
 });
 
-export interface CheckoutParams {
+export interface PaymentIntentParams {
   registrationId: number;
   campName: string;
   totalCents: number;
   currency: string;
   parentEmail: string;
-  successUrl: string;
-  cancelUrl: string;
   metadata?: Record<string, string>;
 }
 
-export async function createCheckoutSession(params: CheckoutParams): Promise<Stripe.Checkout.Session> {
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ["card"],
-    mode: "payment",
-    customer_email: params.parentEmail,
-    line_items: [
-      {
-        price_data: {
-          currency: params.currency.toLowerCase(),
-          product_data: {
-            name: `${params.campName} — Registration #${params.registrationId}`,
-          },
-          unit_amount: params.totalCents,
-        },
-        quantity: 1,
-      },
-    ],
+export async function createPaymentIntent(params: PaymentIntentParams): Promise<Stripe.PaymentIntent> {
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: params.totalCents,
+    currency: params.currency.toLowerCase(),
+    receipt_email: params.parentEmail,
     metadata: {
       registrationId: String(params.registrationId),
       ...params.metadata,
     },
-    success_url: params.successUrl,
-    cancel_url: params.cancelUrl,
+    description: `${params.campName} — Registration #${params.registrationId}`,
+    automatic_payment_methods: {
+      enabled: true,
+    },
   });
 
-  return session;
+  return paymentIntent;
+}
+
+export async function retrievePaymentIntent(id: string): Promise<Stripe.PaymentIntent> {
+  return stripe.paymentIntents.retrieve(id);
 }
 
 export function constructWebhookEvent(payload: string | Buffer, sig: string): Stripe.Event {

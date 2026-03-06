@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertContactSchema, insertProgramSchema, insertRegistrationSchema } from "@shared/schema";
 import { z } from "zod";
 import { requireAuth, verifyPassword } from "./auth";
-import { createCheckoutSession, constructWebhookEvent } from "./stripe";
+import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
 
@@ -460,18 +460,12 @@ export async function registerRoutes(
       }
 
       if (totalCents > 0 && process.env.STRIPE_SECRET_KEY) {
-        const protocol = req.headers['x-forwarded-proto'] || 'https';
-        const host = req.headers['host'] || 'localhost:5000';
-        const baseUrl = `${protocol}://${host}`;
-
-        const session = await createCheckoutSession({
+        const paymentIntent = await createPaymentIntent({
           registrationId: registration.id,
           campName: camp.name,
           totalCents,
           currency: "NZD",
           parentEmail: parent.email,
-          successUrl: `${baseUrl}/${campSlug}/success?registrationId=${registration.id}&session_id={CHECKOUT_SESSION_ID}`,
-          cancelUrl: `${baseUrl}/${campSlug}/book`,
           metadata: {
             campId: String(camp.id),
             campSlug,
@@ -482,7 +476,7 @@ export async function registerRoutes(
         });
 
         await storage.updateRegistration(registration.id, {
-          stripeCheckoutSessionId: session.id,
+          stripePaymentIntentId: paymentIntent.id,
         });
 
         res.status(201).json({
@@ -492,7 +486,11 @@ export async function registerRoutes(
           totalCents,
           currency: "NZD",
           discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
-          checkoutUrl: session.url,
+          clientSecret: paymentIntent.client_secret,
+          campName: camp.name,
+          campSlug,
+          parentName: `${parent.firstName} ${parent.lastName}`,
+          parentEmail: parent.email,
         });
       } else {
         res.status(201).json({
@@ -535,11 +533,11 @@ export async function registerRoutes(
 
       const event = constructWebhookEvent(req.rawBody as Buffer, sig);
 
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object as any;
-        const registrationId = parseInt(session.metadata?.registrationId);
+      if (event.type === "payment_intent.succeeded") {
+        const paymentIntent = event.data.object as any;
+        const registrationId = parseInt(paymentIntent.metadata?.registrationId);
         if (registrationId) {
-          await handlePaymentSuccess(registrationId, session.id, session.metadata);
+          await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
         }
       }
 
