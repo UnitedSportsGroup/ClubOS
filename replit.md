@@ -54,9 +54,10 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin/settings` — Club settings
 
 ## Color Theme
-- **Public pages**: Clean white (#FFFFFF) with slate accents, blue-600 CTAs, gradient navy hero sections
+- **Public pages**: Brand colors — Blue #22399B (primary), White #FBFBFC (secondary), Gold #D9B10F (accent), Dark Blue #221F7A (accent). Font: Inter Tight (Bold for headings, Regular for body, Italic for emphasis). Conversion-focused layout with Wistia video embed, scrollable review carousel, and fade-in animations.
 - **Admin pages**: Premium midnight blue-black #02060E, glassmorphic panels, blue glow effects
 - Custom CSS utilities: glass-card, glass-panel, glow-btn, glow-border, premium-input, row-hover, animate-fade-in-up
+- **Fonts**: Inter Tight font files stored in `client/public/fonts/`, loaded via `@font-face` in `client/src/index.css`
 
 ## Data Model
 - **users** - Staff users with RBAC roles
