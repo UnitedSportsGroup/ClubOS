@@ -486,11 +486,8 @@ export async function registerRoutes(
           totalCents,
           currency: "NZD",
           discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
-          clientSecret: paymentIntent.client_secret,
-          campName: camp.name,
+          requiresPayment: true,
           campSlug,
-          parentName: `${parent.firstName} ${parent.lastName}`,
-          parentEmail: parent.email,
         });
       } else {
         res.status(201).json({
@@ -550,30 +547,84 @@ export async function registerRoutes(
 
   app.post("/api/public/confirm-payment", async (req, res) => {
     try {
-      const { registrationId, sessionId } = req.body;
+      const { registrationId, paymentIntentId } = req.body;
       if (!registrationId) return res.status(400).json({ message: "registrationId required" });
       const reg = await storage.getRegistration(registrationId);
       if (!reg) return res.status(404).json({ message: "Registration not found" });
       if (reg.status === "confirmed") return res.json({ ok: true, alreadyConfirmed: true });
 
-      if (reg.stripeCheckoutSessionId) {
-        if (sessionId && sessionId !== reg.stripeCheckoutSessionId) {
-          return res.status(403).json({ message: "Session mismatch" });
+      if (reg.stripePaymentIntentId) {
+        if (paymentIntentId && paymentIntentId !== reg.stripePaymentIntentId) {
+          return res.status(403).json({ message: "Payment intent mismatch" });
         }
-        const { stripe } = await import("./stripe");
-        const session = await stripe.checkout.sessions.retrieve(reg.stripeCheckoutSessionId);
-        if (session.payment_status === "paid") {
-          const metaRegistrationId = session.metadata?.registrationId;
+        const pi = await retrievePaymentIntent(reg.stripePaymentIntentId);
+        if (pi.status === "succeeded") {
+          const metaRegistrationId = pi.metadata?.registrationId;
           if (metaRegistrationId && parseInt(metaRegistrationId) !== reg.id) {
             return res.status(403).json({ message: "Registration mismatch" });
           }
-          await handlePaymentSuccess(reg.id, session.id, session.metadata as any);
+          await handlePaymentSuccess(reg.id, pi.id, pi.metadata as any);
           return res.json({ ok: true });
         }
         return res.status(400).json({ message: "Payment not completed" });
       }
 
-      return res.status(400).json({ message: "No checkout session" });
+      return res.status(400).json({ message: "No payment intent" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/checkout/:registrationId", async (req, res) => {
+    try {
+      const regId = parseInt(req.params.registrationId);
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      if (reg.status === "confirmed") return res.status(400).json({ message: "Already confirmed" });
+      if (!reg.stripePaymentIntentId) return res.status(400).json({ message: "No payment intent" });
+
+      const pi = await retrievePaymentIntent(reg.stripePaymentIntentId);
+      if (!pi.client_secret) return res.status(400).json({ message: "No client secret" });
+
+      const contact = await storage.getContact(reg.contactId);
+      const program = await storage.getProgram(reg.programId);
+      const items = await storage.getRegistrationItems(reg.id);
+
+      const childIds = [...new Set(items.map(i => i.childId))];
+      const childrenNames: string[] = [];
+      for (const childId of childIds) {
+        const child = await storage.getChild(childId);
+        if (child) childrenNames.push(`${child.firstName} ${child.lastName}`);
+      }
+
+      const campDates = await storage.getCampDates(reg.programId);
+      const itemDetails = items.map(item => {
+        const campDate = campDates.find(d => d.id === item.campDateId);
+        const dateLabel = campDate
+          ? new Date(campDate.date + 'T12:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })
+          : "Unknown";
+        const childIndex = childIds.indexOf(item.childId);
+        return {
+          dateName: dateLabel,
+          productType: item.productType,
+          childIndex,
+        };
+      });
+
+      res.json({
+        clientSecret: pi.client_secret,
+        registrationId: reg.id,
+        totalCents: reg.totalCents,
+        subtotalCents: reg.subtotalCents,
+        discountCents: reg.discountCents,
+        currency: reg.currency || "NZD",
+        campName: program?.name || "",
+        campSlug: program?.slug || "",
+        parentName: contact ? `${contact.firstName} ${contact.lastName}` : "",
+        parentEmail: contact?.email || "",
+        items: itemDetails,
+        childrenNames,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

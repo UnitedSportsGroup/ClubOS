@@ -9,7 +9,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - **Backend**: Express.js + express-session (bcrypt auth)
 - **Database**: PostgreSQL (Neon via Drizzle ORM)
 - **State Management**: TanStack React Query
-- **Payments**: Stripe Checkout (manual API key integration)
+- **Payments**: Stripe Elements (embedded PaymentIntent, custom checkout page)
 - **Email**: Resend API (optional — logs only if RESEND_API_KEY set)
 - **Tracking**: Meta Pixel (client) + Conversions API (server)
 
@@ -17,7 +17,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `client/src/` - React frontend
   - `pages/` - Page components:
     - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-registrations, admin-attendance, admin-crm, admin-settings
-    - Public: public-landing, camp-page, booking-page, booking-success, booking-cancel
+    - Public: public-landing, camp-page, booking-page, checkout-page, booking-success, booking-cancel
   - `components/` - app-sidebar, ui/ (shadcn)
   - `lib/meta-pixel.ts` - Client-side Meta Pixel tracking
 - `server/` - Express backend
@@ -25,7 +25,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
   - `storage.ts` - Database storage layer (IStorage interface)
   - `auth.ts` - Session auth with bcrypt + connect-pg-simple
   - `seed.ts` - Seeds admin user + sample camps
-  - `stripe.ts` - Stripe Checkout session creation + webhook verification
+  - `stripe.ts` - Stripe PaymentIntent creation + webhook verification
   - `email.ts` - Resend email sending + confirmation template
   - `meta-capi.ts` - Meta Conversions API server-side events
   - `db.ts` - Database connection
@@ -40,7 +40,8 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Routing
 - `/` — Public landing page (lists active camps)
 - `/:slug` — Conversion-focused camp detail page (hero, pricing, FAQ, inclusions)
-- `/:slug/book` — Multi-step booking form (parent → children → sessions → Stripe checkout)
+- `/:slug/book` — Multi-step booking form (parent → children → sessions)
+- `/:slug/checkout` — Custom branded checkout page with embedded Stripe Elements
 - `/:slug/success` — Booking confirmation with payment verification
 - `/:slug/cancel` — Booking cancelled
 - `/admin/login` — Admin login
@@ -83,14 +84,16 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 
 ## Payment Flow
 1. Parent completes booking form → POST /api/public/book
-2. If totalCents > 0 and STRIPE_SECRET_KEY set → creates Stripe Checkout session → redirects to Stripe
-3. Stripe redirects to success page with session_id → POST /api/public/confirm-payment verifies payment
-4. Webhook (POST /api/stripe/webhook) also confirms payment (backup)
-5. On confirmation: updates registration status, sends confirmation email, fires Meta Purchase event
+2. If totalCents > 0 and STRIPE_SECRET_KEY set → creates Stripe PaymentIntent → returns clientSecret
+3. Redirects to custom checkout page (/:slug/checkout) with embedded Stripe Elements
+4. User pays on-platform → card form confirms PaymentIntent → POST /api/public/confirm-payment
+5. Webhook (POST /api/stripe/webhook, event: payment_intent.succeeded) also confirms payment (backup)
+6. On confirmation: updates registration status, sends confirmation email, fires Meta Purchase event
 
 ## Environment Variables
 - `STRIPE_SECRET_KEY` — Stripe API key (secret, set by user)
-- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (set after deployment)
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret
+- `VITE_STRIPE_PUBLISHABLE_KEY` — Stripe publishable key (frontend, for Stripe Elements)
 - `SESSION_SECRET` — Express session secret
 - `RESEND_API_KEY` — Optional: Resend email API key
 - `META_PIXEL_ID` — Optional: Meta Pixel ID (also set VITE_META_PIXEL_ID for frontend)

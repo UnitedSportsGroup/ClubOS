@@ -79,8 +79,8 @@ export default function BookingPage() {
           body: JSON.stringify({ registrationId: result.registrationId }),
         });
         setLocation(`/${slug}/success?registrationId=${result.registrationId}&total=${result.totalCents}`);
-      } else if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
+      } else if (result.requiresPayment) {
+        setLocation(`/${slug}/checkout?registrationId=${result.registrationId}`);
       } else {
         setLocation(`/${slug}/success?registrationId=${result.registrationId}&total=${result.totalCents}`);
       }

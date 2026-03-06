@@ -12,7 +12,6 @@ export default function BookingSuccess() {
   const slug = params?.slug || "";
   const urlParams = new URLSearchParams(window.location.search);
   const registrationId = urlParams.get("registrationId");
-  const sessionId = urlParams.get("session_id");
   const [confirmed, setConfirmed] = useState(false);
 
   const { data: registration, isLoading } = useQuery<any>({
@@ -34,7 +33,6 @@ export default function BookingSuccess() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/public/confirm-payment", {
         registrationId: parseInt(registrationId || "0"),
-        sessionId: sessionId || undefined,
       });
       return res.json();
     },
@@ -42,10 +40,10 @@ export default function BookingSuccess() {
   });
 
   useEffect(() => {
-    if (sessionId && registrationId && !confirmed) {
+    if (registrationId && !confirmed) {
       confirmMutation.mutate();
     }
-  }, [sessionId, registrationId]);
+  }, [registrationId]);
 
   useEffect(() => {
     if (registration && (registration.status === "confirmed" || confirmed)) {

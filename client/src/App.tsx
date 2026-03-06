@@ -19,6 +19,7 @@ import CampPage from "@/pages/camp-page";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
 import BookingCancel from "@/pages/booking-cancel";
+import CheckoutPage from "@/pages/checkout-page";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,7 @@ function App() {
   const [isPublicLanding] = useRoute("/");
   const [isCampSlug] = useRoute("/:slug");
   const [isCampBook] = useRoute("/:slug/book");
+  const [isCampCheckout] = useRoute("/:slug/checkout");
   const [isCampSuccess] = useRoute("/:slug/success");
   const [isCampCancel] = useRoute("/:slug/cancel");
   const [isAdminLogin] = useRoute("/admin/login");
@@ -128,6 +130,7 @@ function App() {
           <Switch>
             <Route path="/" component={PublicLanding} />
             <Route path="/:slug/book" component={BookingPage} />
+            <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/success" component={BookingSuccess} />
             <Route path="/:slug/cancel" component={BookingCancel} />
             <Route path="/:slug" component={CampPage} />
