@@ -345,86 +345,83 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 3 — KEY INFORMATION
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="relative py-14 md:py-20 overflow-hidden" style={{ background: BRAND.darkBlue }}>
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] opacity-[0.08] rounded-full" style={{ background: `radial-gradient(ellipse, ${BRAND.gold} 0%, transparent 70%)` }} />
-        </div>
+      <section className="relative py-14 md:py-20 overflow-hidden" style={{ background: BRAND.white }}>
         <div className="relative max-w-5xl mx-auto px-6">
           <h2
             className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-center mb-12"
-            style={{ color: BRAND.gold }}
+            style={{ color: BRAND.darkBlue }}
             data-testid="text-key-info-heading"
           >
             Key Information
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
 
-            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(217,177,15,0.3) 0%, rgba(34,57,155,0.2) 50%, rgba(217,177,15,0.3) 100%)` }} data-testid="info-card-age">
-              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: 'rgba(14,12,62,0.85)' }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(217,177,15,0.1) 0%, transparent 70%)` }} />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.gold}, transparent)`, boxShadow: `0 0 12px ${BRAND.gold}, 0 0 24px ${BRAND.gold}40` }} />
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.6) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-age">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: BRAND.darkBlue }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.2) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
                 <div className="relative z-10">
-                  <Users className="w-5 h-5 mx-auto mb-2.5" style={{ color: `${BRAND.gold}99` }} />
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.4)' }}>Age</p>
-                  <p className="text-[15px] font-bold text-white">3–8 Years</p>
+                  <Users className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Age</p>
+                  <p className="text-[15px] font-bold" style={{ color: BRAND.white }}>3–8 Years</p>
                 </div>
               </div>
             </div>
 
-            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(217,177,15,0.3) 0%, rgba(34,57,155,0.2) 50%, rgba(217,177,15,0.3) 100%)` }} data-testid="info-card-dates">
-              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: 'rgba(14,12,62,0.85)' }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(217,177,15,0.1) 0%, transparent 70%)` }} />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.gold}, transparent)`, boxShadow: `0 0 12px ${BRAND.gold}, 0 0 24px ${BRAND.gold}40` }} />
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.6) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-dates">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: BRAND.darkBlue }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.2) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
                 <div className="relative z-10">
-                  <Calendar className="w-5 h-5 mx-auto mb-2.5" style={{ color: `${BRAND.gold}99` }} />
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.4)' }}>Dates</p>
-                  <p className="text-[13px] font-bold leading-snug text-white">
+                  <Calendar className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Dates</p>
+                  <p className="text-[13px] font-bold leading-snug" style={{ color: BRAND.white }}>
                     Week 1: 6–10 April
                   </p>
-                  <p className="text-[13px] font-bold leading-snug text-white">
+                  <p className="text-[13px] font-bold leading-snug" style={{ color: BRAND.white }}>
                     Week 2: 13–17 April
                   </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'rgba(251,251,252,0.35)' }}>Mon – Fri</p>
+                  <p className="text-[10px] mt-1" style={{ color: 'rgba(251,251,252,0.4)' }}>Mon – Fri</p>
                 </div>
               </div>
             </div>
 
-            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(217,177,15,0.3) 0%, rgba(34,57,155,0.2) 50%, rgba(217,177,15,0.3) 100%)` }} data-testid="info-card-location">
-              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: 'rgba(14,12,62,0.85)' }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(217,177,15,0.1) 0%, transparent 70%)` }} />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.gold}, transparent)`, boxShadow: `0 0 12px ${BRAND.gold}, 0 0 24px ${BRAND.gold}40` }} />
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.6) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-location">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: BRAND.darkBlue }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.2) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
                 <div className="relative z-10">
-                  <MapPin className="w-5 h-5 mx-auto mb-2.5" style={{ color: `${BRAND.gold}99` }} />
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.4)' }}>Drop Off + Pick Up</p>
-                  <p className="text-[14px] font-bold text-white">United Sports Centre</p>
-                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.45)' }}>466 Yaldhurst Road</p>
+                  <MapPin className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Drop Off + Pick Up</p>
+                  <p className="text-[14px] font-bold" style={{ color: BRAND.white }}>United Sports Centre</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.5)' }}>466 Yaldhurst Road</p>
                 </div>
               </div>
             </div>
 
-            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(217,177,15,0.3) 0%, rgba(34,57,155,0.2) 50%, rgba(217,177,15,0.3) 100%)` }} data-testid="info-card-sessions">
-              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: 'rgba(14,12,62,0.85)' }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(217,177,15,0.1) 0%, transparent 70%)` }} />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.gold}, transparent)`, boxShadow: `0 0 12px ${BRAND.gold}, 0 0 24px ${BRAND.gold}40` }} />
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.6) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-sessions">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: BRAND.darkBlue }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.2) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
                 <div className="relative z-10">
-                  <Clock className="w-5 h-5 mx-auto mb-2.5" style={{ color: `${BRAND.gold}99` }} />
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.4)' }}>Session Options</p>
-                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.85)' }}>Morning: 8am – 1pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.85)' }}>Afternoon: 1pm – 5pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.85)' }}>Full Day: 9am – 5pm</p>
+                  <Clock className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Session Options</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Morning: 8am – 1pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Afternoon: 1pm – 5pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Full Day: 9am – 5pm</p>
                 </div>
               </div>
             </div>
 
-            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(217,177,15,0.3) 0%, rgba(34,57,155,0.2) 50%, rgba(217,177,15,0.3) 100%)` }} data-testid="info-card-price">
-              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: 'rgba(14,12,62,0.85)' }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(217,177,15,0.1) 0%, transparent 70%)` }} />
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.gold}, transparent)`, boxShadow: `0 0 12px ${BRAND.gold}, 0 0 24px ${BRAND.gold}40` }} />
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.6) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-price">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: BRAND.darkBlue }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.2) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
                 <div className="relative z-10">
-                  <DollarSign className="w-5 h-5 mx-auto mb-2.5" style={{ color: `${BRAND.gold}99` }} />
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.4)' }}>Price</p>
-                  <p className="text-[13px] font-bold text-white">Half Day $40</p>
-                  <p className="text-[13px] font-bold text-white">Full Day $60</p>
+                  <DollarSign className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Price</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Half Day $40</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Full Day $60</p>
                 </div>
               </div>
             </div>
