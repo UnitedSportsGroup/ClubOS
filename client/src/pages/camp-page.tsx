@@ -343,24 +343,92 @@ export default function CampPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════
-          SECTION 3 — QUICK KEY INFO STRIP
+          SECTION 3 — KEY INFORMATION
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-10 md:py-14 bg-white">
-        <div className="max-w-4xl mx-auto px-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {[
-              { icon: Users, label: "Ages", value: camp.ageMin && camp.ageMax ? `${camp.ageMin}–${camp.ageMax} Years` : 'All Ages' },
-              { icon: Calendar, label: "Dates", value: dateRange },
-              { icon: MapPin, label: "Location", value: camp.location || 'Christchurch Football Centre' },
-              { icon: Clock, label: "Sessions", value: "Morning / Afternoon / Full Day" },
-              { icon: DollarSign, label: "Price", value: lowestPrice > 0 ? `From $${(lowestPrice / 100).toFixed(0)}` : 'Free' },
-            ].map((card, i) => (
-              <div key={i} className="rounded-xl border border-slate-100 bg-white p-4 text-center hover:shadow-sm transition-all" data-testid={`info-card-${card.label.toLowerCase()}`}>
-                <card.icon className="w-5 h-5 mx-auto mb-2" style={{ color: BRAND.blue }} />
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-0.5">{card.label}</p>
-                <p className="text-[13px] sm:text-[14px] text-slate-800 font-bold leading-tight">{card.value}</p>
+      <section className="relative py-14 md:py-20 overflow-hidden" style={{ background: '#060a18' }}>
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] opacity-[0.12] rounded-full" style={{ background: `radial-gradient(ellipse, ${BRAND.blue} 0%, transparent 70%)` }} />
+        </div>
+        <div className="relative max-w-5xl mx-auto px-6">
+          <h2
+            className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-center mb-12"
+            style={{ background: `linear-gradient(180deg, rgba(251,251,252,0.95) 0%, rgba(34,57,155,0.7) 100%)`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+            data-testid="text-key-info-heading"
+          >
+            Key Information
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.2) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-age">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: '#0c1029' }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.15) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
+                <div className="relative z-10">
+                  <Users className="w-5 h-5 mx-auto mb-2.5" style={{ color: 'rgba(34,57,155,0.7)' }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.3)' }}>Age</p>
+                  <p className="text-[15px] font-bold" style={{ color: 'rgba(251,251,252,0.9)' }}>3–8 Years</p>
+                </div>
               </div>
-            ))}
+            </div>
+
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.2) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-dates">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: '#0c1029' }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.15) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
+                <div className="relative z-10">
+                  <Calendar className="w-5 h-5 mx-auto mb-2.5" style={{ color: 'rgba(34,57,155,0.7)' }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.3)' }}>Dates</p>
+                  <p className="text-[13px] font-bold leading-snug" style={{ color: 'rgba(251,251,252,0.9)' }}>
+                    Week 1: 6–10 April
+                  </p>
+                  <p className="text-[13px] font-bold leading-snug" style={{ color: 'rgba(251,251,252,0.9)' }}>
+                    Week 2: 13–17 April
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: 'rgba(251,251,252,0.25)' }}>Mon – Fri</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.2) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-location">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: '#0c1029' }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.15) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
+                <div className="relative z-10">
+                  <MapPin className="w-5 h-5 mx-auto mb-2.5" style={{ color: 'rgba(34,57,155,0.7)' }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.3)' }}>Drop Off + Pick Up</p>
+                  <p className="text-[14px] font-bold" style={{ color: 'rgba(251,251,252,0.9)' }}>United Sports Centre</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.35)' }}>466 Yaldhurst Road</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.2) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-sessions">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: '#0c1029' }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.15) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
+                <div className="relative z-10">
+                  <Clock className="w-5 h-5 mx-auto mb-2.5" style={{ color: 'rgba(34,57,155,0.7)' }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.3)' }}>Session Options</p>
+                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.75)' }}>Morning: 8am – 1pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.75)' }}>Afternoon: 1pm – 5pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: 'rgba(251,251,252,0.75)' }}>Full Day: 9am – 5pm</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="group relative rounded-2xl p-[1px] transition-all duration-500 hover:scale-[1.02]" style={{ background: `linear-gradient(135deg, rgba(34,57,155,0.4) 0%, rgba(34,31,122,0.2) 50%, rgba(34,57,155,0.4) 100%)` }} data-testid="info-card-price">
+              <div className="relative rounded-2xl p-5 text-center h-full overflow-hidden" style={{ background: '#0c1029' }}>
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% 100%, rgba(34,57,155,0.15) 0%, transparent 70%)` }} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `linear-gradient(90deg, transparent, ${BRAND.blue}, transparent)`, boxShadow: `0 0 12px ${BRAND.blue}, 0 0 24px ${BRAND.blue}40` }} />
+                <div className="relative z-10">
+                  <DollarSign className="w-5 h-5 mx-auto mb-2.5" style={{ color: 'rgba(34,57,155,0.7)' }} />
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.3)' }}>Price</p>
+                  <p className="text-[13px] font-bold" style={{ color: 'rgba(251,251,252,0.9)' }}>Half Day $40</p>
+                  <p className="text-[13px] font-bold" style={{ color: 'rgba(251,251,252,0.9)' }}>Full Day $60</p>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
