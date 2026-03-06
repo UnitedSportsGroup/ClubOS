@@ -581,8 +581,8 @@ function SessionsTab({ campId }: { campId: number }) {
     weeks[wk].push(d);
   });
 
-  const productLabels: Record<string, string> = { MORNING: "Morning", AFTERNOON: "Afternoon", FULL_DAY: "Full Day" };
-  const productColors: Record<string, string> = { MORNING: "bg-amber-400", AFTERNOON: "bg-orange-400", FULL_DAY: "bg-blue-400" };
+  const productLabels: Record<string, string> = { MORNING: "Morning", AFTERNOON: "Afternoon" };
+  const productColors: Record<string, string> = { MORNING: "bg-amber-400", AFTERNOON: "bg-orange-400" };
 
   return (
     <div className="space-y-4">
@@ -612,7 +612,7 @@ function SessionsTab({ campId }: { campId: number }) {
               </thead>
               <tbody>
                 {dates.map(date =>
-                  ["FULL_DAY", "MORNING", "AFTERNOON"].map(pt => {
+                  ["MORNING", "AFTERNOON"].map(pt => {
                     const s = sessions.find(x => x.date === date && x.productType === pt);
                     if (!s || s.capacity === 0) return null;
                     const pct = s.capacity > 0 ? Math.round((s.bookedCount / s.capacity) * 100) : 0;

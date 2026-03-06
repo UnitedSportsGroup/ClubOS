@@ -450,16 +450,15 @@ export class DatabaseStorage implements IStorage {
 
     const results: { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[] = [];
     for (const d of dates) {
-      for (const pt of ["MORNING", "AFTERNOON", "FULL_DAY"]) {
+      const fullDayCount = items.find(i => i.campDateId === d.id && i.productType === "FULL_DAY")?.count || 0;
+      for (const pt of ["MORNING", "AFTERNOON"]) {
         const match = items.find(i => i.campDateId === d.id && i.productType === pt);
-        const cap = pt === "MORNING" ? (d.capacityMorning || 0) :
-                    pt === "AFTERNOON" ? (d.capacityAfternoon || 0) :
-                    (d.capacityFullDay || 0);
+        const cap = pt === "MORNING" ? (d.capacityMorning || 0) : (d.capacityAfternoon || 0);
         results.push({
           campDateId: d.id,
           date: d.date,
           productType: pt,
-          bookedCount: match?.count || 0,
+          bookedCount: (match?.count || 0) + fullDayCount,
           capacity: cap,
         });
       }
