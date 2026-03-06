@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronDown, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -555,7 +556,305 @@ function getWeekKey(dateStr: string): string {
   return `Week of ${dd}/${mm}`;
 }
 
+type RollPlayer = {
+  child: { id: number; firstName: string; lastName: string; dateOfBirth?: string | null; gender?: string | null; parentId: number; medical?: { allergies?: string | null; epiPen?: boolean; notes?: string | null } };
+  parent: { id: number; firstName: string; lastName: string; email?: string | null; phone?: string | null };
+  attendance?: { id: number; checkedInAt?: string | null; checkedOutAt?: string | null; note?: string | null };
+  productType: string;
+};
+
+function formatAge(dob: string | null | undefined): string {
+  if (!dob) return "—";
+  const birth = new Date(dob + "T00:00:00");
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  if (now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())) age--;
+  return `${age}y`;
+}
+
+function formatDob(dob: string | null | undefined): string {
+  if (!dob) return "—";
+  const d = new Date(dob + "T00:00:00");
+  return d.toLocaleDateString("en-NZ", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: () => void }) {
+  const c = player.child;
+  const p = player.parent;
+  const med = c.medical;
+  const hasAllergies = med?.allergies && med.allergies.trim().length > 0;
+  const hasEpiPen = med?.epiPen;
+  const hasMedNotes = med?.notes && med.notes.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md mx-4 rounded-2xl border border-blue-500/[0.15] overflow-hidden animate-fade-in-up" style={{ background: "linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)", animationDelay: "0ms", opacity: 0 }} data-testid="modal-player-profile">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-blue-500/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center">
+              <User className="w-4 h-4 text-blue-400/70" />
+            </div>
+            <div>
+              <h3 className="text-[14px] font-semibold text-white/80" data-testid="text-player-name">{c.firstName} {c.lastName}</h3>
+              <p className="text-[11px] text-blue-400/35">{formatAge(c.dateOfBirth)} old · {c.gender || "—"}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.08] transition-colors cursor-pointer" data-testid="button-close-profile">
+            <X className="w-3.5 h-3.5 text-white/40" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="space-y-2">
+            <label className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Player Details</label>
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
+              <div className="flex justify-between">
+                <span className="text-[12px] text-white/40">Date of Birth</span>
+                <span className="text-[12px] text-white/70" data-testid="text-player-dob">{formatDob(c.dateOfBirth)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[12px] text-white/40">Gender</span>
+                <span className="text-[12px] text-white/70">{c.gender || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[12px] text-white/40">Session Type</span>
+                <span className="text-[12px] text-white/70">{player.productType === "FULL_DAY" ? "Full Day" : player.productType === "MORNING" ? "Morning" : "Afternoon"}</span>
+              </div>
+            </div>
+          </div>
+
+          {(hasAllergies || hasEpiPen || hasMedNotes) && (
+            <div className="space-y-2">
+              <label className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="w-3 h-3 text-amber-400/50" /> Medical Info
+              </label>
+              <div className="rounded-xl bg-amber-500/[0.04] border border-amber-500/[0.12] p-3 space-y-2">
+                {hasAllergies && (
+                  <div>
+                    <span className="text-[11px] text-amber-400/50 font-medium">Allergies</span>
+                    <p className="text-[12px] text-white/70 mt-0.5" data-testid="text-player-allergies">{med!.allergies}</p>
+                  </div>
+                )}
+                {hasEpiPen && (
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className="text-[9px] text-red-400/80 border-red-500/20 bg-red-500/10 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid="badge-epipen">EpiPen Required</Badge>
+                  </div>
+                )}
+                {hasMedNotes && (
+                  <div>
+                    <span className="text-[11px] text-amber-400/50 font-medium">Medical Notes</span>
+                    <p className="text-[12px] text-white/70 mt-0.5" data-testid="text-player-medical-notes">{med!.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Parent / Guardian</label>
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[12px] text-white/40">Name</span>
+                <span className="text-[12px] text-white/70 font-medium" data-testid="text-parent-name">{p.firstName} {p.lastName}</span>
+              </div>
+              {p.email && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[12px] text-white/40 flex items-center gap-1"><Mail className="w-3 h-3" /> Email</span>
+                  <a href={`mailto:${p.email}`} className="text-[12px] text-blue-400/70 hover:text-blue-400 transition-colors" data-testid="text-parent-email">{p.email}</a>
+                </div>
+              )}
+              {p.phone && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[12px] text-white/40 flex items-center gap-1"><Phone className="w-3 h-3" /> Phone</span>
+                  <a href={`tel:${p.phone}`} className="text-[12px] text-blue-400/70 hover:text-blue-400 transition-colors" data-testid="text-parent-phone">{p.phone}</a>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {player.attendance && (
+            <div className="space-y-2">
+              <label className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Attendance</label>
+              <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-[12px] text-white/40">Signed In</span>
+                  <span className="text-[12px] text-white/70">{player.attendance.checkedInAt ? new Date(player.attendance.checkedInAt).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[12px] text-white/40">Signed Out</span>
+                  <span className="text-[12px] text-white/70">{player.attendance.checkedOutAt ? new Date(player.attendance.checkedOutAt).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                </div>
+                {player.attendance.note && (
+                  <div>
+                    <span className="text-[12px] text-white/40">Note</span>
+                    <p className="text-[12px] text-white/70 mt-0.5">{player.attendance.note}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionRollPanel({ campId, campDateId, sessionType, date }: { campId: number; campDateId: number; sessionType: string; date: string }) {
+  const { toast } = useToast();
+  const [selectedPlayer, setSelectedPlayer] = useState<RollPlayer | null>(null);
+
+  const { data: roll, isLoading } = useQuery<RollPlayer[]>({
+    queryKey: ["/api/admin/camps", campId, "session-roll", campDateId, sessionType],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${campId}/session-roll?campDateId=${campDateId}&sessionType=${sessionType}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load roll");
+      return res.json();
+    },
+  });
+
+  const checkInMutation = useMutation({
+    mutationFn: async ({ attendanceId, action }: { attendanceId: number; action: "in" | "out" }) => {
+      const body = action === "in"
+        ? { checkedInAt: new Date().toISOString() }
+        : { checkedOutAt: new Date().toISOString() };
+      await apiRequest("PATCH", `/api/admin/attendance/${attendanceId}`, body);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "session-roll", campDateId, sessionType] });
+      toast({ title: "Attendance updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return (
+      <tr>
+        <td colSpan={4} className="px-4 py-3">
+          <Skeleton className="h-16 w-full rounded-lg bg-blue-500/[0.04]" />
+        </td>
+      </tr>
+    );
+  }
+
+  if (!roll || roll.length === 0) {
+    return (
+      <tr>
+        <td colSpan={4} className="px-6 py-4">
+          <p className="text-[12px] text-white/25 text-center">No players registered for this session</p>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <>
+      <tr>
+        <td colSpan={4} className="p-0">
+          <div className="mx-3 mb-2 rounded-lg border border-blue-500/[0.08] overflow-hidden bg-blue-500/[0.02]">
+            <div className="px-3 py-1.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06] flex items-center justify-between">
+              <span className="text-[10px] text-blue-300/30 uppercase tracking-wider font-semibold">
+                {getDayLabel(date)} · {sessionType === "MORNING" ? "Morning" : "Afternoon"} Roll — {roll.length} player{roll.length !== 1 ? "s" : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-emerald-400/40">
+                  {roll.filter(p => p.attendance?.checkedInAt).length} signed in
+                </span>
+              </div>
+            </div>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-blue-500/[0.05]">
+                  <th className="text-left px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Player</th>
+                  <th className="text-left px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold hidden sm:table-cell">Age</th>
+                  <th className="text-center px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Status</th>
+                  <th className="text-right px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roll.map((player) => {
+                  const isIn = !!player.attendance?.checkedInAt;
+                  const isOut = !!player.attendance?.checkedOutAt;
+                  const hasMedical = player.child.medical?.allergies || player.child.medical?.epiPen;
+
+                  return (
+                    <tr
+                      key={player.child.id}
+                      className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors group"
+                      data-testid={`row-player-${player.child.id}`}
+                    >
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => setSelectedPlayer(player)}
+                          className="flex items-center gap-2 text-left cursor-pointer hover:opacity-80 transition-opacity"
+                          data-testid={`button-player-profile-${player.child.id}`}
+                        >
+                          <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/15 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] font-semibold text-blue-400/60">
+                              {player.child.firstName[0]}{player.child.lastName[0]}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-medium text-white/75 truncate">{player.child.firstName} {player.child.lastName}</p>
+                            <p className="text-[10px] text-white/25 truncate">{player.parent.firstName} {player.parent.lastName}</p>
+                          </div>
+                          {hasMedical && (
+                            <AlertTriangle className="w-3 h-3 text-amber-400/60 flex-shrink-0" title="Has medical info" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 hidden sm:table-cell">
+                        <span className="text-[11px] text-white/40">{formatAge(player.child.dateOfBirth)}</span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {isOut ? (
+                          <Badge variant="outline" className="text-[8px] text-blue-400/60 border-blue-500/15 bg-blue-500/8 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Signed Out</Badge>
+                        ) : isIn ? (
+                          <Badge variant="outline" className="text-[8px] text-emerald-400/70 border-emerald-500/15 bg-emerald-500/10 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Signed In</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[8px] text-white/25 border-white/8 bg-white/[0.02] uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Not Arrived</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!isIn && player.attendance && (
+                            <button
+                              onClick={() => checkInMutation.mutate({ attendanceId: player.attendance!.id, action: "in" })}
+                              disabled={checkInMutation.isPending}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400/70 font-medium hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                              data-testid={`button-signin-${player.child.id}`}
+                            >
+                              <UserCheck className="w-3 h-3" /> In
+                            </button>
+                          )}
+                          {isIn && !isOut && player.attendance && (
+                            <button
+                              onClick={() => checkInMutation.mutate({ attendanceId: player.attendance!.id, action: "out" })}
+                              disabled={checkInMutation.isPending}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400/70 font-medium hover:bg-blue-500/20 transition-colors cursor-pointer"
+                              data-testid={`button-signout-${player.child.id}`}
+                            >
+                              <UserX className="w-3 h-3" /> Out
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </td>
+      </tr>
+      {selectedPlayer && <PlayerProfileModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
+    </>
+  );
+}
+
 function SessionsTab({ campId }: { campId: number }) {
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+
   const { data: sessions, isLoading } = useQuery<SessionSummary[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
     queryFn: async () => {
@@ -581,8 +880,9 @@ function SessionsTab({ campId }: { campId: number }) {
     weeks[wk].push(d);
   });
 
-  const productLabels: Record<string, string> = { MORNING: "Morning", AFTERNOON: "Afternoon" };
-  const productColors: Record<string, string> = { MORNING: "bg-amber-400", AFTERNOON: "bg-orange-400" };
+  const toggleSession = (key: string) => {
+    setExpandedSession(prev => prev === key ? null : key);
+  };
 
   return (
     <div className="space-y-4">
@@ -615,34 +915,46 @@ function SessionsTab({ campId }: { campId: number }) {
                   ["MORNING", "AFTERNOON"].map(pt => {
                     const s = sessions.find(x => x.date === date && x.productType === pt);
                     if (!s || s.capacity === 0) return null;
+                    const sessionKey = `${date}-${pt}`;
+                    const isExpanded = expandedSession === sessionKey;
                     const pct = s.capacity > 0 ? Math.round((s.bookedCount / s.capacity) * 100) : 0;
-                    const barColor = pct >= 90 ? "bg-red-400" : pct >= 60 ? "bg-amber-400" : productColors[pt];
+                    const barColor = pct >= 90 ? "bg-red-400" : pct >= 60 ? "bg-amber-400" : (pt === "MORNING" ? "bg-amber-400" : "bg-orange-400");
                     return (
-                      <tr key={`${date}-${pt}`} className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors" data-testid={`row-session-${s.campDateId}-${pt}`}>
-                        <td className="px-4 py-2.5">
-                          <span className="text-[13px] text-white/70 font-medium">{getDayLabel(date)}</span>
-                        </td>
-                        <td className="px-4 py-2.5 hidden sm:table-cell">
-                          <span className={`text-[11px] font-medium ${pt === "FULL_DAY" ? "text-blue-400/60" : pt === "MORNING" ? "text-amber-400/60" : "text-orange-400/60"}`}>
-                            {productLabels[pt]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          <span className="text-[13px] text-white/60">
-                            <span className="font-semibold text-white/80">{s.bookedCount}</span>
-                            <span className="text-white/25 mx-1">/</span>
-                            <span>{s.capacity}</span>
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 hidden md:table-cell">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                              <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                      <Fragment key={sessionKey}>
+                        <tr
+                          onClick={() => toggleSession(sessionKey)}
+                          className={`border-b border-blue-500/[0.03] hover:bg-blue-500/[0.04] transition-colors cursor-pointer ${isExpanded ? "bg-blue-500/[0.04]" : ""}`}
+                          data-testid={`row-session-${s.campDateId}-${pt}`}
+                        >
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-blue-400/40" /> : <ChevronRight className="w-3.5 h-3.5 text-white/20" />}
+                              <span className="text-[13px] text-white/70 font-medium">{getDayLabel(date)}</span>
                             </div>
-                            <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell">
+                            <span className={`text-[11px] font-medium ${pt === "MORNING" ? "text-amber-400/60" : "text-orange-400/60"}`}>
+                              {pt === "MORNING" ? "Morning" : "Afternoon"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className="text-[13px] text-white/60">
+                              <span className="font-semibold text-white/80">{s.bookedCount}</span>
+                              <span className="text-white/25 mx-1">/</span>
+                              <span>{s.capacity}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 hidden md:table-cell">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                              </div>
+                              <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && <SessionRollPanel campId={campId} campDateId={s.campDateId} sessionType={pt} date={date} />}
+                      </Fragment>
                     );
                   })
                 )}

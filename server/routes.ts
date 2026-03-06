@@ -128,6 +128,30 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/camps/:id/session-roll", requireAuth, async (req, res) => {
+    try {
+      const campId = parseInt(req.params.id);
+      const campDateId = parseInt(req.query.campDateId as string);
+      const sessionType = req.query.sessionType as string;
+      if (!campDateId || !sessionType) return res.status(400).json({ message: "campDateId and sessionType required" });
+      const roll = await storage.getSessionRoll(campId, campDateId, sessionType);
+      res.json(roll);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/attendance/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateAttendance(id, req.body);
+      if (!updated) return res.status(404).json({ message: "Attendance record not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/:id/stats", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(req.params.id);

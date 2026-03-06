@@ -89,6 +89,7 @@ export interface IStorage {
   getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]>;
   getCampRegistrationStats(campId: number): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }>;
   getCampRegistrationCounts(): Promise<Record<number, number>>;
+  getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]>;
 
   getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]>;
   getChild(id: number): Promise<Child | undefined>;
@@ -488,6 +489,54 @@ export class DatabaseStorage implements IStorage {
     }
 
     return { totalRegistrations, confirmedRegistrations, totalRevenueCents, totalSessions };
+  }
+
+  async getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]> {
+    const productTypes = sessionType === "MORNING" ? ["MORNING", "FULL_DAY"] :
+                         sessionType === "AFTERNOON" ? ["AFTERNOON", "FULL_DAY"] :
+                         [sessionType];
+
+    const items = await db.select()
+      .from(registrationItems)
+      .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+      .where(and(
+        eq(registrationItems.campDateId, campDateId),
+        eq(registrations.programId, campId),
+        eq(registrations.status, "confirmed"),
+        inArray(registrationItems.productType, productTypes),
+      ));
+
+    const results: { child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[] = [];
+    const seenChildIds = new Set<number>();
+
+    for (const item of items) {
+      const childId = item.registration_items.childId;
+      if (seenChildIds.has(childId)) continue;
+      seenChildIds.add(childId);
+
+      const [child] = await db.select().from(children).where(eq(children.id, childId));
+      if (!child) continue;
+
+      const [parent] = await db.select().from(contacts).where(eq(contacts.id, child.parentId));
+      const [med] = await db.select().from(childMedical).where(eq(childMedical.childId, childId));
+
+      const attendanceRecords = await db.select().from(attendance)
+        .where(and(
+          eq(attendance.campId, campId),
+          eq(attendance.campDateId, campDateId),
+          eq(attendance.childId, childId),
+        ));
+      const att = attendanceRecords[0];
+
+      results.push({
+        child: { ...child, medical: med || undefined },
+        parent: parent!,
+        attendance: att || undefined,
+        productType: item.registration_items.productType,
+      });
+    }
+
+    return results.sort((a, b) => a.child.lastName.localeCompare(b.child.lastName));
   }
 
   async getCampRegistrationCounts(): Promise<Record<number, number>> {
