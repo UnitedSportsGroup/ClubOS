@@ -984,7 +984,8 @@ function SessionsTab({ campId }: { campId: number }) {
 export default function AdminCampDetail() {
   const [, params] = useRoute("/admin/camps/:id");
   const campId = parseInt(params?.id || "0");
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("sessions");
+  const [showEditModal, setShowEditModal] = useState(false);
   const { toast } = useToast();
 
   const { data: camp, isLoading } = useQuery<any>({
@@ -1010,7 +1011,6 @@ export default function AdminCampDetail() {
   });
 
   const tabs = [
-    { key: "overview", label: "Overview", icon: Tent },
     { key: "sessions", label: "Sessions", icon: BarChart3 },
     { key: "content", label: "Content", icon: FileText },
     { key: "dates", label: "Dates & Capacity", icon: Calendar },
@@ -1048,13 +1048,23 @@ export default function AdminCampDetail() {
           <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-camp-name">{camp.name}</h1>
           <p className="text-[12px] text-blue-400/35">/{camp.slug}</p>
         </div>
-        {camp.slug && (
-          <Button variant="outline" asChild className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5">
-            <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" data-testid="link-public-page">
-              <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Public Page
-            </a>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowEditModal(true)}
+            className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5 cursor-pointer"
+            data-testid="button-edit-camp"
+          >
+            <Settings className="w-3.5 h-3.5 mr-1.5" /> Edit
           </Button>
-        )}
+          {camp.slug && (
+            <Button variant="outline" asChild className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5">
+              <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" data-testid="link-public-page">
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Public Page
+              </a>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04] animate-fade-in-up" style={{ animationDelay: '50ms', opacity: 0 }}>
@@ -1080,7 +1090,6 @@ export default function AdminCampDetail() {
       </div>
 
       <div className="rounded-2xl glass-card p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
-        {tab === "overview" && <OverviewTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "sessions" && <SessionsTab campId={campId} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && <DatesTab campId={campId} />}
@@ -1088,6 +1097,39 @@ export default function AdminCampDetail() {
         {tab === "discounts" && <DiscountsTab campId={campId} />}
         {tab === "email" && <EmailTab campId={campId} />}
       </div>
+
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowEditModal(false)} />
+          <div
+            className="relative w-full max-w-2xl mx-4 max-h-[85vh] rounded-2xl border border-blue-500/[0.15] overflow-hidden flex flex-col animate-fade-in-up"
+            style={{ background: "linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)", animationDelay: "0ms", opacity: 0 }}
+            data-testid="modal-edit-camp"
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-blue-500/[0.08] flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center">
+                  <Settings className="w-4 h-4 text-blue-400/70" />
+                </div>
+                <div>
+                  <h3 className="text-[14px] font-semibold text-white/80">Edit Camp</h3>
+                  <p className="text-[11px] text-blue-400/35">Update camp settings</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.08] transition-colors cursor-pointer"
+                data-testid="button-close-edit"
+              >
+                <X className="w-3.5 h-3.5 text-white/40" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6">
+              <OverviewTab camp={camp} onUpdate={(data) => { updateMutation.mutate(data, { onSuccess: () => setShowEditModal(false) }); }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
