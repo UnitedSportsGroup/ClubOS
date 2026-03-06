@@ -60,6 +60,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/camps/registration-counts", requireAuth, async (_req, res) => {
+    try {
+      const counts = await storage.getCampRegistrationCounts();
+      res.json(counts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/camps", requireAuth, async (req, res) => {
     try {
       const data = { ...req.body, type: "holiday_camp" };
@@ -104,6 +113,26 @@ export async function registerRoutes(
     try {
       const dates = await storage.getCampDates(parseInt(req.params.id));
       res.json(dates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/camps/:id/sessions-summary", requireAuth, async (req, res) => {
+    try {
+      const campId = parseInt(req.params.id);
+      const summary = await storage.getSessionsSummary(campId);
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/camps/:id/stats", requireAuth, async (req, res) => {
+    try {
+      const campId = parseInt(req.params.id);
+      const stats = await storage.getCampRegistrationStats(campId);
+      res.json(stats);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

@@ -114,10 +114,10 @@ function App() {
   const [isCampSuccess] = useRoute("/:slug/success");
   const [isCampCancel] = useRoute("/:slug/cancel");
   const [isAdminLogin] = useRoute("/admin/login");
-  const [isAdmin] = useRoute("/admin/:rest*");
+  const [isAdminDeep] = useRoute("/admin/**");
   const [isAdminRoot] = useRoute("/admin");
 
-  const isAdminRoute = isAdmin || isAdminRoot;
+  const isAdminRoute = isAdminDeep || isAdminRoot;
 
   return (
     <QueryClientProvider client={queryClient}>

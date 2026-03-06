@@ -47,7 +47,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin/login` — Admin login
 - `/admin` — Admin dashboard
 - `/admin/camps` — Camp list + create
-- `/admin/camps/:id` — Camp detail (tabs: Overview, Content, Dates & Capacity, Pricing, Discounts, Email Template)
+- `/admin/camps/:id` — Camp detail (tabs: Overview, Sessions, Content, Dates & Capacity, Pricing, Discounts, Email Template) with stats header (registrations, revenue, occupancy)
 - `/admin/registrations` — Registration list with camp filter
 - `/admin/attendance` — Attendance roll (camp + date selector, check-in/out)
 - `/admin/crm` — CRM export (emails by day, all parents, all registrations as CSV)
@@ -78,7 +78,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 
 ## API Routes
 - Auth: POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
-- Admin: Full CRUD for camps, dates, pricing, discounts, settings, registrations, attendance, CRM export, audit logs
+- Admin: Full CRUD for camps, dates, pricing, discounts, settings, registrations, attendance, CRM export, audit logs, GET /api/admin/camps/:id/sessions-summary, GET /api/admin/camps/:id/stats, GET /api/admin/camps/registration-counts
 - Public: GET /api/public/camps, GET /api/public/camps/:slug, POST /api/public/book, POST /api/public/book/confirm-free, POST /api/public/confirm-payment, GET /api/public/registrations/:id
 - Stripe: POST /api/stripe/webhook
 

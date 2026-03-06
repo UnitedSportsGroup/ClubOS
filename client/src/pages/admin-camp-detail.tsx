@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp } from "lucide-react";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -481,6 +481,194 @@ function EmailTab({ campId }: { campId: number }) {
   );
 }
 
+type SessionSummary = { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number };
+type CampStats = { totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number };
+
+function StatsHeader({ campId }: { campId: number }) {
+  const { data: stats, isLoading } = useQuery<CampStats>({
+    queryKey: ["/api/admin/camps", campId, "stats"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${campId}/stats`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load stats");
+      return res.json();
+    },
+  });
+
+  const { data: sessions } = useQuery<SessionSummary[]>({
+    queryKey: ["/api/admin/camps", campId, "sessions-summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${campId}/sessions-summary`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load sessions");
+      return res.json();
+    },
+  });
+
+  const avgOccupancy = sessions && sessions.length > 0
+    ? Math.round(sessions.filter(s => s.capacity > 0).reduce((sum, s) => sum + (s.bookedCount / s.capacity) * 100, 0) / (sessions.filter(s => s.capacity > 0).length || 1))
+    : 0;
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-[72px] rounded-xl bg-blue-500/[0.04]" />)}
+      </div>
+    );
+  }
+
+  const statItems = [
+    { label: "Total Registrations", value: stats?.totalRegistrations || 0, icon: Users, color: "text-blue-400" },
+    { label: "Confirmed", value: stats?.confirmedRegistrations || 0, icon: TrendingUp, color: "text-emerald-400" },
+    { label: "Revenue", value: `$${((stats?.totalRevenueCents || 0) / 100).toFixed(0)}`, icon: DollarSign, color: "text-amber-400" },
+    { label: "Avg Occupancy", value: `${avgOccupancy}%`, icon: BarChart3, color: "text-purple-400" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="stats-header">
+      {statItems.map((s) => (
+        <div key={s.label} className="rounded-xl border border-blue-500/[0.08] bg-white/[0.02] px-4 py-3">
+          <div className="flex items-center gap-2 mb-1">
+            <s.icon className={`w-3.5 h-3.5 ${s.color} opacity-50`} />
+            <span className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">{s.label}</span>
+          </div>
+          <p className={`text-lg font-semibold ${s.color}/80`} data-testid={`stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}>{s.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getDayLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const day = days[d.getDay()];
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${day} ${dd}/${mm}`;
+}
+
+function getWeekKey(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  const startOfWeek = new Date(d);
+  startOfWeek.setDate(d.getDate() - d.getDay() + 1);
+  const dd = String(startOfWeek.getDate()).padStart(2, "0");
+  const mm = String(startOfWeek.getMonth() + 1).padStart(2, "0");
+  return `Week of ${dd}/${mm}`;
+}
+
+function SessionsTab({ campId }: { campId: number }) {
+  const { data: sessions, isLoading } = useQuery<SessionSummary[]>({
+    queryKey: ["/api/admin/camps", campId, "sessions-summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${campId}/sessions-summary`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load sessions");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return <Skeleton className="h-64 w-full rounded-xl bg-blue-500/[0.04]" />;
+  }
+
+  if (!sessions || sessions.length === 0) {
+    return <p className="text-[13px] text-white/25 text-center py-8">No sessions available. Add dates first.</p>;
+  }
+
+  const uniqueDates = [...new Set(sessions.map(s => s.date))].sort();
+  const weeks: Record<string, string[]> = {};
+  uniqueDates.forEach(d => {
+    const wk = getWeekKey(d);
+    if (!weeks[wk]) weeks[wk] = [];
+    weeks[wk].push(d);
+  });
+
+  const productLabels: Record<string, string> = { MORNING: "Morning", AFTERNOON: "Afternoon", FULL_DAY: "Full Day" };
+  const productColors: Record<string, string> = { MORNING: "bg-amber-400", AFTERNOON: "bg-orange-400", FULL_DAY: "bg-blue-400" };
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(weeks).map(([weekLabel, dates]) => {
+        let weekBooked = 0;
+        let weekCapacity = 0;
+        dates.forEach(d => {
+          sessions.filter(s => s.date === d).forEach(s => {
+            weekBooked += s.bookedCount;
+            weekCapacity += s.capacity;
+          });
+        });
+
+        return (
+          <div key={weekLabel} className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
+            <div className="px-4 py-2.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06]">
+              <span className="text-[11px] text-blue-300/40 uppercase tracking-wider font-semibold">{weekLabel}</span>
+            </div>
+            <table className="w-full" data-testid={`table-sessions-${weekLabel}`}>
+              <thead>
+                <tr className="border-b border-blue-500/[0.06]">
+                  <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Session</th>
+                  <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden sm:table-cell">Type</th>
+                  <th className="text-center px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Booked / Limit</th>
+                  <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold w-32 hidden md:table-cell">Occupancy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dates.map(date =>
+                  ["FULL_DAY", "MORNING", "AFTERNOON"].map(pt => {
+                    const s = sessions.find(x => x.date === date && x.productType === pt);
+                    if (!s || s.capacity === 0) return null;
+                    const pct = s.capacity > 0 ? Math.round((s.bookedCount / s.capacity) * 100) : 0;
+                    const barColor = pct >= 90 ? "bg-red-400" : pct >= 60 ? "bg-amber-400" : productColors[pt];
+                    return (
+                      <tr key={`${date}-${pt}`} className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors" data-testid={`row-session-${s.campDateId}-${pt}`}>
+                        <td className="px-4 py-2.5">
+                          <span className="text-[13px] text-white/70 font-medium">{getDayLabel(date)}</span>
+                        </td>
+                        <td className="px-4 py-2.5 hidden sm:table-cell">
+                          <span className={`text-[11px] font-medium ${pt === "FULL_DAY" ? "text-blue-400/60" : pt === "MORNING" ? "text-amber-400/60" : "text-orange-400/60"}`}>
+                            {productLabels[pt]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="text-[13px] text-white/60">
+                            <span className="font-semibold text-white/80">{s.bookedCount}</span>
+                            <span className="text-white/25 mx-1">/</span>
+                            <span>{s.capacity}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 hidden md:table-cell">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                            </div>
+                            <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+                <tr className="bg-blue-500/[0.03]">
+                  <td className="px-4 py-2 text-[11px] text-blue-300/30 font-semibold uppercase tracking-wider" colSpan={2}>Week Total</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className="text-[12px] text-white/50 font-medium">{weekBooked} / {weekCapacity}</span>
+                  </td>
+                  <td className="px-4 py-2 hidden md:table-cell">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                        <div className="h-full rounded-full bg-blue-400/60 transition-all duration-500" style={{ width: `${weekCapacity > 0 ? Math.min(Math.round((weekBooked / weekCapacity) * 100), 100) : 0}%` }} />
+                      </div>
+                      <span className="text-[10px] text-white/30 w-8 text-right">{weekCapacity > 0 ? Math.round((weekBooked / weekCapacity) * 100) : 0}%</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AdminCampDetail() {
   const [, params] = useRoute("/admin/camps/:id");
   const campId = parseInt(params?.id || "0");
@@ -511,6 +699,7 @@ export default function AdminCampDetail() {
 
   const tabs = [
     { key: "overview", label: "Overview", icon: Tent },
+    { key: "sessions", label: "Sessions", icon: BarChart3 },
     { key: "content", label: "Content", icon: FileText },
     { key: "dates", label: "Dates & Capacity", icon: Calendar },
     { key: "pricing", label: "Pricing", icon: DollarSign },
@@ -574,8 +763,13 @@ export default function AdminCampDetail() {
         ))}
       </div>
 
+      <div className="animate-fade-in-up" style={{ animationDelay: '75ms', opacity: 0 }}>
+        <StatsHeader campId={campId} />
+      </div>
+
       <div className="rounded-2xl glass-card p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {tab === "overview" && <OverviewTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
+        {tab === "sessions" && <SessionsTab campId={campId} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && <DatesTab campId={campId} />}
         {tab === "pricing" && <PricingTab campId={campId} />}

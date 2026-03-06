@@ -86,6 +86,10 @@ export interface IStorage {
   getCampSettings(campId: number): Promise<CampSettings | undefined>;
   upsertCampSettings(campId: number, data: Partial<InsertCampSettings>): Promise<CampSettings>;
 
+  getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]>;
+  getCampRegistrationStats(campId: number): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }>;
+  getCampRegistrationCounts(): Promise<Record<number, number>>;
+
   getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]>;
   getChild(id: number): Promise<Child | undefined>;
   createChild(c: InsertChild): Promise<Child>;
@@ -423,6 +427,82 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(childMedical).values({ ...data, childId }).returning();
     return created;
+  }
+
+  async getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]> {
+    const dates = await this.getCampDates(campId);
+    if (dates.length === 0) return [];
+
+    const dateIds = dates.map(d => d.id);
+    const items = await db.select({
+      campDateId: registrationItems.campDateId,
+      productType: registrationItems.productType,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(registrationItems)
+    .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+    .where(and(
+      inArray(registrationItems.campDateId, dateIds),
+      eq(registrations.programId, campId),
+      eq(registrations.status, "confirmed"),
+    ))
+    .groupBy(registrationItems.campDateId, registrationItems.productType);
+
+    const results: { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[] = [];
+    for (const d of dates) {
+      for (const pt of ["MORNING", "AFTERNOON", "FULL_DAY"]) {
+        const match = items.find(i => i.campDateId === d.id && i.productType === pt);
+        const cap = pt === "MORNING" ? (d.capacityMorning || 0) :
+                    pt === "AFTERNOON" ? (d.capacityAfternoon || 0) :
+                    (d.capacityFullDay || 0);
+        results.push({
+          campDateId: d.id,
+          date: d.date,
+          productType: pt,
+          bookedCount: match?.count || 0,
+          capacity: cap,
+        });
+      }
+    }
+    return results;
+  }
+
+  async getCampRegistrationStats(campId: number): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }> {
+    const regs = await db.select().from(registrations).where(eq(registrations.programId, campId));
+    const totalRegistrations = regs.length;
+    const confirmedRegistrations = regs.filter(r => r.status === "confirmed").length;
+    const totalRevenueCents = regs.filter(r => r.status === "confirmed").reduce((sum, r) => sum + (r.totalCents || 0), 0);
+
+    const dates = await this.getCampDates(campId);
+    const dateIds = dates.map(d => d.id);
+    let totalSessions = 0;
+    if (dateIds.length > 0) {
+      const [result] = await db.select({ count: sql<number>`count(*)::int` })
+        .from(registrationItems)
+        .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+        .where(and(
+          inArray(registrationItems.campDateId, dateIds),
+          eq(registrations.programId, campId),
+          eq(registrations.status, "confirmed"),
+        ));
+      totalSessions = result?.count || 0;
+    }
+
+    return { totalRegistrations, confirmedRegistrations, totalRevenueCents, totalSessions };
+  }
+
+  async getCampRegistrationCounts(): Promise<Record<number, number>> {
+    const rows = await db.select({
+      programId: registrations.programId,
+      count: sql<number>`count(*)::int`,
+    }).from(registrations)
+      .where(eq(registrations.status, "confirmed"))
+      .groupBy(registrations.programId);
+    const result: Record<number, number> = {};
+    for (const row of rows) {
+      result[row.programId] = row.count;
+    }
+    return result;
   }
 
   async getRegistrationItems(registrationId: number): Promise<(RegistrationItem & { child?: Child; campDate?: CampDate })[]> {
