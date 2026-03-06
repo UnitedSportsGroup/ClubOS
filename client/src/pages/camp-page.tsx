@@ -312,20 +312,20 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 2 — TESTIMONIALS
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 md:py-16 overflow-hidden" style={{ background: '#f8f9fb' }}>
+      <section className="py-12 md:py-16 overflow-hidden" style={{ background: BRAND.darkBlue }}>
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: '#0f172a' }}>
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
                 What Parents Are Saying
               </h2>
-              <p className="text-[13px] text-slate-400 mt-0.5">Real reviews from real families</p>
+              <p className="text-[13px] mt-0.5" style={{ color: 'rgba(251,251,252,0.45)' }}>Real reviews from real families</p>
             </div>
             <div className="hidden sm:flex items-center gap-2">
-              <button onClick={() => scrollReviews("left")} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 transition-colors cursor-pointer" data-testid="button-reviews-left">
+              <button onClick={() => scrollReviews("left")} className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/50 hover:text-white hover:border-white/40 transition-colors cursor-pointer" data-testid="button-reviews-left">
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button onClick={() => scrollReviews("right")} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 transition-colors cursor-pointer" data-testid="button-reviews-right">
+              <button onClick={() => scrollReviews("right")} className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/50 hover:text-white hover:border-white/40 transition-colors cursor-pointer" data-testid="button-reviews-right">
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
@@ -336,8 +336,8 @@ export default function CampPage() {
             ))}
           </div>
           <div className="flex sm:hidden items-center justify-center gap-2 mt-4">
-            <button onClick={() => scrollReviews("left")} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 cursor-pointer" data-testid="button-reviews-left-mobile"><ChevronLeft className="w-4 h-4" /></button>
-            <button onClick={() => scrollReviews("right")} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 cursor-pointer" data-testid="button-reviews-right-mobile"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={() => scrollReviews("left")} className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/50 cursor-pointer" data-testid="button-reviews-left-mobile"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => scrollReviews("right")} className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/50 cursor-pointer" data-testid="button-reviews-right-mobile"><ChevronRight className="w-4 h-4" /></button>
           </div>
         </div>
       </section>
