@@ -352,7 +352,7 @@ export default function CampPage() {
         <div className="relative max-w-5xl mx-auto px-6">
           <h2
             className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-center mb-12"
-            style={{ background: `linear-gradient(180deg, #E8C840 0%, #D9B10F 50%, #B8940A 100%)`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+            style={{ color: BRAND.gold }}
             data-testid="text-key-info-heading"
           >
             Key Information
