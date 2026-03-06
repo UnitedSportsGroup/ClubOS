@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tent, MapPin, Calendar, Users, DollarSign, ArrowLeft, ArrowRight, Percent, Clock, ChevronDown, ChevronUp, CheckCircle, Shield, Mail, Star, ChevronRight, ChevronLeft } from "lucide-react";
+import { Tent, MapPin, Calendar, Users, DollarSign, ArrowRight, Percent, Clock, ChevronDown, ChevronUp, CheckCircle, Shield, Mail, Star, ChevronRight, ChevronLeft } from "lucide-react";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
@@ -202,40 +202,25 @@ export default function CampPage() {
   return (
     <div className="min-h-screen" style={{ fontFamily: "'Inter Tight', sans-serif" }}>
 
-      <header className="sticky top-0 z-50 backdrop-blur-lg border-b" style={{ background: 'rgba(10,14,26,0.85)', borderColor: 'rgba(255,255,255,0.06)' }}>
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href="/">
-            <button className="flex items-center gap-2 text-white/40 hover:text-white/70 transition-colors cursor-pointer" data-testid="link-back">
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-[13px] font-medium">All Camps</span>
-            </button>
-          </Link>
-          <div className="flex items-center gap-2.5">
-            <img src={cuFcLogoPath} alt="CUFC" className="w-7 h-7 object-contain" />
-            <span className="text-[12px] text-white/40 font-medium hidden sm:inline">Christchurch United FC</span>
-          </div>
-        </div>
-      </header>
-
       <section className="relative overflow-hidden" style={{ background: `linear-gradient(180deg, #0a0e1a 0%, ${BRAND.darkBlue} 40%, ${BRAND.blue} 100%)` }}>
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] opacity-[0.07] rounded-full" style={{ background: `radial-gradient(ellipse, ${BRAND.gold} 0%, transparent 70%)` }} />
           <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
         </div>
 
-        <div className="relative max-w-3xl mx-auto px-6 pt-12 pb-16 md:pt-16 md:pb-20">
+        <div className="relative max-w-3xl mx-auto px-6 pt-8 pb-12 md:pt-10 md:pb-14">
           <div className="flex flex-col items-center text-center">
-            <div className="mb-8 animate-[fadeInDown_0.6s_ease-out]">
+            <div className="mb-5 animate-[fadeInDown_0.6s_ease-out]">
               <img
                 src={cuFcLogoPath}
                 alt="Christchurch United FC"
-                className="w-20 h-20 md:w-24 md:h-24 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
+                className="w-16 h-16 md:w-20 md:h-20 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
                 data-testid="img-club-logo"
               />
             </div>
 
             <h1
-              className="text-3xl sm:text-4xl md:text-5xl lg:text-[56px] font-bold tracking-tight leading-[1.08] mb-5 animate-[fadeInUp_0.7s_ease-out]"
+              className="text-3xl sm:text-4xl md:text-5xl lg:text-[56px] font-bold tracking-tight leading-[1.08] mb-3 animate-[fadeInUp_0.7s_ease-out]"
               style={{ color: BRAND.white }}
               data-testid="text-hero-headline"
             >
@@ -243,14 +228,14 @@ export default function CampPage() {
             </h1>
 
             <p
-              className="text-[16px] sm:text-[18px] md:text-[20px] leading-relaxed mb-10 max-w-xl animate-[fadeInUp_0.8s_ease-out]"
+              className="text-[15px] sm:text-[17px] md:text-[19px] leading-relaxed mb-7 max-w-xl animate-[fadeInUp_0.8s_ease-out]"
               style={{ color: 'rgba(251,251,252,0.6)' }}
               data-testid="text-hero-sub"
             >
               {camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football."}
             </p>
 
-            <div className="w-full max-w-[720px] mb-10 animate-[fadeInUp_0.9s_ease-out]">
+            <div className="w-full max-w-[720px] mb-7 animate-[fadeInUp_0.9s_ease-out]">
               <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
                   <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
@@ -286,7 +271,7 @@ export default function CampPage() {
               </Link>
             </div>
 
-            <div className="mt-14 animate-[fadeInUp_1.1s_ease-out]">
+            <div className="mt-8 animate-[fadeInUp_1.1s_ease-out]">
               <p className="text-[11px] sm:text-[12px] uppercase tracking-[0.2em] font-semibold mb-3" style={{ color: 'rgba(251,251,252,0.3)' }}>
                 Trusted by 1,000+ Parents since 2014
               </p>
