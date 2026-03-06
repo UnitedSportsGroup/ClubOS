@@ -75,10 +75,10 @@ function AdminLayout() {
   return (
     <AuthGuard>
       <SidebarProvider style={style as React.CSSProperties}>
-        <div className="flex h-screen w-full" style={{ background: '#02060E' }}>
+        <div className="flex h-screen w-full overflow-hidden" style={{ background: '#02060E' }}>
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-4 px-6 h-14 border-b border-blue-500/[0.06] flex-shrink-0 backdrop-blur-2xl" style={{ background: 'rgba(2,6,14,0.7)' }}>
+            <header className="flex items-center justify-between gap-3 sm:gap-4 px-3 sm:px-6 h-14 border-b border-blue-500/[0.06] flex-shrink-0 backdrop-blur-2xl" style={{ background: 'rgba(2,6,14,0.7)' }}>
               <div className="flex items-center gap-3">
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white/30 hover:text-white/50 transition-colors duration-300" />
               </div>
@@ -96,7 +96,7 @@ function AdminLayout() {
                 </Button>
               </div>
             </header>
-            <main className="flex-1 overflow-auto gradient-mesh">
+            <main className="flex-1 overflow-x-hidden overflow-y-auto gradient-mesh">
               <AdminRouter />
             </main>
           </div>

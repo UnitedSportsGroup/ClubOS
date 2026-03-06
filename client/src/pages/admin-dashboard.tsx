@@ -42,7 +42,7 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto">
       <div className="animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Dashboard</h1>
         <p className="text-blue-400/35 text-[13px] mt-1">Holiday Camps Management</p>

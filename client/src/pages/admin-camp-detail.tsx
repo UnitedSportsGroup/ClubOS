@@ -26,16 +26,16 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2 space-y-1.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Camp Name</label>
           <Input value={name} onChange={e => setName(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-name" />
         </div>
-        <div className="col-span-2 space-y-1.5">
+        <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Description</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full h-24 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid="input-camp-description" />
         </div>
-        <div className="col-span-2 space-y-1.5">
+        <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Location</label>
           <Input value={location} onChange={e => setLocation(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-location" />
         </div>
@@ -141,8 +141,8 @@ function DatesTab({ campId }: { campId: number }) {
       {isLoading ? (
         <Skeleton className="h-32 w-full rounded-xl bg-blue-500/[0.04]" />
       ) : dates && dates.length > 0 ? (
-        <div className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
-          <table className="w-full">
+        <div className="rounded-xl border border-blue-500/[0.08] overflow-hidden overflow-x-auto">
+          <table className="w-full min-w-[420px]">
             <thead>
               <tr className="border-b border-blue-500/[0.06]">
                 <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Date</th>
@@ -355,7 +355,7 @@ function ContentTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => vo
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Hero Subheadline</label>
           <Input value={heroSubheadline} onChange={e => setHeroSubheadline(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-hero-subheadline" />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">CTA Button Text</label>
             <Input value={primaryCta} onChange={e => setPrimaryCta(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-primary-cta" />
@@ -457,7 +457,7 @@ function EmailTab({ campId }: { campId: number }) {
   return (
     <div className="space-y-4">
       <p className="text-[12px] text-white/30">Variables: {"{{campName}}, {{parentName}}, {{childrenList}}, {{campDates}}, {{location}}, {{totalPaid}}"}</p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">From Email</label>
           <Input value={fromEmail} onChange={e => setFromEmail(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-from-email" />
@@ -466,11 +466,11 @@ function EmailTab({ campId }: { campId: number }) {
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Reply-To</label>
           <Input value={replyTo} onChange={e => setReplyTo(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-reply-to" />
         </div>
-        <div className="col-span-2 space-y-1.5">
+        <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Subject</label>
           <Input value={subject} onChange={e => setSubject(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-email-subject" />
         </div>
-        <div className="col-span-2 space-y-1.5">
+        <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Body</label>
           <textarea value={body} onChange={e => setBody(e.target.value)} className="w-full h-40 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none font-mono" data-testid="input-email-body" />
         </div>
@@ -901,7 +901,8 @@ function SessionsTab({ campId }: { campId: number }) {
             <div className="px-4 py-2.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06]">
               <span className="text-[11px] text-blue-300/40 uppercase tracking-wider font-semibold">{weekLabel}</span>
             </div>
-            <table className="w-full" data-testid={`table-sessions-${weekLabel}`}>
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[400px]" data-testid={`table-sessions-${weekLabel}`}>
               <thead>
                 <tr className="border-b border-blue-500/[0.06]">
                   <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Session</th>
@@ -974,6 +975,7 @@ function SessionsTab({ campId }: { campId: number }) {
                 </tr>
               </tbody>
             </table>
+            </div>
           </div>
         );
       })}
@@ -1037,59 +1039,61 @@ export default function AdminCampDetail() {
   }
 
   return (
-    <div className="p-8 space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
+    <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 max-w-5xl mx-auto">
+      <div className="flex items-start sm:items-center gap-3 animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <Link href="/admin/camps">
-          <button className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] transition-colors cursor-pointer" data-testid="button-back">
+          <button className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] transition-colors cursor-pointer flex-shrink-0 mt-0.5 sm:mt-0" data-testid="button-back">
             <ArrowLeft className="w-4 h-4 text-white/40" />
           </button>
         </Link>
-        <div className="flex-1">
-          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-camp-name">{camp.name}</h1>
-          <p className="text-[12px] text-blue-400/35">/{camp.slug}</p>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg sm:text-xl font-semibold text-white tracking-tight truncate" data-testid="text-camp-name">{camp.name}</h1>
+          <p className="text-[12px] text-blue-400/35 truncate">/{camp.slug}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button
             variant="outline"
             onClick={() => setShowEditModal(true)}
             className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5 cursor-pointer"
             data-testid="button-edit-camp"
           >
-            <Settings className="w-3.5 h-3.5 mr-1.5" /> Edit
+            <Settings className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Edit</span>
           </Button>
           {camp.slug && (
             <Button variant="outline" asChild className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5">
               <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" data-testid="link-public-page">
-                <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Public Page
+                <ExternalLink className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Public Page</span>
               </a>
             </Button>
           )}
         </div>
       </div>
 
-      <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04] animate-fade-in-up" style={{ animationDelay: '50ms', opacity: 0 }}>
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-all cursor-pointer ${
-              tab === t.key
-                ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
-                : "text-white/35 hover:text-white/55 border border-transparent"
-            }`}
-            data-testid={`tab-${t.key}`}
-          >
-            <t.icon className="w-3.5 h-3.5" />
-            {t.label}
-          </button>
-        ))}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 animate-fade-in-up scrollbar-hide" style={{ animationDelay: '50ms', opacity: 0 }}>
+        <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04] w-max sm:w-auto">
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-all cursor-pointer whitespace-nowrap ${
+                tab === t.key
+                  ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
+                  : "text-white/35 hover:text-white/55 border border-transparent"
+              }`}
+              data-testid={`tab-${t.key}`}
+            >
+              <t.icon className="w-3.5 h-3.5" />
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="animate-fade-in-up" style={{ animationDelay: '75ms', opacity: 0 }}>
         <StatsHeader campId={campId} />
       </div>
 
-      <div className="rounded-2xl glass-card p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
+      <div className="rounded-2xl glass-card p-3 sm:p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {tab === "sessions" && <SessionsTab campId={campId} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && <DatesTab campId={campId} />}

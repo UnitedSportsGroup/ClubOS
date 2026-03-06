@@ -75,7 +75,7 @@ export default function AdminAttendance() {
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
       <div className="animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Attendance</h1>
         <p className="text-blue-400/35 text-[13px] mt-1">Check in and out for camp sessions</p>
@@ -123,12 +123,12 @@ export default function AdminAttendance() {
         <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
           <div className="divide-y divide-blue-500/[0.04]">
             {filtered.map((record: any) => (
-              <div key={record.id} className="flex items-center gap-4 px-5 py-3 row-hover" data-testid={`row-attendance-${record.id}`}>
+              <div key={record.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 sm:px-5 py-3 row-hover" data-testid={`row-attendance-${record.id}`}>
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium text-white/75">
                     {record.child?.firstName} {record.child?.lastName}
                   </p>
-                  <div className="flex items-center gap-3 mt-0.5">
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     <span className="text-[11px] text-white/30">
                       Parent: {record.parent?.firstName} {record.parent?.lastName}
                     </span>
@@ -139,7 +139,7 @@ export default function AdminAttendance() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <Button
                     variant="outline"
                     size="sm"

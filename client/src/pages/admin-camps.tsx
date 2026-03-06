@@ -128,7 +128,7 @@ export default function AdminCamps() {
   );
 
   return (
-    <div className="p-8 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Camps</h1>
@@ -153,7 +153,8 @@ export default function AdminCamps() {
           </div>
         ) : filtered && filtered.length > 0 ? (
           <div className="glass-card rounded-2xl overflow-hidden">
-            <table className="w-full" data-testid="table-camps">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[500px]" data-testid="table-camps">
               <thead>
                 <tr className="border-b border-blue-500/[0.08]">
                   <th className="text-left px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Name</th>
@@ -215,6 +216,7 @@ export default function AdminCamps() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-center glass-card rounded-2xl">
