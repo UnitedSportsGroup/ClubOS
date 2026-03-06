@@ -1,0 +1,307 @@
+You are Replit Pro. Refactor and rebuild the current public holiday camp landing page inside ClubBase to be a high-converting paid traffic sales page for Christchurch United Football Club.
+
+IMPORTANT CONTEXT
+- This page is for warm/high-intent traffic coming from Meta ads.
+- The goal is NOT to make the page long.
+- The goal is to make the page look premium, on-brand, trustworthy, and remove the final objections before booking.
+- We need this page to convert at least as well as our old Shopify page, ideally better.
+- The page must feel modern, sleek, minimalistic, and high converting.
+
+CRITICAL INSTRUCTION
+Delete / remove all currently existing public landing page sections BELOW the hero and testimonial/review sections, and rebuild the rest of the page from scratch using the exact structure below.
+
+KEEP THESE EXISTING SECTIONS
+1. Hero section
+2. Social proof / review / testimonial section already built
+
+DELETE ALL OTHER CURRENT SECTIONS
+- Remove all other sections currently on the page after testimonials/reviews
+- Replace them with the new section order below
+
+DESIGN STYLE
+Match the current refined design language already built:
+- Deep royal blue / navy gradient hero
+- Clean white content sections below
+- Strong premium sports brand feel
+- Modern, minimal spacing
+- Sleek rounded cards
+- Elegant shadows and subtle borders
+- Typography: Inter / Inter Tight feel
+- Large bold headlines
+- Clean supporting body text
+- Mobile-first and very polished
+- Keep it premium and conversion-focused, not cluttered
+
+BRAND / VISUAL DIRECTION
+- Christchurch United FC
+- Confident, premium, professional football brand
+- White / deep blue / gold accents where tasteful
+- Buttons should feel strong, clean, and modern
+- Overall look should feel better than the old Shopify page and still familiar to the club’s brand
+
+PUBLIC PAGE GOAL
+This page should quickly answer:
+1) Is this right for my child?
+2) What actually happens at camp?
+3) Can I trust this club and coaching environment?
+4) How much is it and how do I book?
+
+PAGE TO EDIT
+Current route: /[campSlug]
+Example: /fundamentals
+
+FINAL PAGE STRUCTURE
+Use this exact order:
+
+SECTION 1 — EXISTING HERO (KEEP, IMPROVE IF NEEDED)
+Keep the current hero section and preserve:
+- Centered CUFC logo
+- Main headline
+- Subheadline
+- Wistia video embed
+- Primary “Book Now” CTA
+- Trusted by 1,000+ parents social proof line
+Do not replace this section, only refine spacing/responsiveness if needed.
+
+SECTION 2 — EXISTING TESTIMONIAL / REVIEW SECTION (KEEP)
+Keep the current “What Parents Are Saying” review/testimonial section.
+You may improve layout, spacing, typography, and card polish.
+Do not remove the section.
+
+SECTION 3 — QUICK KEY INFO STRIP
+Build a short, scannable section immediately after testimonials.
+Purpose: remove friction fast.
+
+Use 4 or 5 modern icon cards with:
+- Ages
+- Dates
+- Location
+- Session Options
+- Price From
+
+Example content for Fundamentals camp:
+- Ages: 3–8 Years
+- Dates: 13–17 April
+- Location: Christchurch Football Centre
+- Sessions: Morning / Afternoon / Full Day
+- Price: From $30
+
+Requirements:
+- Desktop: cards in a row/grid
+- Mobile: stacked cards
+- Very clean, highly readable
+- Strong contrast and simple icons
+- This section should be compact
+
+SECTION 4 — WHAT YOUR CHILD WILL EXPERIENCE
+Create a short benefit section with 4 cards or columns.
+
+Heading:
+“What Your Child Will Experience”
+
+Subtext:
+Short sentence about fun, confidence, and development.
+
+Use 4 concise benefit items:
+1. Fun Skill Games
+2. Make New Friends
+3. Build Confidence
+4. Learn Through Play
+
+Each item should have:
+- Small icon
+- Short bold title
+- 1 short supporting sentence
+
+Do NOT make this overly wordy.
+
+SECTION 5 — TYPICAL CAMP DAY
+Create a simple, highly scannable “Typical Camp Day” or “What a Day Looks Like” section.
+
+Purpose:
+Give parents immediate clarity about what happens during the day.
+
+Format:
+Either a modern vertical timeline or simple schedule cards.
+
+Example structure:
+- 9:00 AM — Drop Off & Welcome Games
+- 9:30 AM — Skill Activities & Ball Mastery
+- 10:15 AM — Fun Challenges & Small Games
+- 11:00 AM — Match Play / Themed Games
+- 12:00 PM — Half Day Pick Up
+- 3:00 PM — Full Day Pick Up
+
+Requirements:
+- Keep it concise
+- Make it visually clean
+- Mobile must be easy to scan
+- If Morning/Afternoon/Full Day options are available, visually communicate this clearly
+
+SECTION 6 — WHY PARENTS TRUST CUFC
+Create a trust-building section.
+
+Heading:
+“Why Families Choose Christchurch United”
+
+Use 4–5 trust bullets/cards, such as:
+- Trusted by Canterbury families since 2014
+- Safe, supervised environment
+- Professional football facilities
+- Experienced coaches
+- Fun first, development focused
+
+Requirements:
+- This section should feel reassuring and credible
+- Optionally include a subtle stats row:
+  - 1000+ families
+  - Since 2014
+  - 5-star feedback
+- Keep it visually clean and premium
+
+SECTION 7 — PRICING + BOOKING SECTION
+This is one of the most important sections.
+
+Build a short pricing section with clear pricing cards or clean selectable options:
+- Morning Session
+- Afternoon Session
+- Full Day
+
+Use actual dynamic pricing from the camp data if available.
+If pricing is dynamic from the backend, wire this section to real data.
+If not available yet, structure the UI so it can be connected easily.
+
+Requirements:
+- Clear pricing
+- Clear inclusions if relevant
+- Large modern CTA button
+- Make it feel easy to buy
+- Include a short line like:
+  “Simple online booking. Secure payment. Instant confirmation.”
+
+Optional:
+- Add a small line for urgency such as:
+  “Places are limited for each day.”
+But keep it tasteful, not spammy.
+
+SECTION 8 — SHORT FAQ
+Create a compact FAQ section with 4–5 accordion items max.
+
+Suggested questions:
+- Does my child need football experience?
+- What should they bring?
+- What happens if it rains?
+- Can I book multiple days?
+- Does my child need to be a CUFC player?
+
+Requirements:
+- Use clean accordion UI
+- Keep answers short, practical, and reassuring
+- No long walls of text
+
+SECTION 9 — FINAL CTA SECTION
+Create a strong final CTA section near the bottom.
+
+Heading example:
+“Give Your Child a Holiday They’ll Love”
+
+Supporting text:
+Short sentence about limited places, fun environment, and easy online booking.
+
+CTA button:
+“Book Now”
+
+Design:
+- Visually strong
+- Matches hero style but can be slightly simpler
+- Make it feel like the natural final conversion point
+- Include option for a secondary micro trust line:
+  “Secure online booking in under 2 minutes.”
+
+SECTION 10 — SIMPLE FOOTER
+After the final CTA, add a simple footer inspired by the attached FootVault footer screenshot.
+
+Footer style:
+- Dark background
+- Minimal and elegant
+- Centered layout
+- Soft glow / subtle gradient behind the logo area if tasteful
+- Clean thin divider lines
+- Premium, modern SaaS / premium landing page style
+
+Footer content:
+- CUFC logo or ClubBase/CUFC text lockup
+- Privacy Policy link
+- Terms & Conditions link
+- Small disclaimer text:
+  “This site is not part of the Facebook website or Facebook Inc. Additionally, this site is NOT endorsed by Facebook in any way. FACEBOOK is a trademark of FACEBOOK, Inc.”
+- Copyright line:
+  “© 2025 Christchurch United FC. All Rights Reserved.”
+
+Requirements:
+- Keep it very simple
+- Do not clutter
+- Must look premium and complete the page nicely
+
+UX / CONVERSION REQUIREMENTS
+- Repeat “Book Now” CTA buttons throughout key sections
+- Add a sticky mobile bottom CTA button
+- Remove unnecessary navigation/distractions
+- Keep the page focused on one goal: booking
+- Make sure sections are not too tall or bloated
+- This is a short, sharp, high-intent landing page
+- Prioritize clarity, speed, and trust
+
+VIDEO
+- Keep the existing Wistia embed in the hero
+- Ensure it is responsive
+- Preserve performance (lazy load if possible)
+
+RESPONSIVENESS
+The page must look excellent on:
+- Mobile
+- Tablet
+- Desktop
+
+Especially important:
+- Hero spacing on mobile
+- CTA visibility on mobile
+- Testimonial cards on mobile
+- Info cards stacking cleanly
+- Footer readability on mobile
+
+TECHNICAL / IMPLEMENTATION NOTES
+- Use the existing page and refactor it rather than creating a disconnected duplicate
+- Keep code modular with reusable section components
+- Use clean semantic HTML
+- Ensure fast load and avoid unnecessary JS
+- If data is already coming from camp objects, bind content to the existing camp data model where appropriate
+- For static marketing copy, use clear section-level content that can be swapped later
+- Preserve current styling system / Tailwind usage / component conventions already used in the project
+
+CONTENT TONE
+- Professional
+- Parent-friendly
+- Clear
+- Confident
+- Trustworthy
+- Premium
+- Not overly hypey
+- Not too salesy
+
+SUCCESS CRITERIA
+The final page should:
+- Feel better than the old Shopify page
+- Look premium and on-brand
+- Be shorter and cleaner than a typical long-form page
+- Remove friction and increase booking confidence
+- Be visually polished enough to show to management/staff/board
+- Make the software feel like an upgrade, not a downgrade
+
+NOW DO THIS:
+1. Audit the current /[campSlug] landing page
+2. Keep the hero and review/testimonial sections
+3. Delete all other existing lower-page sections
+4. Rebuild the rest of the page exactly in the structure above
+5. Polish spacing, responsiveness, and conversion flow
+6. Ensure the final result is cohesive, modern, minimal, and high converting
