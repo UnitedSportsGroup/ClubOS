@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText } from "lucide-react";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -312,6 +312,109 @@ function DiscountsTab({ campId }: { campId: number }) {
   );
 }
 
+function ContentTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
+  const [heroHeadline, setHeroHeadline] = useState(camp.heroHeadline || "");
+  const [heroSubheadline, setHeroSubheadline] = useState(camp.heroSubheadline || "");
+  const [descriptionShort, setDescriptionShort] = useState(camp.descriptionShort || "");
+  const [descriptionLong, setDescriptionLong] = useState(camp.descriptionLong || "");
+  const [whatToBring, setWhatToBring] = useState(camp.whatToBring || "");
+  const [inclusions, setInclusions] = useState(camp.inclusions || "");
+  const [refundPolicy, setRefundPolicy] = useState(camp.refundPolicy || "");
+  const [contactEmail, setContactEmail] = useState(camp.contactEmail || "");
+  const [primaryCta, setPrimaryCta] = useState(camp.primaryCta || "Book Now");
+  const [faqItems, setFaqItems] = useState<{q: string; a: string}[]>(() => {
+    try { return camp.faqJson ? JSON.parse(camp.faqJson) : []; } catch { return []; }
+  });
+
+  const handleSave = () => {
+    onUpdate({
+      heroHeadline: heroHeadline || null,
+      heroSubheadline: heroSubheadline || null,
+      descriptionShort: descriptionShort || null,
+      descriptionLong: descriptionLong || null,
+      whatToBring: whatToBring || null,
+      inclusions: inclusions || null,
+      refundPolicy: refundPolicy || null,
+      contactEmail: contactEmail || null,
+      primaryCta: primaryCta || "Book Now",
+      faqJson: faqItems.length > 0 ? JSON.stringify(faqItems.filter(f => f.q)) : null,
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      <p className="text-[12px] text-white/30">These fields control the public landing page for this camp</p>
+
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Hero Headline</label>
+          <Input value={heroHeadline} onChange={e => setHeroHeadline(e.target.value)} placeholder="Give Your Child the Best School Holiday Experience" className="premium-input text-white/80 rounded-xl" data-testid="input-hero-headline" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Hero Subheadline</label>
+          <Input value={heroSubheadline} onChange={e => setHeroSubheadline(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-hero-subheadline" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">CTA Button Text</label>
+            <Input value={primaryCta} onChange={e => setPrimaryCta(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-primary-cta" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Contact Email</label>
+            <Input value={contactEmail} onChange={e => setContactEmail(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-contact-email" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Short Description</label>
+          <textarea value={descriptionShort} onChange={e => setDescriptionShort(e.target.value)} className="w-full h-16 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" placeholder="One-liner for camp listing cards" data-testid="input-description-short" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Long Description</label>
+          <textarea value={descriptionLong} onChange={e => setDescriptionLong(e.target.value)} className="w-full h-28 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" placeholder="Detailed description for the About section" data-testid="input-description-long" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">What's Included (one per line)</label>
+          <textarea value={inclusions} onChange={e => setInclusions(e.target.value)} className="w-full h-24 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid="input-inclusions" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">What to Bring (one per line)</label>
+          <textarea value={whatToBring} onChange={e => setWhatToBring(e.target.value)} className="w-full h-24 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid="input-what-to-bring" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Refund Policy</label>
+          <textarea value={refundPolicy} onChange={e => setRefundPolicy(e.target.value)} className="w-full h-16 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid="input-refund-policy" />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">FAQ Items</label>
+          <Button variant="outline" onClick={() => setFaqItems([...faqItems, { q: "", a: "" }])} className="rounded-lg h-7 text-[11px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5" data-testid="button-add-faq">
+            <Plus className="w-3 h-3 mr-1" /> Add FAQ
+          </Button>
+        </div>
+        {faqItems.map((item, i) => (
+          <div key={i} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <div className="flex-1 space-y-2">
+                <Input value={item.q} onChange={e => { const n = [...faqItems]; n[i].q = e.target.value; setFaqItems(n); }} placeholder="Question" className="premium-input text-white/80 rounded-lg text-[12px]" data-testid={`input-faq-q-${i}`} />
+                <textarea value={item.a} onChange={e => { const n = [...faqItems]; n[i].a = e.target.value; setFaqItems(n); }} placeholder="Answer" className="w-full h-14 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[12px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" data-testid={`input-faq-a-${i}`} />
+              </div>
+              <button onClick={() => setFaqItems(faqItems.filter((_, j) => j !== i))} className="w-6 h-6 rounded-md flex items-center justify-center hover:bg-red-500/10 transition-colors cursor-pointer mt-1">
+                <X className="w-3 h-3 text-white/20" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={handleSave} className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn" data-testid="button-save-content">
+        <Save className="w-4 h-4 mr-1.5" /> Save Content
+      </Button>
+    </div>
+  );
+}
+
 function EmailTab({ campId }: { campId: number }) {
   const { data: settings, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId, "settings"],
@@ -408,6 +511,7 @@ export default function AdminCampDetail() {
 
   const tabs = [
     { key: "overview", label: "Overview", icon: Tent },
+    { key: "content", label: "Content", icon: FileText },
     { key: "dates", label: "Dates & Capacity", icon: Calendar },
     { key: "pricing", label: "Pricing", icon: DollarSign },
     { key: "discounts", label: "Discounts", icon: Percent },
@@ -472,6 +576,7 @@ export default function AdminCampDetail() {
 
       <div className="rounded-2xl glass-card p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {tab === "overview" && <OverviewTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
+        {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && <DatesTab campId={campId} />}
         {tab === "pricing" && <PricingTab campId={campId} />}
         {tab === "discounts" && <DiscountsTab campId={campId} />}

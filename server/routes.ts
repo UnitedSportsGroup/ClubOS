@@ -318,12 +318,16 @@ export async function registerRoutes(
         name: c.name,
         slug: c.slug,
         description: c.description,
+        descriptionShort: c.descriptionShort,
         location: c.location,
         startDate: c.startDate,
         endDate: c.endDate,
         ageMin: c.ageMin,
         ageMax: c.ageMax,
         heroImage: c.heroImage,
+        heroHeadline: c.heroHeadline,
+        heroSubheadline: c.heroSubheadline,
+        primaryCta: c.primaryCta,
       })));
     } catch (error: any) {
       res.status(500).json({ message: error.message });

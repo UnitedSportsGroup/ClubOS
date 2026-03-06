@@ -1,0 +1,252 @@
+You are Replit Pro. Build a production-ready MVP landing/sales page system for Christchurch United Football Club holiday camps inside our ClubBase web app.
+
+GOAL
+We need public, high-converting camp landing pages that connect to our booking + Stripe checkout flow AND send full-fidelity conversion tracking to Meta (Pixel + Conversions API). This must be shippable in 3 days.
+
+BRAND + UI
+- Modern, sleek, minimalistic dark UI for admin (black/charcoal + dark blue + white)
+- Public landing pages can be clean, modern, and conversion-focused (light or dark is fine, but should feel premium)
+- Typography: Inter / Inter Tight style
+- Mobile-first, fast load, SEO-friendly
+
+ROUTING
+- Public pages live at: /:campSlug
+  Examples: /fundamentals, /world-cup
+- Admin dashboard lives at: /admin
+- Admin should manage camps and the landing page content from /admin/camps
+
+MVP SCOPE (DO THIS FIRST)
+1) Public Landing Page (per camp)
+2) Booking form + Stripe checkout
+3) Success page + confirmation email
+4) Meta conversion tracking: browser Pixel events + server-side Conversions API events with deduplication
+5) Admin interface to edit the landing page fields and publish/unpublish
+
+DO NOT BUILD
+- Drag-and-drop website builder
+- Complex CMS
+- Multi-tenant SaaS billing
+- Roles/permissions beyond a simple admin login
+
+TECH STACK (choose a solid Replit-friendly stack)
+- Frontend: Next.js (App Router) + Tailwind
+- Backend: Next.js API routes (or server actions) + Prisma ORM
+- Database: Postgres (use Neon or Replit Postgres)
+- Auth: simple admin auth (NextAuth or password-protected admin with secure session cookies)
+- Payments: Stripe Checkout
+- Email: Resend (or SendGrid)
+- Analytics/Tracking: Meta Pixel (client) + Meta Conversions API (server)
+- Validation: Zod
+- Forms: React Hook Form
+
+DATA MODEL (Prisma)
+Create these tables:
+
+Camp
+- id (uuid)
+- slug (unique) e.g. "fundamentals"
+- name e.g. "FUNdamentals Holiday Camp"
+- status (draft | published)
+- descriptionShort
+- descriptionLong
+- heroHeadline
+- heroSubheadline
+- heroImageUrl (optional)
+- venueName
+- venueAddress
+- startDate
+- endDate
+- ageMin
+- ageMax
+- whatToBring (text)
+- inclusions (text)
+- refundPolicy (text)
+- contactEmail
+- primaryCTA (default “Book Now”)
+- createdAt, updatedAt
+
+CampPricingOption
+- id
+- campId
+- label (Morning / Afternoon / Full Day / Week Pass etc.)
+- priceCents
+- currency (NZD)
+- startTime (optional)
+- endTime (optional)
+
+CampSessionDay (for roll/attendance later, but basic structure now)
+- id
+- campId
+- date
+- capacityMorning
+- capacityAfternoon
+- capacityFullDay
+
+Registration
+- id
+- campId
+- parentFirstName
+- parentLastName
+- parentEmail
+- parentPhone
+- childFirstName
+- childLastName
+- childDOB (date)
+- medicalNotes (text)  // allergies, epi pen, etc.
+- selectedOptionId (CampPricingOption)
+- selectedDays (json array of dates OR simple “all days” boolean for MVP)
+- amountCents
+- currency
+- paymentStatus (pending | paid | failed | refunded)
+- stripeCheckoutSessionId
+- stripePaymentIntentId
+- meta_fbp (string, nullable)
+- meta_fbc (string, nullable)
+- fbclid (string, nullable)
+- utmSource, utmMedium, utmCampaign, utmContent, utmTerm (nullable)
+- userAgent (nullable)
+- ipAddress (nullable)
+- createdAt, updatedAt
+
+EmailTemplate (simple)
+- id
+- campId
+- type (confirmation)
+- subject
+- bodyHtml
+- bodyText
+
+ADMIN EXPERIENCE (/admin)
+- Login screen (simple but secure)
+- Admin Camps list
+  - Create camp
+  - Edit camp
+  - Duplicate camp
+  - Publish/unpublish toggle
+- Camp editor form sections:
+  - Basics (name, slug, dates, ages, venue)
+  - Hero (headline, subheadline, image)
+  - Details (short/long description, inclusions, what to bring, refund policy)
+  - Pricing options CRUD
+  - Confirmation email editor (subject + body; provide default template)
+- Preview button: opens /:campSlug?preview=1 for admin only
+- Publish button: makes page live
+
+PUBLIC LANDING PAGE (/:campSlug)
+- If camp not found or draft (and no preview), show 404
+- Layout sections (clean, high converting):
+  1) Hero with headline, subheadline, dates, venue, ages, primary CTA
+  2) Quick info cards (Age range, Dates, Location, Spots)
+  3) Pricing selector (radio cards for pricing options)
+  4) What’s included + what to bring
+  5) FAQ (hardcode 6 FAQs for MVP OR store a simple JSON list in Camp)
+  6) Sticky mobile CTA (“Book now”)
+- Booking form section (on same page or a modal)
+  Fields:
+  - Parent name, email, phone
+  - Child name, DOB
+  - Medical notes (optional)
+  - Select pricing option
+  - Select days (MVP: allow “All days” checkbox OR simple multi-select of dates generated from start/end date)
+  - Submit -> creates Registration (pending) -> redirects to Stripe Checkout
+
+CHECKOUT FLOW
+- POST /api/checkout
+  Input: campSlug, selectedOptionId, days, parent+child fields, medicalNotes
+  Output: redirectUrl (Stripe Checkout session URL)
+- Stripe Checkout:
+  - line items based on pricing option + days count if relevant
+  - success_url: /:campSlug/success?session_id={CHECKOUT_SESSION_ID}
+  - cancel_url: /:campSlug?canceled=1
+
+SUCCESS PAGE
+Route: /:campSlug/success
+- Fetch Stripe session by session_id
+- Mark Registration as paid if payment succeeded
+- Send confirmation email (once) using idempotency:
+  - Do not double-send if page refreshed
+- Display:
+  - “You’re booked!”
+  - Summary (camp name, dates, option, parent email)
+  - “Add to calendar” button (optional)
+  - “Contact us” details
+
+EMAIL
+Use Resend (or SendGrid).
+Default confirmation email includes:
+- Thanks
+- Camp name + dates
+- Venue + address
+- Drop off / pick up times placeholder
+- What to bring
+- Contact email
+
+META TRACKING REQUIREMENTS (CRITICAL)
+We are running Meta ads and must capture accurate conversion data.
+Implement BOTH:
+A) Meta Pixel client-side
+B) Meta Conversions API server-side
+
+Client-side Pixel
+- Include pixel base code on public pages
+- On landing page view: Track "ViewContent" with content_name=camp name, content_category="Holiday Camp"
+- When user clicks book CTA: Track "InitiateCheckout"
+- On successful payment (success page): Track "Purchase" with value and currency
+
+Server-side Conversions API
+- On checkout session creation: send "InitiateCheckout" event server-side
+- On payment success (webhook or success handler): send "Purchase" event server-side
+- Use event_id for deduplication: generate a UUID per event and send same id both client and server for the same event where possible
+- Capture and store:
+  - fbp and fbc cookies from client (read in browser, pass to server)
+  - fbclid from URL if present
+  - user agent + IP address (from request headers)
+  - external_id can be hashed email (SHA256 lowercased trimmed)
+- Use Meta Graph API endpoint:
+  - /{PIXEL_ID}/events?access_token={TOKEN}
+- Provide env vars:
+  - META_PIXEL_ID
+  - META_ACCESS_TOKEN
+  - STRIPE_SECRET_KEY
+  - STRIPE_WEBHOOK_SECRET
+  - RESEND_API_KEY
+  - DATABASE_URL
+  - ADMIN_EMAIL + ADMIN_PASSWORD (or NextAuth secret)
+
+STRIPE WEBHOOK (IMPORTANT)
+Implement /api/webhooks/stripe to handle:
+- checkout.session.completed -> mark registration paid, store payment intent id, send server-side Purchase event, send email if not sent
+
+SECURITY
+- Admin routes protected
+- Sanitize and validate all inputs (Zod)
+- Avoid leaking admin preview to public
+- Use CSRF-safe session cookies for admin auth
+
+SEED DATA
+Create seed script that creates:
+- "FUNdamentals Holiday Camp" slug fundamentals
+- "World Cup Holiday Camp" slug world-cup
+- each with 3 pricing options: Morning $30, Afternoon $30, Full Day $50 (NZD)
+- default confirmation email templates
+
+DELIVERABLES
+- Working Next.js app with above routes
+- Prisma schema + migrations
+- Admin UI
+- Public landing pages
+- Stripe checkout + webhook
+- Meta Pixel + CAPI integration with dedup
+- Clean README with setup steps and env vars
+
+QUALITY BAR
+- Simple, robust, minimal bugs
+- Fast UI, responsive
+- Make it look premium and modern
+- All critical flows tested manually:
+  1) Visit /fundamentals -> see landing page
+  2) Fill booking -> go to Stripe checkout
+  3) Pay -> success page -> email sent -> purchase event fired (client + server)
+  4) Admin can edit camp content and publish/unpublish
+
+Now implement this end-to-end.
