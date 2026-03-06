@@ -144,7 +144,10 @@ export async function registerRoutes(
   app.patch("/api/admin/attendance/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updated = await storage.updateAttendance(id, req.body);
+      const data: any = { ...req.body };
+      if (data.checkedInAt) data.checkedInAt = new Date(data.checkedInAt);
+      if (data.checkedOutAt) data.checkedOutAt = new Date(data.checkedOutAt);
+      const updated = await storage.updateAttendance(id, data);
       if (!updated) return res.status(404).json({ message: "Attendance record not found" });
       res.json(updated);
     } catch (error: any) {
@@ -290,15 +293,6 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/attendance/:id", requireAuth, async (req, res) => {
-    try {
-      const record = await storage.updateAttendance(parseInt(req.params.id), req.body);
-      if (!record) return res.status(404).json({ message: "Attendance record not found" });
-      res.json(record);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
 
   app.get("/api/admin/crm/export", requireAuth, async (req, res) => {
     try {
