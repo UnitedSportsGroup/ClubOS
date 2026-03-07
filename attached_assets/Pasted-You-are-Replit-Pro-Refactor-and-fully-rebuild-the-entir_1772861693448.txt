@@ -1,0 +1,411 @@
+You are Replit Pro. Refactor and fully rebuild the entire public holiday camp checkout / booking flow inside ClubBase so it feels premium, modern, minimal, highly trustworthy, and optimized for conversion.
+
+IMPORTANT CONTEXT
+We are selling low-ticket holiday camp bookings to high-intent parents coming from Meta ads.
+This is not a long complicated application form.
+The experience must feel:
+- simple
+- fast
+- clean
+- low friction
+- premium
+- trustworthy
+- mobile-friendly
+- conversion optimized
+
+PRIMARY CONVERSION GOAL
+Reduce hesitation, clicks, and confusion.
+Only collect necessary information.
+Do NOT add unnecessary fields.
+The flow should feel shorter and easier than typical booking systems.
+
+FINAL REQUIRED BOOKING FLOW ORDER
+Use this exact step order:
+
+STEP 1 — Choose Sessions
+STEP 2 — Parent / Guardian Details
+STEP 3 — Children
+STEP 4 — Payment
+STEP 5 — Confirmation
+
+IMPORTANT:
+- Do NOT combine Parent + Child into one step
+- Keep Parent and Child separate
+- But move session/date selection to the FIRST step
+- This is the new required conversion flow
+
+BRAND GUIDELINES (USE EXACTLY)
+Colors:
+- Blue (Primary): #22399B
+- White (Secondary): #FBFBFC
+- Gold (Accent 1): #D9B10F
+- Dark Blue (Accent 2): #221F7A
+
+Typography:
+- Font family: Inter Tight
+- Headings: Inter Tight Bold
+- Body text / labels / helper text: Inter Tight Regular
+
+DESIGN DIRECTION
+The booking flow must match the ClubBase / landing page visual language:
+- modern
+- sleek
+- minimalistic
+- premium
+- lots of breathing room
+- soft rounded corners
+- subtle borders
+- elegant shadows
+- clean spacing
+- clear hierarchy
+- mobile-first
+- no clutter
+- no unnecessary UI chrome
+- feels better than Friendly Manager and better than basic Shopify forms
+
+GENERAL UX PRINCIPLES
+- Maximize clarity
+- Use the fewest steps possible while keeping Parent and Child separate
+- Use progress indicators
+- Show live booking summary and price at the right moments
+- Make CTAs obvious
+- Use reassuring microcopy
+- Keep forms easy to complete on mobile
+- Ensure there is no confusion around dates, sessions, or totals
+- Every step should feel clean and focused
+
+ROUTES / FLOW
+This flow should begin when user clicks Book Now on a camp page.
+
+Preferred route structure:
+- /[campSlug]/book
+- /[campSlug]/book/parent
+- /[campSlug]/book/children
+- /[campSlug]/book/payment
+- /[campSlug]/book/success
+
+OR use one smart multi-step route if that is better architecturally.
+Either is fine, but UX should feel seamless.
+
+STEP 1 — CHOOSE SESSIONS
+This is now the first screen.
+
+Purpose:
+Let the parent choose camp dates / sessions before asking for personal info.
+
+Layout requirements:
+- Clean stepper at top showing:
+  1 Choose Sessions
+  2 Parent Details
+  3 Children
+  4 Payment
+- Strong heading:
+  “Choose Sessions”
+- Small helper text:
+  “Select the days and session type you’d like to book.”
+
+Session selection UI:
+- Show available camp dates in a clean card / row layout
+- For each date, show session options as selectable pills or buttons:
+  - Morning
+  - Afternoon
+  - Full Day
+- Selected state must be visually strong using the primary blue
+- Unselected state should be subtle, clean, minimal
+- Disable unavailable / sold out dates visually
+- Make selection easy on mobile with large tap targets
+
+Pricing summary:
+- Add a clean live summary card below or beside the session picker
+- It should update in real time as the user selects sessions
+- Show:
+  - Number of sessions selected
+  - Price breakdown if useful
+  - Total in NZD
+- Example:
+  2 sessions selected
+  Total: $100 NZD
+
+UX requirements:
+- The Continue button should be disabled until at least one session is chosen
+- Make the step visually satisfying to use
+- If possible, preserve selection state if user goes back later
+
+STEP 2 — PARENT / GUARDIAN DETAILS
+Purpose:
+Collect only the minimum parent information needed to send confirmations and contact them.
+
+Fields (ONLY THESE):
+- First Name *
+- Last Name *
+- Email *
+- Phone *
+
+No extra fields.
+
+Design:
+- Single clean card container
+- Strong heading:
+  “Parent / Guardian Details”
+- Small helper text:
+  “We’ll use this to send your booking confirmation and important camp updates.”
+- Inputs should be modern, elegant, easy to tap on mobile
+- Labels should be above fields
+- Two-column layout on desktop where appropriate
+- Single-column on mobile
+
+Micro trust line below form:
+- “Your details are kept secure and only used for your booking.”
+
+Buttons:
+- Back
+- Continue
+
+STEP 3 — CHILDREN
+Purpose:
+Collect child details with as little friction as possible.
+
+Fields for each child:
+- First Name *
+- Last Name *
+- Date of Birth *
+- Allergies / Medical Notes (optional)
+- Child carries an EpiPen (checkbox)
+
+DO NOT include unnecessary fields like gender unless already absolutely required by business logic.
+If gender already exists in schema but is not required for camps, remove it from the public flow.
+
+Important:
+- Allow booking for multiple children
+- Start with one child card by default
+- Include “Add Another Child” button
+- Each child entry should be visually simple and neat
+- If multiple children are added, keep the UI clear and not overwhelming
+
+Heading:
+“Children”
+Helper text:
+“Add each child attending the camp.”
+
+Buttons:
+- Back
+- Continue to Payment
+
+UX requirements:
+- If multiple children are added, preserve data when navigating back
+- Inputs must be comfortable on mobile
+- Make date of birth input elegant and reliable
+- Do not overcomplicate this screen
+
+STEP 4 — PAYMENT
+Purpose:
+Create a premium, reassuring final payment step.
+
+Top heading:
+“Complete Your Booking”
+Subtext:
+“Review your booking and enter payment details.”
+
+Layout:
+Desktop:
+- Left: payment form
+- Right: order summary
+Mobile:
+- Stack vertically
+- Order summary visible before payment button if helpful
+
+Payment form:
+- Use Stripe Elements / secure Stripe integration
+- Make it look polished and integrated
+- Must support Apple Pay / Google Pay if available
+- Large primary payment button
+
+Order summary must show:
+- Camp name
+- Selected dates / session types
+- Number of children
+- Subtotal
+- GST if applicable
+- Total
+
+Add trust / reassurance lines:
+- “Secure payment powered by Stripe”
+- “SSL encrypted”
+- “Booking confirmation sent instantly by email”
+
+CTA:
+- Strong full-width button
+- Example:
+  “Pay $100 NZD”
+
+Visual requirements:
+- This page should feel calm, premium, secure, and simple
+- Minimize distractions
+- No unnecessary text walls
+
+STEP 5 — SUCCESS / CONFIRMATION
+Purpose:
+Give the parent confidence that everything worked and tell them what happens next.
+
+Heading:
+“Booking Confirmed!”
+Subtext:
+“Thank you for booking with Christchurch United FC.”
+
+Show:
+- Booking summary card
+  - Camp
+  - Booking number
+  - Sessions booked
+  - Total paid
+- Confirmation email notice
+- Primary button:
+  “View Camp Details”
+- Secondary link:
+  “All Camps”
+
+Add a “What Happens Next” section:
+- You’ll receive a confirmation email
+- We’ll send key camp details before the programme starts
+- Bring lunch / boots / water bottle (or whatever relevant info can be dynamic later)
+
+SUCCESS PAGE MUST FEEL COMPLETE
+Not just a transactional confirmation.
+Make it reassuring and polished.
+
+GLOBAL STYLE REQUIREMENTS
+Use these exact style principles across the whole flow:
+
+Backgrounds:
+- Primary page background: #FBFBFC
+- Cards / surfaces: white with subtle border/shadow
+- Primary buttons: #22399B
+- Hover / deeper accents: #221F7A
+- Gold accents only for tasteful highlights / icons / small trust accents, not overused
+
+Typography:
+- Import and use Inter Tight
+- Headings: Bold
+- Body / labels / helper text: Regular
+- Strong readable sizes
+- Clean hierarchy
+
+Buttons:
+- Large tap-friendly
+- Rounded
+- Premium shadows
+- Strong hover/focus states
+- Disabled states must be clearly visible
+
+Inputs:
+- White background
+- Soft border
+- Generous padding
+- Accessible focus states using blue
+- Do NOT use dark input backgrounds like the current screenshots if that reduces readability against the light UI
+
+Spacing:
+- Center content in a narrow readable container
+- Avoid huge empty dead space
+- Make the page feel premium, not sparse and unfinished
+- Improve the current layout where too much whitespace makes the page feel empty
+
+PROGRESS STEPPER
+Build a polished stepper at the top:
+1 Choose Sessions
+2 Parent Details
+3 Children
+4 Payment
+
+Requirements:
+- Completed steps show success state
+- Current step clearly highlighted
+- Clean horizontal layout
+- Mobile responsive
+- Visually consistent with brand colors
+
+STATE MANAGEMENT
+The booking flow must preserve progress properly.
+Store state between steps:
+- selected sessions
+- pricing
+- parent details
+- child details
+
+User should not lose progress when navigating back.
+
+VALIDATION
+Use Zod / robust validation.
+Only validate what is necessary.
+Error messages should be clean and friendly.
+
+Examples:
+- “Please enter a valid email address.”
+- “Please choose at least one session.”
+- “Please add your child’s date of birth.”
+
+MOBILE OPTIMIZATION (CRITICAL)
+Most bookings may come from mobile users from Meta ads.
+Prioritize mobile UX heavily:
+- Large tap targets
+- Sticky CTA on key steps if appropriate
+- Inputs easy to use
+- No cramped layouts
+- Summary clear and readable
+- Buttons full width on mobile
+- Stripe / Apple Pay / Google Pay should feel seamless
+
+CONVERSION OPTIMIZATION RULES
+- Ask for commitment first (choose sessions)
+- Then parent details
+- Then child details
+- Then payment
+- Reduce perceived effort
+- Reduce uncertainty
+- Keep copy concise
+- Avoid extra fields
+- Keep the journey emotionally calm and simple
+
+REMOVE / FIX CURRENT ISSUES
+Based on the current screenshots, fix the following:
+- Too much unused empty space on each screen
+- Inputs feeling disconnected from the premium visual design
+- Step 3 session selection page should feel more polished and meaningful
+- Payment page should feel more premium and trustworthy
+- Confirmation page should feel more complete
+- Overall flow should feel tighter, smoother, and more intentional
+
+MICROCOPY TO ADD
+Use short reassuring microcopy where useful:
+- “Takes less than 2 minutes”
+- “Secure online booking”
+- “Instant confirmation by email”
+- “You can go back and edit before payment”
+
+TECHNICAL IMPLEMENTATION
+- Refactor the existing booking flow rather than building a messy duplicate
+- Keep components modular and reusable
+- Use React Hook Form if already used
+- Use clean TypeScript patterns
+- Keep code maintainable
+- Respect existing backend booking logic, pricing, and Stripe integration
+- If needed, adjust flow state shape to support sessions-first ordering
+
+SUCCESS CRITERIA
+The final booking flow must:
+- feel premium and world-class
+- be easier to understand than the current version
+- require fewer mental steps
+- feel trustworthy and polished
+- convert well from paid Meta traffic
+- look consistent with the new landing page
+- feel worthy of ClubBase as a product
+
+NOW DO THIS:
+1. Audit the current booking flow and state structure
+2. Reorder the steps to:
+   Choose Sessions → Parent Details → Children → Payment → Confirmation
+3. Rebuild the UI for each step using the exact brand guidelines above
+4. Tighten spacing and improve layout
+5. Remove unnecessary fields and friction
+6. Polish the final result until it feels premium, minimal, modern, and highly conversion focused

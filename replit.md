@@ -40,9 +40,9 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Routing
 - `/` — Public landing page (lists active camps)
 - `/:slug` — Conversion-focused camp detail page (hero, pricing, FAQ, inclusions)
-- `/:slug/book` — Multi-step booking form (parent → children → sessions)
-- `/:slug/checkout` — Custom branded checkout page with embedded Stripe Elements
-- `/:slug/success` — Booking confirmation with payment verification
+- `/:slug/book` — 4-step booking form (sessions → parent details → children → embedded Stripe payment)
+- `/:slug/checkout` — Legacy checkout page (fallback, kept for direct URL access)
+- `/:slug/success` — Booking confirmation with "What Happens Next" section
 - `/:slug/cancel` — Booking cancelled
 - `/admin/login` — Admin login
 - `/admin` — Admin dashboard
@@ -84,12 +84,18 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - Stripe: POST /api/stripe/webhook
 
 ## Payment Flow
-1. Parent completes booking form → POST /api/public/book
-2. If totalCents > 0 and STRIPE_SECRET_KEY set → creates Stripe PaymentIntent → returns clientSecret
-3. Redirects to custom checkout page (/:slug/checkout) with embedded Stripe Elements
-4. User pays on-platform → card form confirms PaymentIntent → POST /api/public/confirm-payment
+1. Parent selects sessions (step 1) → enters details (step 2) → adds children (step 3) → POST /api/public/book
+2. If totalCents > 0 and STRIPE_SECRET_KEY set → creates Stripe PaymentIntent → fetches checkout data from GET /api/public/checkout/:id
+3. Step 4: Embedded Stripe PaymentElement renders within the booking page (no separate checkout page)
+4. User pays inline → confirms PaymentIntent → POST /api/public/confirm-payment
 5. Webhook (POST /api/stripe/webhook, event: payment_intent.succeeded) also confirms payment (backup)
 6. On confirmation: updates registration status, sends confirmation email, fires Meta Purchase event
+7. Sessions selected in step 1 are applied to ALL children added in step 3 (template pattern)
+
+## Pricing
+- Hardcoded frontend prices: Morning $30 (3000¢), Afternoon $30 (3000¢), Full Day $50 (5000¢)
+- Session times: Morning 9am–12pm, Afternoon 12pm–3pm, Full Day 9am–3pm
+- Backend uses database camp_pricing table for actual charge calculation
 
 ## Environment Variables
 - `STRIPE_SECRET_KEY` — Stripe API key (secret, set by user)

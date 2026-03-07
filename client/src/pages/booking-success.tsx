@@ -4,8 +4,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle, Calendar, Mail, ArrowRight, Home } from "lucide-react";
+import { CheckCircle, Calendar, Mail, ArrowRight, Home, Clock, ShieldCheck, Sparkles } from "lucide-react";
 import { trackEvent, generateEventId } from "@/lib/meta-pixel";
+
+const BRAND = {
+  blue: '#22399B',
+  darkBlue: '#221F7A',
+  white: '#FBFBFC',
+  gold: '#D9B10F',
+};
 
 export default function BookingSuccess() {
   const [, params] = useRoute("/:slug/success");
@@ -64,7 +71,7 @@ export default function BookingSuccess() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.white }}>
         <div className="max-w-md mx-auto px-6 py-16 space-y-6 text-center">
           <Skeleton className="h-16 w-16 rounded-full bg-slate-100 mx-auto" />
           <Skeleton className="h-8 w-64 bg-slate-100 mx-auto" />
@@ -78,11 +85,11 @@ export default function BookingSuccess() {
   const isPending = registration?.status === "pending" && !confirmed;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen" style={{ background: BRAND.white, fontFamily: "'Inter Tight', system-ui, -apple-system, sans-serif" }}>
       <header className="bg-white border-b border-slate-100">
         <div className="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: BRAND.blue }}>
               <span className="text-white font-bold text-[9px]">CU</span>
             </div>
             <span className="text-[12px] text-slate-400 font-medium">Christchurch United FC</span>
@@ -90,84 +97,131 @@ export default function BookingSuccess() {
         </div>
       </header>
 
-      <main className="max-w-md mx-auto px-6 py-16 text-center">
+      <main className="max-w-md mx-auto px-6 py-12 sm:py-16 text-center">
         {isConfirmed ? (
           <div className="space-y-6">
-            <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
-              <CheckCircle className="w-10 h-10 text-emerald-600" />
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto" style={{ background: '#ecfdf5' }}>
+                <CheckCircle className="w-10 h-10 text-emerald-500" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center mx-auto" style={{ background: BRAND.gold, left: '58%' }}>
+                <Sparkles className="w-3 h-3 text-white" />
+              </div>
             </div>
+
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight" data-testid="text-success-title">Booking Confirmed!</h1>
-              <p className="text-[15px] text-slate-500 mt-2">Thank you for booking with Christchurch United FC</p>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }} data-testid="text-success-title">
+                Booking Confirmed!
+              </h1>
+              <p className="text-[15px] text-slate-500 mt-2">
+                You're all set for an amazing camp experience
+              </p>
             </div>
 
             {registration && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-left space-y-3" data-testid="card-booking-summary">
-                <h3 className="text-[13px] text-slate-400 font-medium uppercase tracking-wider">Booking Summary</h3>
-                <div className="space-y-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-left space-y-3 shadow-sm" data-testid="card-booking-summary">
+                <h3 className="text-[12px] uppercase tracking-[0.12em] font-bold" style={{ color: BRAND.blue }}>Booking Summary</h3>
+                <div className="space-y-2.5">
                   <div className="flex justify-between text-[14px]">
                     <span className="text-slate-500">Camp</span>
-                    <span className="text-slate-800 font-medium">{registration.campName}</span>
+                    <span className="text-slate-800 font-semibold">{registration.campName}</span>
                   </div>
                   <div className="flex justify-between text-[14px]">
-                    <span className="text-slate-500">Booking</span>
-                    <span className="text-slate-800 font-medium">#{registration.id}</span>
+                    <span className="text-slate-500">Booking No.</span>
+                    <span className="text-slate-800 font-semibold" style={{ color: BRAND.blue }}>#{registration.id}</span>
                   </div>
                   <div className="flex justify-between text-[14px]">
                     <span className="text-slate-500">Sessions</span>
-                    <span className="text-slate-800 font-medium">{registration.itemCount} booked</span>
+                    <span className="text-slate-800 font-semibold">{registration.itemCount} booked</span>
                   </div>
                   {registration.totalCents > 0 && (
-                    <div className="flex justify-between text-[16px] font-semibold pt-2 border-t border-slate-200">
+                    <div className="flex justify-between text-[16px] font-bold pt-3 border-t border-slate-100">
                       <span className="text-slate-600">Total Paid</span>
-                      <span className="text-slate-900">${(registration.totalCents / 100).toFixed(2)} {registration.currency}</span>
+                      <span style={{ color: BRAND.darkBlue }}>${(registration.totalCents / 100).toFixed(2)} {registration.currency}</span>
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-left">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm">
               <div className="flex items-start gap-3">
-                <Mail className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <Mail className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: BRAND.blue }} />
                 <div>
-                  <p className="text-[14px] font-medium text-blue-800">Confirmation email sent</p>
-                  <p className="text-[13px] text-blue-600 mt-0.5">
-                    We've sent a confirmation to {registration?.parentEmail || "your email"}
+                  <p className="text-[14px] font-semibold text-slate-800">Confirmation email sent</p>
+                  <p className="text-[13px] text-slate-500 mt-0.5">
+                    Check your inbox at {registration?.parentEmail || "your email"} for full details.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 pt-4">
+            <div className="rounded-2xl p-5 text-left space-y-4" style={{ background: `${BRAND.blue}06`, border: `1px solid ${BRAND.blue}12` }}>
+              <h3 className="text-[13px] font-bold" style={{ color: BRAND.darkBlue }}>What Happens Next</h3>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-white" style={{ background: BRAND.blue }}>1</div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-slate-700">Check your email</p>
+                    <p className="text-[12px] text-slate-500">You'll receive a detailed confirmation with everything you need to know.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-white" style={{ background: BRAND.blue }}>2</div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-slate-700">Prepare for camp</p>
+                    <p className="text-[12px] text-slate-500">Bring boots, shin pads, water bottle, and lunch (full day). Arrive 10 mins early on day one.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-white" style={{ background: BRAND.blue }}>3</div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-slate-700">Show up and have fun!</p>
+                    <p className="text-[12px] text-slate-500">Our qualified UEFA-licensed coaches will handle the rest.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-2">
               <Link href={`/${slug}`}>
-                <Button className="w-full bg-blue-600 hover:bg-blue-500 text-white border-0 rounded-xl h-12 text-[15px] font-semibold shadow-sm" data-testid="button-back-to-camp">
+                <Button
+                  className="w-full border-0 rounded-xl h-12 text-[15px] font-bold text-white cursor-pointer"
+                  style={{ background: BRAND.blue, boxShadow: `0 6px 20px ${BRAND.blue}25` }}
+                  data-testid="button-back-to-camp"
+                >
                   <ArrowRight className="w-4 h-4 mr-1.5" /> View Camp Details
                 </Button>
               </Link>
               <Link href="/">
-                <Button variant="outline" className="w-full rounded-xl h-12 text-[14px] border-slate-200 text-slate-600" data-testid="button-home">
+                <Button variant="outline" className="w-full rounded-xl h-12 text-[14px] border-slate-200 text-slate-600 cursor-pointer" data-testid="button-home">
                   <Home className="w-4 h-4 mr-1.5" /> All Camps
                 </Button>
               </Link>
             </div>
+
+            <div className="flex items-center justify-center gap-5 text-[11px] text-slate-400 pt-2">
+              <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Secure booking</span>
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Instant confirmation</span>
+            </div>
           </div>
         ) : isPending ? (
           <div className="space-y-6">
-            <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
-              <Calendar className="w-10 h-10 text-amber-600" />
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto" style={{ background: `${BRAND.gold}15` }}>
+              <Calendar className="w-10 h-10" style={{ color: BRAND.gold }} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight" data-testid="text-pending-title">Booking Pending</h1>
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }} data-testid="text-pending-title">
+                Confirming Your Booking
+              </h1>
               <p className="text-[15px] text-slate-500 mt-2">
-                {confirmMutation.isPending ? "Confirming your payment..." : "Your booking is awaiting payment confirmation."}
+                {confirmMutation.isPending ? "Verifying your payment..." : "Your booking is awaiting payment confirmation."}
               </p>
             </div>
-            <Link href={`/${slug}`}>
-              <Button variant="outline" className="rounded-xl h-12 text-[14px] border-slate-200 text-slate-600">
-                Back to Camp
-              </Button>
-            </Link>
+            <div className="flex items-center justify-center gap-2 text-[13px] text-slate-400">
+              <div className="w-4 h-4 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
+              <span>This usually takes a few seconds</span>
+            </div>
           </div>
         ) : (
           <div className="space-y-6">
@@ -175,11 +229,11 @@ export default function BookingSuccess() {
               <Calendar className="w-10 h-10 text-slate-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Booking Not Found</h1>
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }}>Booking Not Found</h1>
               <p className="text-[15px] text-slate-500 mt-2">We couldn't find this booking. Please try again.</p>
             </div>
             <Link href="/">
-              <Button variant="outline" className="rounded-xl h-12 text-[14px] border-slate-200 text-slate-600">
+              <Button variant="outline" className="rounded-xl h-12 text-[14px] border-slate-200 text-slate-600 cursor-pointer" data-testid="button-back-to-camps">
                 Back to Camps
               </Button>
             </Link>

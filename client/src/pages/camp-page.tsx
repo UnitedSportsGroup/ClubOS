@@ -493,9 +493,9 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <Clock className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Session Options</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Morning: 8am – 1pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Afternoon: 1pm – 5pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Full Day: 9am – 5pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Morning: 9am – 12pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Afternoon: 12pm – 3pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Full Day: 9am – 3pm</p>
                 </div>
               </div>
             </div>
@@ -507,8 +507,9 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <DollarSign className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Price</p>
-                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Half Day $40</p>
-                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Full Day $60</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Morning $30</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Afternoon $30</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Full Day $50</p>
                 </div>
               </div>
             </div>
@@ -749,7 +750,7 @@ export default function CampPage() {
             style={{ background: BRAND.blue }}
             data-testid="button-book-sticky"
           >
-            Book Now — From ${lowestPrice > 0 ? (lowestPrice / 100).toFixed(0) : '0'}/session
+            Book Now — From $30/session
           </button>
         </Link>
       </div>
