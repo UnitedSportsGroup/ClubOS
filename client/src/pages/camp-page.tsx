@@ -721,22 +721,22 @@ export default function CampPage() {
           SECTION 10 — FOOTER
       ═══════════════════════════════════════════════════════════════ */}
       <footer style={{ background: BRAND.darkBlue }}>
-        <div className="max-w-4xl mx-auto px-6 py-5">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-7 h-7 object-contain opacity-50" />
-              <p className="text-[11px]" style={{ color: 'rgba(251,251,252,0.35)' }}>
-                &copy; {new Date().getFullYear()} Christchurch United FC
-              </p>
+        <div className="max-w-4xl mx-auto px-6 py-8">
+          <div className="flex flex-col items-center text-center">
+            <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-10 h-10 object-contain opacity-50 mb-3" />
+            <p className="text-[12px] font-semibold mb-4" style={{ color: 'rgba(251,251,252,0.35)' }}>Christchurch United Football Club</p>
+            <div className="flex items-center gap-5 mb-4">
+              <a href="/privacy" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-privacy">Privacy Policy</a>
+              <a href="/terms" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-terms">Terms & Conditions</a>
             </div>
-            <div className="flex items-center gap-5">
-              <a href="/privacy" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-privacy">Privacy</a>
-              <a href="/terms" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-terms">Terms</a>
-            </div>
+            <div className="w-full max-w-xs h-px mb-4" style={{ background: 'rgba(251,251,252,0.06)' }} />
+            <p className="text-[9px] leading-relaxed max-w-md mb-3" style={{ color: 'rgba(251,251,252,0.15)' }}>
+              This site is not part of the Facebook website or Facebook Inc. Additionally, this site is NOT endorsed by Facebook in any way. FACEBOOK is a trademark of FACEBOOK, Inc.
+            </p>
+            <p className="text-[11px]" style={{ color: 'rgba(251,251,252,0.2)' }}>
+              &copy; {new Date().getFullYear()} Christchurch United FC. All Rights Reserved.
+            </p>
           </div>
-          <p className="text-[9px] leading-relaxed text-center mt-3" style={{ color: 'rgba(251,251,252,0.15)' }}>
-            This site is not part of the Facebook website or Facebook Inc. Additionally, this site is NOT endorsed by Facebook in any way. FACEBOOK is a trademark of FACEBOOK, Inc.
-          </p>
         </div>
       </footer>
 
