@@ -534,6 +534,35 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/mailer/test-send", requireAuth, async (req, res) => {
+    try {
+      const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+      if (!RESEND_API_KEY) return res.status(500).json({ message: "RESEND_API_KEY not configured" });
+
+      const { to, from: fromAddr } = req.body;
+      const senderEmail = fromAddr || "CUFC Camps <onboarding@resend.dev>";
+
+      const apiRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: senderEmail,
+          to: [to || "daniel@cufc.co.nz"],
+          subject: "CUFC ClubOS — Test Email",
+          html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;"><h2 style="color:#22399B;">Test Email from ClubOS</h2><p>If you're reading this, email delivery is working correctly.</p><p style="color:#666;font-size:13px;">Sent at: ${new Date().toISOString()}</p></div>`,
+        }),
+      });
+      const result = await apiRes.json();
+      console.log("[Mailer Test]", apiRes.status, JSON.stringify(result));
+      res.json({ status: apiRes.status, ok: apiRes.ok, result });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/mailer/send", requireAuth, async (req, res) => {
     try {
       const { subject, body, fromEmail, replyTo, segmentType, segmentConfig, manualEmails } = req.body;
@@ -613,9 +642,14 @@ export async function registerRoutes(
               body,
               providerMessageId: result.id || null,
             });
-            if (apiRes.ok) sentCount++;
-            else failedCount++;
-          } catch {
+            if (apiRes.ok) {
+              sentCount++;
+            } else {
+              console.error(`[Mailer] Failed to send to ${email}:`, JSON.stringify(result));
+              failedCount++;
+            }
+          } catch (err: any) {
+            console.error(`[Mailer] Exception sending to ${email}:`, err?.message || err);
             failedCount++;
           }
         });
