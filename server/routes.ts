@@ -262,7 +262,10 @@ export async function registerRoutes(
       }
       const enriched = await Promise.all(regs.map(async (r: any) => {
         const items = await storage.getRegistrationItems(r.id);
-        return { ...r, items };
+        const parentContact = await storage.getContact(r.contactId);
+        const kids = parentContact ? await storage.getChildren(parentContact.id) : [];
+        const program = r.program || await storage.getProgram(r.programId);
+        return { ...r, items, contact: r.contact || parentContact, children: kids, program };
       }));
       res.json(enriched);
     } catch (error: any) {
