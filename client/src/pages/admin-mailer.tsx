@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, Fragment } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +48,7 @@ export default function AdminMailer() {
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasEditorContent, setHasEditorContent] = useState(false);
+  const [bodyHtml, setBodyHtml] = useState("");
   const [fontFamily, setFontFamily] = useState("Inter, sans-serif");
   const [fontSize, setFontSize] = useState("16");
   const [textColor, setTextColor] = useState("#333333");
@@ -83,7 +84,7 @@ export default function AdminMailer() {
     mutationFn: () =>
       apiRequest("POST", "/api/admin/mailer/send", {
         subject,
-        body: editorRef.current?.innerHTML || "",
+        body: bodyHtml,
         fromEmail,
         replyTo,
         segmentType,
@@ -100,6 +101,7 @@ export default function AdminMailer() {
       setStep(0);
       setSubject("");
       if (editorRef.current) editorRef.current.innerHTML = "";
+      setBodyHtml("");
       setHasEditorContent(false);
       setManualEmails([]);
       setSegmentType("all");
@@ -124,6 +126,7 @@ export default function AdminMailer() {
   const execCmd = useCallback((cmd: string, value?: string) => {
     document.execCommand(cmd, false, value);
     editorRef.current?.focus();
+    setTimeout(() => setBodyHtml(editorRef.current?.innerHTML || ""), 0);
   }, []);
 
   const insertLink = useCallback(() => {
@@ -159,6 +162,12 @@ export default function AdminMailer() {
     }
   }, [handleImageUpload]);
 
+  useEffect(() => {
+    if (step === 1 && editorRef.current && bodyHtml && !editorRef.current.innerHTML.trim()) {
+      editorRef.current.innerHTML = bodyHtml;
+    }
+  }, [step]);
+
   const selectedCamp = segments.find(s => s.campId === selectedCampId);
   const selectedDate = selectedCamp?.dates.find(d => d.id === selectedDateId);
 
@@ -168,7 +177,7 @@ export default function AdminMailer() {
     (segmentType === "session" && selectedCampId && selectedDateId && selectedSession) ||
     (segmentType === "custom" && manualEmails.length > 0);
 
-  const canSend = subject.trim() && hasEditorContent;
+  const canSend = subject.trim() && (hasEditorContent || bodyHtml.trim().length > 0);
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -583,7 +592,7 @@ export default function AdminMailer() {
                   <div className="w-px h-6 bg-white/10 mx-1" />
 
                   <button
-                    onClick={() => { if (editorRef.current) { editorRef.current.innerHTML = ""; setHasEditorContent(false); } }}
+                    onClick={() => { if (editorRef.current) { editorRef.current.innerHTML = ""; setBodyHtml(""); setHasEditorContent(false); } }}
                     className="h-8 w-8 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all"
                     title="Clear All"
                     data-testid="button-clear-editor"
@@ -602,6 +611,7 @@ export default function AdminMailer() {
                   onInput={() => {
                     const text = editorRef.current?.innerText?.trim() || "";
                     setHasEditorContent(text.length > 0);
+                    setBodyHtml(editorRef.current?.innerHTML || "");
                   }}
                   className="min-h-[400px] p-6 rounded-xl bg-white text-gray-800 border border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500/30 prose prose-sm max-w-none"
                   style={{ fontFamily, fontSize: fontSize + "px", color: "#333", lineHeight: "1.6" }}
@@ -629,7 +639,7 @@ export default function AdminMailer() {
                     <div
                       className="prose prose-sm max-w-none"
                       style={{ fontFamily, color: "#333", lineHeight: "1.6" }}
-                      dangerouslySetInnerHTML={{ __html: editorRef.current?.innerHTML || "" }}
+                      dangerouslySetInnerHTML={{ __html: bodyHtml }}
                     />
                   </div>
                 </div>
@@ -696,7 +706,7 @@ export default function AdminMailer() {
                   <div
                     className="prose prose-sm max-w-none"
                     style={{ fontFamily, color: "#333", lineHeight: "1.6" }}
-                    dangerouslySetInnerHTML={{ __html: editorRef.current?.innerHTML || "" }}
+                    dangerouslySetInnerHTML={{ __html: bodyHtml }}
                   />
                 </div>
               </div>
