@@ -16,7 +16,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Architecture
 - `client/src/` - React frontend
   - `pages/` - Page components:
-    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-mailer, admin-settings
+    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-mailer, admin-settings, admin-register-player (modal component)
     - Public: camp-page, booking-page, checkout-page, booking-success, booking-cancel
   - `components/` - app-sidebar, ui/ (shadcn)
   - `lib/meta-pixel.ts` - Client-side Meta Pixel tracking
@@ -72,7 +72,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - **programDiscounts** - Volume discount tiers
 - **children** - Child records linked to parent contacts
 - **childMedical** - Medical info per child
-- **registrations** - Bookings with Stripe fields, pricing in cents, UTM attribution
+- **registrations** - Bookings with Stripe fields, pricing in cents, UTM attribution, registrationLocation ("online" | "cufc_office")
 - **registrationItems** - Individual session bookings
 - **attendance** - Check-in/out records
 - **emailLogs** - Email send log (idempotency per registration)
@@ -82,7 +82,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 
 ## API Routes
 - Auth: POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
-- Admin: Full CRUD for camps, dates, pricing, discounts, settings, registrations, attendance, CRM export, audit logs, GET /api/admin/camps/:id/sessions-summary, GET /api/admin/camps/:id/stats, GET /api/admin/camps/registration-counts
+- Admin: Full CRUD for camps, dates, pricing, discounts, settings, registrations, attendance, CRM export, audit logs, GET /api/admin/camps/:id/sessions-summary, GET /api/admin/camps/:id/stats, GET /api/admin/camps/registration-counts, POST /api/admin/registrations/manual
 - Public: GET /api/public/camps, GET /api/public/camps/:slug, POST /api/public/book, POST /api/public/book/confirm-free, POST /api/public/confirm-payment, GET /api/public/registrations/:id
 - Stripe: POST /api/stripe/webhook
 

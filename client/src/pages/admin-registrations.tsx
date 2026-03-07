@@ -34,6 +34,7 @@ type Registration = {
   discountCents: number | null;
   totalCents: number | null;
   registeredAt: string;
+  registrationLocation?: string | null;
   contact?: { firstName: string; lastName: string; email?: string; phone?: string; address?: string; emergencyContact?: string; emergencyPhone?: string };
   program?: { id: number; name: string };
   items?: RegItem[];
@@ -271,10 +272,19 @@ export default function AdminRegistrations() {
                             {(reg.discountCents || 0) > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -${((reg.discountCents || 0) / 100).toFixed(2)}</p>}
                             <p className="text-[13px] text-white/70 font-medium">Total: ${((reg.totalCents || 0) / 100).toFixed(2)}</p>
                           </div>
-                          <div className="pt-1 border-t border-white/[0.04]">
+                          <div className="pt-1 border-t border-white/[0.04] flex items-center justify-between">
                             <p className="text-[11px] text-white/25">
                               Registered: {new Date(reg.registeredAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </p>
+                            {reg.registrationLocation && (
+                              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 ${
+                                reg.registrationLocation === "cufc_office"
+                                  ? "border-amber-500/25 text-amber-400/70 bg-amber-500/5"
+                                  : "border-sky-500/25 text-sky-400/70 bg-sky-500/5"
+                              }`} data-testid={`badge-source-${reg.id}`}>
+                                {reg.registrationLocation === "cufc_office" ? "CUFC Office" : "Online"}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </div>

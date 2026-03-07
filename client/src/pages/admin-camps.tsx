@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, X, ChevronRight, Users } from "lucide-react";
+import { Plus, Search, X, ChevronRight, Users, UserPlus } from "lucide-react";
 import { useSearch, useLocation } from "wouter";
 import type { Program } from "@shared/schema";
+import { RegisterPlayerModal } from "./admin-register-player";
 
 function formatDateRange(startDate: string | null, endDate: string | null): string {
   if (!startDate || !endDate) return "No dates set";
@@ -118,6 +119,7 @@ export default function AdminCamps() {
   const search = useSearch();
   const [, navigate] = useLocation();
   const [showCreate, setShowCreate] = useState(search.includes("action=new"));
+  const [showRegister, setShowRegister] = useState(false);
   const [filter, setFilter] = useState("");
   const { data: camps, isLoading } = useQuery<Program[]>({ queryKey: ["/api/admin/camps"] });
   const { data: regCounts } = useQuery<Record<number, number>>({ queryKey: ["/api/admin/camps/registration-counts"] });
@@ -134,9 +136,14 @@ export default function AdminCamps() {
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Camps</h1>
           <p className="text-blue-400/35 text-[13px] mt-1">Manage your holiday camps</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-9 text-[13px] font-medium glow-btn" data-testid="button-new-camp">
-          <Plus className="w-4 h-4 mr-1.5" /> New Camp
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowRegister(true)} variant="outline" className="border-blue-500/20 text-blue-400 hover:bg-blue-500/10 rounded-xl h-9 text-[13px] font-medium" data-testid="button-register-player">
+            <UserPlus className="w-4 h-4 mr-1.5" /> Register Player
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-9 text-[13px] font-medium glow-btn" data-testid="button-new-camp">
+            <Plus className="w-4 h-4 mr-1.5" /> New Camp
+          </Button>
+        </div>
       </div>
 
       <div className="relative animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
@@ -228,6 +235,7 @@ export default function AdminCamps() {
       </div>
 
       <CreateCampModal open={showCreate} onClose={() => setShowCreate(false)} />
+      <RegisterPlayerModal open={showRegister} onClose={() => setShowRegister(false)} />
     </div>
   );
 }

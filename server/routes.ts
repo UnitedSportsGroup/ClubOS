@@ -286,6 +286,122 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/registrations/manual", requireAuth, async (req, res) => {
+    try {
+      const { campId, parent, children: childrenData, items, isPaid } = req.body;
+      if (!campId || !parent || !childrenData || !items) {
+        return res.status(400).json({ message: "campId, parent, children, and items are required" });
+      }
+
+      const camp = await storage.getProgram(campId);
+      if (!camp) return res.status(404).json({ message: "Camp not found" });
+
+      let parentContact = parent.email ? await storage.findContactByEmail(parent.email) : null;
+      if (!parentContact) {
+        parentContact = await storage.createContact({
+          type: "guardian",
+          firstName: parent.firstName,
+          lastName: parent.lastName,
+          email: parent.email || null,
+          phone: parent.phone || null,
+          emergencyContact: parent.emergencyContact || null,
+          emergencyPhone: parent.emergencyPhone || null,
+        });
+      } else {
+        parentContact = (await storage.updateContact(parentContact.id, {
+          firstName: parent.firstName,
+          lastName: parent.lastName,
+          phone: parent.phone || parentContact.phone,
+          emergencyContact: parent.emergencyContact || parentContact.emergencyContact,
+          emergencyPhone: parent.emergencyPhone || parentContact.emergencyPhone,
+        }))!;
+      }
+
+      const createdChildren = [];
+      for (const childData of childrenData) {
+        const child = await storage.createChild({
+          parentId: parentContact.id,
+          firstName: childData.firstName,
+          lastName: childData.lastName,
+          dateOfBirth: childData.dateOfBirth || null,
+          gender: childData.gender || null,
+        });
+        if (childData.allergies || childData.epiPen || childData.medicalNotes) {
+          await storage.upsertChildMedical(child.id, {
+            allergies: childData.allergies || null,
+            epiPen: childData.epiPen || false,
+            notes: childData.medicalNotes || null,
+          });
+        }
+        createdChildren.push(child);
+      }
+
+      const pricing = await storage.getCampPricing(camp.id);
+      const discounts = await storage.getProgramDiscounts(camp.id);
+
+      let subtotalCents = 0;
+      const registrationItems: { childId: number; campDateId: number; productType: string }[] = [];
+
+      for (const item of items) {
+        const child = createdChildren[item.childIndex];
+        if (!child) continue;
+        const price = pricing.find((p: any) => p.productType === item.productType);
+        if (price) {
+          subtotalCents += price.priceCents;
+        }
+        registrationItems.push({
+          childId: child.id,
+          campDateId: item.campDateId,
+          productType: item.productType,
+        });
+      }
+
+      let discountCents = 0;
+      const totalItems = registrationItems.length;
+      const applicableDiscount = discounts
+        .filter((d: any) => totalItems >= d.minBookings)
+        .sort((a: any, b: any) => Number(b.discountPercent) - Number(a.discountPercent))[0];
+      if (applicableDiscount) {
+        discountCents = Math.round(subtotalCents * Number(applicableDiscount.discountPercent) / 100);
+      }
+      const totalCents = subtotalCents - discountCents;
+
+      const registration = await storage.createRegistration({
+        programId: camp.id,
+        contactId: parentContact.id,
+        guardianId: parentContact.id,
+        status: isPaid ? "confirmed" : "pending",
+        subtotalCents,
+        discountCents,
+        totalCents,
+        currency: "NZD",
+        registrationLocation: "cufc_office",
+        source: "admin_manual",
+      });
+
+      await storage.createRegistrationItems(registrationItems.map(item => ({
+        registrationId: registration.id,
+        childId: item.childId,
+        campDateId: item.campDateId,
+        productType: item.productType,
+      })));
+
+      const campDates = await storage.getCampDates(camp.id);
+      const attendanceItems = registrationItems.map(item => ({
+        campId: camp.id,
+        campDateId: item.campDateId,
+        childId: item.childId,
+      }));
+      if (attendanceItems.length > 0) {
+        await storage.createAttendanceBulk(attendanceItems);
+      }
+
+      res.json({ registrationId: registration.id, totalCents, status: registration.status });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/attendance", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(req.query.campId as string);
@@ -714,6 +830,7 @@ export async function registerRoutes(
         discountCents,
         totalCents,
         currency: "NZD",
+        registrationLocation: "online",
         source: "public_booking",
         utmSource: utmSource || null,
         utmMedium: utmMedium || null,
