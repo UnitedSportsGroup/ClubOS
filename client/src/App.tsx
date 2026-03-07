@@ -14,7 +14,6 @@ import AdminRegistrations from "@/pages/admin-registrations";
 import AdminAttendance from "@/pages/admin-attendance";
 import AdminCRM from "@/pages/admin-crm";
 import AdminSettings from "@/pages/admin-settings";
-import PublicLanding from "@/pages/public-landing";
 import CampPage from "@/pages/camp-page";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
@@ -107,7 +106,6 @@ function AdminLayout() {
 }
 
 function App() {
-  const [isPublicLanding] = useRoute("/");
   const [isCampSlug] = useRoute("/:slug");
   const [isCampBook] = useRoute("/:slug/book");
   const [isCampCheckout] = useRoute("/:slug/checkout");
@@ -128,7 +126,9 @@ function App() {
           <AdminLayout />
         ) : (
           <Switch>
-            <Route path="/" component={PublicLanding} />
+            <Route path="/">
+              <Redirect to="/fundamentals-camp" />
+            </Route>
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/success" component={BookingSuccess} />

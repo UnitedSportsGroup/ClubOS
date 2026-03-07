@@ -38,7 +38,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - Frontend AuthGuard component redirects to /admin/login if not authenticated
 
 ## Routing
-- `/` — Public landing page (lists active camps)
+- `/` — Redirects to /fundamentals-camp
 - `/:slug` — Conversion-focused camp detail page (hero, pricing, FAQ, inclusions)
 - `/:slug/book` — 4-step booking form (sessions → parent details → children → embedded Stripe payment)
 - `/:slug/checkout` — Legacy checkout page (fallback, kept for direct URL access)
