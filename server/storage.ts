@@ -6,7 +6,7 @@ import {
   sessionBookings, programDiscounts,
   campPricing, campDates, campSettings,
   children, childMedical, registrationItems,
-  attendance, emailLogs, metaEventLogs,
+  attendance, emailLogs, metaEventLogs, emailCampaigns,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -24,6 +24,7 @@ import {
   type InsertAttendance, type Attendance,
   type InsertEmailLog, type EmailLog,
   type InsertMetaEventLog, type MetaEventLog,
+  type InsertEmailCampaign, type EmailCampaign,
   type InsertAuditLog, type AuditLog,
   type Setting,
 } from "@shared/schema";
@@ -111,6 +112,13 @@ export interface IStorage {
   createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
   getEmailLogByRegistration(registrationId: number): Promise<EmailLog | undefined>;
   createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog>;
+
+  getEmailCampaigns(): Promise<EmailCampaign[]>;
+  getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
+  createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
+  updateEmailCampaign(id: number, data: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined>;
+
+  getMailerSegmentEmails(segmentType: string, segmentConfig?: any): Promise<string[]>;
 
   getAuditLogs(): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -708,6 +716,88 @@ export class DatabaseStorage implements IStorage {
       await db.insert(settings).values({ key: entry.key, value: entry.value })
         .onConflictDoUpdate({ target: settings.key, set: { value: entry.value, updatedAt: new Date() } });
     }
+  }
+
+  async getEmailCampaigns(): Promise<EmailCampaign[]> {
+    return db.select().from(emailCampaigns).orderBy(desc(emailCampaigns.createdAt));
+  }
+
+  async getEmailCampaign(id: number): Promise<EmailCampaign | undefined> {
+    const [row] = await db.select().from(emailCampaigns).where(eq(emailCampaigns.id, id));
+    return row;
+  }
+
+  async createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign> {
+    const [row] = await db.insert(emailCampaigns).values(campaign).returning();
+    return row;
+  }
+
+  async updateEmailCampaign(id: number, data: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined> {
+    const [row] = await db.update(emailCampaigns).set(data).where(eq(emailCampaigns.id, id)).returning();
+    return row;
+  }
+
+  async getMailerSegmentEmails(segmentType: string, segmentConfig?: any): Promise<string[]> {
+    const config = segmentConfig ? (typeof segmentConfig === 'string' ? JSON.parse(segmentConfig) : segmentConfig) : {};
+
+    if (segmentType === 'all') {
+      const rows = await db.select({ email: contacts.email }).from(contacts)
+        .where(and(eq(contacts.type, 'guardian'), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
+      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
+    }
+
+    if (segmentType === 'camp' && config.campId) {
+      const regs = await db.select({ contactId: registrations.contactId })
+        .from(registrations)
+        .where(and(eq(registrations.programId, config.campId), eq(registrations.status, 'confirmed')));
+      const contactIds = [...new Set(regs.map(r => r.contactId))];
+      if (!contactIds.length) return [];
+      const rows = await db.select({ email: contacts.email }).from(contacts)
+        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
+      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
+    }
+
+    if (segmentType === 'day' && config.campId && config.campDateId) {
+      const items = await db.select({ registrationId: registrationItems.registrationId })
+        .from(registrationItems)
+        .where(eq(registrationItems.campDateId, config.campDateId));
+      const regIds = [...new Set(items.map(i => i.registrationId))];
+      if (!regIds.length) return [];
+      const regs = await db.select({ contactId: registrations.contactId })
+        .from(registrations)
+        .where(and(inArray(registrations.id, regIds), eq(registrations.status, 'confirmed')));
+      const contactIds = [...new Set(regs.map(r => r.contactId))];
+      if (!contactIds.length) return [];
+      const rows = await db.select({ email: contacts.email }).from(contacts)
+        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
+      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
+    }
+
+    if (segmentType === 'session' && config.campId && config.campDateId && config.sessionType) {
+      const normalizedType = config.sessionType.toUpperCase();
+      const items = await db.select({ registrationId: registrationItems.registrationId })
+        .from(registrationItems)
+        .where(and(
+          eq(registrationItems.campDateId, config.campDateId),
+          eq(registrationItems.productType, normalizedType)
+        ));
+      const regIds = [...new Set(items.map(i => i.registrationId))];
+      if (!regIds.length) return [];
+      const regs = await db.select({ contactId: registrations.contactId })
+        .from(registrations)
+        .where(and(inArray(registrations.id, regIds), eq(registrations.status, 'confirmed')));
+      const contactIds = [...new Set(regs.map(r => r.contactId))];
+      if (!contactIds.length) return [];
+      const rows = await db.select({ email: contacts.email }).from(contacts)
+        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
+      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
+    }
+
+    if (segmentType === 'custom' && config.emails) {
+      return config.emails;
+    }
+
+    return [];
   }
 }
 

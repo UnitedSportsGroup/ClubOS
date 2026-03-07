@@ -16,7 +16,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Architecture
 - `client/src/` - React frontend
   - `pages/` - Page components:
-    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-settings
+    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-mailer, admin-settings
     - Public: camp-page, booking-page, checkout-page, booking-success, booking-cancel
   - `components/` - app-sidebar, ui/ (shadcn)
   - `lib/meta-pixel.ts` - Client-side Meta Pixel tracking
@@ -53,6 +53,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin/contacts/parent/:id` — Parent detail page with linked children and registrations
 - `/admin/contacts/player/:id` — Player detail page with medical info, linked parent, and registrations
 - `/admin/camps/:id/session/:dateId/:type` — Dedicated session roll page with player list, sign-in/out timestamps, search
+- `/admin/mailer` — Email campaign builder with segment-based recipient selection, rich text editor, image upload, and Resend-powered sending
 - `/admin/settings` — Club settings
 
 ## Color Theme

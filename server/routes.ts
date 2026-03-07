@@ -1,7 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, verifyPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
@@ -367,6 +369,157 @@ export async function registerRoutes(
         return { ...r, items: playerItems };
       }));
       res.json({ child: { ...child, medical }, parent, registrations: regDetails.filter(Boolean) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/mailer/campaigns", requireAuth, async (_req, res) => {
+    try {
+      const campaigns = await storage.getEmailCampaigns();
+      res.json(campaigns);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/mailer/segments", requireAuth, async (_req, res) => {
+    try {
+      const allCamps = await storage.getPrograms();
+      const segments = [];
+      for (const camp of allCamps) {
+        const dates = await storage.getCampDates(camp.id);
+        segments.push({
+          campId: camp.id,
+          campName: camp.name,
+          dates: dates.map(d => ({ id: d.id, date: d.date })),
+        });
+      }
+      res.json(segments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/mailer/preview-recipients", requireAuth, async (req, res) => {
+    try {
+      const { segmentType, segmentConfig } = req.body;
+      const validSegments = ["all", "camp", "day", "session", "custom"];
+      if (!segmentType || !validSegments.includes(segmentType)) {
+        return res.status(400).json({ message: "Invalid segment type" });
+      }
+      const emails = await storage.getMailerSegmentEmails(segmentType, segmentConfig);
+      res.json({ count: emails.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/mailer/send", requireAuth, async (req, res) => {
+    try {
+      const { subject, body, fromEmail, replyTo, segmentType, segmentConfig, manualEmails } = req.body;
+      if (!subject || typeof subject !== 'string' || subject.length > 500) return res.status(400).json({ message: "Valid subject required (max 500 chars)" });
+      if (!body || typeof body !== 'string') return res.status(400).json({ message: "Email body is required" });
+      const validSegments = ["all", "camp", "day", "session", "custom"];
+      if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
+
+      let emails: string[] = [];
+      if (segmentType === 'custom' && manualEmails) {
+        emails = manualEmails.filter((e: string) => e && e.includes('@'));
+      } else {
+        emails = await storage.getMailerSegmentEmails(segmentType, segmentConfig);
+      }
+
+      if (manualEmails && manualEmails.length > 0 && segmentType !== 'custom') {
+        const manual = manualEmails.filter((e: string) => e && e.includes('@'));
+        emails = [...new Set([...emails, ...manual])];
+      }
+
+      if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
+
+      const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
+      const replyAddress = replyTo || "info@cufc.co.nz";
+
+      const campaign = await storage.createEmailCampaign({
+        subject,
+        body,
+        fromEmail: senderEmail,
+        replyTo: replyAddress,
+        segmentType,
+        segmentConfig: JSON.stringify(segmentConfig || {}),
+        recipientCount: emails.length,
+        sentCount: 0,
+        failedCount: 0,
+        status: "sending",
+      });
+
+      const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+      if (!RESEND_API_KEY) {
+        await storage.updateEmailCampaign(campaign.id, { status: "failed" } as any);
+        return res.status(500).json({ message: "RESEND_API_KEY not configured" });
+      }
+
+      let sentCount = 0;
+      let failedCount = 0;
+      const BATCH_SIZE = 50;
+      const DELAY_MS = 1000;
+
+      for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+        const batch = emails.slice(i, i + BATCH_SIZE);
+        const promises = batch.map(async (email) => {
+          try {
+            const apiRes = await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${RESEND_API_KEY}`,
+              },
+              body: JSON.stringify({
+                from: senderEmail,
+                to: [email],
+                reply_to: replyAddress,
+                subject,
+                html: body,
+                headers: {
+                  "List-Unsubscribe": `<mailto:${replyAddress}?subject=unsubscribe>`,
+                },
+              }),
+            });
+            const result = await apiRes.json();
+            await storage.createEmailLog({
+              campId: null,
+              registrationId: null,
+              toEmail: email,
+              subject,
+              body,
+              providerMessageId: result.id || null,
+            });
+            if (apiRes.ok) sentCount++;
+            else failedCount++;
+          } catch {
+            failedCount++;
+          }
+        });
+        await Promise.all(promises);
+        if (i + BATCH_SIZE < emails.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+      }
+
+      await storage.updateEmailCampaign(campaign.id, {
+        sentCount,
+        failedCount,
+        status: failedCount === emails.length ? "failed" : "sent",
+      } as any);
+      await db.update(emailCampaigns).set({ sentAt: new Date() }).where(eq(emailCampaigns.id, campaign.id));
+
+      res.json({
+        campaignId: campaign.id,
+        recipientCount: emails.length,
+        sentCount,
+        failedCount,
+        status: failedCount === emails.length ? "failed" : "sent",
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

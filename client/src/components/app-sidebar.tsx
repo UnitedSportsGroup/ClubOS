@@ -16,6 +16,7 @@ import {
   Tent,
   ClipboardCheck,
   Users,
+  Mail,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const mainNav = [
   { title: "Camps", url: "/admin/camps", icon: Tent },
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { title: "Contacts", url: "/admin/contacts", icon: Users },
+  { title: "Mailer", url: "/admin/mailer", icon: Mail },
 ];
 
 const secondaryNav = [

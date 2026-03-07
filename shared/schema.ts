@@ -228,6 +228,22 @@ export const metaEventLogs = pgTable("meta_event_logs", {
   success: boolean("success").default(false),
 });
 
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  fromEmail: text("from_email").notNull(),
+  replyTo: text("reply_to"),
+  segmentType: text("segment_type").notNull(),
+  segmentConfig: text("segment_config"),
+  recipientCount: integer("recipient_count").default(0),
+  sentCount: integer("sent_count").default(0),
+  failedCount: integer("failed_count").default(0),
+  status: text("status").notNull().default("draft"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const auditLogs = pgTable("audit_logs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -266,6 +282,7 @@ export const insertRegistrationItemSchema = createInsertSchema(registrationItems
 export const insertAttendanceSchema = createInsertSchema(attendance).omit({ id: true });
 export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({ id: true, sentAt: true });
 export const insertMetaEventLogSchema = createInsertSchema(metaEventLogs).omit({ id: true, sentAt: true });
+export const insertEmailCampaignSchema = createInsertSchema(emailCampaigns).omit({ id: true, createdAt: true, sentAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -301,5 +318,7 @@ export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
 export type EmailLog = typeof emailLogs.$inferSelect;
 export type InsertMetaEventLog = z.infer<typeof insertMetaEventLogSchema>;
 export type MetaEventLog = typeof metaEventLogs.$inferSelect;
+export type InsertEmailCampaign = z.infer<typeof insertEmailCampaignSchema>;
+export type EmailCampaign = typeof emailCampaigns.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
