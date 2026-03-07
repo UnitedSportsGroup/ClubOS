@@ -529,12 +529,12 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 5 — WHAT YOUR CHILD WILL EXPERIENCE
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 md:py-16 bg-white">
+      <section className="py-12 md:py-16" style={{ background: BRAND.darkBlue }}>
         <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-2" data-testid="text-experience-heading">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2" style={{ color: BRAND.white }} data-testid="text-experience-heading">
             What Your Child Will Experience
           </h2>
-          <p className="text-[14px] text-slate-400 mb-10 max-w-lg mx-auto">
+          <p className="text-[14px] mb-10 max-w-lg mx-auto" style={{ color: 'rgba(251,251,252,0.55)' }}>
             A safe, fun environment where every child builds confidence and falls in love with football
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -544,12 +544,12 @@ export default function CampPage() {
               { icon: Sparkles, title: "Build Confidence", desc: "Every child is celebrated and encouraged to grow" },
               { icon: Zap, title: "Learn Through Play", desc: "Real football skills developed through engaging activities" },
             ].map((item, i) => (
-              <div key={i} className="bg-white rounded-xl border border-slate-100 p-5 text-center hover:shadow-md transition-all duration-300 hover:-translate-y-0.5" data-testid={`experience-card-${i}`}>
-                <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center" style={{ background: `${BRAND.blue}0A` }}>
-                  <item.icon className="w-5 h-5" style={{ color: BRAND.blue }} />
+              <div key={i} className="rounded-xl p-5 text-center hover:-translate-y-0.5 transition-all duration-300" style={{ background: BRAND.blue, border: `1px solid rgba(217,177,15,0.2)`, boxShadow: `0 0 12px rgba(217,177,15,0.08), 0 0 24px rgba(217,177,15,0.04)` }} data-testid={`experience-card-${i}`}>
+                <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'rgba(217,177,15,0.1)' }}>
+                  <item.icon className="w-5 h-5" style={{ color: BRAND.gold }} />
                 </div>
-                <h3 className="text-[14px] font-bold text-slate-800 mb-1">{item.title}</h3>
-                <p className="text-[12px] text-slate-400 leading-relaxed">{item.desc}</p>
+                <h3 className="text-[14px] font-bold mb-1" style={{ color: BRAND.white }}>{item.title}</h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.5)' }}>{item.desc}</p>
               </div>
             ))}
           </div>
