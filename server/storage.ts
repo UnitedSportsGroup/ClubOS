@@ -313,7 +313,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {
-    const regs = await db.select().from(registrations).orderBy(desc(registrations.registeredAt));
+    const regs = await db.select().from(registrations).where(eq(registrations.status, "confirmed")).orderBy(desc(registrations.registeredAt));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       const [program] = await db.select().from(programs).where(eq(programs.id, r.programId));
@@ -322,7 +322,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]> {
-    const regs = await db.select().from(registrations).where(eq(registrations.programId, programId));
+    const regs = await db.select().from(registrations).where(and(eq(registrations.programId, programId), eq(registrations.status, "confirmed")));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       return { ...r, contact };
