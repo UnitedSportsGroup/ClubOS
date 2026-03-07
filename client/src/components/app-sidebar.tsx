@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   Tent,
   ClipboardCheck,
-  ClipboardList,
   Download,
   Settings,
   LogOut,
@@ -28,7 +27,6 @@ const mainNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Camps", url: "/admin/camps", icon: Tent },
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
-  { title: "Attendance", url: "/admin/attendance", icon: ClipboardList },
   { title: "CRM Export", url: "/admin/crm", icon: Download },
 ];
 
