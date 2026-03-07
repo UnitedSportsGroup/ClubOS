@@ -64,9 +64,12 @@ const schedule = [
   { time: "9:30 AM", label: "Skill Activities & Ball Mastery", highlight: false },
   { time: "10:15 AM", label: "Fun Challenges & Small Games", highlight: false },
   { time: "11:00 AM", label: "Match Play & Themed Games", highlight: false },
-  { time: "12:00 PM", label: "Morning Session Pick Up", highlight: true },
-  { time: "1:00 PM", label: "Afternoon Session Drop Off", highlight: true },
-  { time: "3:00 PM", label: "Afternoon / Full Day Pick Up", highlight: true },
+  { time: "12:00 PM", label: "Lunch Break & Free Play", highlight: false },
+  { time: "1:00 PM", label: "Afternoon Session Begins", highlight: true },
+  { time: "2:00 PM", label: "Skill Challenges & Competitions", highlight: false },
+  { time: "3:00 PM", label: "Team Games & Mini Tournaments", highlight: false },
+  { time: "4:00 PM", label: "Cool Down & Awards", highlight: false },
+  { time: "5:00 PM", label: "Full Day Pick Up", highlight: true },
 ];
 
 const trustPoints = [
@@ -75,6 +78,84 @@ const trustPoints = [
   { icon: Zap, title: "Professional Facilities", desc: "Christchurch Football Centre — purpose-built for football" },
   { icon: Sparkles, title: "Fun First, Skills Second", desc: "Every child leaves smiling, confident, and wanting to come back" },
 ];
+
+function ScheduleTimeline() {
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!timelineRef.current) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const windowH = window.innerHeight;
+      const start = windowH * 0.85;
+      const end = windowH * 0.25;
+      const totalHeight = rect.height;
+
+      if (rect.top > start) {
+        setProgress(0);
+        return;
+      }
+
+      const scrolledInto = start - rect.top;
+      const scrollRange = start - end + totalHeight;
+      const pct = Math.min(1, Math.max(0, scrolledInto / scrollRange));
+      setProgress(pct);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  return (
+    <div ref={timelineRef} className="relative">
+      <div className="absolute left-[72px] sm:left-[88px] top-0 bottom-0 w-px" style={{ background: 'rgba(251,251,252,0.12)' }} />
+      <div
+        className="absolute left-[72px] sm:left-[88px] top-0 w-px transition-none"
+        style={{
+          height: `${progress * 100}%`,
+          background: `linear-gradient(180deg, ${BRAND.gold}, ${BRAND.gold})`,
+          boxShadow: `0 0 8px ${BRAND.gold}60, 0 0 16px ${BRAND.gold}30`,
+        }}
+      />
+      <div className="space-y-0">
+        {schedule.map((item, i) => {
+          const itemProgress = progress * schedule.length;
+          const isLit = i < itemProgress;
+          const isGlowing = i < itemProgress && i >= itemProgress - 1.5;
+          return (
+            <div key={i} className="flex items-center gap-4 sm:gap-6 py-3.5 relative" data-testid={`schedule-item-${i}`}>
+              <span
+                className="text-[13px] sm:text-[14px] font-semibold w-[60px] sm:w-[76px] text-right flex-shrink-0 transition-colors duration-300"
+                style={{ color: item.highlight ? BRAND.gold : isLit ? BRAND.white : 'rgba(251,251,252,0.35)' }}
+              >
+                {item.time}
+              </span>
+              <div
+                className="w-3 h-3 rounded-full flex-shrink-0 z-10 transition-all duration-300"
+                style={{
+                  background: isLit ? BRAND.gold : 'rgba(251,251,252,0.2)',
+                  boxShadow: isGlowing ? `0 0 8px ${BRAND.gold}, 0 0 16px ${BRAND.gold}60` : 'none',
+                  transform: isGlowing ? 'scale(1.3)' : 'scale(1)',
+                }}
+              />
+              <span
+                className="text-[13px] sm:text-[14px] transition-colors duration-300"
+                style={{
+                  color: isLit ? BRAND.white : 'rgba(251,251,252,0.35)',
+                  fontWeight: item.highlight || isLit ? 700 : 400,
+                }}
+              >
+                {item.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
   const [open, setOpen] = useState(false);
@@ -433,30 +514,15 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 4 — TYPICAL CAMP DAY
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 md:py-16" style={{ background: '#f8f9fb' }}>
+      <section className="py-12 md:py-16" style={{ background: BRAND.blue }}>
         <div className="max-w-2xl mx-auto px-6">
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-2 text-center" data-testid="text-schedule-heading">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2 text-center" style={{ color: BRAND.gold }} data-testid="text-schedule-heading">
             What a Day Looks Like
           </h2>
-          <p className="text-[14px] text-slate-400 mb-10 text-center">
+          <p className="text-[14px] mb-10 text-center" style={{ color: BRAND.white }}>
             Morning, afternoon, and full-day options available
           </p>
-          <div className="relative">
-            <div className="absolute left-[72px] sm:left-[88px] top-0 bottom-0 w-px bg-slate-100" />
-            <div className="space-y-0">
-              {schedule.map((item, i) => (
-                <div key={i} className="flex items-center gap-4 sm:gap-6 py-3 relative" data-testid={`schedule-item-${i}`}>
-                  <span className={`text-[13px] sm:text-[14px] font-semibold w-[60px] sm:w-[76px] text-right flex-shrink-0 ${item.highlight ? 'text-[#22399B]' : 'text-slate-400'}`}>
-                    {item.time}
-                  </span>
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 z-10 ${item.highlight ? 'ring-4 ring-[#22399B]/10' : ''}`} style={{ background: item.highlight ? BRAND.blue : '#cbd5e1' }} />
-                  <span className={`text-[13px] sm:text-[14px] ${item.highlight ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
-                    {item.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ScheduleTimeline />
         </div>
       </section>
 
