@@ -33,13 +33,17 @@ export async function seedDatabase() {
   }
 
   const [existingCamps] = await db.select({ count: sql<number>`count(*)` }).from(programs);
-  if (Number(existingCamps.count) > 0) return;
+
+  if (Number(existingCamps.count) > 0) {
+    await db.execute(sql`UPDATE programs SET slug = 'fundamentals-camp' WHERE slug = 'fundamentals'`);
+    return;
+  }
 
   console.log("Seeding holiday camps...");
 
   const [camp1] = await db.insert(programs).values({
     name: "FUNdamentals Holiday Camp",
-    slug: "fundamentals",
+    slug: "fundamentals-camp",
     type: "holiday_camp",
     description: "Our signature holiday camp for young players aged 3-8. Fun, engaging sessions focused on motor skills, ball mastery, and the love of football. Morning and afternoon sessions available, with full-day options including supervised lunch break.",
     location: "Christchurch Football Centre, 250 Westminster St",
