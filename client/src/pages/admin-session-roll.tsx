@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, UserCheck, UserX, AlertTriangle, Clock, Users, Phone, Mail, User, X } from "lucide-react";
+import { ArrowLeft, UserCheck, UserX, AlertTriangle, Clock, Users, Phone, Mail, User, X, Search } from "lucide-react";
 
 type RollPlayer = {
   child: { id: number; firstName: string; lastName: string; dateOfBirth?: string | null; gender?: string | null; parentId: number; medical?: { allergies?: string | null; epiPen?: boolean; notes?: string | null } };
@@ -108,6 +108,7 @@ export default function AdminSessionRoll() {
   const sessionType = params?.sessionType || "MORNING";
   const { toast } = useToast();
   const [selectedPlayer, setSelectedPlayer] = useState<RollPlayer | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: camp } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId],
@@ -160,6 +161,20 @@ export default function AdminSessionRoll() {
     ? new Date(sessionDate + "T12:00:00").toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long" })
     : "";
   const sessionLabel = sessionType === "MORNING" ? "Morning" : "Afternoon";
+
+  const sortedRoll = (roll || []).slice().sort((a, b) => {
+    const lastCmp = a.child.lastName.localeCompare(b.child.lastName);
+    if (lastCmp !== 0) return lastCmp;
+    return a.child.firstName.localeCompare(b.child.firstName);
+  });
+
+  const filteredRoll = searchQuery.trim()
+    ? sortedRoll.filter(p => {
+        const q = searchQuery.toLowerCase();
+        const fullName = `${p.child.firstName} ${p.child.lastName}`.toLowerCase();
+        return fullName.includes(q);
+      })
+    : sortedRoll;
 
   const signedInCount = roll?.filter(p => p.attendance?.checkedInAt).length || 0;
   const signedOutCount = roll?.filter(p => p.attendance?.checkedOutAt).length || 0;
@@ -219,6 +234,33 @@ export default function AdminSessionRoll() {
           <p className="text-[13px] text-white/25">No players registered for this session</p>
         </div>
       ) : (
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+            <input
+              type="text"
+              placeholder="Search players..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-blue-500/[0.1] bg-blue-500/[0.03] text-[13px] text-white/80 placeholder-white/25 outline-none focus:border-blue-500/25 transition-colors"
+              data-testid="input-search-players"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md bg-white/[0.06] flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
+                data-testid="button-clear-search"
+              >
+                <X className="w-3 h-3 text-white/40" />
+              </button>
+            )}
+          </div>
+          {filteredRoll.length === 0 ? (
+            <div className="rounded-xl border border-blue-500/[0.08] bg-blue-500/[0.02] p-6 text-center">
+              <Search className="w-6 h-6 text-white/15 mx-auto mb-2" />
+              <p className="text-[13px] text-white/25">No players match "{searchQuery}"</p>
+            </div>
+          ) : (
         <div className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[500px]" data-testid="table-session-roll">
@@ -233,7 +275,7 @@ export default function AdminSessionRoll() {
                 </tr>
               </thead>
               <tbody>
-                {roll.map((player) => {
+                {filteredRoll.map((player) => {
                   const isIn = !!player.attendance?.checkedInAt;
                   const isOut = !!player.attendance?.checkedOutAt;
                   const hasMedical = player.child.medical?.allergies || player.child.medical?.epiPen;
@@ -336,6 +378,8 @@ export default function AdminSessionRoll() {
             </table>
           </div>
         </div>
+          )}
+      </div>
       )}
 
       {selectedPlayer && <PlayerProfileModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
