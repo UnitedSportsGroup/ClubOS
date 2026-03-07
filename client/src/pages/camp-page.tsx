@@ -160,12 +160,12 @@ function ScheduleTimeline() {
 function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-b border-slate-100 last:border-0">
+    <div className="last:border-0" style={{ borderBottom: '1px solid rgba(34,57,155,0.3)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between py-4 sm:py-5 text-left cursor-pointer group" data-testid={`faq-toggle-${index}`}>
-        <span className="font-semibold text-[14px] sm:text-[15px] text-slate-800 pr-4 group-hover:text-[#22399B] transition-colors">{q}</span>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />}
+        <span className="font-semibold text-[14px] sm:text-[15px] pr-4 transition-colors" style={{ color: BRAND.white }}>{q}</span>
+        {open ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: BRAND.gold }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: 'rgba(251,251,252,0.4)' }} />}
       </button>
-      {open && <p className="text-[13px] sm:text-[14px] text-slate-500 pb-4 leading-relaxed">{a}</p>}
+      {open && <p className="text-[13px] sm:text-[14px] pb-4 leading-relaxed" style={{ color: 'rgba(251,251,252,0.6)' }}>{a}</p>}
     </div>
   );
 }
@@ -673,12 +673,12 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 8 — FAQ
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 md:py-16" style={{ background: '#f8f9fb' }}>
+      <section className="py-12 md:py-16" style={{ background: BRAND.darkBlue }}>
         <div className="max-w-2xl mx-auto px-6">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 mb-6 text-center" data-testid="text-faq-heading">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight mb-6 text-center" style={{ color: BRAND.gold }} data-testid="text-faq-heading">
             Frequently Asked Questions
           </h2>
-          <div className="rounded-2xl border border-slate-100 bg-white px-5 sm:px-6 divide-y divide-slate-100 shadow-sm" data-testid="faq-section">
+          <div className="rounded-2xl px-5 sm:px-6" style={{ background: BRAND.blue, border: '1px solid rgba(34,57,155,0.5)' }} data-testid="faq-section">
             {faqItems.slice(0, 5).map((item: any, i: number) => (
               <FAQItem key={i} q={item.q} a={item.a} index={i} />
             ))}
