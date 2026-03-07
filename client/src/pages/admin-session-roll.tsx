@@ -163,9 +163,9 @@ export default function AdminSessionRoll() {
   const sessionLabel = sessionType === "MORNING" ? "Morning" : "Afternoon";
 
   const sortedRoll = (roll || []).slice().sort((a, b) => {
-    const lastCmp = a.child.lastName.localeCompare(b.child.lastName);
-    if (lastCmp !== 0) return lastCmp;
-    return a.child.firstName.localeCompare(b.child.firstName);
+    const firstCmp = a.child.firstName.localeCompare(b.child.firstName);
+    if (firstCmp !== 0) return firstCmp;
+    return a.child.lastName.localeCompare(b.child.lastName);
   });
 
   const filteredRoll = searchQuery.trim()
