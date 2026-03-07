@@ -91,6 +91,7 @@ export interface IStorage {
   getCampRegistrationCounts(): Promise<Record<number, number>>;
   getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]>;
 
+  getAllChildren(): Promise<(Child & { medical?: ChildMedical })[]>;
   getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]>;
   getChild(id: number): Promise<Child | undefined>;
   createChild(c: InsertChild): Promise<Child>;
@@ -390,6 +391,14 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(campSettings).values({ ...data, campId }).returning();
     return created;
+  }
+
+  async getAllChildren(): Promise<(Child & { medical?: ChildMedical })[]> {
+    const kids = await db.select().from(children).orderBy(asc(children.firstName), asc(children.lastName));
+    return Promise.all(kids.map(async (c) => {
+      const [med] = await db.select().from(childMedical).where(eq(childMedical.childId, c.id));
+      return { ...c, medical: med || undefined };
+    }));
   }
 
   async getChildren(parentId: number): Promise<(Child & { medical?: ChildMedical })[]> {

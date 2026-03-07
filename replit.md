@@ -16,8 +16,8 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Architecture
 - `client/src/` - React frontend
   - `pages/` - Page components:
-    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-registrations, admin-attendance, admin-crm, admin-settings
-    - Public: public-landing, camp-page, booking-page, checkout-page, booking-success, booking-cancel
+    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-settings
+    - Public: camp-page, booking-page, checkout-page, booking-success, booking-cancel
   - `components/` - app-sidebar, ui/ (shadcn)
   - `lib/meta-pixel.ts` - Client-side Meta Pixel tracking
 - `server/` - Express backend
@@ -48,9 +48,11 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin` — Admin dashboard
 - `/admin/camps` — Camp list + create
 - `/admin/camps/:id` — Camp detail (tabs: Overview, Sessions, Content, Dates & Capacity, Pricing, Discounts, Email Template) with stats header (registrations, revenue, occupancy)
-- `/admin/registrations` — Registration list with camp filter
-- `/admin/attendance` — Attendance roll (camp + date selector, check-in/out)
-- `/admin/crm` — CRM export (emails by day, all parents, all registrations as CSV)
+- `/admin/registrations` — Registration list with camp filter (confirmed only)
+- `/admin/contacts` — Full CRM contact list (parents + players) with search, type filters, CSV export
+- `/admin/contacts/parent/:id` — Parent detail page with linked children and registrations
+- `/admin/contacts/player/:id` — Player detail page with medical info, linked parent, and registrations
+- `/admin/camps/:id/session/:dateId/:type` — Dedicated session roll page with player list, sign-in/out timestamps, search
 - `/admin/settings` — Club settings
 
 ## Color Theme

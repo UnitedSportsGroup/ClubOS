@@ -12,7 +12,8 @@ import AdminCamps from "@/pages/admin-camps";
 import AdminCampDetail from "@/pages/admin-camp-detail";
 import AdminSessionRoll from "@/pages/admin-session-roll";
 import AdminRegistrations from "@/pages/admin-registrations";
-import AdminCRM from "@/pages/admin-crm";
+import AdminContacts from "@/pages/admin-contacts";
+import AdminContactDetail from "@/pages/admin-contact-detail";
 import AdminSettings from "@/pages/admin-settings";
 import CampPage from "@/pages/camp-page";
 import BookingPage from "@/pages/booking-page";
@@ -58,7 +59,9 @@ function AdminRouter() {
       <Route path="/admin/camps/:id" component={AdminCampDetail} />
       <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
-      <Route path="/admin/crm" component={AdminCRM} />
+      <Route path="/admin/contacts" component={AdminContacts} />
+      <Route path="/admin/contacts/parent/:id" component={AdminContactDetail} />
+      <Route path="/admin/contacts/player/:id" component={AdminContactDetail} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route component={NotFound} />
     </Switch>

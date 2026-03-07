@@ -294,6 +294,84 @@ export async function registerRoutes(
   });
 
 
+  app.get("/api/admin/contacts", requireAuth, async (_req, res) => {
+    try {
+      const allContacts = await storage.getContacts();
+      const allChildren = await storage.getAllChildren();
+      const allPrograms = await storage.getPrograms();
+
+      const parentList = allContacts
+        .filter(c => c.type === "guardian")
+        .map(c => ({
+          id: c.id,
+          personType: "parent" as const,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          email: c.email,
+          phone: c.phone,
+          dateOfBirth: c.dateOfBirth,
+          createdAt: c.createdAt,
+        }));
+
+      const playerList = allChildren.map(c => {
+        const parent = allContacts.find(p => p.id === c.parentId);
+        return {
+          id: c.id,
+          personType: "player" as const,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          email: null,
+          phone: null,
+          dateOfBirth: c.dateOfBirth,
+          createdAt: c.createdAt,
+          parentName: parent ? `${parent.firstName} ${parent.lastName}` : null,
+          parentId: c.parentId,
+        };
+      });
+
+      res.json({ parents: parentList, players: playerList, programs: allPrograms.map(p => ({ id: p.id, name: p.name })) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/contacts/parent/:id", requireAuth, async (req, res) => {
+    try {
+      const contact = await storage.getContact(parseInt(req.params.id));
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const kids = await storage.getChildren(contact.id);
+      const regs = await storage.getRegistrations();
+      const contactRegs = regs.filter(r => r.contactId === contact.id || r.guardianId === contact.id);
+      const regDetails = await Promise.all(contactRegs.map(async (r) => {
+        const items = await storage.getRegistrationItems(r.id);
+        return { ...r, items };
+      }));
+      res.json({ contact, children: kids, registrations: regDetails });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/contacts/player/:id", requireAuth, async (req, res) => {
+    try {
+      const child = await storage.getChild(parseInt(req.params.id));
+      if (!child) return res.status(404).json({ message: "Player not found" });
+      const parent = await storage.getContact(child.parentId);
+      const medical = await storage.getChildMedical(child.id);
+      const regs = await storage.getRegistrations();
+      const parentRegs = regs.filter(r => r.contactId === child.parentId || r.guardianId === child.parentId);
+      const regDetails = await Promise.all(parentRegs.map(async (r) => {
+        const items = await storage.getRegistrationItems(r.id);
+        const playerItems = items.filter(i => i.childId === child.id);
+        if (playerItems.length === 0) return null;
+        return { ...r, items: playerItems };
+      }));
+      res.json({ child: { ...child, medical }, parent, registrations: regDetails.filter(Boolean) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/crm/export", requireAuth, async (req, res) => {
     try {
       const { type, campId, campDateId } = req.query;
