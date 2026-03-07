@@ -326,6 +326,41 @@
     background: linear-gradient(180deg, rgba(3, 86, 197, 0.06) 0%, #02060E 40%, rgba(3, 86, 197, 0.04) 100%);
   }
 
+  @keyframes borderGlow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .glow-border-btn {
+    position: relative;
+    z-index: 0;
+  }
+
+  .glow-border-btn::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, transparent, #D9B10F, #E8C840, #D9B10F, transparent, #D9B10F, #E8C840, #D9B10F, transparent);
+    background-size: 300% 100%;
+    animation: borderGlow 3s linear infinite;
+    z-index: -1;
+    opacity: 0.8;
+  }
+
+  .glow-border-btn::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, transparent, #D9B10F40, #E8C84060, #D9B10F40, transparent, #D9B10F40, #E8C84060, #D9B10F40, transparent);
+    background-size: 300% 100%;
+    animation: borderGlow 3s linear infinite;
+    z-index: -2;
+    filter: blur(8px);
+  }
+
   @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }

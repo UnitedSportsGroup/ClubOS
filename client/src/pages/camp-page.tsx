@@ -298,10 +298,16 @@ export default function CampPage() {
     }
   };
 
-  const sessionTypes: Record<string, { label: string; timeLabel: string }> = {
-    MORNING: { label: "Morning", timeLabel: "9:00am – 12:00pm" },
-    AFTERNOON: { label: "Afternoon", timeLabel: "1:00pm – 4:00pm" },
-    FULL_DAY: { label: "Full Day", timeLabel: "9:00am – 4:00pm" },
+  const sessionTypes: Record<string, { label: string; timeLabel: string; order: number }> = {
+    MORNING: { label: "Morning", timeLabel: "9:00am – 12:00pm", order: 1 },
+    AFTERNOON: { label: "Afternoon", timeLabel: "12:00pm – 3:00pm", order: 2 },
+    FULL_DAY: { label: "Full Day", timeLabel: "9:00am – 3:00pm", order: 3 },
+  };
+
+  const hardcodedPrices: Record<string, number> = {
+    MORNING: 3000,
+    AFTERNOON: 3000,
+    FULL_DAY: 5000,
   };
 
   const dateRange = camp.startDate && camp.endDate
@@ -604,44 +610,45 @@ export default function CampPage() {
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 7 — PRICING + BOOKING
       ═══════════════════════════════════════════════════════════════ */}
-      <section className="py-12 md:py-16 bg-white" id="pricing">
+      <section className="py-12 md:py-16" style={{ background: BRAND.blue }} id="pricing">
         <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-2 text-center" data-testid="text-pricing-heading">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2 text-center" style={{ color: BRAND.gold }} data-testid="text-pricing-heading">
             Choose Your Session
           </h2>
-          <p className="text-[14px] text-slate-400 mb-10 text-center">
+          <p className="text-[14px] mb-10 text-center" style={{ color: 'rgba(251,251,252,0.6)' }}>
             Simple online booking. Secure payment. Instant confirmation.
           </p>
-          {pricing.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-              {pricing.map((p: any) => {
-                const info = sessionTypes[p.productType] || { label: p.productType, timeLabel: "" };
-                const isFullDay = p.productType === "FULL_DAY";
-                return (
-                  <div
-                    key={p.productType}
-                    className={`rounded-2xl border-2 p-6 text-center transition-all duration-300 hover:shadow-xl hover:-translate-y-1 relative ${isFullDay ? 'text-white shadow-lg' : 'bg-white border-slate-100 hover:border-slate-200'}`}
-                    style={isFullDay ? { background: BRAND.blue, borderColor: BRAND.blue } : {}}
-                    data-testid={`price-card-${p.productType}`}
-                  >
-                    {isFullDay && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] bg-[#D9B10F] text-white px-3 py-1 rounded-full uppercase tracking-wider font-bold">Best Value</span>}
-                    <Clock className={`w-6 h-6 mx-auto mb-2 ${isFullDay ? 'text-blue-200' : ''}`} style={!isFullDay ? { color: BRAND.blue } : {}} />
-                    <h3 className={`text-[16px] font-bold ${isFullDay ? 'text-white' : 'text-slate-800'}`}>{info.label}</h3>
-                    <p className={`text-[12px] mt-0.5 ${isFullDay ? 'text-blue-200' : 'text-slate-400'}`}>{info.timeLabel}</p>
-                    <p className={`text-3xl font-bold mt-4 ${isFullDay ? 'text-white' : 'text-slate-900'}`}>
-                      ${(p.priceCents / 100).toFixed(0)}
-                    </p>
-                    <p className={`text-[11px] ${isFullDay ? 'text-blue-200' : 'text-slate-400'}`}>NZD per day</p>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-center text-slate-400 text-[14px] mb-8">Pricing coming soon</p>
-          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            {["MORNING", "AFTERNOON", "FULL_DAY"].map((type) => {
+              const info = sessionTypes[type] || { label: type, timeLabel: "", order: 0 };
+              const isFullDay = type === "FULL_DAY";
+              const priceCents = hardcodedPrices[type] || 0;
+              return (
+                <div
+                  key={type}
+                  className={`rounded-2xl p-6 text-center transition-all duration-300 hover:-translate-y-1 relative ${isFullDay ? 'shadow-lg' : ''}`}
+                  style={{
+                    background: isFullDay ? BRAND.darkBlue : 'rgba(251,251,252,0.08)',
+                    border: isFullDay ? `2px solid ${BRAND.gold}` : '1px solid rgba(251,251,252,0.15)',
+                    boxShadow: isFullDay ? `0 0 20px rgba(217,177,15,0.15), 0 0 40px rgba(217,177,15,0.05)` : 'none',
+                  }}
+                  data-testid={`price-card-${type}`}
+                >
+                  {isFullDay && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-bold text-white" style={{ background: BRAND.gold }}>Best Value</span>}
+                  <Clock className="w-6 h-6 mx-auto mb-2" style={{ color: isFullDay ? BRAND.gold : 'rgba(251,251,252,0.5)' }} />
+                  <h3 className="text-[16px] font-bold" style={{ color: BRAND.white }}>{info.label}</h3>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.4)' }}>{info.timeLabel}</p>
+                  <p className="text-3xl font-bold mt-4" style={{ color: BRAND.white }}>
+                    ${(priceCents / 100).toFixed(0)}
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'rgba(251,251,252,0.35)' }}>NZD per day</p>
+                </div>
+              );
+            })}
+          </div>
           {discounts.length > 0 && (
-            <div className="max-w-md mx-auto mb-8 p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-center">
-              <p className="text-[13px] font-semibold text-emerald-700">
+            <div className="max-w-md mx-auto mb-8 p-4 rounded-xl text-center" style={{ background: 'rgba(217,177,15,0.1)', border: '1px solid rgba(217,177,15,0.2)' }}>
+              <p className="text-[13px] font-semibold" style={{ color: BRAND.gold }}>
                 {discounts.map((d: any) => `Book ${d.minBookings}+ sessions and save ${d.discountPercent}%`).join(' · ')}
               </p>
             </div>
@@ -650,15 +657,15 @@ export default function CampPage() {
             <Link href={`/${slug}/book`}>
               <button
                 onClick={handleBookClick}
-                className="group inline-flex items-center gap-2 px-10 py-3.5 text-[15px] font-bold rounded-full transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] cursor-pointer text-white"
-                style={{ background: BRAND.blue, boxShadow: '0 4px 20px rgba(34,57,155,0.25)' }}
+                className="glow-border-btn group inline-flex items-center gap-2 px-10 py-3.5 text-[15px] font-bold rounded-full transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
+                style={{ background: BRAND.gold, color: BRAND.darkBlue }}
                 data-testid="button-book-pricing"
               >
                 Book Now
                 <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
               </button>
             </Link>
-            <p className="text-[12px] text-slate-400 mt-3">Places are limited for each day</p>
+            <p className="text-[12px] mt-3" style={{ color: 'rgba(251,251,252,0.4)' }}>Places are limited for each day</p>
           </div>
         </div>
       </section>
