@@ -1,13 +1,13 @@
-import { useState, Fragment } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronDown, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -700,160 +700,8 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
   );
 }
 
-function SessionRollPanel({ campId, campDateId, sessionType, date }: { campId: number; campDateId: number; sessionType: string; date: string }) {
-  const { toast } = useToast();
-  const [selectedPlayer, setSelectedPlayer] = useState<RollPlayer | null>(null);
-
-  const { data: roll, isLoading } = useQuery<RollPlayer[]>({
-    queryKey: ["/api/admin/camps", campId, "session-roll", campDateId, sessionType],
-    queryFn: async () => {
-      const res = await fetch(`/api/admin/camps/${campId}/session-roll?campDateId=${campDateId}&sessionType=${sessionType}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load roll");
-      return res.json();
-    },
-  });
-
-  const checkInMutation = useMutation({
-    mutationFn: async ({ attendanceId, action }: { attendanceId: number; action: "in" | "out" }) => {
-      const body = action === "in"
-        ? { checkedInAt: new Date().toISOString() }
-        : { checkedOutAt: new Date().toISOString() };
-      await apiRequest("PATCH", `/api/admin/attendance/${attendanceId}`, body);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "session-roll", campDateId, sessionType] });
-      toast({ title: "Attendance updated" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  if (isLoading) {
-    return (
-      <tr>
-        <td colSpan={4} className="px-4 py-3">
-          <Skeleton className="h-16 w-full rounded-lg bg-blue-500/[0.04]" />
-        </td>
-      </tr>
-    );
-  }
-
-  if (!roll || roll.length === 0) {
-    return (
-      <tr>
-        <td colSpan={4} className="px-6 py-4">
-          <p className="text-[12px] text-white/25 text-center">No players registered for this session</p>
-        </td>
-      </tr>
-    );
-  }
-
-  return (
-    <>
-      <tr>
-        <td colSpan={4} className="p-0">
-          <div className="mx-3 mb-2 rounded-lg border border-blue-500/[0.08] overflow-hidden bg-blue-500/[0.02]">
-            <div className="px-3 py-1.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06] flex items-center justify-between">
-              <span className="text-[10px] text-blue-300/30 uppercase tracking-wider font-semibold">
-                {getDayLabel(date)} · {sessionType === "MORNING" ? "Morning" : "Afternoon"} Roll — {roll.length} player{roll.length !== 1 ? "s" : ""}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-emerald-400/40">
-                  {roll.filter(p => p.attendance?.checkedInAt).length} signed in
-                </span>
-              </div>
-            </div>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-blue-500/[0.05]">
-                  <th className="text-left px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Player</th>
-                  <th className="text-left px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold hidden sm:table-cell">Age</th>
-                  <th className="text-center px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Status</th>
-                  <th className="text-right px-3 py-1.5 text-[9px] text-blue-300/20 uppercase tracking-wider font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {roll.map((player) => {
-                  const isIn = !!player.attendance?.checkedInAt;
-                  const isOut = !!player.attendance?.checkedOutAt;
-                  const hasMedical = player.child.medical?.allergies || player.child.medical?.epiPen;
-
-                  return (
-                    <tr
-                      key={player.child.id}
-                      className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors group"
-                      data-testid={`row-player-${player.child.id}`}
-                    >
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => setSelectedPlayer(player)}
-                          className="flex items-center gap-2 text-left cursor-pointer hover:opacity-80 transition-opacity"
-                          data-testid={`button-player-profile-${player.child.id}`}
-                        >
-                          <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/15 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[10px] font-semibold text-blue-400/60">
-                              {player.child.firstName[0]}{player.child.lastName[0]}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[12px] font-medium text-white/75 truncate">{player.child.firstName} {player.child.lastName}</p>
-                            <p className="text-[10px] text-white/25 truncate">{player.parent.firstName} {player.parent.lastName}</p>
-                          </div>
-                          {hasMedical && (
-                            <AlertTriangle className="w-3 h-3 text-amber-400/60 flex-shrink-0" title="Has medical info" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 hidden sm:table-cell">
-                        <span className="text-[11px] text-white/40">{formatAge(player.child.dateOfBirth)}</span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {isOut ? (
-                          <Badge variant="outline" className="text-[8px] text-blue-400/60 border-blue-500/15 bg-blue-500/8 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Signed Out</Badge>
-                        ) : isIn ? (
-                          <Badge variant="outline" className="text-[8px] text-emerald-400/70 border-emerald-500/15 bg-emerald-500/10 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Signed In</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[8px] text-white/25 border-white/8 bg-white/[0.02] uppercase tracking-wider no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${player.child.id}`}>Not Arrived</Badge>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {!isIn && player.attendance && (
-                            <button
-                              onClick={() => checkInMutation.mutate({ attendanceId: player.attendance!.id, action: "in" })}
-                              disabled={checkInMutation.isPending}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400/70 font-medium hover:bg-emerald-500/20 transition-colors cursor-pointer"
-                              data-testid={`button-signin-${player.child.id}`}
-                            >
-                              <UserCheck className="w-3 h-3" /> In
-                            </button>
-                          )}
-                          {isIn && !isOut && player.attendance && (
-                            <button
-                              onClick={() => checkInMutation.mutate({ attendanceId: player.attendance!.id, action: "out" })}
-                              disabled={checkInMutation.isPending}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400/70 font-medium hover:bg-blue-500/20 transition-colors cursor-pointer"
-                              data-testid={`button-signout-${player.child.id}`}
-                            >
-                              <UserX className="w-3 h-3" /> Out
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </td>
-      </tr>
-      {selectedPlayer && <PlayerProfileModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} />}
-    </>
-  );
-}
-
 function SessionsTab({ campId }: { campId: number }) {
-  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [, navigate] = useLocation();
 
   const { data: sessions, isLoading } = useQuery<SessionSummary[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
@@ -879,10 +727,6 @@ function SessionsTab({ campId }: { campId: number }) {
     if (!weeks[wk]) weeks[wk] = [];
     weeks[wk].push(d);
   });
-
-  const toggleSession = (key: string) => {
-    setExpandedSession(prev => prev === key ? null : key);
-  };
 
   return (
     <div className="space-y-4">
@@ -917,45 +761,42 @@ function SessionsTab({ campId }: { campId: number }) {
                     const s = sessions.find(x => x.date === date && x.productType === pt);
                     if (!s || s.capacity === 0) return null;
                     const sessionKey = `${date}-${pt}`;
-                    const isExpanded = expandedSession === sessionKey;
                     const pct = s.capacity > 0 ? Math.round((s.bookedCount / s.capacity) * 100) : 0;
                     const barColor = pct >= 90 ? "bg-red-400" : pct >= 60 ? "bg-amber-400" : (pt === "MORNING" ? "bg-amber-400" : "bg-orange-400");
                     return (
-                      <Fragment key={sessionKey}>
-                        <tr
-                          onClick={() => toggleSession(sessionKey)}
-                          className={`border-b border-blue-500/[0.03] hover:bg-blue-500/[0.04] transition-colors cursor-pointer ${isExpanded ? "bg-blue-500/[0.04]" : ""}`}
-                          data-testid={`row-session-${s.campDateId}-${pt}`}
-                        >
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-2">
-                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-blue-400/40" /> : <ChevronRight className="w-3.5 h-3.5 text-white/20" />}
-                              <span className="text-[13px] text-white/70 font-medium">{getDayLabel(date)}</span>
+                      <tr
+                        key={sessionKey}
+                        onClick={() => navigate(`/admin/camps/${campId}/session/${s.campDateId}/${pt}`)}
+                        className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.04] transition-colors cursor-pointer"
+                        data-testid={`row-session-${s.campDateId}-${pt}`}
+                      >
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <ChevronRight className="w-3.5 h-3.5 text-white/20" />
+                            <span className="text-[13px] text-white/70 font-medium">{getDayLabel(date)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 hidden sm:table-cell">
+                          <span className={`text-[11px] font-medium ${pt === "MORNING" ? "text-amber-400/60" : "text-orange-400/60"}`}>
+                            {pt === "MORNING" ? "Morning" : "Afternoon"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="text-[13px] text-white/60">
+                            <span className="font-semibold text-white/80">{s.bookedCount}</span>
+                            <span className="text-white/25 mx-1">/</span>
+                            <span>{s.capacity}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 hidden md:table-cell">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
                             </div>
-                          </td>
-                          <td className="px-4 py-2.5 hidden sm:table-cell">
-                            <span className={`text-[11px] font-medium ${pt === "MORNING" ? "text-amber-400/60" : "text-orange-400/60"}`}>
-                              {pt === "MORNING" ? "Morning" : "Afternoon"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-center">
-                            <span className="text-[13px] text-white/60">
-                              <span className="font-semibold text-white/80">{s.bookedCount}</span>
-                              <span className="text-white/25 mx-1">/</span>
-                              <span>{s.capacity}</span>
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 hidden md:table-cell">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                                <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                              </div>
-                              <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
-                            </div>
-                          </td>
-                        </tr>
-                        {isExpanded && <SessionRollPanel campId={campId} campDateId={s.campDateId} sessionType={pt} date={date} />}
-                      </Fragment>
+                            <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
