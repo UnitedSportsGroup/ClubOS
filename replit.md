@@ -16,7 +16,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 ## Architecture
 - `client/src/` - React frontend
   - `pages/` - Page components:
-    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-mailer, admin-settings, admin-register-player (modal component)
+    - Admin: admin-login, admin-dashboard, admin-camps, admin-camp-detail, admin-edit-page, admin-session-roll, admin-registrations, admin-contacts, admin-contact-detail, admin-mailer, admin-settings, admin-register-player (modal component)
     - Public: camp-page, booking-page, checkout-page, booking-success, booking-cancel
   - `components/` - app-sidebar, ui/ (shadcn)
   - `lib/meta-pixel.ts` - Client-side Meta Pixel tracking
@@ -47,7 +47,8 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin/login` — Admin login
 - `/admin` — Admin dashboard
 - `/admin/camps` — Camp list + create
-- `/admin/camps/:id` — Camp detail (tabs: Overview, Sessions, Content, Dates & Capacity, Pricing, Discounts, Email Template) with stats header (registrations, revenue, occupancy)
+- `/admin/camps/:id` — Camp detail (tabs: Overview, Sessions, Content, Dates & Capacity, Pricing, Discounts, Email Template) with stats header (registrations, revenue, occupancy). Buttons: Edit (settings), Edit Page (inline page editor), View Page (opens public page)
+- `/admin/camps/:id/edit-page` — Inline page editor: renders camp sales page template with click-to-edit fields (heroHeadline, heroSubheadline, primaryCta, FAQ Q&A). Saves via PATCH /api/admin/camps/:id
 - `/admin/registrations` — Registration list with camp filter (confirmed only)
 - `/admin/contacts` — Full CRM contact list (parents + players) with search, type filters, CSV export
 - `/admin/contacts/parent/:id` — Parent detail page with linked children and registrations

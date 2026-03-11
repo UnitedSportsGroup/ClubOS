@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, ExternalLink, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -900,10 +900,15 @@ export default function AdminCampDetail() {
           >
             <Settings className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Edit</span>
           </Button>
+          <Button variant="outline" asChild className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5">
+            <Link href={`/admin/camps/${camp.id}/edit-page`} data-testid="link-edit-page">
+              <FileText className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Edit Page</span>
+            </Link>
+          </Button>
           {camp.slug && (
             <Button variant="outline" asChild className="rounded-xl h-8 text-[12px] border-blue-500/20 text-blue-400/60 hover:bg-blue-500/5">
-              <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" data-testid="link-public-page">
-                <ExternalLink className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Public Page</span>
+              <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" data-testid="link-view-page">
+                <ChevronRight className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">View Page</span>
               </a>
             </Button>
           )}

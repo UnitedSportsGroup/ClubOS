@@ -16,6 +16,7 @@ import AdminContacts from "@/pages/admin-contacts";
 import AdminContactDetail from "@/pages/admin-contact-detail";
 import AdminMailer from "@/pages/admin-mailer";
 import AdminSettings from "@/pages/admin-settings";
+import AdminEditPage from "@/pages/admin-edit-page";
 import CampPage from "@/pages/camp-page";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
@@ -57,6 +58,7 @@ function AdminRouter() {
     <Switch>
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/camps" component={AdminCamps} />
+      <Route path="/admin/camps/:id/edit-page" component={AdminEditPage} />
       <Route path="/admin/camps/:id" component={AdminCampDetail} />
       <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
