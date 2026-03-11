@@ -5,8 +5,8 @@ import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
   const [existingUsers] = await db.select({ count: sql<number>`count(*)` }).from(users);
+  const hashedPw = await hashPassword(process.env.ADMIN_SEED_PASSWORD || "Growth2020!");
   if (Number(existingUsers.count) === 0) {
-    const hashedPw = await hashPassword(process.env.ADMIN_SEED_PASSWORD || "Growth2020!");
     await db.insert(users).values({
       email: process.env.ADMIN_SEED_EMAIL || "daniel@cufc.co.nz",
       firstName: "Daniel",
@@ -15,7 +15,29 @@ export async function seedDatabase() {
       role: "admin",
       active: true,
     });
-    console.log(`Admin user seeded: ${process.env.ADMIN_SEED_EMAIL || "admin@cufc.co.nz"}`);
+    console.log(`Admin user seeded: ${process.env.ADMIN_SEED_EMAIL || "daniel@cufc.co.nz"}`);
+  }
+
+  const staffAccounts = [
+    { email: "grassroots@cufc.co.nz", firstName: "Grassroots", lastName: "Staff" },
+    { email: "marketing@cufc.co.nz", firstName: "Marketing", lastName: "Staff" },
+  ];
+  for (const acct of staffAccounts) {
+    const [exists] = await db.select({ count: sql<number>`count(*)` }).from(users).where(sql`email = ${acct.email}`);
+    if (Number(exists.count) === 0) {
+      await db.insert(users).values({
+        email: acct.email,
+        firstName: acct.firstName,
+        lastName: acct.lastName,
+        password: hashedPw,
+        role: "admin",
+        active: true,
+      });
+      console.log(`Staff user seeded: ${acct.email}`);
+    } else {
+      await db.execute(sql`UPDATE users SET password = ${hashedPw} WHERE email = ${acct.email}`);
+      console.log(`Staff user password reset: ${acct.email}`);
+    }
   }
 
   const [existingSettings] = await db.select({ count: sql<number>`count(*)` }).from(settings);
