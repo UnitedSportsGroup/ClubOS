@@ -85,6 +85,7 @@ export const programs = pgTable("programs", {
   contactEmail: text("contact_email"),
   primaryCta: text("primary_cta").default("Book Now"),
   faqJson: text("faq_json"),
+  pageContentJson: text("page_content_json"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

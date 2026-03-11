@@ -119,6 +119,7 @@ function App() {
   const [isCampSuccess] = useRoute("/:slug/success");
   const [isCampCancel] = useRoute("/:slug/cancel");
   const [isAdminLogin] = useRoute("/admin/login");
+  const [isAdminEditPage] = useRoute("/admin/camps/:id/edit-page");
   const [isAdminDeep] = useRoute("/admin/**");
   const [isAdminRoot] = useRoute("/admin");
 
@@ -129,6 +130,8 @@ function App() {
       <TooltipProvider>
         {isAdminLogin ? (
           <AdminLogin />
+        ) : isAdminEditPage ? (
+          <AuthGuard><AdminEditPage /></AuthGuard>
         ) : isAdminRoute ? (
           <AdminLayout />
         ) : (

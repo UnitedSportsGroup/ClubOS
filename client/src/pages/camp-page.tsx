@@ -79,7 +79,8 @@ const trustPoints = [
   { icon: Sparkles, title: "Fun First, Skills Second", desc: "Every child leaves smiling, confident, and wanting to come back" },
 ];
 
-function ScheduleTimeline() {
+function ScheduleTimeline({ items }: { items?: { time: string; label: string; highlight?: boolean }[] }) {
+  const scheduleData = items && items.length > 0 ? items : schedule;
   const timelineRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
 
@@ -120,8 +121,8 @@ function ScheduleTimeline() {
         }}
       />
       <div className="space-y-0">
-        {schedule.map((item, i) => {
-          const itemProgress = progress * schedule.length;
+        {scheduleData.map((item, i) => {
+          const itemProgress = progress * scheduleData.length;
           const isLit = i < itemProgress;
           const isGlowing = i < itemProgress && i >= itemProgress - 1.5;
           return (
@@ -286,6 +287,13 @@ export default function CampPage() {
   const faqItems = faq.length > 0 ? faq : defaultFaq;
   const lowestPrice = pricing.length > 0 ? Math.min(...pricing.map((p: any) => p.priceCents)) : 0;
 
+  let pc: any = {};
+  try { pc = camp.pageContentJson ? JSON.parse(camp.pageContentJson) : {}; } catch {}
+  const pc_reviews = pc.reviews && pc.reviews.length > 0 ? pc.reviews : reviews;
+  const pc_schedule = pc.schedule && pc.schedule.length > 0 ? pc.schedule : schedule;
+  const pc_trust = pc.trust && pc.trust.length > 0 ? pc.trust : trustPoints.map(t => ({ title: t.title, desc: t.desc }));
+  const pc_experience = pc.experience && pc.experience.length > 0 ? pc.experience : null;
+
   const handleBookClick = () => {
     const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
     if (pixelId) {
@@ -383,7 +391,7 @@ export default function CampPage() {
 
             <div className="mt-6 animate-[fadeInUp_1.1s_ease-out]">
               <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] font-semibold mb-2" style={{ color: 'rgba(251,251,252,0.28)' }}>
-                Trusted by 1,000+ Parents since 2014
+                {pc.trustBadge || "Trusted by 1,000+ Parents since 2014"}
               </p>
               <div className="flex items-center justify-center gap-0.5">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -404,9 +412,9 @@ export default function CampPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                What Parents Are Saying
+                {pc.reviewsSectionTitle || "What Parents Are Saying"}
               </h2>
-              <p className="text-[13px] mt-0.5" style={{ color: 'rgba(251,251,252,0.45)' }}>Real reviews from real families</p>
+              <p className="text-[13px] mt-0.5" style={{ color: 'rgba(251,251,252,0.45)' }}>{pc.reviewsSectionSub || "Real reviews from real families"}</p>
             </div>
             <div className="hidden sm:flex items-center gap-2">
               <button onClick={() => scrollReviews("left")} className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/50 hover:text-white hover:border-white/40 transition-colors cursor-pointer" data-testid="button-reviews-left">
@@ -418,7 +426,7 @@ export default function CampPage() {
             </div>
           </div>
           <div ref={reviewsRef} className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 -mx-6 px-6 snap-x snap-mandatory" data-testid="reviews-carousel">
-            {reviews.map((review, i) => (
+            {pc_reviews.map((review: any, i: number) => (
               <div key={i} className="snap-start"><ReviewCard review={review} index={i} /></div>
             ))}
           </div>
@@ -439,7 +447,7 @@ export default function CampPage() {
             style={{ color: BRAND.darkBlue }}
             data-testid="text-key-info-heading"
           >
-            Key Information
+            {pc.keyInfoTitle || "Key Information"}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
 
@@ -450,7 +458,7 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <Users className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Age</p>
-                  <p className="text-[15px] font-bold" style={{ color: BRAND.white }}>3–8 Years</p>
+                  <p className="text-[15px] font-bold" style={{ color: BRAND.white }}>{pc.infoAge || "3–8 Years"}</p>
                 </div>
               </div>
             </div>
@@ -463,12 +471,12 @@ export default function CampPage() {
                   <Calendar className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Dates</p>
                   <p className="text-[13px] font-bold leading-snug" style={{ color: BRAND.white }}>
-                    Week 1: 6–10 April
+                    {pc.infoDatesWeek1 || "Week 1: 6–10 April"}
                   </p>
                   <p className="text-[13px] font-bold leading-snug" style={{ color: BRAND.white }}>
-                    Week 2: 13–17 April
+                    {pc.infoDatesWeek2 || "Week 2: 13–17 April"}
                   </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'rgba(251,251,252,0.4)' }}>Mon – Fri</p>
+                  <p className="text-[10px] mt-1" style={{ color: 'rgba(251,251,252,0.4)' }}>{pc.infoDatesNote || "Mon – Fri"}</p>
                 </div>
               </div>
             </div>
@@ -480,8 +488,8 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <MapPin className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Drop Off + Pick Up</p>
-                  <p className="text-[14px] font-bold" style={{ color: BRAND.white }}>United Sports Centre</p>
-                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.5)' }}>466 Yaldhurst Road</p>
+                  <p className="text-[14px] font-bold" style={{ color: BRAND.white }}>{pc.infoLocation || "United Sports Centre"}</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'rgba(251,251,252,0.5)' }}>{pc.infoLocationAddress || "466 Yaldhurst Road"}</p>
                 </div>
               </div>
             </div>
@@ -493,9 +501,9 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <Clock className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Session Options</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Morning: 9am – 12pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Afternoon: 12pm – 3pm</p>
-                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>Full Day: 9am – 3pm</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>{pc.infoSessionMorning || "Morning: 9am – 12pm"}</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>{pc.infoSessionAfternoon || "Afternoon: 12pm – 3pm"}</p>
+                  <p className="text-[12px] font-semibold" style={{ color: BRAND.white }}>{pc.infoSessionFullDay || "Full Day: 9am – 3pm"}</p>
                 </div>
               </div>
             </div>
@@ -507,9 +515,9 @@ export default function CampPage() {
                 <div className="relative z-10">
                   <DollarSign className="w-5 h-5 mx-auto mb-2.5" style={{ color: BRAND.white }} />
                   <p className="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1.5" style={{ color: 'rgba(251,251,252,0.5)' }}>Price</p>
-                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Morning $30</p>
-                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Afternoon $30</p>
-                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>Full Day $50</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>{pc.infoPriceMorning || "Morning $30"}</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>{pc.infoPriceAfternoon || "Afternoon $30"}</p>
+                  <p className="text-[13px] font-bold" style={{ color: BRAND.white }}>{pc.infoPriceFullDay || "Full Day $50"}</p>
                 </div>
               </div>
             </div>
@@ -524,12 +532,12 @@ export default function CampPage() {
       <section className="py-12 md:py-16" style={{ background: BRAND.blue }}>
         <div className="max-w-2xl mx-auto px-6">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2 text-center" style={{ color: BRAND.gold }} data-testid="text-schedule-heading">
-            What a Day Looks Like
+            {pc.scheduleTitle || "What a Day Looks Like"}
           </h2>
           <p className="text-[14px] mb-10 text-center" style={{ color: BRAND.white }}>
-            Morning, afternoon, and full-day options available
+            {pc.scheduleSub || "Morning, afternoon, and full-day options available"}
           </p>
-          <ScheduleTimeline />
+          <ScheduleTimeline items={pc_schedule} />
         </div>
       </section>
 
@@ -539,26 +547,30 @@ export default function CampPage() {
       <section className="py-12 md:py-16" style={{ background: BRAND.darkBlue }}>
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2" style={{ color: BRAND.white }} data-testid="text-experience-heading">
-            What Your Child Will Experience
+            {pc.experienceTitle || "What Your Child Will Experience"}
           </h2>
           <p className="text-[14px] mb-10 max-w-lg mx-auto" style={{ color: 'rgba(251,251,252,0.55)' }}>
-            A safe, fun environment where every child builds confidence and falls in love with football
+            {pc.experienceSub || "A safe, fun environment where every child builds confidence and falls in love with football"}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { icon: Gamepad2, title: "Fun Skill Games", desc: "Age-appropriate drills that feel like play, not practice" },
-              { icon: UserPlus, title: "Make New Friends", desc: "Social environment where kids connect and build friendships" },
-              { icon: Sparkles, title: "Build Confidence", desc: "Every child is celebrated and encouraged to grow" },
-              { icon: Zap, title: "Learn Through Play", desc: "Real football skills developed through engaging activities" },
-            ].map((item, i) => (
+            {(pc_experience || [
+              { title: "Fun Skill Games", desc: "Age-appropriate drills that feel like play, not practice" },
+              { title: "Make New Friends", desc: "Social environment where kids connect and build friendships" },
+              { title: "Build Confidence", desc: "Every child is celebrated and encouraged to grow" },
+              { title: "Learn Through Play", desc: "Real football skills developed through engaging activities" },
+            ]).map((item: any, i: number) => {
+              const icons = [Gamepad2, UserPlus, Sparkles, Zap];
+              const Icon = icons[i] || Sparkles;
+              return (
               <div key={i} className="rounded-xl p-5 text-center hover:-translate-y-0.5 transition-all duration-300" style={{ background: BRAND.blue, border: `1px solid rgba(217,177,15,0.2)`, boxShadow: `0 0 12px rgba(217,177,15,0.08), 0 0 24px rgba(217,177,15,0.04)` }} data-testid={`experience-card-${i}`}>
                 <div className="w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'rgba(217,177,15,0.1)' }}>
-                  <item.icon className="w-5 h-5" style={{ color: BRAND.gold }} />
+                  <Icon className="w-5 h-5" style={{ color: BRAND.gold }} />
                 </div>
                 <h3 className="text-[14px] font-bold mb-1" style={{ color: BRAND.white }}>{item.title}</h3>
                 <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.5)' }}>{item.desc}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -569,29 +581,33 @@ export default function CampPage() {
       <section className="py-12 md:py-16" style={{ background: '#f8f9fb' }}>
         <div className="max-w-4xl mx-auto px-6">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-2 text-center" data-testid="text-trust-heading">
-            Why Families Choose Christchurch United
+            {pc.trustTitle || "Why Families Choose Christchurch United"}
           </h2>
           <p className="text-[14px] text-slate-400 mb-10 text-center">
-            A club and community you can trust
+            {pc.trustSub || "A club and community you can trust"}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
-            {trustPoints.map((item, i) => (
+            {pc_trust.map((item: any, i: number) => {
+              const icons = [Shield, Heart, Zap, Sparkles];
+              const Icon = icons[i] || Shield;
+              return (
               <div key={i} className="bg-white rounded-xl border border-slate-100 p-5 flex gap-4 items-start hover:shadow-sm transition-all" data-testid={`trust-card-${i}`}>
                 <div className="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center" style={{ background: `${BRAND.blue}0A` }}>
-                  <item.icon className="w-5 h-5" style={{ color: BRAND.blue }} />
+                  <Icon className="w-5 h-5" style={{ color: BRAND.blue }} />
                 </div>
                 <div>
                   <h3 className="text-[14px] font-bold text-slate-800 mb-0.5">{item.title}</h3>
                   <p className="text-[12px] sm:text-[13px] text-slate-400 leading-relaxed">{item.desc}</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-12">
             {[
-              { value: "1,000+", label: "Families" },
-              { value: "Since 2014", label: "Established" },
-              { value: "5.0", label: "Star Rating", showStars: true },
+              { value: pc.statFamilies || "1,000+", label: "Families" },
+              { value: pc.statEstablished || "Since 2014", label: "Established" },
+              { value: pc.statRating || "5.0", label: "Star Rating", showStars: true },
             ].map((stat, i) => (
               <div key={i} className="text-center" data-testid={`stat-${i}`}>
                 <p className="text-2xl sm:text-3xl font-bold" style={{ color: BRAND.blue }}>{stat.value}</p>
@@ -614,10 +630,10 @@ export default function CampPage() {
       <section className="py-12 md:py-16" style={{ background: BRAND.blue }} id="pricing">
         <div className="max-w-4xl mx-auto px-6">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-2 text-center" style={{ color: BRAND.gold }} data-testid="text-pricing-heading">
-            Choose Your Session
+            {pc.pricingTitle || "Choose Your Session"}
           </h2>
           <p className="text-[14px] mb-10 text-center" style={{ color: 'rgba(251,251,252,0.6)' }}>
-            Simple online booking. Secure payment. Instant confirmation.
+            {pc.pricingSub || "Simple online booking. Secure payment. Instant confirmation."}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             {["MORNING", "AFTERNOON", "FULL_DAY"].map((type) => {
@@ -666,7 +682,7 @@ export default function CampPage() {
                 <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
               </button>
             </Link>
-            <p className="text-[12px] mt-3" style={{ color: 'rgba(251,251,252,0.4)' }}>Places are limited for each day</p>
+            <p className="text-[12px] mt-3" style={{ color: 'rgba(251,251,252,0.4)' }}>{pc.pricingFootnote || "Places are limited for each day"}</p>
           </div>
         </div>
       </section>
@@ -696,10 +712,10 @@ export default function CampPage() {
         </div>
         <div className="relative max-w-2xl mx-auto px-6 text-center">
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight mb-3" style={{ color: BRAND.white }} data-testid="text-final-cta">
-            Give Your Child a Holiday They'll Love
+            {pc.finalCtaTitle || "Give Your Child a Holiday They'll Love"}
           </h2>
           <p className="text-[14px] sm:text-[16px] mb-8" style={{ color: 'rgba(251,251,252,0.55)' }}>
-            Limited places available. Fun, safe environment. Easy online booking.
+            {pc.finalCtaSub || "Limited places available. Fun, safe environment. Easy online booking."}
           </p>
           <Link href={`/${slug}/book`}>
             <button
@@ -713,7 +729,7 @@ export default function CampPage() {
             </button>
           </Link>
           <p className="text-[11px] mt-4" style={{ color: 'rgba(251,251,252,0.3)' }}>
-            Secure online booking in under 2 minutes
+            {pc.finalCtaFootnote || "Secure online booking in under 2 minutes"}
           </p>
         </div>
       </section>
@@ -732,7 +748,7 @@ export default function CampPage() {
             </div>
             <div className="w-full max-w-xs h-px mb-4" style={{ background: 'rgba(251,251,252,0.06)' }} />
             <p className="text-[9px] leading-relaxed max-w-md mb-3" style={{ color: 'rgba(251,251,252,0.15)' }}>
-              This site is not part of the Facebook website or Facebook Inc. Additionally, this site is NOT endorsed by Facebook in any way. FACEBOOK is a trademark of FACEBOOK, Inc.
+              {pc.footerDisclaimer || "This site is not part of the Facebook website or Facebook Inc. Additionally, this site is NOT endorsed by Facebook in any way. FACEBOOK is a trademark of FACEBOOK, Inc."}
             </p>
             <p className="text-[11px]" style={{ color: 'rgba(251,251,252,0.2)' }}>
               &copy; {new Date().getFullYear()} Christchurch United FC. All Rights Reserved.
@@ -750,7 +766,7 @@ export default function CampPage() {
             style={{ background: BRAND.blue }}
             data-testid="button-book-sticky"
           >
-            Book Now — From $30/session
+            {pc.stickyCtaText || "Book Now — From $30/session"}
           </button>
         </Link>
       </div>
