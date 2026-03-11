@@ -40,12 +40,12 @@ const DEFAULT_SCHEDULE = [
   { time: "9:30 AM", label: "Skill Activities & Ball Mastery" },
   { time: "10:15 AM", label: "Fun Challenges & Small Games" },
   { time: "11:00 AM", label: "Match Play & Themed Games" },
-  { time: "12:00 PM", label: "Lunch Break & Free Play" },
-  { time: "1:00 PM", label: "Afternoon Session Begins" },
-  { time: "2:00 PM", label: "Skill Challenges & Competitions" },
-  { time: "3:00 PM", label: "Team Games & Mini Tournaments" },
-  { time: "4:00 PM", label: "Cool Down & Awards" },
-  { time: "5:00 PM", label: "Full Day Pick Up" },
+  { time: "11:30 AM", label: "Morning Session Pick Up" },
+  { time: "12:00 PM", label: "Afternoon Session Begins" },
+  { time: "12:30 PM", label: "Skill Challenges & Competitions" },
+  { time: "1:30 PM", label: "Team Games & Mini Tournaments" },
+  { time: "2:30 PM", label: "Cool Down & Awards" },
+  { time: "3:00 PM", label: "Full Day Pick Up" },
 ];
 
 const DEFAULT_TRUST = [

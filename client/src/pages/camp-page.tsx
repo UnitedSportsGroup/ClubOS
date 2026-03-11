@@ -64,12 +64,12 @@ const schedule = [
   { time: "9:30 AM", label: "Skill Activities & Ball Mastery", highlight: false },
   { time: "10:15 AM", label: "Fun Challenges & Small Games", highlight: false },
   { time: "11:00 AM", label: "Match Play & Themed Games", highlight: false },
-  { time: "12:00 PM", label: "Lunch Break & Free Play", highlight: false },
-  { time: "1:00 PM", label: "Afternoon Session Begins", highlight: true },
-  { time: "2:00 PM", label: "Skill Challenges & Competitions", highlight: false },
-  { time: "3:00 PM", label: "Team Games & Mini Tournaments", highlight: false },
-  { time: "4:00 PM", label: "Cool Down & Awards", highlight: false },
-  { time: "5:00 PM", label: "Full Day Pick Up", highlight: true },
+  { time: "11:30 AM", label: "Morning Session Pick Up", highlight: true },
+  { time: "12:00 PM", label: "Afternoon Session Begins", highlight: true },
+  { time: "12:30 PM", label: "Skill Challenges & Competitions", highlight: false },
+  { time: "1:30 PM", label: "Team Games & Mini Tournaments", highlight: false },
+  { time: "2:30 PM", label: "Cool Down & Awards", highlight: false },
+  { time: "3:00 PM", label: "Full Day Pick Up", highlight: true },
 ];
 
 const trustPoints = [
