@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Save, Loader2, Star, ChevronDown, ChevronUp, ArrowRight,
   MapPin, Calendar, Users, DollarSign, Clock, Shield, Sparkles, Heart,
-  Zap, Gamepad2, UserPlus, ChevronRight, ChevronLeft, Pencil, Check, X,
+  Zap, Gamepad2, UserPlus, ChevronRight, ChevronLeft,
   Eye,
 } from "lucide-react";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
@@ -157,43 +157,72 @@ interface EProps {
 }
 
 function E({ value, onChange, tag = "p", className = "", style = {}, multiline = false, ...props }: EProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const ref = useRef<HTMLElement>(null);
+  const lastValue = useRef(value);
+  const isEditing = useRef(false);
 
-  useEffect(() => { setDraft(value); }, [value]);
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
+  useEffect(() => {
+    lastValue.current = value;
+    if (ref.current && !isEditing.current) {
+      ref.current.textContent = value || "";
+    }
+  }, [value]);
 
-  const commit = () => { onChange(draft); setEditing(false); };
-  const cancel = () => { setDraft(value); setEditing(false); };
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.textContent = value || "";
+    }
+  }, []);
 
-  if (editing) {
-    return (
-      <div className="relative inline-flex items-center gap-1 w-full z-20">
-        {multiline ? (
-          <textarea ref={inputRef as any} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Escape") cancel(); }}
-            className="w-full bg-black/30 backdrop-blur border-2 border-blue-400 rounded-lg px-3 py-2 text-inherit resize-none focus:outline-none"
-            style={{ ...style, minHeight: 80 }} rows={3}
-            data-testid={props["data-testid"] ? `${props["data-testid"]}-input` : undefined}
-          />
-        ) : (
-          <input ref={inputRef as any} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
-            className="w-full bg-black/30 backdrop-blur border-2 border-blue-400 rounded-lg px-3 py-1.5 text-inherit focus:outline-none"
-            style={style}
-            data-testid={props["data-testid"] ? `${props["data-testid"]}-input` : undefined}
-          />
-        )}
-        <button onClick={commit} className="flex-shrink-0 w-7 h-7 rounded-full bg-green-500 flex items-center justify-center cursor-pointer hover:bg-green-400 transition-colors" data-testid="button-confirm-edit"><Check className="w-3.5 h-3.5 text-white" /></button>
-        <button onClick={cancel} className="flex-shrink-0 w-7 h-7 rounded-full bg-red-500/80 flex items-center justify-center cursor-pointer hover:bg-red-500 transition-colors" data-testid="button-cancel-edit"><X className="w-3.5 h-3.5 text-white" /></button>
-      </div>
-    );
-  }
+  const handleInput = useCallback(() => {
+    const text = ref.current?.textContent || "";
+    if (text !== lastValue.current) {
+      lastValue.current = text;
+      onChange(text);
+    }
+  }, [onChange]);
+
+  const handleFocus = useCallback(() => { isEditing.current = true; }, []);
+
+  const handleBlur = useCallback(() => {
+    isEditing.current = false;
+    const text = (ref.current?.textContent || "").trim();
+    if (ref.current) ref.current.textContent = text;
+    if (text !== lastValue.current) {
+      lastValue.current = text;
+      onChange(text);
+    }
+  }, [onChange]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!multiline && e.key === "Enter") {
+      e.preventDefault();
+      ref.current?.blur();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (ref.current) ref.current.textContent = value;
+      lastValue.current = value;
+      isEditing.current = false;
+      ref.current?.blur();
+    }
+  }, [multiline, value]);
 
   const Tag = tag;
   return (
-    <Tag className={`${className} cursor-pointer relative hover:outline hover:outline-2 hover:outline-blue-400/50 hover:outline-offset-2 hover:rounded-md transition-all`} style={style} onClick={() => setEditing(true)} data-testid={props["data-testid"]}>
-      {value || "(click to edit)"}
-    </Tag>
+    <Tag
+      ref={ref as any}
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      onInput={handleInput}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className={`${className} cursor-text outline-none rounded-sm transition-all ring-0 hover:ring-1 hover:ring-blue-400/40 focus:ring-2 focus:ring-blue-400/60`}
+      style={{ ...style, caretColor: BRAND.gold, minWidth: 20 }}
+      data-testid={props["data-testid"]}
+    />
   );
 }
 
