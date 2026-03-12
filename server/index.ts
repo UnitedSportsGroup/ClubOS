@@ -63,8 +63,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { seedDatabase } = await import("./seed");
+  const { seedDatabase, migrateScheduleData } = await import("./seed");
   await seedDatabase().catch((e) => console.error("Seed error:", e));
+  await migrateScheduleData().catch((e) => console.error("Schedule migration error:", e));
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

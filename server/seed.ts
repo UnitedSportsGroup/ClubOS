@@ -172,3 +172,29 @@ export async function seedDatabase() {
 
   console.log("Holiday camps seeded successfully.");
 }
+
+export async function migrateScheduleData() {
+  const newSchedule = [
+    { time: "9:00 AM", label: "Drop Off & Welcome Games" },
+    { time: "9:30 AM", label: "Skill Activities & Ball Mastery" },
+    { time: "10:15 AM", label: "Fun Challenges & Small Games" },
+    { time: "11:00 AM", label: "Match Play & Themed Games" },
+    { time: "11:30 AM", label: "Morning Session Pick Up" },
+    { time: "12:00 PM", label: "Afternoon Session Begins" },
+    { time: "12:30 PM", label: "Skill Challenges & Competitions" },
+    { time: "1:30 PM", label: "Team Games & Mini Tournaments" },
+    { time: "2:30 PM", label: "Cool Down & Awards" },
+    { time: "3:00 PM", label: "Full Day Pick Up" },
+  ];
+  const result = await db.execute(sql`
+    UPDATE programs
+    SET page_content_json = jsonb_set(
+      page_content_json::jsonb,
+      '{schedule}',
+      ${JSON.stringify(newSchedule)}::jsonb
+    )::text
+    WHERE page_content_json IS NOT NULL
+      AND page_content_json::jsonb->'schedule' @> '[{"time":"5:00 PM"}]'::jsonb
+  `);
+  console.log("Schedule migration: updated camps with old 5pm schedule");
+}
