@@ -232,6 +232,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProgram(id: number): Promise<void> {
+    await db.execute(sql`DELETE FROM attendance WHERE camp_id = ${id}`);
+    await db.execute(sql`DELETE FROM email_logs WHERE camp_id = ${id}`);
+    await db.execute(sql`DELETE FROM meta_event_logs WHERE camp_id = ${id}`);
+    await db.execute(sql`DELETE FROM session_bookings WHERE session_id IN (SELECT id FROM program_sessions WHERE program_id = ${id})`);
+    await db.execute(sql`DELETE FROM registration_items WHERE registration_id IN (SELECT id FROM registrations WHERE program_id = ${id})`);
+    await db.delete(registrations).where(eq(registrations.programId, id));
+    await db.delete(programSessions).where(eq(programSessions.programId, id));
+    await db.delete(programDiscounts).where(eq(programDiscounts.programId, id));
     await db.delete(programs).where(eq(programs.id, id));
   }
 

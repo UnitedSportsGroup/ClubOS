@@ -829,7 +829,9 @@ export default function AdminCampDetail() {
   const campId = parseInt(params?.id || "0");
   const [tab, setTab] = useState("sessions");
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const { data: camp, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId],
@@ -849,6 +851,18 @@ export default function AdminCampDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
       toast({ title: "Camp updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/admin/camps/${campId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
+      toast({ title: "Camp deleted" });
+      navigate("/admin/camps");
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -912,6 +926,14 @@ export default function AdminCampDetail() {
               </a>
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={() => setShowDeleteConfirm(true)}
+            className="rounded-xl h-8 text-[12px] border-red-500/30 text-red-400/80 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+            data-testid="button-delete-camp"
+          >
+            <Trash2 className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Delete Camp</span>
+          </Button>
         </div>
       </div>
 
@@ -976,6 +998,48 @@ export default function AdminCampDetail() {
             </div>
             <div className="overflow-y-auto flex-1 p-6">
               <OverviewTab camp={camp} onUpdate={(data) => { updateMutation.mutate(data, { onSuccess: () => setShowEditModal(false) }); }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)} />
+          <div
+            className="relative w-full max-w-md mx-4 rounded-2xl border border-red-500/[0.2] p-6 animate-fade-in-up"
+            style={{ background: "linear-gradient(135deg, rgba(197,3,3,0.06) 0%, #02060E 100%)", animationDelay: "0ms", opacity: 0 }}
+            data-testid="modal-delete-camp"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-[15px] font-semibold text-white/90">Delete Camp</h3>
+                <p className="text-[12px] text-white/40">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-[13px] text-white/60 mb-6">
+              Are you sure you want to delete <span className="font-semibold text-white/80">{camp.name}</span>? All associated dates, pricing, registrations, and settings will be permanently removed.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="rounded-xl h-9 text-[12px] border-white/10 text-white/50 hover:bg-white/5 cursor-pointer"
+                data-testid="button-cancel-delete"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="rounded-xl h-9 text-[12px] bg-red-600 hover:bg-red-500 text-white border-0 cursor-pointer"
+                data-testid="button-confirm-delete"
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Yes, Delete Camp"}
+              </Button>
             </div>
           </div>
         </div>
