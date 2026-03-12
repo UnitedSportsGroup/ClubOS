@@ -114,6 +114,14 @@ function DatesTab({ campId }: { campId: number }) {
     },
   });
 
+  const updateDateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) => apiRequest("PATCH", `/api/admin/camp-dates/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "dates"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-3 flex-wrap">
@@ -156,9 +164,23 @@ function DatesTab({ campId }: { campId: number }) {
               {dates.map((d: any) => (
                 <tr key={d.id} className="border-b border-blue-500/[0.04] row-hover" data-testid={`row-date-${d.id}`}>
                   <td className="px-4 py-2.5 text-[13px] text-white/70">{d.date}</td>
-                  <td className="text-center px-4 py-2.5 text-[13px] text-white/50">{d.capacityFullDay}</td>
-                  <td className="text-center px-4 py-2.5 text-[13px] text-white/50">{d.capacityMorning}</td>
-                  <td className="text-center px-4 py-2.5 text-[13px] text-white/50">{d.capacityAfternoon}</td>
+                  {(["capacityFullDay", "capacityMorning", "capacityAfternoon"] as const).map(field => (
+                    <td key={field} className="text-center px-2 py-1.5">
+                      <input
+                        type="number"
+                        defaultValue={d[field]}
+                        onBlur={e => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val) && val !== d[field]) {
+                            updateDateMutation.mutate({ id: d.id, data: { [field]: val } });
+                          }
+                        }}
+                        onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        className="w-16 mx-auto text-center text-[13px] text-white/50 bg-transparent border border-transparent hover:border-blue-500/20 focus:border-blue-500/40 focus:text-white/80 rounded-lg px-2 py-1 outline-none transition-all"
+                        data-testid={`input-${field}-${d.id}`}
+                      />
+                    </td>
+                  ))}
                   <td className="px-2">
                     <button onClick={() => deleteMutation.mutate(d.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-colors cursor-pointer" data-testid={`button-delete-date-${d.id}`}>
                       <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
