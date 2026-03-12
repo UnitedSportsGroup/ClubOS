@@ -1,11 +1,14 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ClipboardCheck, Search, ChevronDown, ChevronUp, User, Phone, Mail,
-  MapPin, Calendar, Clock, Baby, CreditCard,
+  MapPin, Calendar, Clock, Baby, CreditCard, Pencil, X, Plus, Trash2, Check, Save,
 } from "lucide-react";
 
 type RegItem = {
@@ -60,6 +63,174 @@ function calcAge(dob: string | undefined | null) {
   const m = now.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
   return age;
+}
+
+type CampDateOption = { id: number; date: string };
+
+type EditItem = { childId: number; campDateId: number; productType: string };
+
+function EditRegistrationModal({
+  reg,
+  onClose,
+}: {
+  reg: Registration;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const grouped = reg.items ? itemsByChild(reg.items) : [];
+
+  const { data: campDates, isLoading: datesLoading } = useQuery<CampDateOption[]>({
+    queryKey: ["/api/admin/camps", reg.programId, "dates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${reg.programId}/dates`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load dates");
+      return res.json();
+    },
+  });
+
+  const [editItems, setEditItems] = useState<EditItem[]>(() =>
+    (reg.items || []).map(i => ({ childId: i.childId, campDateId: i.campDateId, productType: i.productType }))
+  );
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PUT", `/api/admin/registrations/${reg.id}/items`, { items: editItems }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
+      toast({ title: "Registration updated" });
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const childIds = [...new Set(grouped.map(g => g.child?.id).filter(Boolean))] as number[];
+
+  const addSession = (childId: number) => {
+    if (!campDates || campDates.length === 0) return;
+    setEditItems(prev => [...prev, { childId, campDateId: campDates[0].id, productType: "FULL_DAY" }]);
+  };
+
+  const removeSession = (index: number) => {
+    setEditItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateSession = (index: number, field: keyof EditItem, value: any) => {
+    setEditItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: field === "campDateId" ? parseInt(value) : value } : item));
+  };
+
+  const itemsByChildForEdit = (childId: number) => editItems
+    .map((item, idx) => ({ ...item, idx }))
+    .filter(item => item.childId === childId);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0a0e1a] border border-blue-500/15 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto mx-4 shadow-2xl" onClick={e => e.stopPropagation()} data-testid="modal-edit-registration">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-blue-500/10">
+          <h2 className="text-[15px] font-semibold text-white/80">Edit Sessions — #{reg.id}</h2>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/5 transition-colors cursor-pointer" data-testid="button-close-edit-modal">
+            <X className="w-4 h-4 text-white/40" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 space-y-5">
+          {datesLoading ? (
+            <Skeleton className="h-20 w-full rounded-xl bg-blue-500/[0.04]" />
+          ) : (
+            childIds.map(childId => {
+              const childInfo = grouped.find(g => g.child?.id === childId)?.child;
+              const childItems = itemsByChildForEdit(childId);
+              return (
+                <div key={childId} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                        <span className="text-[10px] text-blue-400 font-semibold">{childInfo?.firstName?.[0]}{childInfo?.lastName?.[0]}</span>
+                      </div>
+                      <span className="text-[13px] text-white/70 font-medium">{childInfo?.firstName} {childInfo?.lastName}</span>
+                    </div>
+                    <button
+                      onClick={() => addSession(childId)}
+                      className="flex items-center gap-1 text-[11px] text-blue-400/70 hover:text-blue-400 transition-colors cursor-pointer"
+                      data-testid={`button-add-session-${childId}`}
+                    >
+                      <Plus className="w-3 h-3" /> Add Session
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 ml-8">
+                    {childItems.map(item => (
+                      <div key={item.idx} className="flex items-center gap-2" data-testid={`edit-item-${item.idx}`}>
+                        <select
+                          value={item.campDateId}
+                          onChange={e => updateSession(item.idx, "campDateId", e.target.value)}
+                          className="flex-1 h-8 px-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-white/70 focus:outline-none focus:border-blue-500/30 cursor-pointer"
+                          data-testid={`select-date-${item.idx}`}
+                        >
+                          {campDates?.map(d => (
+                            <option key={d.id} value={d.id}>{formatDate(d.date)}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={item.productType}
+                          onChange={e => updateSession(item.idx, "productType", e.target.value)}
+                          className="w-32 h-8 px-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-[12px] text-white/70 focus:outline-none focus:border-blue-500/30 cursor-pointer"
+                          data-testid={`select-type-${item.idx}`}
+                        >
+                          <option value="FULL_DAY">Full Day</option>
+                          <option value="MORNING">Morning</option>
+                          <option value="AFTERNOON">Afternoon</option>
+                        </select>
+                        <button
+                          onClick={() => removeSession(item.idx)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-colors cursor-pointer flex-shrink-0"
+                          data-testid={`button-remove-session-${item.idx}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-white/20 hover:text-red-400" />
+                        </button>
+                      </div>
+                    ))}
+                    {childItems.length === 0 && (
+                      <p className="text-[11px] text-white/20 italic">No sessions — click "Add Session" above</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-blue-500/10">
+          <Button variant="outline" onClick={onClose} className="rounded-xl h-9 text-[13px] border-white/10 text-white/50 hover:bg-white/5" data-testid="button-cancel-edit">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || editItems.length === 0}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn"
+            data-testid="button-save-edit"
+          >
+            <Save className="w-4 h-4 mr-1" />
+            {saveMutation.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function itemsByChild(items: RegItem[]) {
+  const map = new Map<number, { child: RegItem["child"]; sessions: { date: string; productType: string; campDateId: number }[] }>();
+  items.forEach(item => {
+    if (!map.has(item.childId)) {
+      map.set(item.childId, { child: item.child, sessions: [] });
+    }
+    map.get(item.childId)!.sessions.push({
+      date: item.campDate?.date || "",
+      productType: item.productType,
+      campDateId: item.campDateId,
+    });
+  });
+  map.forEach(v => v.sessions.sort((a, b) => a.date.localeCompare(b.date)));
+  return [...map.values()];
 }
 
 export default function AdminRegistrations() {
@@ -131,21 +302,7 @@ export default function AdminRegistrations() {
     refunded: "text-purple-400/70 bg-purple-500/10 border-purple-500/15",
   };
 
-  const itemsByChild = (items: RegItem[]) => {
-    const map = new Map<number, { child: RegItem["child"]; sessions: { date: string; productType: string; campDateId: number }[] }>();
-    items.forEach(item => {
-      if (!map.has(item.childId)) {
-        map.set(item.childId, { child: item.child, sessions: [] });
-      }
-      map.get(item.childId)!.sessions.push({
-        date: item.campDate?.date || "",
-        productType: item.productType,
-        campDateId: item.campDateId,
-      });
-    });
-    map.forEach(v => v.sessions.sort((a, b) => a.date.localeCompare(b.date)));
-    return [...map.values()];
-  };
+  const [editingReg, setEditingReg] = useState<Registration | null>(null);
 
   return (
     <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
@@ -291,9 +448,18 @@ export default function AdminRegistrations() {
 
                       {grouped.length > 0 && (
                         <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-4 space-y-4">
-                          <p className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                            <Baby className="w-3 h-3" /> Children & Sessions
-                          </p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                              <Baby className="w-3 h-3" /> Children & Sessions
+                            </p>
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditingReg(reg); }}
+                              className="flex items-center gap-1 text-[11px] text-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
+                              data-testid={`button-edit-registration-${reg.id}`}
+                            >
+                              <Pencil className="w-3 h-3" /> Edit
+                            </button>
+                          </div>
                           {grouped.map((g, gi) => (
                             <div key={gi} className={gi > 0 ? "pt-3 border-t border-white/[0.04]" : ""}>
                               <div className="flex items-center gap-2 mb-2">
@@ -364,6 +530,10 @@ export default function AdminRegistrations() {
         <p className="text-[11px] text-white/20 text-center">
           Showing {filtered.length} of {registrations?.length || 0} registration{(registrations?.length || 0) !== 1 ? "s" : ""}
         </p>
+      )}
+
+      {editingReg && (
+        <EditRegistrationModal reg={editingReg} onClose={() => setEditingReg(null)} />
       )}
     </div>
   );

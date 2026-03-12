@@ -103,6 +103,7 @@ export interface IStorage {
 
   getRegistrationItems(registrationId: number): Promise<(RegistrationItem & { child?: Child; campDate?: CampDate })[]>;
   createRegistrationItems(items: InsertRegistrationItem[]): Promise<RegistrationItem[]>;
+  replaceRegistrationItems(registrationId: number, items: InsertRegistrationItem[]): Promise<RegistrationItem[]>;
 
   getAttendanceByDate(campId: number, campDateId: number): Promise<(Attendance & { child?: Child & { medical?: ChildMedical }; parent?: Contact })[]>;
   createAttendance(a: InsertAttendance): Promise<Attendance>;
@@ -590,6 +591,14 @@ export class DatabaseStorage implements IStorage {
   async createRegistrationItems(items: InsertRegistrationItem[]): Promise<RegistrationItem[]> {
     if (items.length === 0) return [];
     return db.insert(registrationItems).values(items).returning();
+  }
+
+  async replaceRegistrationItems(registrationId: number, items: InsertRegistrationItem[]): Promise<RegistrationItem[]> {
+    return db.transaction(async (tx) => {
+      await tx.delete(registrationItems).where(eq(registrationItems.registrationId, registrationId));
+      if (items.length === 0) return [];
+      return tx.insert(registrationItems).values(items.map(i => ({ ...i, registrationId }))).returning();
+    });
   }
 
   async getAttendanceByDate(campId: number, campDateId: number): Promise<(Attendance & { child?: Child & { medical?: ChildMedical }; parent?: Contact })[]> {

@@ -286,6 +286,60 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/admin/registrations/:id/items", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(req.params.id);
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+
+      const { items } = req.body;
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ message: "items array is required" });
+      }
+
+      const validProductTypes = ["FULL_DAY", "MORNING", "AFTERNOON"];
+      for (const item of items) {
+        if (!item.childId || !item.campDateId || !item.productType) {
+          return res.status(400).json({ message: "Each item must have childId, campDateId, and productType" });
+        }
+        if (!validProductTypes.includes(item.productType)) {
+          return res.status(400).json({ message: `Invalid productType: ${item.productType}` });
+        }
+      }
+
+      const campDates = await storage.getCampDates(reg.programId);
+      const validDateIds = new Set(campDates.map(d => d.id));
+      for (const item of items) {
+        if (!validDateIds.has(item.campDateId)) {
+          return res.status(400).json({ message: `campDateId ${item.campDateId} does not belong to this camp` });
+        }
+      }
+
+      const contact = await storage.getContact(reg.contactId);
+      if (contact) {
+        const kids = await storage.getChildren(contact.id);
+        const validChildIds = new Set(kids.map(k => k.id));
+        for (const item of items) {
+          if (!validChildIds.has(item.childId)) {
+            return res.status(400).json({ message: `childId ${item.childId} does not belong to this contact` });
+          }
+        }
+      }
+
+      await storage.replaceRegistrationItems(regId, items.map((i: any) => ({
+        registrationId: regId,
+        childId: i.childId,
+        campDateId: i.campDateId,
+        productType: i.productType,
+      })));
+
+      const enrichedItems = await storage.getRegistrationItems(regId);
+      res.json(enrichedItems);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/registrations/manual", requireAuth, async (req, res) => {
     try {
       const { campId, parent, children: childrenData, items, isPaid } = req.body;
