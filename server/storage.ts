@@ -77,6 +77,7 @@ export interface IStorage {
   getRegistration(id: number): Promise<Registration | undefined>;
   createRegistration(reg: InsertRegistration): Promise<Registration>;
   updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined>;
+  assignOrderNumber(id: number): Promise<number>;
   deleteRegistration(id: number): Promise<void>;
 
   getCampPricing(campId: number): Promise<CampPricing[]>;
@@ -349,7 +350,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {
-    const regs = await db.select().from(registrations).where(eq(registrations.status, "confirmed")).orderBy(desc(registrations.registeredAt));
+    const regs = await db.select().from(registrations).where(eq(registrations.status, "confirmed")).orderBy(desc(registrations.orderNumber), desc(registrations.registeredAt));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       const [program] = await db.select().from(programs).where(eq(programs.id, r.programId));
@@ -378,6 +379,19 @@ export class DatabaseStorage implements IStorage {
   async updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined> {
     const [updated] = await db.update(registrations).set(data).where(eq(registrations.id, id)).returning();
     return updated;
+  }
+
+  async assignOrderNumber(id: number): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE registrations 
+      SET order_number = (SELECT COALESCE(MAX(order_number), 0) + 1 FROM registrations)
+      WHERE id = ${id} AND order_number IS NULL
+      RETURNING order_number
+    `);
+    const rows = result.rows as any[];
+    if (rows.length > 0) return rows[0].order_number;
+    const [reg] = await db.select({ orderNumber: registrations.orderNumber }).from(registrations).where(eq(registrations.id, id));
+    return reg?.orderNumber || 0;
   }
 
   async deleteRegistration(id: number): Promise<void> {

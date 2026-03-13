@@ -122,6 +122,7 @@ export const programDiscounts = pgTable("program_discounts", {
 
 export const registrations = pgTable("registrations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderNumber: integer("order_number"),
   programId: integer("program_id").notNull().references(() => programs.id),
   contactId: integer("contact_id").notNull().references(() => contacts.id),
   guardianId: integer("guardian_id").references(() => contacts.id),

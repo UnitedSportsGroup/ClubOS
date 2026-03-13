@@ -30,6 +30,7 @@ type RegChild = {
 
 type Registration = {
   id: number;
+  orderNumber?: number | null;
   programId: number;
   contactId: number;
   status: string;
@@ -125,7 +126,7 @@ function EditRegistrationModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-[#0a0e1a] border border-blue-500/15 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto mx-4 shadow-2xl" onClick={e => e.stopPropagation()} data-testid="modal-edit-registration">
         <div className="flex items-center justify-between px-6 py-4 border-b border-blue-500/10">
-          <h2 className="text-[15px] font-semibold text-white/80">Edit Sessions — #{reg.id}</h2>
+          <h2 className="text-[15px] font-semibold text-white/80">Edit Sessions — #{reg.orderNumber || reg.id}</h2>
           <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/5 transition-colors cursor-pointer" data-testid="button-close-edit-modal">
             <X className="w-4 h-4 text-white/40" />
           </button>
@@ -384,7 +385,7 @@ export default function AdminRegistrations() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium text-white/75" data-testid={`text-reg-name-${reg.id}`}>
-                        #{reg.id} — {reg.contact?.firstName} {reg.contact?.lastName}
+                        #{reg.orderNumber || reg.id} — {reg.contact?.firstName} {reg.contact?.lastName}
                       </p>
                       <p className="text-[11px] text-white/25">
                         {reg.program?.name || `Camp #${reg.programId}`}

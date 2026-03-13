@@ -60,6 +60,17 @@ export async function seedDatabase() {
     console.log("Settings seeded.");
   }
 
+  await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS order_number integer`);
+  await db.execute(sql`
+    WITH numbered AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY registered_at ASC, id ASC) as rn
+      FROM registrations
+      WHERE status = 'confirmed' AND order_number IS NULL
+    )
+    UPDATE registrations SET order_number = numbered.rn + COALESCE((SELECT MAX(order_number) FROM registrations WHERE order_number IS NOT NULL), 0)
+    FROM numbered WHERE registrations.id = numbered.id
+  `);
+
   const [existingCamps] = await db.select({ count: sql<number>`count(*)` }).from(programs);
 
   if (Number(existingCamps.count) > 0) {

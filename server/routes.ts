@@ -555,6 +555,10 @@ export async function registerRoutes(
         source: "admin_manual",
       });
 
+      if (isPaid) {
+        await storage.assignOrderNumber(registration.id);
+      }
+
       await storage.createRegistrationItems(registrationItems.map(item => ({
         registrationId: registration.id,
         childId: item.childId,
@@ -1122,6 +1126,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "This booking requires payment" });
       }
       await storage.updateRegistration(registrationId, { status: "confirmed" });
+      await storage.assignOrderNumber(registrationId);
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1274,6 +1279,7 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
   await storage.updateRegistration(registrationId, {
     status: "confirmed",
   });
+  await storage.assignOrderNumber(registrationId);
 
   const contact = await storage.getContact(reg.contactId);
   const program = await storage.getProgram(reg.programId);
