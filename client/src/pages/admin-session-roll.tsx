@@ -85,7 +85,7 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
           )}
         </div>
 
-        {hasMedical && (
+        {hasMedical ? (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3.5 space-y-1.5">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400/70" />
@@ -100,6 +100,11 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
             {player.child.medical?.notes && (
               <p className="text-[12px] text-amber-300/50">{player.child.medical.notes}</p>
             )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 space-y-1">
+            <span className="text-[11px] text-white/25 font-semibold uppercase tracking-wider">Allergies</span>
+            <p className="text-[12px] text-white/40">None</p>
           </div>
         )}
       </div>
