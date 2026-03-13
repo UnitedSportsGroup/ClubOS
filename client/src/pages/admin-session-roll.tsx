@@ -14,6 +14,12 @@ type RollPlayer = {
   productType: string;
 };
 
+function hasRealAllergies(allergies: string | null | undefined): boolean {
+  if (!allergies) return false;
+  const cleaned = allergies.trim().toLowerCase();
+  return cleaned !== "" && cleaned !== "none" && cleaned !== "n/a" && cleaned !== "nil" && cleaned !== "no" && cleaned !== "-" && cleaned !== "na";
+}
+
 function formatAge(dob: string | null | undefined): string {
   if (!dob) return "—";
   const birth = new Date(dob + "T00:00:00");
@@ -30,7 +36,7 @@ function formatTime(dateStr: string | null | undefined): string {
 }
 
 function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: () => void }) {
-  const hasMedical = player.child.medical?.allergies || player.child.medical?.epiPen;
+  const hasMedical = hasRealAllergies(player.child.medical?.allergies) || player.child.medical?.epiPen;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -85,8 +91,8 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400/70" />
               <span className="text-[11px] text-amber-400/80 font-semibold uppercase tracking-wider">Medical Alert</span>
             </div>
-            {player.child.medical?.allergies && (
-              <p className="text-[12px] text-amber-300/60">Allergies: {player.child.medical.allergies}</p>
+            {hasRealAllergies(player.child.medical?.allergies) && (
+              <p className="text-[12px] text-amber-300/60">Allergies: {player.child.medical!.allergies}</p>
             )}
             {player.child.medical?.epiPen && (
               <p className="text-[12px] text-red-400/70 font-medium">⚠ Carries EpiPen</p>
@@ -278,7 +284,7 @@ export default function AdminSessionRoll() {
                 {filteredRoll.map((player) => {
                   const isIn = !!player.attendance?.checkedInAt;
                   const isOut = !!player.attendance?.checkedOutAt;
-                  const hasMedical = player.child.medical?.allergies || player.child.medical?.epiPen;
+                  const hasMedical = hasRealAllergies(player.child.medical?.allergies) || player.child.medical?.epiPen;
 
                   return (
                     <tr
