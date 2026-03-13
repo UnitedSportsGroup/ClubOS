@@ -112,6 +112,7 @@ function DatesTab({ campId }: { campId: number }) {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "dates"] });
       toast({ title: "Date removed" });
     },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const updateDateMutation = useMutation({

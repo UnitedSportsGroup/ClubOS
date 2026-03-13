@@ -408,6 +408,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCampDate(id: number): Promise<void> {
+    await db.execute(sql`DELETE FROM attendance WHERE camp_date_id = ${id}`);
+    await db.execute(sql`DELETE FROM registration_items WHERE camp_date_id = ${id}`);
     await db.delete(campDates).where(eq(campDates.id, id));
   }
 
