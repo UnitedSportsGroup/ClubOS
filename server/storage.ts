@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc, sql, and, ilike, or, inArray, asc } from "drizzle-orm";
+import { eq, desc, sql, and, ilike, or, inArray, asc, isNull } from "drizzle-orm";
 import {
   users, contacts, contactRelationships, programs,
   programSessions, registrations, auditLogs, settings,
@@ -113,6 +113,7 @@ export interface IStorage {
   createAttendance(a: InsertAttendance): Promise<Attendance>;
   createAttendanceBulk(items: InsertAttendance[]): Promise<Attendance[]>;
   updateAttendance(id: number, data: Partial<InsertAttendance>): Promise<Attendance | undefined>;
+  deleteAttendanceIfUnused(campId: number, campDateId: number, childId: number): Promise<void>;
 
   createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
   getEmailLogByRegistration(registrationId: number): Promise<EmailLog | undefined>;
@@ -572,13 +573,26 @@ export class DatabaseStorage implements IStorage {
       const [parent] = await db.select().from(contacts).where(eq(contacts.id, child.parentId));
       const [med] = await db.select().from(childMedical).where(eq(childMedical.childId, childId));
 
-      const attendanceRecords = await db.select().from(attendance)
+      let attendanceRecords = await db.select().from(attendance)
         .where(and(
           eq(attendance.campId, campId),
           eq(attendance.campDateId, campDateId),
           eq(attendance.childId, childId),
         ));
-      const att = attendanceRecords[0];
+      let att = attendanceRecords[0];
+
+      if (!att) {
+        try {
+          const [created] = await db.insert(attendance).values({ campId, campDateId, childId }).returning();
+          att = created;
+        } catch (e) {
+          // retry fetch in case of race condition
+          const [existing] = await db.select().from(attendance).where(and(
+            eq(attendance.campId, campId), eq(attendance.campDateId, campDateId), eq(attendance.childId, childId),
+          ));
+          att = existing;
+        }
+      }
 
       results.push({
         child: { ...child, medical: med || undefined },
@@ -653,6 +667,15 @@ export class DatabaseStorage implements IStorage {
   async createAttendanceBulk(items: InsertAttendance[]): Promise<Attendance[]> {
     if (items.length === 0) return [];
     return db.insert(attendance).values(items).returning();
+  }
+
+  async deleteAttendanceIfUnused(campId: number, campDateId: number, childId: number): Promise<void> {
+    await db.delete(attendance).where(and(
+      eq(attendance.campId, campId),
+      eq(attendance.campDateId, campDateId),
+      eq(attendance.childId, childId),
+      isNull(attendance.checkedInAt),
+    ));
   }
 
   async updateAttendance(id: number, data: Partial<InsertAttendance>): Promise<Attendance | undefined> {

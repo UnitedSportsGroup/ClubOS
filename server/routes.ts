@@ -425,12 +425,35 @@ export async function registerRoutes(
         }
       }
 
+      const oldItems = await storage.getRegistrationItems(regId);
+      const oldPairs = new Set(oldItems.map(i => `${i.campDateId}:${i.childId}`));
+
       await storage.replaceRegistrationItems(regId, items.map((i: any) => ({
         registrationId: regId,
         childId: i.childId,
         campDateId: i.campDateId,
         productType: i.productType,
       })));
+
+      const newPairs = new Set(items.map((i: any) => `${i.campDateId}:${i.childId}`));
+
+      const toCreate: { campId: number; campDateId: number; childId: number }[] = [];
+      for (const item of items) {
+        const key = `${item.campDateId}:${item.childId}`;
+        if (!oldPairs.has(key)) {
+          toCreate.push({ campId: reg.programId, campDateId: item.campDateId, childId: item.childId });
+        }
+      }
+      if (toCreate.length > 0) {
+        try { await storage.createAttendanceBulk(toCreate); } catch (e) { /* ignore duplicates */ }
+      }
+
+      for (const oldItem of oldItems) {
+        const key = `${oldItem.campDateId}:${oldItem.childId}`;
+        if (!newPairs.has(key)) {
+          await storage.deleteAttendanceIfUnused(reg.programId, oldItem.campDateId, oldItem.childId);
+        }
+      }
 
       const enrichedItems = await storage.getRegistrationItems(regId);
       res.json(enrichedItems);
