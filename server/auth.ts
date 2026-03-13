@@ -39,6 +39,18 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  storage.getUser(req.session.userId).then(user => {
+    if (!user || user.role !== "super_admin") {
+      return res.status(403).json({ message: "Super Admin access required" });
+    }
+    next();
+  }).catch(() => res.status(500).json({ message: "Auth check failed" }));
+}
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }

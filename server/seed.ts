@@ -4,6 +4,9 @@ import { sql } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
+  await db.execute(sql`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'super_admin' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'role_type')) THEN ALTER TYPE role_type ADD VALUE 'super_admin'; END IF; END $$`);
+  await db.execute(sql`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'team_member' AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'role_type')) THEN ALTER TYPE role_type ADD VALUE 'team_member'; END IF; END $$`);
+
   const [existingUsers] = await db.select({ count: sql<number>`count(*)` }).from(users);
   const hashedPw = await hashPassword(process.env.ADMIN_SEED_PASSWORD || "Growth2020!");
   if (Number(existingUsers.count) === 0) {
@@ -12,11 +15,14 @@ export async function seedDatabase() {
       firstName: "Daniel",
       lastName: "Admin",
       password: hashedPw,
-      role: "admin",
+      role: "super_admin",
       active: true,
     });
-    console.log(`Admin user seeded: ${process.env.ADMIN_SEED_EMAIL || "daniel@cufc.co.nz"}`);
+    console.log(`Super Admin user seeded: ${process.env.ADMIN_SEED_EMAIL || "daniel@cufc.co.nz"}`);
   }
+
+  await db.execute(sql`UPDATE users SET role = 'super_admin' WHERE email = 'daniel@cufc.co.nz'`);
+  console.log("Daniel role set to super_admin");
 
   const staffAccounts = [
     { email: "grassroots@cufc.co.nz", firstName: "Grassroots", lastName: "Staff" },
@@ -35,7 +41,7 @@ export async function seedDatabase() {
       });
       console.log(`Staff user seeded: ${acct.email}`);
     } else {
-      await db.execute(sql`UPDATE users SET password = ${hashedPw} WHERE email = ${acct.email}`);
+      await db.execute(sql`UPDATE users SET password = ${hashedPw}, role = 'admin' WHERE email = ${acct.email}`);
       console.log(`Staff user password reset: ${acct.email}`);
     }
   }

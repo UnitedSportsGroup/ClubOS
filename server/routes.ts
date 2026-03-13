@@ -5,7 +5,7 @@ import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, ema
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { requireAuth, verifyPassword } from "./auth";
+import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
@@ -41,6 +41,79 @@ export async function registerRoutes(
     const user = await storage.getUser(req.session.userId);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
     res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
+  });
+
+  app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      res.json(allUsers.map(u => ({ id: u.id, email: u.email, firstName: u.firstName, lastName: u.lastName, role: u.role, active: u.active, createdAt: u.createdAt })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/users", requireSuperAdmin, async (req, res) => {
+    try {
+      const { email, firstName, lastName, password, role } = req.body;
+      if (!email || !firstName || !lastName || !password) {
+        return res.status(400).json({ message: "email, firstName, lastName, and password are required" });
+      }
+      const validRoles = ["super_admin", "admin", "team_member", "manager", "coach", "finance", "marketing", "registrar"];
+      if (role && !validRoles.includes(role)) {
+        return res.status(400).json({ message: `Invalid role: ${role}` });
+      }
+      const existing = await storage.getUserByEmail(email);
+      if (existing) return res.status(409).json({ message: "A user with this email already exists" });
+
+      const hashed = await hashPassword(password);
+      const user = await storage.createUser({ email, firstName, lastName, password: hashed, role: role || "team_member", active: true });
+      res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role, active: user.active });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/users/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const updates: any = {};
+      if (req.body.role) {
+        const validRoles = ["super_admin", "admin", "team_member", "manager", "coach", "finance", "marketing", "registrar"];
+        if (!validRoles.includes(req.body.role)) {
+          return res.status(400).json({ message: `Invalid role: ${req.body.role}` });
+        }
+        updates.role = req.body.role;
+      }
+      if (req.body.firstName) updates.firstName = req.body.firstName;
+      if (req.body.lastName) updates.lastName = req.body.lastName;
+      if (req.body.email) updates.email = req.body.email;
+      if (typeof req.body.active === "boolean") updates.active = req.body.active;
+      if (req.body.password) updates.password = await hashPassword(req.body.password);
+
+      const updated = await storage.updateUser(userId, updates);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json({ id: updated.id, email: updated.email, firstName: updated.firstName, lastName: updated.lastName, role: updated.role, active: updated.active });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      if (req.session.userId === userId) {
+        return res.status(400).json({ message: "You cannot delete your own account" });
+      }
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      await storage.deleteUser(userId);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
   });
 
   app.get("/api/admin/stats", requireAuth, async (_req, res) => {

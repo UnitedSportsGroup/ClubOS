@@ -139,7 +139,7 @@ export function AppSidebar() {
             <span className="text-[13px] font-medium text-white/75 truncate" data-testid="text-user-name">
               {user ? `${user.firstName} ${user.lastName}` : "..."}
             </span>
-            <span className="text-[10px] text-blue-400/30 capitalize">{user?.role || ""}</span>
+            <span className="text-[10px] text-blue-400/30 capitalize">{user?.role?.replace(/_/g, " ") || ""}</span>
           </div>
           <button
             onClick={() => logoutMutation.mutate()}

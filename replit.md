@@ -31,10 +31,14 @@ Holiday camp booking and management platform for Christchurch United Football Cl
   - `db.ts` - Database connection
 - `shared/schema.ts` - Drizzle schema + Zod validation + TypeScript types
 
-## Auth
+## Auth & Roles
 - express-session with PgSession store (connect-pg-simple)
 - `requireAuth` middleware guards all `/api/admin/*` routes
-- Admin login: `daniel@cufc.co.nz` / `Growth2020!` (env `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD`)
+- `requireSuperAdmin` middleware guards user management routes (`/api/admin/users/*`)
+- Roles: `super_admin`, `admin`, `team_member` (plus legacy: manager, coach, finance, marketing, registrar)
+- Admin login: `daniel@cufc.co.nz` / `Growth2020!` (Super Admin)
+- Staff: `grassroots@cufc.co.nz`, `marketing@cufc.co.nz` (Admin role, same password — seed resets on every startup)
+- Settings > Users tab (super_admin only): manage staff accounts, change roles, add/delete users
 - Frontend AuthGuard component redirects to /admin/login if not authenticated
 
 ## Routing
