@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Users, Settings, Plus, Trash2, X, Shield, ShieldCheck, UserCog } from "lucide-react";
+import { Save, Users, Settings, Plus, Trash2, X, Shield, ShieldCheck, UserCog, User, Pencil } from "lucide-react";
 
 type UserAccount = {
   id: number;
@@ -41,6 +41,96 @@ const ROLE_COLORS: Record<string, string> = {
   marketing: "border-pink-500/25 text-pink-400/80 bg-pink-500/10",
   registrar: "border-cyan-500/25 text-cyan-400/80 bg-cyan-500/10",
 };
+
+function ProfileTab() {
+  const { toast } = useToast();
+  const { data: me, isLoading } = useQuery<UserAccount>({ queryKey: ["/api/auth/me"] });
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (me && !loaded) {
+      setFirstName(me.firstName);
+      setLastName(me.lastName);
+      setLoaded(true);
+    }
+  }, [me, loaded]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/auth/me", { firstName, lastName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Profile updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const hasChanges = loaded && (firstName !== me?.firstName || lastName !== me?.lastName);
+
+  return (
+    <div className="space-y-4 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
+      {isLoading ? (
+        <div className="rounded-2xl glass-card p-6 space-y-3">
+          <Skeleton className="h-5 w-24 rounded bg-blue-500/[0.04]" />
+          <Skeleton className="h-9 w-full rounded-xl bg-blue-500/[0.04]" />
+          <Skeleton className="h-9 w-full rounded-xl bg-blue-500/[0.04]" />
+        </div>
+      ) : (
+        <div className="rounded-2xl glass-card p-6 space-y-4">
+          <div className="flex items-center gap-3 pb-3 border-b border-blue-500/[0.06]">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/15 flex items-center justify-center">
+              <User className="w-5 h-5 text-blue-400/70" />
+            </div>
+            <div>
+              <p className="text-[14px] font-medium text-white/80" data-testid="text-profile-name">{me?.firstName} {me?.lastName}</p>
+              <p className="text-[11px] text-white/25">{me?.email}</p>
+            </div>
+            <Badge variant="outline" className={`ml-auto text-[9px] px-1.5 py-0.5 ${ROLE_COLORS[me?.role || "team_member"]}`}>
+              {ROLE_LABELS[me?.role || "team_member"] || me?.role}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">First Name</label>
+              <Input
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                className="premium-input text-white/80 rounded-xl"
+                data-testid="input-profile-first-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Last Name</label>
+              <Input
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                className="premium-input text-white/80 rounded-xl"
+                data-testid="input-profile-last-name"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Email</label>
+            <Input value={me?.email || ""} disabled className="premium-input text-white/40 rounded-xl opacity-50" data-testid="input-profile-email" />
+            <p className="text-[10px] text-white/15">Email cannot be changed</p>
+          </div>
+
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={!hasChanges || saveMutation.isPending}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn"
+            data-testid="button-save-profile"
+          >
+            <Save className="w-4 h-4 mr-1.5" /> {saveMutation.isPending ? "Saving..." : "Save Profile"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function GeneralTab() {
   const { data: settingsData, isLoading } = useQuery<Record<string, string>>({ queryKey: ["/api/admin/settings"] });
@@ -119,6 +209,7 @@ function UsersTab() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
 
   const updateRoleMutation = useMutation({
     mutationFn: ({ id, role }: { id: number; role: string }) => apiRequest("PATCH", `/api/admin/users/${id}`, { role }),
@@ -179,9 +270,13 @@ function UsersTab() {
                     <Users className="w-4 h-4 text-white/30" />
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-white/75 truncate" data-testid={`text-user-name-${user.id}`}>
+                <div
+                  className="flex-1 min-w-0 cursor-pointer group/name"
+                  onClick={() => setEditingUser(user)}
+                >
+                  <p className="text-[13px] font-medium text-white/75 truncate group-hover/name:text-blue-400 transition-colors flex items-center gap-1.5" data-testid={`text-user-name-${user.id}`}>
                     {user.firstName} {user.lastName}
+                    <Pencil className="w-3 h-3 text-white/0 group-hover/name:text-blue-400/50 transition-colors" />
                   </p>
                   <p className="text-[11px] text-white/25 truncate">{user.email}</p>
                 </div>
@@ -238,6 +333,85 @@ function UsersTab() {
       </div>
 
       {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} />}
+      {editingUser && <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} />}
+    </div>
+  );
+}
+
+function EditUserModal({ user, onClose }: { user: UserAccount; onClose: () => void }) {
+  const { toast } = useToast();
+  const [firstName, setFirstName] = useState(user.firstName);
+  const [lastName, setLastName] = useState(user.lastName);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", `/api/admin/users/${user.id}`, { firstName, lastName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "User profile updated" });
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const hasChanges = firstName !== user.firstName || lastName !== user.lastName;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0a0e1a] border border-blue-500/15 rounded-2xl w-full max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()} data-testid="modal-edit-user">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-blue-500/10">
+          <h2 className="text-[15px] font-semibold text-white/80">Edit Profile</h2>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/5 transition-colors cursor-pointer" data-testid="button-close-edit-user">
+            <X className="w-4 h-4 text-white/40" />
+          </button>
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          <div className="flex items-center gap-3 pb-3 border-b border-blue-500/[0.06]">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/8 border border-blue-500/15 flex items-center justify-center flex-shrink-0">
+              <User className="w-4 h-4 text-blue-400/60" />
+            </div>
+            <div>
+              <p className="text-[12px] text-white/40">{user.email}</p>
+              <Badge variant="outline" className={`text-[9px] px-1.5 py-0.5 mt-0.5 ${ROLE_COLORS[user.role] || ROLE_COLORS.team_member}`}>
+                {ROLE_LABELS[user.role] || user.role}
+              </Badge>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">First Name</label>
+              <Input
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                className="premium-input text-white/80 rounded-xl"
+                data-testid="input-edit-first-name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Last Name</label>
+              <Input
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                className="premium-input text-white/80 rounded-xl"
+                data-testid="input-edit-last-name"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-blue-500/10">
+          <Button variant="outline" onClick={onClose} className="rounded-xl h-9 text-[13px] border-white/10 text-white/50 hover:bg-white/5" data-testid="button-cancel-edit-user">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={!hasChanges || saveMutation.isPending}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn"
+            data-testid="button-save-edit-user"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -319,10 +493,11 @@ function AddUserModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function AdminSettings() {
-  const [tab, setTab] = useState<"general" | "users">("general");
+  const [tab, setTab] = useState<"profile" | "general" | "users">("profile");
   const { data: currentUser } = useQuery<{ id: number; role: string }>({ queryKey: ["/api/auth/me"] });
 
   const tabs = [
+    { key: "profile" as const, label: "Profile", icon: User },
     { key: "general" as const, label: "General", icon: Settings },
     ...(currentUser?.role === "super_admin" ? [{ key: "users" as const, label: "Users", icon: Users }] : []),
   ];
@@ -352,6 +527,7 @@ export default function AdminSettings() {
         ))}
       </div>
 
+      {tab === "profile" && <ProfileTab />}
       {tab === "general" && <GeneralTab />}
       {tab === "users" && <UsersTab />}
     </div>

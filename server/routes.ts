@@ -43,6 +43,20 @@ export async function registerRoutes(
     res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
   });
 
+  app.patch("/api/auth/me", requireAuth, async (req, res) => {
+    try {
+      const updates: any = {};
+      if (req.body.firstName !== undefined) updates.firstName = req.body.firstName;
+      if (req.body.lastName !== undefined) updates.lastName = req.body.lastName;
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: "No fields to update" });
+      const updated = await storage.updateUser(req.session.userId!, updates);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json({ id: updated.id, email: updated.email, firstName: updated.firstName, lastName: updated.lastName, role: updated.role });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
