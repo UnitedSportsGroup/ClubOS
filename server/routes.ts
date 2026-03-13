@@ -359,6 +359,18 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/admin/registrations/:id", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(req.params.id);
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      await storage.deleteRegistration(regId);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.put("/api/admin/registrations/:id/items", requireAuth, async (req, res) => {
     try {
       const regId = parseInt(req.params.id);

@@ -77,6 +77,7 @@ export interface IStorage {
   getRegistration(id: number): Promise<Registration | undefined>;
   createRegistration(reg: InsertRegistration): Promise<Registration>;
   updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined>;
+  deleteRegistration(id: number): Promise<void>;
 
   getCampPricing(campId: number): Promise<CampPricing[]>;
   setCampPricing(campId: number, pricing: InsertCampPricing[]): Promise<CampPricing[]>;
@@ -376,6 +377,13 @@ export class DatabaseStorage implements IStorage {
   async updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined> {
     const [updated] = await db.update(registrations).set(data).where(eq(registrations.id, id)).returning();
     return updated;
+  }
+
+  async deleteRegistration(id: number): Promise<void> {
+    await db.execute(sql`DELETE FROM email_logs WHERE registration_id = ${id}`);
+    await db.execute(sql`DELETE FROM meta_event_logs WHERE registration_id = ${id}`);
+    await db.execute(sql`DELETE FROM registration_items WHERE registration_id = ${id}`);
+    await db.delete(registrations).where(eq(registrations.id, id));
   }
 
   async getCampPricing(campId: number): Promise<CampPricing[]> {
