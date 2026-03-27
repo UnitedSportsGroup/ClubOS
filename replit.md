@@ -126,6 +126,16 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - **auditLogs** - System activity tracking
 - **settings** - Key-value club configuration
 - **analyticsEvents** - Web analytics tracking (visitorId, sessionId, eventType, page, referrer, UTM params, device, browser, campSlug, metadata JSONB). Client tracking script at `/analytics.js` fires events: page_view, session_start, time_on_page, scroll_depth, bounce, cta_click, click, form_view, form_step
+- **splitTests** - A/B split tests per program (field, status, endCondition, endValue, winnerId, startedAt, endedAt)
+- **splitTestVariants** - Variants per split test (value, isControl, views, registrations, revenue)
+
+## A/B Split Testing
+- Admin creates tests from Edit Page by hovering over headline/subheadline fields → purple flask button → modal with variant inputs + end conditions
+- Public camp page serves random variant per visitor (stored in localStorage) and fires view events
+- Booking page fires conversion events (both paid and free) via `window._cufc_split_variants`
+- Auto-winner selection: when end condition met (days elapsed or view threshold), winner = highest revenue (tiebreak = registrations), winning value applied to program field
+- Performance tab on camp detail page shows active tests with progress bars, variant comparison (views/regs/revenue/conv rate), past tests with winners
+- API: GET/POST `/api/admin/split-tests/:programId`, POST `/:id/cancel`, POST `/:id/complete`, GET `/api/public/split-test/variant`, POST `/view`, POST `/conversion`
 
 ## API Routes
 - Auth: POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me

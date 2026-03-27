@@ -8,8 +8,10 @@ import {
   ArrowLeft, Save, Loader2, Star, ChevronDown, ChevronUp, ArrowRight,
   MapPin, Calendar, Users, DollarSign, Clock, Shield, Sparkles, Heart,
   Zap, Gamepad2, UserPlus, ChevronRight, ChevronLeft,
-  Eye,
+  Eye, FlaskConical, Plus, X, Trash2,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
 const BRAND = {
@@ -391,6 +393,45 @@ export default function AdminEditPage() {
     reviewsRef.current?.scrollBy({ left: dir === "right" ? 400 : -400, behavior: "smooth" });
   };
 
+  const [showAbModal, setShowAbModal] = useState(false);
+  const [abField, setAbField] = useState("heroHeadline");
+  const [abVariants, setAbVariants] = useState<{ label: string; value: string }[]>([]);
+  const [abEndCondition, setAbEndCondition] = useState("days");
+  const [abEndValue, setAbEndValue] = useState("7");
+  const { toast: abToast } = useToast();
+
+  const openAbTest = (field: string, currentValue: string) => {
+    setAbField(field);
+    setAbVariants([
+      { label: "Variant A (Control)", value: currentValue },
+      { label: "Variant B", value: "" },
+    ]);
+    setAbEndCondition("days");
+    setAbEndValue("7");
+    setShowAbModal(true);
+  };
+
+  const createAbMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/split-tests", {
+      programId: campId,
+      field: abField,
+      endCondition: abEndCondition,
+      endValue: parseInt(abEndValue),
+      variants: abVariants.filter(v => v.value.trim()),
+    }),
+    onSuccess: () => {
+      setShowAbModal(false);
+      abToast({ title: "Split test created", description: "Test is now live and serving variants to visitors." });
+    },
+    onError: (e: Error) => abToast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const fieldLabels: Record<string, string> = {
+    heroHeadline: "Hero Headline",
+    heroSubheadline: "Hero Subheadline",
+    primaryCta: "CTA Button",
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.white }}>
@@ -446,11 +487,27 @@ export default function AdminEditPage() {
               <div className="mb-4">
                 <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-14 h-14 md:w-18 md:h-18 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]" />
               </div>
-              <div className="w-full max-w-2xl mb-3">
+              <div className="w-full max-w-2xl mb-3 relative group/ab">
                 <E value={heroHeadline} onChange={v => { setHeroHeadline(v); markChanged(); }} tag="h1" className="text-[28px] sm:text-4xl md:text-5xl lg:text-[52px] font-bold tracking-tight leading-[1.08]" style={{ color: BRAND.white }} data-testid="edit-hero-headline" />
+                <button
+                  onClick={() => openAbTest("heroHeadline", heroHeadline)}
+                  className="absolute -right-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab:opacity-100 transition-opacity bg-purple-600 hover:bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg"
+                  title="Create A/B Test for headline"
+                  data-testid="btn-ab-headline"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                </button>
               </div>
-              <div className="w-full max-w-xl mb-6">
+              <div className="w-full max-w-xl mb-6 relative group/ab2">
                 <E value={heroSubheadline} onChange={v => { setHeroSubheadline(v); markChanged(); }} tag="p" className="text-[14px] sm:text-[16px] md:text-[18px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.55)' }} multiline data-testid="edit-hero-sub" />
+                <button
+                  onClick={() => openAbTest("heroSubheadline", heroSubheadline)}
+                  className="absolute -right-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab2:opacity-100 transition-opacity bg-purple-600 hover:bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg"
+                  title="Create A/B Test for subheadline"
+                  data-testid="btn-ab-subheadline"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                </button>
               </div>
               <div className="w-full max-w-[680px] mb-6">
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -758,6 +815,114 @@ export default function AdminEditPage() {
           }
         `}</style>
       </div>
+
+      {showAbModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAbModal(false)} />
+          <div className="relative w-full max-w-lg mx-4 rounded-2xl border border-purple-500/20 overflow-hidden" style={{ background: '#0a0e1a' }} data-testid="modal-ab-test">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-purple-500/10">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/20 flex items-center justify-center">
+                  <FlaskConical className="w-4 h-4 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Create A/B Test</h3>
+                  <p className="text-xs text-white/40">{fieldLabels[abField] || abField}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowAbModal(false)} className="text-white/40 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="text-xs font-medium text-white/60 mb-2 block">Variants</label>
+                {abVariants.map((v, i) => (
+                  <div key={i} className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-purple-400 w-6 font-bold">{String.fromCharCode(65 + i)}</span>
+                    <Input
+                      value={v.value}
+                      onChange={e => {
+                        const updated = [...abVariants];
+                        updated[i] = { ...updated[i], value: e.target.value };
+                        setAbVariants(updated);
+                      }}
+                      placeholder={i === 0 ? "Control (current value)" : `Variant ${String.fromCharCode(65 + i)} text`}
+                      className="flex-1 bg-white/5 border-white/10 text-white text-sm placeholder:text-white/30"
+                      data-testid={`input-variant-${i}`}
+                    />
+                    {i > 1 && (
+                      <button onClick={() => setAbVariants(abVariants.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-300">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {abVariants.length < 4 && (
+                  <button
+                    onClick={() => setAbVariants([...abVariants, { label: `Variant ${String.fromCharCode(65 + abVariants.length)}`, value: "" }])}
+                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 mt-1"
+                    data-testid="btn-add-variant"
+                  >
+                    <Plus className="w-3 h-3" /> Add variant
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-white/60 mb-2 block">End Condition</label>
+                  <Select value={abEndCondition} onValueChange={setAbEndCondition}>
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm" data-testid="select-end-condition">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="days">After X days</SelectItem>
+                      <SelectItem value="views">After X page views</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-white/60 mb-2 block">
+                    {abEndCondition === "days" ? "Number of Days" : "Page View Target"}
+                  </label>
+                  <Input
+                    type="number"
+                    value={abEndValue}
+                    onChange={e => setAbEndValue(e.target.value)}
+                    min="1"
+                    className="bg-white/5 border-white/10 text-white text-sm"
+                    data-testid="input-end-value"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-purple-500/5 border border-purple-500/10 p-3">
+                <p className="text-xs text-purple-300/70">
+                  {abEndCondition === "days"
+                    ? `Test will run for ${abEndValue} day${abEndValue !== "1" ? "s" : ""}. The winning variant (by revenue/registrations) will be automatically applied.`
+                    : `Test will run until ${abEndValue} total page views. The winning variant (by revenue/registrations) will be automatically applied.`
+                  }
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-purple-500/10">
+              <Button variant="ghost" onClick={() => setShowAbModal(false)} className="text-white/60 hover:text-white hover:bg-white/5" data-testid="btn-cancel-ab">Cancel</Button>
+              <Button
+                onClick={() => createAbMutation.mutate()}
+                disabled={createAbMutation.isPending || abVariants.filter(v => v.value.trim()).length < 2}
+                className="bg-purple-600 hover:bg-purple-500 text-white"
+                data-testid="btn-create-ab"
+              >
+                {createAbMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <FlaskConical className="w-3.5 h-3.5 mr-1.5" />}
+                Launch Split Test
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

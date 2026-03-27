@@ -202,11 +202,14 @@ export default function CampPage() {
   const slug = params?.slug || "";
   const reviewsRef = useRef<HTMLDivElement>(null);
 
+  const [activeVariants, setActiveVariants] = useState<Record<string, { id: number; value: string }>>({});
+
   const { data, isLoading, error } = useQuery<{
     camp: any;
     pricing: any[];
     dates: any[];
     discounts: any[];
+    splitTests?: any[];
   }>({
     queryKey: ["/api/public/camps", slug],
     queryFn: async () => {
@@ -215,6 +218,25 @@ export default function CampPage() {
       return res.json();
     },
   });
+
+  useEffect(() => {
+    if (!data?.splitTests || data.splitTests.length === 0) return;
+    const variantMap: Record<string, { id: number; value: string }> = {};
+    for (const st of data.splitTests) {
+      if (st.variant) {
+        variantMap[st.field] = { id: st.variant.id, value: st.variant.value };
+        fetch("/api/public/split-test/view", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variantId: st.variant.id }),
+        }).catch(() => {});
+      }
+    }
+    setActiveVariants(variantMap);
+    if (typeof window !== "undefined") {
+      (window as any)._cufc_split_variants = variantMap;
+    }
+  }, [data?.splitTests]);
 
   useEffect(() => {
     if (data?.camp) {
@@ -350,7 +372,7 @@ export default function CampPage() {
               style={{ color: BRAND.white }}
               data-testid="text-hero-headline"
             >
-              {camp.heroHeadline || camp.name}
+              {activeVariants.heroHeadline?.value || camp.heroHeadline || camp.name}
             </h1>
 
             <p
@@ -358,7 +380,7 @@ export default function CampPage() {
               style={{ color: 'rgba(251,251,252,0.55)' }}
               data-testid="text-hero-sub"
             >
-              {camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football."}
+              {activeVariants.heroSubheadline?.value || camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football."}
             </p>
 
             <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">

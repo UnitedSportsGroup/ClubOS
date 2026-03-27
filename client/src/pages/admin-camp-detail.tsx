@@ -7,7 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
   const [name, setName] = useState(camp.name);
@@ -435,6 +436,201 @@ function ContentTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => vo
       <Button onClick={handleSave} className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn" data-testid="button-save-content">
         <Save className="w-4 h-4 mr-1.5" /> Save Content
       </Button>
+    </div>
+  );
+}
+
+function PerformanceTab({ campId }: { campId: number }) {
+  const { toast } = useToast();
+  const { data: tests, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/split-tests", campId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/split-tests/${campId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json();
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/split-tests/${id}/cancel`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/split-tests", campId] });
+      toast({ title: "Test cancelled" });
+    },
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/split-tests/${id}/complete`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/split-tests", campId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
+      toast({ title: "Test completed — winner applied!" });
+    },
+  });
+
+  const fieldLabels: Record<string, string> = {
+    heroHeadline: "Headline",
+    heroSubheadline: "Subheadline",
+    primaryCta: "CTA Button",
+  };
+
+  if (isLoading) return <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
+
+  const activeTests = (tests || []).filter(t => t.status === "active");
+  const pastTests = (tests || []).filter(t => t.status !== "active");
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white/80 flex items-center gap-2">
+          <FlaskConical className="w-4 h-4 text-purple-400" />
+          Split Tests
+        </h3>
+        <p className="text-xs text-white/40">Create tests from the Edit Page editor</p>
+      </div>
+
+      {activeTests.length === 0 && pastTests.length === 0 && (
+        <div className="text-center py-12">
+          <FlaskConical className="w-10 h-10 text-white/10 mx-auto mb-3" />
+          <p className="text-sm text-white/40">No split tests yet</p>
+          <p className="text-xs text-white/25 mt-1">Go to Edit Page and hover over a headline to create one</p>
+        </div>
+      )}
+
+      {activeTests.map(test => {
+        const totalViews = test.variants.reduce((s: number, v: any) => s + v.views, 0);
+        const totalRegs = test.variants.reduce((s: number, v: any) => s + v.registrations, 0);
+        const totalRev = test.variants.reduce((s: number, v: any) => s + v.revenue, 0);
+        const elapsed = Math.round((Date.now() - new Date(test.startedAt).getTime()) / 86400000);
+        const progress = test.endCondition === "days"
+          ? Math.min(100, Math.round((elapsed / test.endValue) * 100))
+          : Math.min(100, Math.round((totalViews / test.endValue) * 100));
+
+        return (
+          <div key={test.id} className="rounded-xl border border-purple-500/15 bg-purple-500/[0.03] overflow-hidden" data-testid={`split-test-${test.id}`}>
+            <div className="px-4 py-3 border-b border-purple-500/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-green-500/15 text-green-400 border-green-500/20 text-[10px]">ACTIVE</Badge>
+                <span className="text-sm font-medium text-white">{fieldLabels[test.field] || test.field} Split Test</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => completeMutation.mutate(test.id)} className="text-green-400 hover:text-green-300 hover:bg-green-500/10 text-xs h-7" data-testid={`btn-complete-${test.id}`}>
+                  <Trophy className="w-3 h-3 mr-1" /> End & Pick Winner
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => cancelMutation.mutate(test.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 text-xs h-7" data-testid={`btn-cancel-${test.id}`}>
+                  <Ban className="w-3 h-3 mr-1" /> Cancel
+                </Button>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-b border-purple-500/5">
+              <div className="flex items-center gap-4 text-xs text-white/50">
+                <span>Started: {new Date(test.startedAt).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                <span>End: {test.endCondition === "days" ? `After ${test.endValue} days` : `After ${test.endValue} views`}</span>
+                <span>{elapsed} day{elapsed !== 1 ? 's' : ''} elapsed</span>
+              </div>
+              <div className="mt-2">
+                <Progress value={progress} className="h-1.5" />
+                <p className="text-[10px] text-white/30 mt-1">{progress}% complete</p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-white/[0.04]">
+              {test.variants.map((v: any, i: number) => {
+                const maxRev = Math.max(...test.variants.map((x: any) => x.revenue), 1);
+                const revPct = (v.revenue / maxRev) * 100;
+                const convRate = v.views > 0 ? ((v.registrations / v.views) * 100).toFixed(1) : "0.0";
+                const isLeading = v.revenue === Math.max(...test.variants.map((x: any) => x.revenue)) && v.revenue > 0;
+                return (
+                  <div key={v.id} className={`px-4 py-3 ${isLeading ? 'bg-green-500/[0.03]' : ''}`} data-testid={`variant-row-${v.id}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className={`text-xs font-bold w-5 h-5 rounded flex items-center justify-center ${isLeading ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/40'}`}>
+                          {String.fromCharCode(65 + i)}
+                        </span>
+                        <span className="text-sm text-white/90 truncate">{v.value}</span>
+                        {v.isControl && <Badge variant="outline" className="text-[9px] border-white/10 text-white/30">Control</Badge>}
+                        {isLeading && <Badge className="bg-green-500/15 text-green-400 border-green-500/20 text-[9px]">Leading</Badge>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <p className="text-white/40">Views</p>
+                        <p className="font-semibold text-white">{v.views.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-white/40">Registrations</p>
+                        <p className="font-semibold text-white">{v.registrations}</p>
+                      </div>
+                      <div>
+                        <p className="text-white/40">Revenue</p>
+                        <p className="font-semibold text-green-400">${(v.revenue / 100).toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-white/40">Conv Rate</p>
+                        <p className="font-semibold text-white">{convRate}%</p>
+                      </div>
+                    </div>
+                    <div className="mt-2 h-1.5 bg-white/5 rounded overflow-hidden">
+                      <div className={`h-full rounded ${isLeading ? 'bg-green-500/60' : 'bg-purple-500/40'}`} style={{ width: `${revPct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="px-4 py-2 border-t border-purple-500/10 bg-white/[0.01] flex items-center gap-6 text-xs text-white/40">
+              <span>Total Views: {totalViews.toLocaleString()}</span>
+              <span>Total Regs: {totalRegs}</span>
+              <span>Total Revenue: ${(totalRev / 100).toFixed(2)}</span>
+            </div>
+          </div>
+        );
+      })}
+
+      {pastTests.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-white/40 uppercase tracking-wider">Past Tests</h4>
+          {pastTests.map(test => {
+            const winnerVariant = test.variants.find((v: any) => v.id === test.winnerId);
+            return (
+              <div key={test.id} className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden" data-testid={`past-test-${test.id}`}>
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Badge className={test.status === "completed" ? "bg-blue-500/15 text-blue-400 border-blue-500/20 text-[10px]" : "bg-red-500/15 text-red-400 border-red-500/20 text-[10px]"}>
+                      {test.status === "completed" ? "COMPLETED" : "CANCELLED"}
+                    </Badge>
+                    <span className="text-sm text-white/60">{fieldLabels[test.field] || test.field} Split Test</span>
+                  </div>
+                  <span className="text-xs text-white/30">
+                    {new Date(test.startedAt).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })} — {test.endedAt ? new Date(test.endedAt).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : 'N/A'}
+                  </span>
+                </div>
+                {test.status === "completed" && winnerVariant && (
+                  <div className="px-4 py-2 border-t border-white/5 flex items-center gap-2">
+                    <Trophy className="w-3.5 h-3.5 text-yellow-500" />
+                    <span className="text-xs text-white/50">Winner:</span>
+                    <span className="text-xs text-white/80 font-medium truncate">{winnerVariant.value}</span>
+                    <span className="text-xs text-green-400 ml-auto">${(winnerVariant.revenue / 100).toFixed(2)} rev · {winnerVariant.registrations} regs</span>
+                  </div>
+                )}
+                <div className="divide-y divide-white/[0.03]">
+                  {test.variants.map((v: any, i: number) => (
+                    <div key={v.id} className={`px-4 py-2 flex items-center gap-3 text-xs ${v.id === test.winnerId ? 'bg-green-500/[0.03]' : ''}`}>
+                      <span className="text-white/30 font-bold w-4">{String.fromCharCode(65 + i)}</span>
+                      <span className="text-white/50 flex-1 truncate">{v.value}</span>
+                      <span className="text-white/30">{v.views} views</span>
+                      <span className="text-white/30">{v.registrations} regs</span>
+                      <span className="text-white/40">${(v.revenue / 100).toFixed(2)}</span>
+                      {v.id === test.winnerId && <Trophy className="w-3 h-3 text-yellow-500" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -897,6 +1093,7 @@ export default function AdminCampDetail() {
     { key: "pricing", label: "Pricing", icon: DollarSign },
     { key: "discounts", label: "Discounts", icon: Percent },
     { key: "email", label: "Email Template", icon: Settings },
+    { key: "performance", label: "Performance", icon: FlaskConical },
   ];
 
   if (isLoading) {
@@ -991,6 +1188,7 @@ export default function AdminCampDetail() {
         {tab === "pricing" && <PricingTab campId={campId} />}
         {tab === "discounts" && <DiscountsTab campId={campId} />}
         {tab === "email" && <EmailTab campId={campId} />}
+        {tab === "performance" && <PerformanceTab campId={campId} />}
       </div>
 
       {showEditModal && (

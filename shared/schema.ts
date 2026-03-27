@@ -546,6 +546,40 @@ export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).om
 export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
 export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
 
+export const splitTestStatusEnum = pgEnum("split_test_status", ["active", "completed", "cancelled"]);
+
+export const splitTests = pgTable("split_tests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  programId: integer("program_id").notNull(),
+  field: text("field").notNull(),
+  status: splitTestStatusEnum("status").default("active").notNull(),
+  endCondition: text("end_condition").notNull(),
+  endValue: integer("end_value").notNull(),
+  winnerId: integer("winner_id"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const splitTestVariants = pgTable("split_test_variants", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  splitTestId: integer("split_test_id").notNull(),
+  label: text("label").notNull(),
+  value: text("value").notNull(),
+  isControl: boolean("is_control").default(false).notNull(),
+  views: integer("views").default(0).notNull(),
+  registrations: integer("registrations").default(0).notNull(),
+  revenue: integer("revenue").default(0).notNull(),
+});
+
+export const insertSplitTestSchema = createInsertSchema(splitTests).omit({ id: true, createdAt: true });
+export type InsertSplitTest = z.infer<typeof insertSplitTestSchema>;
+export type SplitTest = typeof splitTests.$inferSelect;
+
+export const insertSplitTestVariantSchema = createInsertSchema(splitTestVariants).omit({ id: true });
+export type InsertSplitTestVariant = z.infer<typeof insertSplitTestVariantSchema>;
+export type SplitTestVariant = typeof splitTestVariants.$inferSelect;
+
 export const insertSettingSchema = createInsertSchema(settings).omit({ updatedAt: true });
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;

@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
@@ -2046,6 +2046,145 @@ export async function registerRoutes(
     }
   });
 
+  // ============ SPLIT TEST ROUTES ============
+
+  app.get("/api/admin/split-tests/:programId", requireAuth, async (req, res) => {
+    try {
+      const programId = parseInt(req.params.programId);
+      const tests = await db.select().from(splitTests).where(eq(splitTests.programId, programId)).orderBy(splitTests.createdAt);
+      const testsWithVariants = await Promise.all(tests.map(async (t) => {
+        const variants = await db.select().from(splitTestVariants).where(eq(splitTestVariants.splitTestId, t.id));
+        return { ...t, variants };
+      }));
+      res.json(testsWithVariants);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/split-tests", requireAuth, async (req, res) => {
+    try {
+      const { programId, field, endCondition, endValue, variants } = req.body;
+      const existing = await db.select().from(splitTests).where(and(eq(splitTests.programId, programId), eq(splitTests.field, field), eq(splitTests.status, "active")));
+      if (existing.length > 0) {
+        return res.status(400).json({ message: `An active split test for this field already exists. Complete or cancel it first.` });
+      }
+      const [test] = await db.insert(splitTests).values({
+        programId,
+        field,
+        endCondition,
+        endValue,
+        status: "active",
+      }).returning();
+      const insertedVariants = await Promise.all(variants.map((v: any, i: number) =>
+        db.insert(splitTestVariants).values({
+          splitTestId: test.id,
+          label: v.label || `Variant ${String.fromCharCode(65 + i)}`,
+          value: v.value,
+          isControl: i === 0,
+        }).returning()
+      ));
+      res.json({ ...test, variants: insertedVariants.map(v => v[0]) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/split-tests/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.update(splitTests).set({ status: "cancelled", endedAt: new Date() }).where(eq(splitTests.id, id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/split-tests/:id/complete", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const variants = await db.select().from(splitTestVariants).where(eq(splitTestVariants.splitTestId, id));
+      let winner = variants[0];
+      for (const v of variants) {
+        if (v.revenue > winner.revenue || (v.revenue === winner.revenue && v.registrations > winner.registrations)) {
+          winner = v;
+        }
+      }
+      await db.update(splitTests).set({ status: "completed", winnerId: winner.id, endedAt: new Date() }).where(eq(splitTests.id, id));
+      const test = await db.select().from(splitTests).where(eq(splitTests.id, id));
+      if (test[0]) {
+        const field = test[0].field;
+        const updateData: any = {};
+        updateData[field] = winner.value;
+        await storage.updateProgram(test[0].programId, updateData);
+      }
+      res.json({ ok: true, winnerId: winner.id, winnerValue: winner.value });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/split-test/variant", async (req, res) => {
+    try {
+      const programId = parseInt(req.query.programId as string);
+      const field = req.query.field as string;
+      if (!programId || !field) return res.json({ variant: null });
+      const activeTests = await db.select().from(splitTests).where(and(eq(splitTests.programId, programId), eq(splitTests.field, field), eq(splitTests.status, "active")));
+      if (activeTests.length === 0) return res.json({ variant: null });
+      const test = activeTests[0];
+      let shouldEnd = false;
+      if (test.endCondition === "days") {
+        const elapsed = (Date.now() - new Date(test.startedAt).getTime()) / 86400000;
+        if (elapsed >= test.endValue) shouldEnd = true;
+      }
+      const variants = await db.select().from(splitTestVariants).where(eq(splitTestVariants.splitTestId, test.id));
+      if (test.endCondition === "views") {
+        const totalViews = variants.reduce((s, v) => s + v.views, 0);
+        if (totalViews >= test.endValue) shouldEnd = true;
+      }
+      if (shouldEnd) {
+        let winner = variants[0];
+        for (const v of variants) {
+          if (v.revenue > winner.revenue || (v.revenue === winner.revenue && v.registrations > winner.registrations)) winner = v;
+        }
+        await db.update(splitTests).set({ status: "completed", winnerId: winner.id, endedAt: new Date() }).where(eq(splitTests.id, test.id));
+        const updateData: any = {};
+        updateData[field] = winner.value;
+        await storage.updateProgram(test.programId, updateData);
+        return res.json({ variant: null, completed: true, winnerId: winner.id });
+      }
+      const chosen = variants[Math.floor(Math.random() * variants.length)];
+      res.json({ variant: chosen, testId: test.id });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/public/split-test/view", async (req, res) => {
+    try {
+      const { variantId } = req.body;
+      if (!variantId) return res.json({ ok: true });
+      await db.update(splitTestVariants).set({ views: sql`views + 1` }).where(eq(splitTestVariants.id, variantId));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/public/split-test/conversion", async (req, res) => {
+    try {
+      const { variantId, revenue } = req.body;
+      if (!variantId) return res.json({ ok: true });
+      await db.update(splitTestVariants).set({
+        registrations: sql`registrations + 1`,
+        revenue: sql`revenue + ${revenue || 0}`,
+      }).where(eq(splitTestVariants.id, variantId));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/public/camps", async (_req, res) => {
     try {
       const all = await storage.getPrograms();
@@ -2078,7 +2217,34 @@ export async function registerRoutes(
       const pricing = await storage.getCampPricing(camp.id);
       const dates = await storage.getCampDates(camp.id);
       const discounts = await storage.getProgramDiscounts(camp.id);
-      res.json({ camp, pricing, dates, discounts });
+      const activeTests = await db.select().from(splitTests).where(and(eq(splitTests.programId, camp.id), eq(splitTests.status, "active")));
+      const activeSplitTests: any[] = [];
+      for (const t of activeTests) {
+        let shouldEnd = false;
+        const variants = await db.select().from(splitTestVariants).where(eq(splitTestVariants.splitTestId, t.id));
+        if (t.endCondition === "days") {
+          const elapsed = (Date.now() - new Date(t.startedAt).getTime()) / 86400000;
+          if (elapsed >= t.endValue) shouldEnd = true;
+        }
+        if (t.endCondition === "views") {
+          const totalViews = variants.reduce((s, v) => s + v.views, 0);
+          if (totalViews >= t.endValue) shouldEnd = true;
+        }
+        if (shouldEnd) {
+          let winner = variants[0];
+          for (const v of variants) {
+            if (v.revenue > winner.revenue || (v.revenue === winner.revenue && v.registrations > winner.registrations)) winner = v;
+          }
+          await db.update(splitTests).set({ status: "completed", winnerId: winner.id, endedAt: new Date() }).where(eq(splitTests.id, t.id));
+          const updateData: any = {};
+          updateData[t.field] = winner.value;
+          await storage.updateProgram(t.programId, updateData);
+        } else {
+          const chosen = variants[Math.floor(Math.random() * variants.length)];
+          activeSplitTests.push({ testId: t.id, field: t.field, variant: chosen });
+        }
+      }
+      res.json({ camp, pricing, dates, discounts, splitTests: activeSplitTests });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

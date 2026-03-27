@@ -156,6 +156,21 @@ function PaymentFormInner({ slug, registrationId, totalCents, parentEmail, paren
           num_items: itemCount,
         }, eventId);
 
+        try {
+          const sv = (window as any)._cufc_split_variants;
+          if (sv) {
+            for (const field of Object.keys(sv)) {
+              if (sv[field]?.id) {
+                fetch("/api/public/split-test/conversion", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ variantId: sv[field].id, revenue: totalCents }),
+                }).catch(() => {});
+              }
+            }
+          }
+        } catch {}
+
         setLocation(`/${slug}/success?registrationId=${registrationId}&total=${totalCents}`);
       } else if (paymentIntent.status === "processing") {
         setLocation(`/${slug}/success?registrationId=${registrationId}&total=${totalCents}`);
@@ -269,6 +284,20 @@ export default function BookingPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ registrationId: result.registrationId }),
         });
+        try {
+          const sv = (window as any)._cufc_split_variants;
+          if (sv) {
+            for (const field of Object.keys(sv)) {
+              if (sv[field]?.id) {
+                fetch("/api/public/split-test/conversion", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ variantId: sv[field].id, revenue: 0 }),
+                }).catch(() => {});
+              }
+            }
+          }
+        } catch {}
         setLocation(`/${slug}/success?registrationId=${result.registrationId}&total=0`);
         return;
       }
