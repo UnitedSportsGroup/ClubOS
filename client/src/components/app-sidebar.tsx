@@ -53,6 +53,7 @@ const campsNav = [
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { title: "Contacts", url: "/admin/contacts", icon: Users },
   { title: "Mailer", url: "/admin/mailer", icon: Mail },
+  { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
 ];
 
 const venueNav = [
