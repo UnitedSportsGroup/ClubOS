@@ -26,6 +26,7 @@ import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WorkspaceProvider } from "@/lib/workspace-context";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading, error } = useQuery({
@@ -131,9 +132,9 @@ function App() {
         {isAdminLogin ? (
           <AdminLogin />
         ) : isAdminEditPage ? (
-          <AuthGuard><AdminEditPage /></AuthGuard>
+          <WorkspaceProvider><AuthGuard><AdminEditPage /></AuthGuard></WorkspaceProvider>
         ) : isAdminRoute ? (
-          <AdminLayout />
+          <WorkspaceProvider><AdminLayout /></WorkspaceProvider>
         ) : (
           <Switch>
             <Route path="/">

@@ -40,7 +40,8 @@ export async function registerRoutes(
     if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
     const user = await storage.getUser(req.session.userId);
     if (!user) return res.status(401).json({ message: "Not authenticated" });
-    res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
+    const orgs = await storage.getUserOrganizations(req.session.userId);
+    res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role, organizations: orgs });
   });
 
   app.patch("/api/auth/me", requireAuth, async (req, res) => {

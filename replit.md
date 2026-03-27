@@ -30,6 +30,17 @@ Holiday camp booking and management platform for Christchurch United Football Cl
   - `meta-capi.ts` - Meta Conversions API server-side events
   - `db.ts` - Database connection
 - `shared/schema.ts` - Drizzle schema + Zod validation + TypeScript types
+- `client/src/lib/workspace-context.tsx` - Workspace/organization context provider
+
+## Multi-Brand Workspaces
+- 5 organizations: Christchurch United, South Island United, Mini Football Leagues, United Sports Centre, Christchurch International Cup
+- `organizations` table: id, name, slug, logoUrl, active
+- `userOrganizations` table: userId + organizationId (unique constraint) + role
+- Super admins assigned to all orgs; other staff assigned to Christchurch United
+- Workspace switcher in sidebar header — stores selection in localStorage
+- `/api/auth/me` returns user's organizations array
+- Logos served from `/logos/` in client/public
+- Note: Backend filtering by workspace is not yet implemented — currently UI-only switching
 
 ## Auth & Roles
 - express-session with PgSession store (connect-pg-simple)

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -19,10 +20,23 @@ import {
   Mail,
   Settings,
   LogOut,
+  ChevronDown,
+  Check,
+  Building2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useWorkspace } from "@/lib/workspace-context";
+
+type Org = {
+  id: number;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  active: boolean;
+  userRole: string;
+};
 
 const mainNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
@@ -35,6 +49,82 @@ const mainNav = [
 const secondaryNav = [
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
+
+function WorkspaceSwitcher() {
+  const { currentOrg, setCurrentOrg, organizations, setOrganizations } = useWorkspace();
+  const [open, setOpen] = useState(false);
+  const { data: user } = useQuery<{ organizations?: Org[] }>({ queryKey: ["/api/auth/me"] });
+
+  useEffect(() => {
+    if (user?.organizations && user.organizations.length > 0) {
+      setOrganizations(user.organizations);
+    }
+  }, [user?.organizations, setOrganizations]);
+
+  if (!currentOrg || organizations.length === 0) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.03] transition-all cursor-pointer group"
+        data-testid="button-workspace-switcher"
+      >
+        <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+          {currentOrg.logoUrl ? (
+            <img src={currentOrg.logoUrl} alt={currentOrg.name} className="w-full h-full object-cover" />
+          ) : (
+            <Building2 className="w-4 h-4 text-white/30" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-[12px] font-medium text-white/80 truncate" data-testid="text-workspace-name">{currentOrg.name}</p>
+          <p className="text-[9px] text-blue-400/30 uppercase tracking-wider">Workspace</p>
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-white/20 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-2 right-2 top-full mt-1 z-50 rounded-xl border border-blue-500/15 bg-[#0a0e1a] shadow-2xl shadow-black/50 overflow-hidden" data-testid="dropdown-workspace">
+            <div className="px-3 py-2 border-b border-white/[0.04]">
+              <p className="text-[9px] text-blue-300/25 uppercase tracking-wider font-semibold">Switch Workspace</p>
+            </div>
+            <div className="py-1 max-h-[280px] overflow-y-auto">
+              {organizations.map(org => (
+                <button
+                  key={org.id}
+                  onClick={() => { setCurrentOrg(org); setOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 transition-all cursor-pointer ${
+                    currentOrg.id === org.id
+                      ? "bg-blue-500/10"
+                      : "hover:bg-white/[0.03]"
+                  }`}
+                  data-testid={`button-workspace-${org.slug}`}
+                >
+                  <div className="w-7 h-7 rounded-lg overflow-hidden flex-shrink-0 bg-white/[0.06] border border-white/[0.06] flex items-center justify-center">
+                    {org.logoUrl ? (
+                      <img src={org.logoUrl} alt={org.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Building2 className="w-3.5 h-3.5 text-white/25" />
+                    )}
+                  </div>
+                  <span className={`flex-1 text-left text-[12px] truncate ${
+                    currentOrg.id === org.id ? "text-blue-400 font-medium" : "text-white/60"
+                  }`}>{org.name}</span>
+                  {currentOrg.id === org.id && (
+                    <Check className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -50,8 +140,8 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="sidebar-gradient">
-      <SidebarHeader className="px-4 py-5 border-b border-blue-500/[0.08]">
-        <div className="flex items-center gap-3">
+      <SidebarHeader className="px-3 py-4 border-b border-blue-500/[0.08] space-y-3">
+        <div className="flex items-center gap-3 px-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse-glow">
             <span className="text-white font-bold text-xs tracking-tight">CU</span>
           </div>
@@ -59,9 +149,10 @@ export function AppSidebar() {
             <span className="font-semibold text-[13px] text-white/90 tracking-tight truncate" data-testid="text-club-name">
               ClubOS
             </span>
-            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">Holiday Camps</span>
+            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">Management</span>
           </div>
         </div>
+        <WorkspaceSwitcher />
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>

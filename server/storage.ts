@@ -7,6 +7,7 @@ import {
   campPricing, campDates, campSettings,
   children, childMedical, registrationItems,
   attendance, emailLogs, metaEventLogs, emailCampaigns,
+  organizations, userOrganizations,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -27,6 +28,7 @@ import {
   type InsertEmailCampaign, type EmailCampaign,
   type InsertAuditLog, type AuditLog,
   type Setting,
+  type Organization,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -71,6 +73,8 @@ export interface IStorage {
 
   getProgramDiscounts(programId: number): Promise<ProgramDiscount[]>;
   setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]>;
+
+  getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]>;
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
@@ -165,6 +169,17 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return db.select().from(users).orderBy(asc(users.firstName));
+  }
+
+  async getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]> {
+    const rows = await db.select({
+      org: organizations,
+      userRole: userOrganizations.role,
+    }).from(userOrganizations)
+      .innerJoin(organizations, eq(userOrganizations.organizationId, organizations.id))
+      .where(eq(userOrganizations.userId, userId))
+      .orderBy(asc(organizations.name));
+    return rows.map(r => ({ ...r.org, userRole: r.userRole }));
   }
 
   async createUser(user: InsertUser): Promise<User> {

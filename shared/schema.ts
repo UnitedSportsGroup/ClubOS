@@ -10,6 +10,22 @@ export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy"
 export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
 
+export const organizations = pgTable("organizations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logoUrl: text("logo_url"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const userOrganizations = pgTable("user_organizations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  role: roleEnum("role").notNull().default("admin"),
+});
+
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   email: text("email").notNull().unique(),
@@ -286,6 +302,14 @@ export const insertAttendanceSchema = createInsertSchema(attendance).omit({ id: 
 export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({ id: true, sentAt: true });
 export const insertMetaEventLogSchema = createInsertSchema(metaEventLogs).omit({ id: true, sentAt: true });
 export const insertEmailCampaignSchema = createInsertSchema(emailCampaigns).omit({ id: true, createdAt: true, sentAt: true });
+
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true });
+export const insertUserOrganizationSchema = createInsertSchema(userOrganizations).omit({ id: true });
+
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = typeof organizations.$inferSelect;
+export type InsertUserOrganization = z.infer<typeof insertUserOrganizationSchema>;
+export type UserOrganization = typeof userOrganizations.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

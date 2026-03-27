@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations } from "@shared/schema";
+import { sql, eq } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
@@ -70,6 +70,8 @@ export async function seedDatabase() {
     UPDATE registrations SET order_number = numbered.rn + COALESCE((SELECT MAX(order_number) FROM registrations WHERE order_number IS NOT NULL), 0)
     FROM numbered WHERE registrations.id = numbered.id
   `);
+
+  await seedOrganizations();
 
   const [existingCamps] = await db.select({ count: sql<number>`count(*)` }).from(programs);
 
@@ -214,4 +216,46 @@ export async function migrateScheduleData() {
       AND page_content_json::jsonb->'schedule' @> '[{"time":"5:00 PM"}]'::jsonb
   `);
   console.log("Schedule migration: updated camps with old 5pm schedule");
+}
+
+async function seedOrganizations() {
+  const orgData = [
+    { name: "Christchurch United", slug: "christchurch-united", logoUrl: "/logos/christchurch-united.png" },
+    { name: "South Island United", slug: "south-island-united", logoUrl: "/logos/south-island-united.png" },
+    { name: "Mini Football Leagues", slug: "mini-football-leagues", logoUrl: "/logos/mini-football-leagues.png" },
+    { name: "United Sports Centre", slug: "united-sports-centre", logoUrl: null },
+    { name: "Christchurch International Cup", slug: "christchurch-international-cup", logoUrl: "/logos/christchurch-international-cup.png" },
+  ];
+
+  for (const org of orgData) {
+    const [existing] = await db.select().from(organizations).where(eq(organizations.slug, org.slug));
+    if (!existing) {
+      await db.insert(organizations).values(org);
+    }
+  }
+
+  const allOrgs = await db.select().from(organizations);
+  const allUsers2 = await db.select().from(users);
+
+  for (const u of allUsers2) {
+    if (u.role === "super_admin") {
+      for (const org of allOrgs) {
+        const [existing] = await db.select().from(userOrganizations)
+          .where(sql`user_id = ${u.id} AND organization_id = ${org.id}`);
+        if (!existing) {
+          await db.insert(userOrganizations).values({ userId: u.id, organizationId: org.id, role: "super_admin" });
+        }
+      }
+    } else {
+      const cuOrg = allOrgs.find(o => o.slug === "christchurch-united");
+      if (cuOrg) {
+        const [existing] = await db.select().from(userOrganizations)
+          .where(sql`user_id = ${u.id} AND organization_id = ${cuOrg.id}`);
+        if (!existing) {
+          await db.insert(userOrganizations).values({ userId: u.id, organizationId: cuOrg.id, role: u.role });
+        }
+      }
+    }
+  }
+  console.log("Organizations seeded");
 }
