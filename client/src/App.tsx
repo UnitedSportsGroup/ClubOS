@@ -35,6 +35,7 @@ import LeagueCompetitions from "@/pages/league-competitions";
 import LeagueCompetitionDetail from "@/pages/league-competition-detail";
 import LeagueTeams from "@/pages/league-teams";
 import LeagueSettings from "@/pages/league-settings";
+import GymnasticsDashboard from "@/pages/gymnastics-dashboard";
 import TournamentDashboard from "@/pages/tournament-dashboard";
 import TournamentList from "@/pages/tournament-list";
 import TournamentDetail from "@/pages/tournament-detail";
@@ -76,6 +77,16 @@ function AdminRouter() {
   const isVenue = currentOrg?.slug === "united-sports-centre";
   const isLeague = currentOrg?.slug === "mini-football-leagues";
   const isTournament = currentOrg?.slug === "christchurch-international-cup";
+  const isGymnastics = currentOrg?.slug === "united-gymnastics";
+
+  if (isGymnastics) {
+    return (
+      <Switch>
+        <Route path="/admin" component={GymnasticsDashboard} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
 
   if (isTournament) {
     return (

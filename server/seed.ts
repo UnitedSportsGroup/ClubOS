@@ -225,6 +225,7 @@ async function seedOrganizations() {
     { name: "Mini Football Leagues", slug: "mini-football-leagues", logoUrl: "/logos/mini-football-leagues.png" },
     { name: "United Sports Centre", slug: "united-sports-centre", logoUrl: null },
     { name: "Christchurch International Cup", slug: "christchurch-international-cup", logoUrl: "/logos/christchurch-international-cup.png" },
+    { name: "United Gymnastics", slug: "united-gymnastics", logoUrl: "/logos/united-gymnastics.png" },
   ];
 
   for (const org of orgData) {

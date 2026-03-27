@@ -31,6 +31,7 @@ import {
   Trophy,
   UsersRound,
   Award,
+  Dumbbell,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -89,6 +90,14 @@ const tournamentNav = [
 
 const tournamentSecondary = [
   { title: "Settings", url: "/admin/tournament-settings", icon: Settings },
+];
+
+const gymnasticsNav = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+];
+
+const gymnasticsSecondary = [
+  { title: "Settings", url: "/admin/gymnastics-settings", icon: Settings },
 ];
 
 function WorkspaceSwitcher() {
@@ -184,10 +193,15 @@ function isTournamentWorkspace(slug: string | undefined) {
   return slug === "christchurch-international-cup";
 }
 
+function isGymnasticsWorkspace(slug: string | undefined) {
+  return slug === "united-gymnastics";
+}
+
 function getWorkspaceLabel(slug: string | undefined) {
   if (isVenueWorkspace(slug)) return "Venue";
   if (isLeagueWorkspace(slug)) return "Leagues";
   if (isTournamentWorkspace(slug)) return "Tournaments";
+  if (isGymnasticsWorkspace(slug)) return "Gymnastics";
   return "Management";
 }
 
@@ -195,6 +209,7 @@ function getWorkspaceInitials(slug: string | undefined) {
   if (isVenueWorkspace(slug)) return "US";
   if (isLeagueWorkspace(slug)) return "ML";
   if (isTournamentWorkspace(slug)) return "CI";
+  if (isGymnasticsWorkspace(slug)) return "UG";
   return "CU";
 }
 
@@ -206,8 +221,9 @@ export function AppSidebar() {
   const isVenue = isVenueWorkspace(currentOrg?.slug);
   const isLeague = isLeagueWorkspace(currentOrg?.slug);
   const isTournament = isTournamentWorkspace(currentOrg?.slug);
-  const mainNav = isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
-  const secondaryNav = isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
+  const isGymnastics = isGymnasticsWorkspace(currentOrg?.slug);
+  const mainNav = isGymnastics ? gymnasticsNav : isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
+  const secondaryNav = isGymnastics ? gymnasticsSecondary : isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),

@@ -33,14 +33,14 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `client/src/lib/workspace-context.tsx` - Workspace/organization context provider
 
 ## Multi-Brand Workspaces
-- 5 organizations: Christchurch United, South Island United, Mini Football Leagues, United Sports Centre, Christchurch International Cup
+- 6 organizations: Christchurch United, South Island United, Mini Football Leagues, United Sports Centre, Christchurch International Cup, United Gymnastics
 - `organizations` table: id, name, slug, logoUrl, active
 - `userOrganizations` table: userId + organizationId (unique constraint) + role
 - Super admins assigned to all orgs; other staff assigned to Christchurch United
 - Workspace switcher in sidebar header — stores selection in localStorage
 - `/api/auth/me` returns user's organizations array
 - Logos served from `/logos/` in client/public
-- Workspace-aware sidebar: CU shows Camps nav, USC shows VenueFlow nav, MFL shows Leagues nav
+- Workspace-aware sidebar: CU shows Camps nav, USC shows VenueFlow nav, MFL shows Leagues nav, CIC shows Tournaments nav, UG shows Gymnastics nav
 - Workspace-aware routing: AdminRouter renders different page sets based on currentOrg.slug
 
 ### United Sports Centre — VenueFlow
