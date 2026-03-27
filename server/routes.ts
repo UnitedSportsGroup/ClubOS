@@ -1,9 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
@@ -1646,6 +1646,402 @@ export async function registerRoutes(
       const logs = await storage.getAuditLogs();
       res.json(logs);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ ANALYTICS ROUTES ============
+
+  function rows(result: any): any[] {
+    if (Array.isArray(result)) return result;
+    if (result && result.rows) return result.rows;
+    return [];
+  }
+  function row0(result: any): any {
+    const r = rows(result);
+    return r[0] || {};
+  }
+
+  app.post("/api/public/analytics/event", async (req, res) => {
+    try {
+      await db.insert(analyticsEvents).values(req.body);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/public/analytics/batch", async (req, res) => {
+    try {
+      const { events } = req.body;
+      if (!events || !Array.isArray(events) || events.length === 0) {
+        return res.json({ ok: true });
+      }
+      const validEvents = events.filter((e: any) => e.visitorId && e.sessionId && e.eventType).slice(0, 50);
+      if (validEvents.length > 0) {
+        await db.insert(analyticsEvents).values(validEvents);
+      }
+      res.json({ ok: true, count: validEvents.length });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/overview", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const campSlug = req.query.campSlug as string || null;
+
+      let campFilter = "";
+      if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+
+      const pageViews = row0(await db.execute(sql.raw(`SELECT COUNT(*) as total, COUNT(DISTINCT visitor_id) as unique_visitors FROM analytics_events WHERE event_type = 'page_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const sessions = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as total FROM analytics_events WHERE event_type IN ('session_start', 'page_view') AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const nvr = row0(await db.execute(sql.raw(`SELECT COUNT(*) FILTER (WHERE (metadata->>'isNewVisitor')::text = 'true') as new_visitors, COUNT(*) FILTER (WHERE (metadata->>'isNewVisitor')::text != 'true' OR metadata->>'isNewVisitor' IS NULL) as returning_visitors FROM analytics_events WHERE event_type = 'session_start' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const avgTime = row0(await db.execute(sql.raw(`SELECT COALESCE(AVG((metadata->>'seconds')::int), 0) as avg_seconds FROM analytics_events WHERE event_type = 'time_on_page' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const scrollDepth = row0(await db.execute(sql.raw(`SELECT COALESCE(AVG((metadata->>'maxPercent')::int), 0) as avg_percent FROM analytics_events WHERE event_type = 'scroll_depth' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const bounceCount = row0(await db.execute(sql.raw(`SELECT COUNT(*) as bounces FROM analytics_events WHERE event_type = 'bounce' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const ctaClicks = row0(await db.execute(sql.raw(`SELECT COUNT(*) as clicks FROM analytics_events WHERE event_type = 'cta_click' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+
+      const deviceRows = rows(await db.execute(sql.raw(`SELECT device, COUNT(*) as count FROM analytics_events WHERE event_type = 'page_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter} GROUP BY device ORDER BY count DESC`)));
+      const sourceRows = rows(await db.execute(sql.raw(`SELECT metadata->>'trafficSource' as source, COUNT(*) as count FROM analytics_events WHERE event_type = 'page_view' AND metadata->>'trafficSource' IS NOT NULL AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter} GROUP BY metadata->>'trafficSource' ORDER BY count DESC`)));
+
+      const totalSessions = Number(sessions.total || 0);
+      const totalBounces = Number(bounceCount.bounces || 0);
+      const totalPV = Number(pageViews.total || 0);
+      const totalCtaClicks = Number(ctaClicks.clicks || 0);
+
+      res.json({
+        pageViews: {
+          total: totalPV,
+          unique: Number(pageViews.unique_visitors || 0),
+        },
+        sessions: totalSessions,
+        newVisitors: Number(nvr.new_visitors || 0),
+        returningVisitors: Number(nvr.returning_visitors || 0),
+        avgTimeOnPage: Math.round(Number(avgTime.avg_seconds || 0)),
+        avgScrollDepth: Math.round(Number(scrollDepth.avg_percent || 0)),
+        bounceRate: totalSessions > 0 ? Math.round((totalBounces / totalSessions) * 100) : 0,
+        ctaClicks: totalCtaClicks,
+        ctaRate: totalPV > 0 ? Math.round((totalCtaClicks / totalPV) * 10000) / 100 : 0,
+        devices: deviceRows,
+        sources: sourceRows,
+      });
+    } catch (error: any) {
+      console.error("Analytics overview error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/funnel", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const campSlug = req.query.campSlug as string || null;
+      let campFilter = "";
+      if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+
+      const pageViewCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'page_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const formViewCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'form_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const formStartCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'form_step' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+      const ctaClickCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'cta_click' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
+
+      const stepRows = rows(await db.execute(sql.raw(`SELECT metadata->>'step' as step, COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'form_step' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter} GROUP BY metadata->>'step' ORDER BY step`)));
+
+      let regFilter = "";
+      if (campSlug) {
+        const camp = await storage.getProgramBySlug(campSlug);
+        if (camp) regFilter = `AND program_id = ${camp.id}`;
+      }
+      const completedRegs = row0(await db.execute(sql.raw(`SELECT COUNT(*) as count FROM registrations WHERE status = 'confirmed' AND registered_at >= '${from}' AND registered_at < '${to}'::date + interval '1 day' ${regFilter}`)));
+      const pendingRegs = row0(await db.execute(sql.raw(`SELECT COUNT(*) as count FROM registrations WHERE status = 'pending' AND registered_at >= '${from}' AND registered_at < '${to}'::date + interval '1 day' ${regFilter}`)));
+
+      const pvSessions = Number(pageViewCount.count || 0);
+      const fvSessions = Number(formViewCount.count || 0);
+      const fsSessions = Number(formStartCount.count || 0);
+      const completed = Number(completedRegs.count || 0);
+      const pending = Number(pendingRegs.count || 0);
+
+      res.json({
+        pageViewSessions: pvSessions,
+        formViewSessions: fvSessions,
+        formStartSessions: fsSessions,
+        ctaClickSessions: Number(ctaClickCount.count || 0),
+        completedRegistrations: completed,
+        abandonedRegistrations: pending,
+        steps: stepRows,
+        dropOffRate: fvSessions > 0 ? Math.round(((fvSessions - completed) / fvSessions) * 100) : 0,
+      });
+    } catch (error: any) {
+      console.error("Analytics funnel error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/revenue", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const campSlug = req.query.campSlug as string || null;
+
+      let regFilter = "";
+      if (campSlug) {
+        const camp = await storage.getProgramBySlug(campSlug);
+        if (camp) regFilter = `AND r.program_id = ${camp.id}`;
+      }
+
+      const revenueRows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) as total_registrations,
+          COALESCE(SUM(r.total_cents), 0) as total_revenue,
+          COALESCE(AVG(r.total_cents), 0) as avg_order_value,
+          COALESCE(SUM(r.discount_cents), 0) as total_discounts,
+          COUNT(*) FILTER (WHERE r.discount_cents > 0) as discounted_orders,
+          COUNT(*) FILTER (WHERE r.status = 'refunded') as refunded_orders,
+          COALESCE(SUM(CASE WHEN r.status = 'refunded' THEN r.total_cents ELSE 0 END), 0) as refund_amount
+        FROM registrations r
+        WHERE r.status IN ('confirmed', 'refunded')
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        ${regFilter}
+      `));
+
+      const campRevenue = await db.execute(sql.raw(`
+        SELECT p.name as camp_name, p.slug as camp_slug,
+          COUNT(*) as registrations,
+          COALESCE(SUM(r.total_cents), 0) as revenue
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        ${regFilter}
+        GROUP BY p.id, p.name, p.slug
+        ORDER BY revenue DESC
+      `));
+
+      const productMix = await db.execute(sql.raw(`
+        SELECT ri.product_type, COUNT(*) as count
+        FROM registration_items ri
+        JOIN registrations r ON ri.registration_id = r.id
+        WHERE r.status = 'confirmed'
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        ${regFilter}
+        GROUP BY ri.product_type
+      `));
+
+      const dailyRevenue = await db.execute(sql.raw(`
+        SELECT DATE(r.registered_at) as date, COUNT(*) as registrations, COALESCE(SUM(r.total_cents), 0) as revenue
+        FROM registrations r
+        WHERE r.status = 'confirmed'
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        ${regFilter}
+        GROUP BY DATE(r.registered_at)
+        ORDER BY date
+      `));
+
+      const revRow = row0(revenueRows);
+      res.json({
+        totalRegistrations: Number(revRow.total_registrations || 0),
+        totalRevenue: Number(revRow.total_revenue || 0),
+        avgOrderValue: Math.round(Number(revRow.avg_order_value || 0)),
+        totalDiscounts: Number(revRow.total_discounts || 0),
+        discountedOrders: Number(revRow.discounted_orders || 0),
+        refundedOrders: Number(revRow.refunded_orders || 0),
+        refundAmount: Number(revRow.refund_amount || 0),
+        campRevenue: rows(campRevenue),
+        productMix: rows(productMix),
+        dailyRevenue: rows(dailyRevenue),
+      });
+    } catch (error: any) {
+      console.error("Analytics revenue error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/customers", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+
+      const totalFamilies = row0(await db.execute(sql.raw(`
+        SELECT COUNT(DISTINCT r.contact_id) as total FROM registrations r WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+      `)));
+
+      const newFamilies = row0(await db.execute(sql.raw(`
+        SELECT COUNT(DISTINCT r.contact_id) as count FROM registrations r
+        WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        AND r.contact_id NOT IN (
+          SELECT DISTINCT r2.contact_id FROM registrations r2
+          WHERE r2.status = 'confirmed' AND r2.registered_at < '${from}'
+        )
+      `)));
+
+      const multiChild = row0(await db.execute(sql.raw(`
+        SELECT COUNT(*) as count FROM (
+          SELECT r.contact_id FROM registration_items ri
+          JOIN registrations r ON ri.registration_id = r.id
+          WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+          GROUP BY r.contact_id
+          HAVING COUNT(DISTINCT ri.child_id) >= 2
+        ) sub
+      `)));
+
+      const avgRegsPerFamily = row0(await db.execute(sql.raw(`
+        SELECT COALESCE(AVG(reg_count), 0) as avg FROM (
+          SELECT contact_id, COUNT(*) as reg_count FROM registrations
+          WHERE status = 'confirmed'
+          GROUP BY contact_id
+        ) sub
+      `)));
+
+      const ltv = row0(await db.execute(sql.raw(`
+        SELECT COALESCE(AVG(total_spent), 0) as avg_ltv FROM (
+          SELECT contact_id, SUM(total_cents) as total_spent FROM registrations
+          WHERE status = 'confirmed'
+          GROUP BY contact_id
+        ) sub
+      `)));
+
+      const total = Number(totalFamilies.total || 0);
+      const newCount = Number(newFamilies.count || 0);
+      res.json({
+        totalFamilies: total,
+        newFamilies: newCount,
+        returningFamilies: total - newCount,
+        returningRate: total > 0 ? Math.round(((total - newCount) / total) * 100) : 0,
+        multiChildFamilies: Number(multiChild.count || 0),
+        avgRegsPerFamily: Math.round(Number(avgRegsPerFamily.avg || 0) * 10) / 10,
+        avgLTV: Math.round(Number(ltv.avg_ltv || 0)),
+      });
+    } catch (error: any) {
+      console.error("Analytics customers error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/camps", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+
+      const campPerformance = await db.execute(sql.raw(`
+        SELECT p.id, p.name, p.slug, p.start_date, p.end_date,
+          COUNT(DISTINCT r.id) as registrations,
+          COALESCE(SUM(r.total_cents), 0) as revenue,
+          p.age_min, p.age_max
+        FROM programs p
+        LEFT JOIN registrations r ON r.program_id = p.id AND r.status = 'confirmed'
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        WHERE p.type = 'holiday_camp'
+        GROUP BY p.id, p.name, p.slug, p.start_date, p.end_date, p.age_min, p.age_max
+        ORDER BY p.start_date DESC
+      `));
+
+      const regTimeline = await db.execute(sql.raw(`
+        SELECT DATE(r.registered_at) as date, COUNT(*) as count, p.slug as camp_slug
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+        AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        GROUP BY DATE(r.registered_at), p.slug
+        ORDER BY date
+      `));
+
+      res.json({
+        campPerformance: rows(campPerformance),
+        registrationTimeline: rows(regTimeline),
+      });
+    } catch (error: any) {
+      console.error("Analytics camps error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/heatmap", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const campSlug = req.query.campSlug as string || null;
+      let campFilter = "";
+      if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+
+      const clickData = await db.execute(sql.raw(`
+        SELECT metadata->>'x' as x, metadata->>'y' as y, metadata->>'scrollY' as scroll_y,
+          metadata->>'text' as text, metadata->>'testid' as testid, COUNT(*) as clicks
+        FROM analytics_events
+        WHERE event_type = 'click'
+        AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day'
+        ${campFilter}
+        GROUP BY metadata->>'x', metadata->>'y', metadata->>'scrollY', metadata->>'text', metadata->>'testid'
+        ORDER BY clicks DESC
+        LIMIT 200
+      `));
+
+      const scrollDropoff = await db.execute(sql.raw(`
+        SELECT
+          CASE
+            WHEN (metadata->>'maxPercent')::int < 25 THEN '0-25%'
+            WHEN (metadata->>'maxPercent')::int < 50 THEN '25-50%'
+            WHEN (metadata->>'maxPercent')::int < 75 THEN '50-75%'
+            ELSE '75-100%'
+          END as range,
+          COUNT(*) as count
+        FROM analytics_events
+        WHERE event_type = 'scroll_depth'
+        AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day'
+        ${campFilter}
+        GROUP BY range
+        ORDER BY range
+      `));
+
+      const topClicked = await db.execute(sql.raw(`
+        SELECT metadata->>'text' as element, metadata->>'testid' as testid, COUNT(*) as clicks
+        FROM analytics_events
+        WHERE event_type = 'click'
+        AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day'
+        ${campFilter}
+        AND metadata->>'text' IS NOT NULL AND metadata->>'text' != ''
+        GROUP BY metadata->>'text', metadata->>'testid'
+        ORDER BY clicks DESC
+        LIMIT 20
+      `));
+
+      res.json({
+        clickData: rows(clickData),
+        scrollDropoff: rows(scrollDropoff),
+        topClicked: rows(topClicked),
+      });
+    } catch (error: any) {
+      console.error("Analytics heatmap error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/timeline", requireAuth, async (req, res) => {
+    try {
+      const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const campSlug = req.query.campSlug as string || null;
+      let campFilter = "";
+      if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+
+      const timeline = await db.execute(sql.raw(`
+        SELECT DATE(timestamp) as date,
+          COUNT(*) FILTER (WHERE event_type = 'page_view') as page_views,
+          COUNT(DISTINCT visitor_id) FILTER (WHERE event_type = 'page_view') as unique_visitors,
+          COUNT(DISTINCT session_id) FILTER (WHERE event_type IN ('session_start', 'page_view')) as sessions,
+          COUNT(*) FILTER (WHERE event_type = 'cta_click') as cta_clicks,
+          COUNT(*) FILTER (WHERE event_type = 'bounce') as bounces
+        FROM analytics_events
+        WHERE timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day'
+        ${campFilter}
+        GROUP BY DATE(timestamp)
+        ORDER BY date
+      `));
+
+      res.json(rows(timeline));
+    } catch (error: any) {
+      console.error("Analytics timeline error:", error);
       res.status(500).json({ message: error.message });
     }
   });

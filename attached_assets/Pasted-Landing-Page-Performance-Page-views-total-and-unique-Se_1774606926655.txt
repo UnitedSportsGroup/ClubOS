@@ -1,0 +1,66 @@
+Landing Page Performance
+  - Page views (total and unique)
+  - Sessions
+  - New vs returning visitors
+  - Average time on page
+  - Scroll depth (how far down the page people read)
+  - Bounce rate (left without clicking anything)
+  - Exit rate
+  - Device breakdown (mobile / desktop / tablet)
+  - Traffic source (Meta Ads / organic / direct / referral)
+  - Click-through rate on the register button (CTA clicks)
+  - Heatmap data (where people click and drop off)
+
+  ---
+  Registration Funnel
+  - Registration page views                                                                                                               
+  - Registration form starts (clicked into the form)
+  - Registration completions (paid)                                                                                                       
+  - Funnel drop-off rate (started but didn't finish)                                                                                      
+  - Drop-off by step (which step of the form loses the most people)
+  - Time to complete registration (from landing page to payment)                                                                          
+  - Abandoned registrations (started, not completed)                                                                                      
+  - Abandoned registration recovery rate (if you follow up)                                                                               
+                                                                                                                                          
+  ---                                                                                                                                     
+  Sales & Revenue                                                 
+  - Total registrations                                                                                                                   
+  - Total revenue per camp period                                 
+  - Revenue vs target ($100k annual / per camp period)                                                                                    
+  - Average order value (half day vs full day mix)    
+  - Half day vs full day split (% and revenue)                                                                                            
+  - Revenue by age group (if tracked)                                                                                                     
+  - Discount / promo code usage ($ value and % of orders)                                                                                 
+  - Refund rate                                                                                                                           
+                                                                                                                                          
+  ---                                                                                                                                     
+  Customer Metrics                                                                                                                        
+  - New families (first-time camp registrations)                                                                                          
+  - Returning families (registered for a prior camp)              
+  - Returning customer rate (%)                     
+  - Customer lifetime value — camps (total spent across all camp periods)                                                                 
+  - Multi-child families (registered 2+ kids — high LTV segment)                                                                          
+  - Average registrations per family                                                                                                      
+                                                                                                                                          
+  ---                                                                                                                                     
+  Paid Ads Attribution                                                                                                                    
+  - Cost per landing page visit                                   
+  - Cost per registration start
+  - Cost per completed registration (CPA)                                                                                                 
+  - Return on ad spend (ROAS) — revenue from ads ÷ ad spend
+  - Click-through rate from ad to landing page                                                                                            
+  - Leads generated from ads vs organic                                                                                                   
+  
+  ---                                                                                                                                     
+  Camp-Level Performance                                          
+  - Registrations per camp period (January / April / October / December)                                                                  
+  - Capacity utilisation % (enrolled ÷ max capacity)                    
+  - Days until camp vs registrations received (early vs late registration pace)                                                           
+  - YoY comparison — registrations and revenue vs same camp last year          
+  - Revenue per day of camp                                                                                                               
+                                                                                                                                          
+  ---                                                                                                                                     
+  Post-Camp / Downstream                                                                                                                  
+  - Camp-to-Academy conversion rate (families who enrol in Academy after camp)                                                            
+  - Camp-to-repeat-camp rate (returned for next camp period)                  
+  - Email open/click rate on post-camp follow-up sequences    

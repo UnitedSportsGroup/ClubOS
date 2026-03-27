@@ -99,6 +99,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - `/admin/contacts/player/:id` — Player detail page with medical info, linked parent, and registrations
 - `/admin/camps/:id/session/:dateId/:type` — Dedicated session roll page with player list, sign-in/out timestamps, search
 - `/admin/mailer` — Email campaign builder with segment-based recipient selection, rich text editor, image upload, and Resend-powered sending
+- `/admin/analytics` — Comprehensive analytics dashboard with 6 tabs: Overview (page views, sessions, bounce rate, CTA clicks, devices, sources, daily traffic), Funnel (registration funnel visualization), Revenue (total revenue, AOV, discounts, camp breakdown, daily chart), Customers (families, new vs returning, multi-child, LTV), Camp Performance (per-camp metrics), Engagement (most clicked elements, scroll depth)
 - `/admin/settings` — Club settings
 
 ## Color Theme
@@ -124,6 +125,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - **metaEventLogs** - Meta CAPI event log
 - **auditLogs** - System activity tracking
 - **settings** - Key-value club configuration
+- **analyticsEvents** - Web analytics tracking (visitorId, sessionId, eventType, page, referrer, UTM params, device, browser, campSlug, metadata JSONB). Client tracking script at `/analytics.js` fires events: page_view, session_start, time_on_page, scroll_depth, bounce, cta_click, click, form_view, form_step
 
 ## API Routes
 - Auth: POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
