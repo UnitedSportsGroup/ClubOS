@@ -40,6 +40,13 @@ import {
   type InsertLeagueTeam, type LeagueTeam,
   type InsertLeagueGame, type LeagueGame,
   type InsertLeagueCoupon, type LeagueCoupon,
+  tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
+  type InsertTournament, type Tournament,
+  type InsertTournamentGroup, type TournamentGroup,
+  type InsertTournamentTeam, type TournamentTeam,
+  type InsertTournamentPlayer, type TournamentPlayer,
+  type InsertTournamentStaff, type TournamentStaff,
+  type InsertTournamentGame, type TournamentGame,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -137,6 +144,41 @@ export interface IStorage {
   deleteLeagueCoupon(id: number): Promise<void>;
 
   getLeagueStandings(competitionId: number, divisionId?: number): Promise<{ teamId: number; teamName: string; divisionId: number | null; divisionName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]>;
+
+  getTournaments(orgId: number): Promise<Tournament[]>;
+  getTournament(id: number): Promise<Tournament | undefined>;
+  createTournament(data: InsertTournament): Promise<Tournament>;
+  updateTournament(id: number, data: Partial<InsertTournament>): Promise<Tournament | undefined>;
+  deleteTournament(id: number): Promise<void>;
+
+  getTournamentGroups(tournamentId: number): Promise<TournamentGroup[]>;
+  createTournamentGroup(data: InsertTournamentGroup): Promise<TournamentGroup>;
+  updateTournamentGroup(id: number, data: Partial<InsertTournamentGroup>): Promise<TournamentGroup | undefined>;
+  deleteTournamentGroup(id: number): Promise<void>;
+
+  getTournamentTeams(tournamentId: number): Promise<(TournamentTeam & { group?: TournamentGroup })[]>;
+  getTournamentTeam(id: number): Promise<TournamentTeam | undefined>;
+  createTournamentTeam(data: InsertTournamentTeam): Promise<TournamentTeam>;
+  updateTournamentTeam(id: number, data: Partial<InsertTournamentTeam>): Promise<TournamentTeam | undefined>;
+  deleteTournamentTeam(id: number): Promise<void>;
+
+  getTournamentPlayers(teamId: number): Promise<TournamentPlayer[]>;
+  createTournamentPlayer(data: InsertTournamentPlayer): Promise<TournamentPlayer>;
+  updateTournamentPlayer(id: number, data: Partial<InsertTournamentPlayer>): Promise<TournamentPlayer | undefined>;
+  deleteTournamentPlayer(id: number): Promise<void>;
+
+  getTournamentStaff(teamId: number): Promise<TournamentStaff[]>;
+  createTournamentStaff(data: InsertTournamentStaff): Promise<TournamentStaff>;
+  updateTournamentStaff(id: number, data: Partial<InsertTournamentStaff>): Promise<TournamentStaff | undefined>;
+  deleteTournamentStaff(id: number): Promise<void>;
+
+  getTournamentGames(tournamentId: number): Promise<(TournamentGame & { homeTeam?: TournamentTeam; awayTeam?: TournamentTeam; group?: TournamentGroup })[]>;
+  getTournamentGame(id: number): Promise<TournamentGame | undefined>;
+  createTournamentGame(data: InsertTournamentGame): Promise<TournamentGame>;
+  updateTournamentGame(id: number, data: Partial<InsertTournamentGame>): Promise<TournamentGame | undefined>;
+  deleteTournamentGame(id: number): Promise<void>;
+
+  getTournamentGroupStandings(tournamentId: number): Promise<{ teamId: number; teamName: string; groupId: number | null; groupName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]>;
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
@@ -1213,6 +1255,196 @@ export class DatabaseStorage implements IStorage {
         mp: s.mp, w: s.w, l: s.l, d: s.d,
         gf: s.gf, ga: s.ga, gd: s.gf - s.ga,
         pts: s.w * 3 + s.d,
+      };
+    }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+  }
+
+  async getTournaments(orgId: number): Promise<Tournament[]> {
+    return db.select().from(tournaments).where(eq(tournaments.organizationId, orgId)).orderBy(desc(tournaments.createdAt));
+  }
+
+  async getTournament(id: number): Promise<Tournament | undefined> {
+    const [t] = await db.select().from(tournaments).where(eq(tournaments.id, id));
+    return t;
+  }
+
+  async createTournament(data: InsertTournament): Promise<Tournament> {
+    const [t] = await db.insert(tournaments).values(data).returning();
+    return t;
+  }
+
+  async updateTournament(id: number, data: Partial<InsertTournament>): Promise<Tournament | undefined> {
+    const [t] = await db.update(tournaments).set(data).where(eq(tournaments.id, id)).returning();
+    return t;
+  }
+
+  async deleteTournament(id: number): Promise<void> {
+    await db.delete(tournaments).where(eq(tournaments.id, id));
+  }
+
+  async getTournamentGroups(tournamentId: number): Promise<TournamentGroup[]> {
+    return db.select().from(tournamentGroups).where(eq(tournamentGroups.tournamentId, tournamentId)).orderBy(asc(tournamentGroups.sortOrder));
+  }
+
+  async createTournamentGroup(data: InsertTournamentGroup): Promise<TournamentGroup> {
+    const [g] = await db.insert(tournamentGroups).values(data).returning();
+    return g;
+  }
+
+  async updateTournamentGroup(id: number, data: Partial<InsertTournamentGroup>): Promise<TournamentGroup | undefined> {
+    const [g] = await db.update(tournamentGroups).set(data).where(eq(tournamentGroups.id, id)).returning();
+    return g;
+  }
+
+  async deleteTournamentGroup(id: number): Promise<void> {
+    await db.delete(tournamentGroups).where(eq(tournamentGroups.id, id));
+  }
+
+  async getTournamentTeams(tournamentId: number): Promise<(TournamentTeam & { group?: TournamentGroup })[]> {
+    const rows = await db.select({ team: tournamentTeams, group: tournamentGroups }).from(tournamentTeams)
+      .leftJoin(tournamentGroups, eq(tournamentTeams.groupId, tournamentGroups.id))
+      .where(eq(tournamentTeams.tournamentId, tournamentId))
+      .orderBy(asc(tournamentTeams.name));
+    return rows.map(r => ({ ...r.team, group: r.group || undefined }));
+  }
+
+  async getTournamentTeam(id: number): Promise<TournamentTeam | undefined> {
+    const [t] = await db.select().from(tournamentTeams).where(eq(tournamentTeams.id, id));
+    return t;
+  }
+
+  async createTournamentTeam(data: InsertTournamentTeam): Promise<TournamentTeam> {
+    const [t] = await db.insert(tournamentTeams).values(data).returning();
+    return t;
+  }
+
+  async updateTournamentTeam(id: number, data: Partial<InsertTournamentTeam>): Promise<TournamentTeam | undefined> {
+    const [t] = await db.update(tournamentTeams).set(data).where(eq(tournamentTeams.id, id)).returning();
+    return t;
+  }
+
+  async deleteTournamentTeam(id: number): Promise<void> {
+    await db.delete(tournamentTeams).where(eq(tournamentTeams.id, id));
+  }
+
+  async getTournamentPlayers(teamId: number): Promise<TournamentPlayer[]> {
+    return db.select().from(tournamentPlayers).where(eq(tournamentPlayers.teamId, teamId)).orderBy(asc(tournamentPlayers.shirtNumber));
+  }
+
+  async createTournamentPlayer(data: InsertTournamentPlayer): Promise<TournamentPlayer> {
+    const [p] = await db.insert(tournamentPlayers).values(data).returning();
+    return p;
+  }
+
+  async updateTournamentPlayer(id: number, data: Partial<InsertTournamentPlayer>): Promise<TournamentPlayer | undefined> {
+    const [p] = await db.update(tournamentPlayers).set(data).where(eq(tournamentPlayers.id, id)).returning();
+    return p;
+  }
+
+  async deleteTournamentPlayer(id: number): Promise<void> {
+    await db.delete(tournamentPlayers).where(eq(tournamentPlayers.id, id));
+  }
+
+  async getTournamentStaff(teamId: number): Promise<TournamentStaff[]> {
+    return db.select().from(tournamentStaff).where(eq(tournamentStaff.teamId, teamId)).orderBy(asc(tournamentStaff.role));
+  }
+
+  async createTournamentStaff(data: InsertTournamentStaff): Promise<TournamentStaff> {
+    const [s] = await db.insert(tournamentStaff).values(data).returning();
+    return s;
+  }
+
+  async updateTournamentStaff(id: number, data: Partial<InsertTournamentStaff>): Promise<TournamentStaff | undefined> {
+    const [s] = await db.update(tournamentStaff).set(data).where(eq(tournamentStaff.id, id)).returning();
+    return s;
+  }
+
+  async deleteTournamentStaff(id: number): Promise<void> {
+    await db.delete(tournamentStaff).where(eq(tournamentStaff.id, id));
+  }
+
+  async getTournamentGames(tournamentId: number): Promise<(TournamentGame & { homeTeam?: TournamentTeam; awayTeam?: TournamentTeam; group?: TournamentGroup })[]> {
+    const allGames = await db.select().from(tournamentGames).where(eq(tournamentGames.tournamentId, tournamentId)).orderBy(asc(tournamentGames.gameNumber));
+    if (allGames.length === 0) return [];
+    const teamIds = [...new Set(allGames.flatMap(g => [g.homeTeamId, g.awayTeamId]).filter(Boolean))] as number[];
+    const groupIds = [...new Set(allGames.map(g => g.groupId).filter(Boolean))] as number[];
+    const teams = teamIds.length > 0 ? await db.select().from(tournamentTeams).where(inArray(tournamentTeams.id, teamIds)) : [];
+    const groups = groupIds.length > 0 ? await db.select().from(tournamentGroups).where(inArray(tournamentGroups.id, groupIds)) : [];
+    const teamMap = Object.fromEntries(teams.map(t => [t.id, t]));
+    const groupMap = Object.fromEntries(groups.map(g => [g.id, g]));
+    return allGames.map(g => ({
+      ...g,
+      homeTeam: g.homeTeamId ? teamMap[g.homeTeamId] : undefined,
+      awayTeam: g.awayTeamId ? teamMap[g.awayTeamId] : undefined,
+      group: g.groupId ? groupMap[g.groupId] : undefined,
+    }));
+  }
+
+  async getTournamentGame(id: number): Promise<TournamentGame | undefined> {
+    const [g] = await db.select().from(tournamentGames).where(eq(tournamentGames.id, id));
+    return g;
+  }
+
+  async createTournamentGame(data: InsertTournamentGame): Promise<TournamentGame> {
+    const [g] = await db.insert(tournamentGames).values(data).returning();
+    return g;
+  }
+
+  async updateTournamentGame(id: number, data: Partial<InsertTournamentGame>): Promise<TournamentGame | undefined> {
+    const [g] = await db.update(tournamentGames).set(data).where(eq(tournamentGames.id, id)).returning();
+    return g;
+  }
+
+  async deleteTournamentGame(id: number): Promise<void> {
+    await db.delete(tournamentGames).where(eq(tournamentGames.id, id));
+  }
+
+  async getTournamentGroupStandings(tournamentId: number): Promise<{ teamId: number; teamName: string; groupId: number | null; groupName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]> {
+    const tournament = await this.getTournament(tournamentId);
+    const ptsWin = tournament?.pointsForWin ?? 3;
+    const ptsDraw = tournament?.pointsForDraw ?? 1;
+    const games = await db.select().from(tournamentGames).where(and(eq(tournamentGames.tournamentId, tournamentId), eq(tournamentGames.stage, "group"), eq(tournamentGames.status, "final")));
+    const teamIds = [...new Set(games.flatMap(g => [g.homeTeamId, g.awayTeamId]).filter(Boolean))] as number[];
+    if (teamIds.length === 0) {
+      const allTeams = await this.getTournamentTeams(tournamentId);
+      const groups = await this.getTournamentGroups(tournamentId);
+      const groupMap = Object.fromEntries(groups.map(g => [g.id, g.name]));
+      return allTeams.map(t => ({
+        teamId: t.id, teamName: t.name, groupId: t.groupId, groupName: t.groupId ? (groupMap[t.groupId] || "Unassigned") : "Unassigned",
+        mp: 0, w: 0, l: 0, d: 0, gf: 0, ga: 0, gd: 0, pts: 0,
+      }));
+    }
+    const teams = await db.select().from(tournamentTeams).where(inArray(tournamentTeams.id, teamIds));
+    const groupIds = [...new Set(teams.map(t => t.groupId).filter(Boolean))] as number[];
+    const groups = groupIds.length > 0 ? await db.select().from(tournamentGroups).where(inArray(tournamentGroups.id, groupIds)) : [];
+    const groupMap = Object.fromEntries(groups.map(g => [g.id, g.name]));
+    const stats: Record<number, { mp: number; w: number; l: number; d: number; gf: number; ga: number }> = {};
+    for (const t of teams) stats[t.id] = { mp: 0, w: 0, l: 0, d: 0, gf: 0, ga: 0 };
+    for (const g of games) {
+      if (g.homeTeamId && stats[g.homeTeamId] && g.homeScore !== null && g.awayScore !== null) {
+        stats[g.homeTeamId].mp++;
+        stats[g.homeTeamId].gf += g.homeScore;
+        stats[g.homeTeamId].ga += g.awayScore;
+        if (g.homeScore > g.awayScore) stats[g.homeTeamId].w++;
+        else if (g.homeScore < g.awayScore) stats[g.homeTeamId].l++;
+        else stats[g.homeTeamId].d++;
+      }
+      if (g.awayTeamId && stats[g.awayTeamId] && g.homeScore !== null && g.awayScore !== null) {
+        stats[g.awayTeamId].mp++;
+        stats[g.awayTeamId].gf += g.awayScore;
+        stats[g.awayTeamId].ga += g.homeScore;
+        if (g.awayScore > g.homeScore) stats[g.awayTeamId].w++;
+        else if (g.awayScore < g.homeScore) stats[g.awayTeamId].l++;
+        else stats[g.awayTeamId].d++;
+      }
+    }
+    return teams.map(t => {
+      const s = stats[t.id] || { mp: 0, w: 0, l: 0, d: 0, gf: 0, ga: 0 };
+      return {
+        teamId: t.id, teamName: t.name, groupId: t.groupId,
+        groupName: t.groupId ? (groupMap[t.groupId] || "Unknown") : "Unassigned",
+        mp: s.mp, w: s.w, l: s.l, d: s.d, gf: s.gf, ga: s.ga, gd: s.gf - s.ga,
+        pts: s.w * ptsWin + s.d * ptsDraw,
       };
     }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
   }

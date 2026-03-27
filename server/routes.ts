@@ -1275,6 +1275,372 @@ export async function registerRoutes(
     }
   });
 
+  // ============ TOURNAMENT ROUTES ============
+
+  app.get("/api/admin/tournament/tournaments", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      const list = await storage.getTournaments(orgId);
+      res.json(list);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/tournaments/:id", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t) return res.status(404).json({ message: "Not found" });
+      res.json(t);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/tournaments", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.createTournament(req.body);
+      res.json(t);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/tournaments/:id", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.updateTournament(parseInt(req.params.id), req.body);
+      if (!t) return res.status(404).json({ message: "Not found" });
+      res.json(t);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/tournaments/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournament(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/tournaments/:id/groups", requireAuth, async (req, res) => {
+    try {
+      const groups = await storage.getTournamentGroups(parseInt(req.params.id));
+      res.json(groups);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/groups", requireAuth, async (req, res) => {
+    try {
+      const g = await storage.createTournamentGroup(req.body);
+      res.json(g);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/groups/:id", requireAuth, async (req, res) => {
+    try {
+      const g = await storage.updateTournamentGroup(parseInt(req.params.id), req.body);
+      if (!g) return res.status(404).json({ message: "Not found" });
+      res.json(g);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/groups/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentGroup(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/tournaments/:id/teams", requireAuth, async (req, res) => {
+    try {
+      const teams = await storage.getTournamentTeams(parseInt(req.params.id));
+      res.json(teams);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/teams/:id", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.getTournamentTeam(parseInt(req.params.id));
+      if (!t) return res.status(404).json({ message: "Not found" });
+      res.json(t);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/teams", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.createTournamentTeam(req.body);
+      res.json(t);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/teams/:id", requireAuth, async (req, res) => {
+    try {
+      const t = await storage.updateTournamentTeam(parseInt(req.params.id), req.body);
+      if (!t) return res.status(404).json({ message: "Not found" });
+      res.json(t);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/teams/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentTeam(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/teams/:id/players", requireAuth, async (req, res) => {
+    try {
+      const players = await storage.getTournamentPlayers(parseInt(req.params.id));
+      res.json(players);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/players", requireAuth, async (req, res) => {
+    try {
+      const p = await storage.createTournamentPlayer(req.body);
+      res.json(p);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/players/:id", requireAuth, async (req, res) => {
+    try {
+      const p = await storage.updateTournamentPlayer(parseInt(req.params.id), req.body);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      res.json(p);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/players/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentPlayer(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/teams/:id/staff", requireAuth, async (req, res) => {
+    try {
+      const staff = await storage.getTournamentStaff(parseInt(req.params.id));
+      res.json(staff);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/staff", requireAuth, async (req, res) => {
+    try {
+      const s = await storage.createTournamentStaff(req.body);
+      res.json(s);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/staff/:id", requireAuth, async (req, res) => {
+    try {
+      const s = await storage.updateTournamentStaff(parseInt(req.params.id), req.body);
+      if (!s) return res.status(404).json({ message: "Not found" });
+      res.json(s);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/staff/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentStaff(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/tournaments/:id/games", requireAuth, async (req, res) => {
+    try {
+      const games = await storage.getTournamentGames(parseInt(req.params.id));
+      res.json(games);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/games", requireAuth, async (req, res) => {
+    try {
+      const g = await storage.createTournamentGame(req.body);
+      res.json(g);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/tournament/games/:id", requireAuth, async (req, res) => {
+    try {
+      const g = await storage.updateTournamentGame(parseInt(req.params.id), req.body);
+      if (!g) return res.status(404).json({ message: "Not found" });
+      res.json(g);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/games/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentGame(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/tournament/tournaments/:id/standings", requireAuth, async (req, res) => {
+    try {
+      const standings = await storage.getTournamentGroupStandings(parseInt(req.params.id));
+      res.json(standings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/tournaments/:id/generate-groups", requireAuth, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) return res.status(404).json({ message: "Not found" });
+      const numGroups = tournament.numGroups || 4;
+      const existingGroups = await storage.getTournamentGroups(tournamentId);
+      if (existingGroups.length > 0) {
+        return res.status(400).json({ message: "Groups already exist. Delete them first to regenerate." });
+      }
+      const groups = [];
+      for (let i = 0; i < numGroups; i++) {
+        const g = await storage.createTournamentGroup({
+          tournamentId,
+          name: `Group ${String.fromCharCode(65 + i)}`,
+          sortOrder: i,
+        });
+        groups.push(g);
+      }
+      res.json(groups);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/tournaments/:id/generate-schedule", requireAuth, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) return res.status(404).json({ message: "Not found" });
+      const groups = await storage.getTournamentGroups(tournamentId);
+      const allTeams = await storage.getTournamentTeams(tournamentId);
+      let gameNumber = 1;
+      const games = [];
+      for (const group of groups) {
+        const groupTeams = allTeams.filter(t => t.groupId === group.id);
+        for (let i = 0; i < groupTeams.length; i++) {
+          for (let j = i + 1; j < groupTeams.length; j++) {
+            const g = await storage.createTournamentGame({
+              tournamentId,
+              groupId: group.id,
+              homeTeamId: groupTeams[i].id,
+              awayTeamId: groupTeams[j].id,
+              gameNumber: gameNumber++,
+              roundNumber: null,
+              stage: "group",
+              stageDetail: group.name,
+              gameDate: tournament.startDate || null,
+              status: "scheduled",
+            });
+            games.push(g);
+          }
+        }
+      }
+      const numGroups = groups.length;
+      if (numGroups >= 2) {
+        const knockoutPairs: { homePlace: string; awayPlace: string; stage: string; stageDetail: string }[] = [];
+        if (numGroups === 4) {
+          knockoutPairs.push(
+            { homePlace: "A1", awayPlace: "B2", stage: "knockout", stageDetail: "QF 1 CUP" },
+            { homePlace: "B1", awayPlace: "A2", stage: "knockout", stageDetail: "QF 2 CUP" },
+            { homePlace: "C1", awayPlace: "D2", stage: "knockout", stageDetail: "QF 3 CUP" },
+            { homePlace: "D1", awayPlace: "C2", stage: "knockout", stageDetail: "QF 4 CUP" },
+            { homePlace: "A3", awayPlace: "B4", stage: "knockout", stageDetail: "QF 1 PLATE" },
+            { homePlace: "B3", awayPlace: "A4", stage: "knockout", stageDetail: "QF 2 PLATE" },
+            { homePlace: "C3", awayPlace: "D4", stage: "knockout", stageDetail: "QF 3 PLATE" },
+            { homePlace: "D3", awayPlace: "C4", stage: "knockout", stageDetail: "QF 4 PLATE" },
+          );
+          knockoutPairs.push(
+            { homePlace: "W QF1 CUP", awayPlace: "W QF4 CUP", stage: "knockout", stageDetail: "SF 1 CUP" },
+            { homePlace: "W QF2 CUP", awayPlace: "W QF3 CUP", stage: "knockout", stageDetail: "SF 2 CUP" },
+            { homePlace: "W QF1 PLATE", awayPlace: "W QF4 PLATE", stage: "knockout", stageDetail: "SF 1 PLATE" },
+            { homePlace: "W QF2 PLATE", awayPlace: "W QF3 PLATE", stage: "knockout", stageDetail: "SF 2 PLATE" },
+          );
+          knockoutPairs.push(
+            { homePlace: "L SF1 CUP", awayPlace: "L SF2 CUP", stage: "knockout", stageDetail: "3rd Place" },
+            { homePlace: "W SF1 CUP", awayPlace: "W SF2 CUP", stage: "final", stageDetail: "CUP FINAL" },
+            { homePlace: "L SF1 PLATE", awayPlace: "L SF2 PLATE", stage: "knockout", stageDetail: "PLATE 3rd" },
+            { homePlace: "W SF1 PLATE", awayPlace: "W SF2 PLATE", stage: "final", stageDetail: "PLATE FINAL" },
+          );
+        } else if (numGroups === 2) {
+          knockoutPairs.push(
+            { homePlace: "A1", awayPlace: "B2", stage: "knockout", stageDetail: "SF 1" },
+            { homePlace: "B1", awayPlace: "A2", stage: "knockout", stageDetail: "SF 2" },
+            { homePlace: "L SF1", awayPlace: "L SF2", stage: "knockout", stageDetail: "3rd Place" },
+            { homePlace: "W SF1", awayPlace: "W SF2", stage: "final", stageDetail: "FINAL" },
+          );
+        }
+        for (const pair of knockoutPairs) {
+          const g = await storage.createTournamentGame({
+            tournamentId,
+            groupId: null,
+            homeTeamId: null,
+            awayTeamId: null,
+            homeTeamPlaceholder: pair.homePlace,
+            awayTeamPlaceholder: pair.awayPlace,
+            gameNumber: gameNumber++,
+            roundNumber: null,
+            stage: pair.stage,
+            stageDetail: pair.stageDetail,
+            gameDate: tournament.endDate || tournament.startDate || null,
+            status: "scheduled",
+          });
+          games.push(g);
+        }
+      }
+      res.json(games);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/audit-logs", requireAuth, async (_req, res) => {
     try {
       const logs = await storage.getAuditLogs();

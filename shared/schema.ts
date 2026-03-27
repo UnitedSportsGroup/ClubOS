@@ -424,6 +424,106 @@ export const leagueCoupons = pgTable("league_coupons", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const tournaments = pgTable("tournaments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  ageGroup: text("age_group"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  location: text("location"),
+  numGroups: integer("num_groups").default(4),
+  teamsPerGroup: integer("teams_per_group").default(4),
+  groupStageFormat: text("group_stage_format").default("round_robin"),
+  knockoutFormat: text("knockout_format").default("single_elimination"),
+  gameDurationMinutes: integer("game_duration_minutes").default(20),
+  breakBetweenMinutes: integer("break_between_minutes").default(5),
+  pointsForWin: integer("points_for_win").default(3),
+  pointsForDraw: integer("points_for_draw").default(1),
+  pointsForLoss: integer("points_for_loss").default(0),
+  registrationStatus: text("registration_status").default("none"),
+  registrationFeeCents: integer("registration_fee_cents").default(0),
+  status: text("status").notNull().default("draft"),
+  active: boolean("active").notNull().default(true),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tournamentGroups = pgTable("tournament_groups", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tournamentId: integer("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tournamentTeams = pgTable("tournament_teams", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tournamentId: integer("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
+  groupId: integer("group_id").references(() => tournamentGroups.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  clubName: text("club_name"),
+  logoUrl: text("logo_url"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  primaryColor: text("primary_color"),
+  secondaryColor: text("secondary_color"),
+  seedNumber: integer("seed_number"),
+  registrationStatus: text("registration_status").default("registered"),
+  paidAmountCents: integer("paid_amount_cents").default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tournamentPlayers = pgTable("tournament_players", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  teamId: integer("team_id").notNull().references(() => tournamentTeams.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  shirtNumber: integer("shirt_number"),
+  dateOfBirth: date("date_of_birth"),
+  idDocumentType: text("id_document_type"),
+  idDocumentUrl: text("id_document_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tournamentStaff = pgTable("tournament_staff", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  teamId: integer("team_id").notNull().references(() => tournamentTeams.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tournamentGames = pgTable("tournament_games", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tournamentId: integer("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
+  groupId: integer("group_id").references(() => tournamentGroups.id, { onDelete: "set null" }),
+  homeTeamId: integer("home_team_id").references(() => tournamentTeams.id, { onDelete: "set null" }),
+  awayTeamId: integer("away_team_id").references(() => tournamentTeams.id, { onDelete: "set null" }),
+  homeTeamPlaceholder: text("home_team_placeholder"),
+  awayTeamPlaceholder: text("away_team_placeholder"),
+  gameNumber: integer("game_number"),
+  roundNumber: integer("round_number"),
+  stage: text("stage").notNull().default("group"),
+  stageDetail: text("stage_detail"),
+  gameDate: date("game_date"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  field: text("field"),
+  status: text("status").notNull().default("scheduled"),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  homePenalties: integer("home_penalties"),
+  awayPenalties: integer("away_penalties"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertSettingSchema = createInsertSchema(settings).omit({ updatedAt: true });
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
@@ -432,6 +532,13 @@ export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: tr
 export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricingRules).omit({ id: true });
 export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
 export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
+
+export const insertTournamentSchema = createInsertSchema(tournaments).omit({ id: true, createdAt: true });
+export const insertTournamentGroupSchema = createInsertSchema(tournamentGroups).omit({ id: true, createdAt: true });
+export const insertTournamentTeamSchema = createInsertSchema(tournamentTeams).omit({ id: true, createdAt: true });
+export const insertTournamentPlayerSchema = createInsertSchema(tournamentPlayers).omit({ id: true, createdAt: true });
+export const insertTournamentStaffSchema = createInsertSchema(tournamentStaff).omit({ id: true, createdAt: true });
+export const insertTournamentGameSchema = createInsertSchema(tournamentGames).omit({ id: true, createdAt: true });
 
 export const insertLeagueCompetitionSchema = createInsertSchema(leagueCompetitions).omit({ id: true, createdAt: true });
 export const insertLeagueDivisionSchema = createInsertSchema(leagueDivisions).omit({ id: true, createdAt: true });
@@ -523,3 +630,15 @@ export type InsertLeagueGame = z.infer<typeof insertLeagueGameSchema>;
 export type LeagueGame = typeof leagueGames.$inferSelect;
 export type InsertLeagueCoupon = z.infer<typeof insertLeagueCouponSchema>;
 export type LeagueCoupon = typeof leagueCoupons.$inferSelect;
+export type InsertTournament = z.infer<typeof insertTournamentSchema>;
+export type Tournament = typeof tournaments.$inferSelect;
+export type InsertTournamentGroup = z.infer<typeof insertTournamentGroupSchema>;
+export type TournamentGroup = typeof tournamentGroups.$inferSelect;
+export type InsertTournamentTeam = z.infer<typeof insertTournamentTeamSchema>;
+export type TournamentTeam = typeof tournamentTeams.$inferSelect;
+export type InsertTournamentPlayer = z.infer<typeof insertTournamentPlayerSchema>;
+export type TournamentPlayer = typeof tournamentPlayers.$inferSelect;
+export type InsertTournamentStaff = z.infer<typeof insertTournamentStaffSchema>;
+export type TournamentStaff = typeof tournamentStaff.$inferSelect;
+export type InsertTournamentGame = z.infer<typeof insertTournamentGameSchema>;
+export type TournamentGame = typeof tournamentGames.$inferSelect;

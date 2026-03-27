@@ -30,6 +30,7 @@ import {
   CreditCard,
   Trophy,
   UsersRound,
+  Award,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -79,6 +80,15 @@ const venueSecondary = [
 
 const leagueSecondary = [
   { title: "Settings", url: "/admin/league-settings", icon: Settings },
+];
+
+const tournamentNav = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "Tournaments", url: "/admin/tournaments", icon: Award },
+];
+
+const tournamentSecondary = [
+  { title: "Settings", url: "/admin/tournament-settings", icon: Settings },
 ];
 
 function WorkspaceSwitcher() {
@@ -170,15 +180,21 @@ function isLeagueWorkspace(slug: string | undefined) {
   return slug === "mini-football-leagues";
 }
 
+function isTournamentWorkspace(slug: string | undefined) {
+  return slug === "christchurch-international-cup";
+}
+
 function getWorkspaceLabel(slug: string | undefined) {
   if (isVenueWorkspace(slug)) return "Venue";
   if (isLeagueWorkspace(slug)) return "Leagues";
+  if (isTournamentWorkspace(slug)) return "Tournaments";
   return "Management";
 }
 
 function getWorkspaceInitials(slug: string | undefined) {
   if (isVenueWorkspace(slug)) return "US";
   if (isLeagueWorkspace(slug)) return "ML";
+  if (isTournamentWorkspace(slug)) return "CI";
   return "CU";
 }
 
@@ -189,8 +205,9 @@ export function AppSidebar() {
 
   const isVenue = isVenueWorkspace(currentOrg?.slug);
   const isLeague = isLeagueWorkspace(currentOrg?.slug);
-  const mainNav = isLeague ? leagueNav : isVenue ? venueNav : campsNav;
-  const secondaryNav = isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
+  const isTournament = isTournamentWorkspace(currentOrg?.slug);
+  const mainNav = isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
+  const secondaryNav = isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),

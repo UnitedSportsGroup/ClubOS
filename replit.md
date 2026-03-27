@@ -60,6 +60,17 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - Sidebar nav: Dashboard, Competitions, Teams + Settings (secondary)
 - Competition detail features: game scheduling, live standings calculation, division management, registration status toggle, coupon management
 
+### Christchurch International Cup — Tournament Management
+- Tournament management platform in the CIC workspace
+- DB tables: `tournaments`, `tournament_groups`, `tournament_teams`, `tournament_players`, `tournament_staff`, `tournament_games`
+- Seeded data: 2 tournaments (U10 active, U12 draft), 4 groups (A-D), 16 teams with club names and colors
+- API routes under `/api/admin/tournament/*` (tournaments, groups, teams, players, staff, games, standings, generate-groups, generate-schedule)
+- Pages: tournament-dashboard, tournament-list, tournament-detail (tabs: Format/Schedule/Groups & Draw/Teams), tournament-team-detail (tabs: Players/Staff)
+- Sidebar nav: Dashboard, Tournaments + Settings (secondary)
+- Tournament detail features: format overview, auto schedule generation (round-robin group stage + QF/SF/Finals knockout bracket with Cup + Plate), drag-and-drop group draw editor, team management
+- Team detail features: player roster with shirt numbers and ID document support, staff management with roles
+- Draw structure: 4 groups × 4 teams → QFs (Cup: 1st/2nd place, Plate: 3rd/4th place) → SFs → 3rd Place + Finals
+
 ## Auth & Roles
 - express-session with PgSession store (connect-pg-simple)
 - `requireAuth` middleware guards all `/api/admin/*` routes

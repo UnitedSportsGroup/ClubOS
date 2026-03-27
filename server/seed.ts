@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames } from "@shared/schema";
+import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, tournaments, tournamentGroups, tournamentTeams } from "@shared/schema";
 import { sql, eq } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
@@ -363,6 +363,76 @@ async function seedOrganizations() {
       }
 
       console.log("MFL competitions, divisions, teams, and games seeded");
+    }
+  }
+
+  const cicOrg = allOrgs.find(o => o.slug === "christchurch-international-cup");
+  if (cicOrg) {
+    const [existingTournaments] = await db.select({ count: sql<number>`count(*)` }).from(tournaments).where(eq(tournaments.organizationId, cicOrg.id));
+    if (Number(existingTournaments.count) === 0) {
+      const [t1] = await db.insert(tournaments).values({
+        organizationId: cicOrg.id,
+        name: "U10 Christchurch International Cup 2026",
+        ageGroup: "U10",
+        startDate: "2026-07-11",
+        endDate: "2026-07-12",
+        location: "Christchurch Football Centre",
+        numGroups: 4,
+        teamsPerGroup: 4,
+        gameDurationMinutes: 15,
+        breakBetweenMinutes: 5,
+        pointsForWin: 3,
+        pointsForDraw: 1,
+        pointsForLoss: 0,
+        status: "active",
+        active: true,
+        registrationStatus: "open",
+      }).returning();
+
+      const [t2] = await db.insert(tournaments).values({
+        organizationId: cicOrg.id,
+        name: "U12 Christchurch International Cup 2026",
+        ageGroup: "U12",
+        startDate: "2026-07-13",
+        endDate: "2026-07-14",
+        location: "Christchurch Football Centre",
+        numGroups: 4,
+        teamsPerGroup: 4,
+        gameDurationMinutes: 20,
+        breakBetweenMinutes: 5,
+        status: "draft",
+        active: true,
+      }).returning();
+
+      const [gA] = await db.insert(tournamentGroups).values({ tournamentId: t1.id, name: "Group A", sortOrder: 0 }).returning();
+      const [gB] = await db.insert(tournamentGroups).values({ tournamentId: t1.id, name: "Group B", sortOrder: 1 }).returning();
+      const [gC] = await db.insert(tournamentGroups).values({ tournamentId: t1.id, name: "Group C", sortOrder: 2 }).returning();
+      const [gD] = await db.insert(tournamentGroups).values({ tournamentId: t1.id, name: "Group D", sortOrder: 3 }).returning();
+
+      const teamData = [
+        { name: "Christchurch United Blue", clubName: "Christchurch United FC", groupId: gA.id, primaryColor: "#22399B" },
+        { name: "Canterbury FC Red", clubName: "Canterbury FC", groupId: gA.id, primaryColor: "#CC0000" },
+        { name: "Wellington Phoenix Youth", clubName: "Wellington Phoenix", groupId: gA.id, primaryColor: "#FFC72C" },
+        { name: "Auckland City Juniors", clubName: "Auckland City FC", groupId: gA.id, primaryColor: "#003366" },
+        { name: "Cashmere Tech Gold", clubName: "Cashmere Technical FC", groupId: gB.id, primaryColor: "#D9B10F" },
+        { name: "Nelson FC Blue", clubName: "Nelson FC", groupId: gB.id, primaryColor: "#0066CC" },
+        { name: "Burnside FC Green", clubName: "Burnside FC", groupId: gB.id, primaryColor: "#228B22" },
+        { name: "Halswell United White", clubName: "Halswell United", groupId: gB.id, primaryColor: "#888888" },
+        { name: "Selwyn United Red", clubName: "Selwyn United", groupId: gC.id, primaryColor: "#990000" },
+        { name: "Ferrymead Bays Blue", clubName: "Ferrymead Bays", groupId: gC.id, primaryColor: "#1E90FF" },
+        { name: "Nomads United", clubName: "Nomads AFC", groupId: gC.id, primaryColor: "#333333" },
+        { name: "Coastal Spirit Gold", clubName: "Coastal Spirit FC", groupId: gC.id, primaryColor: "#DAA520" },
+        { name: "Rangiora FC", clubName: "Rangiora FC", groupId: gD.id, primaryColor: "#006400" },
+        { name: "Papanui FC Orange", clubName: "Papanui FC", groupId: gD.id, primaryColor: "#FF8C00" },
+        { name: "Northern United Black", clubName: "Northern United", groupId: gD.id, primaryColor: "#111111" },
+        { name: "Southern Suburbs", clubName: "Southern Suburbs FC", groupId: gD.id, primaryColor: "#4B0082" },
+      ];
+
+      for (const td of teamData) {
+        await db.insert(tournamentTeams).values({ tournamentId: t1.id, ...td });
+      }
+
+      console.log("CIC tournaments, groups, and teams seeded");
     }
   }
 }

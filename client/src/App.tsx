@@ -35,6 +35,10 @@ import LeagueCompetitions from "@/pages/league-competitions";
 import LeagueCompetitionDetail from "@/pages/league-competition-detail";
 import LeagueTeams from "@/pages/league-teams";
 import LeagueSettings from "@/pages/league-settings";
+import TournamentDashboard from "@/pages/tournament-dashboard";
+import TournamentList from "@/pages/tournament-list";
+import TournamentDetail from "@/pages/tournament-detail";
+import TournamentTeamDetail from "@/pages/tournament-team-detail";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -71,6 +75,19 @@ function AdminRouter() {
   const { currentOrg } = useWorkspace();
   const isVenue = currentOrg?.slug === "united-sports-centre";
   const isLeague = currentOrg?.slug === "mini-football-leagues";
+  const isTournament = currentOrg?.slug === "christchurch-international-cup";
+
+  if (isTournament) {
+    return (
+      <Switch>
+        <Route path="/admin" component={TournamentDashboard} />
+        <Route path="/admin/tournaments/:tournamentId/teams/:teamId" component={TournamentTeamDetail} />
+        <Route path="/admin/tournaments/:id" component={TournamentDetail} />
+        <Route path="/admin/tournaments" component={TournamentList} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
 
   if (isLeague) {
     return (
