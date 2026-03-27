@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Eye, Users, Clock, ArrowDown, MousePointerClick, Monitor, Smartphone, Tablet, TrendingUp, DollarSign, UserCheck, BarChart3, Target, ArrowRight, Percent, RefreshCw } from "lucide-react";
+import { useWorkspace } from "@/lib/workspace-context";
 
 function formatCurrency(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -60,12 +61,13 @@ function FunnelStep({ label, value, total, color }: { label: string; value: numb
   );
 }
 
-function OverviewTab({ dateRange, campSlug }: { dateRange: string; campSlug: string }) {
+function OverviewTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlug: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
   if (campSlug !== "all") params.set("campSlug", campSlug);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/overview", dateRange, campSlug],
@@ -184,12 +186,13 @@ function OverviewTab({ dateRange, campSlug }: { dateRange: string; campSlug: str
   );
 }
 
-function FunnelTab({ dateRange, campSlug }: { dateRange: string; campSlug: string }) {
+function FunnelTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlug: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
   if (campSlug !== "all") params.set("campSlug", campSlug);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/funnel", dateRange, campSlug],
@@ -245,12 +248,13 @@ function FunnelTab({ dateRange, campSlug }: { dateRange: string; campSlug: strin
   );
 }
 
-function RevenueTab({ dateRange, campSlug }: { dateRange: string; campSlug: string }) {
+function RevenueTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlug: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
   if (campSlug !== "all") params.set("campSlug", campSlug);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/revenue", dateRange, campSlug],
@@ -352,11 +356,12 @@ function RevenueTab({ dateRange, campSlug }: { dateRange: string; campSlug: stri
   );
 }
 
-function CustomersTab({ dateRange }: { dateRange: string }) {
+function CustomersTab({ dateRange, orgId }: { dateRange: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/customers", dateRange],
@@ -416,11 +421,12 @@ function CustomersTab({ dateRange }: { dateRange: string }) {
   );
 }
 
-function CampPerformanceTab({ dateRange }: { dateRange: string }) {
+function CampPerformanceTab({ dateRange, orgId }: { dateRange: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/camps", dateRange],
@@ -472,12 +478,13 @@ function CampPerformanceTab({ dateRange }: { dateRange: string }) {
   );
 }
 
-function HeatmapTab({ dateRange, campSlug }: { dateRange: string; campSlug: string }) {
+function HeatmapTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlug: string; orgId?: number }) {
   const params = new URLSearchParams();
   const [from, to] = getDateRange(dateRange);
   params.set("from", from);
   params.set("to", to);
   if (campSlug !== "all") params.set("campSlug", campSlug);
+  if (orgId) params.set("orgId", String(orgId));
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/analytics/heatmap", dateRange, campSlug],
@@ -582,6 +589,8 @@ function getDateRange(preset: string): [string, string] {
 export default function CampAnalytics() {
   const [dateRange, setDateRange] = useState("30d");
   const [campSlug, setCampSlug] = useState("all");
+  const { currentOrg } = useWorkspace();
+  const orgId = currentOrg?.id;
 
   const { data: camps } = useQuery<any[]>({
     queryKey: ["/api/admin/programs"],
@@ -635,22 +644,22 @@ export default function CampAnalytics() {
         </TabsList>
 
         <TabsContent value="overview">
-          <OverviewTab dateRange={dateRange} campSlug={campSlug} />
+          <OverviewTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
         </TabsContent>
         <TabsContent value="funnel">
-          <FunnelTab dateRange={dateRange} campSlug={campSlug} />
+          <FunnelTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
         </TabsContent>
         <TabsContent value="revenue">
-          <RevenueTab dateRange={dateRange} campSlug={campSlug} />
+          <RevenueTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
         </TabsContent>
         <TabsContent value="customers">
-          <CustomersTab dateRange={dateRange} />
+          <CustomersTab dateRange={dateRange} orgId={orgId} />
         </TabsContent>
         <TabsContent value="camps">
-          <CampPerformanceTab dateRange={dateRange} />
+          <CampPerformanceTab dateRange={dateRange} orgId={orgId} />
         </TabsContent>
         <TabsContent value="heatmap">
-          <HeatmapTab dateRange={dateRange} campSlug={campSlug} />
+          <HeatmapTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
         </TabsContent>
       </Tabs>
     </div>

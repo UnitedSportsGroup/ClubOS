@@ -1692,9 +1692,11 @@ export async function registerRoutes(
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
       const campSlug = req.query.campSlug as string || null;
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
 
       let campFilter = "";
       if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+      if (orgId) campFilter += ` AND camp_slug IN (SELECT slug FROM programs WHERE organization_id = ${orgId})`;
 
       const pageViews = row0(await db.execute(sql.raw(`SELECT COUNT(*) as total, COUNT(DISTINCT visitor_id) as unique_visitors FROM analytics_events WHERE event_type = 'page_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
       const sessions = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as total FROM analytics_events WHERE event_type IN ('session_start', 'page_view') AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
@@ -1739,8 +1741,10 @@ export async function registerRoutes(
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
       const campSlug = req.query.campSlug as string || null;
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
       let campFilter = "";
       if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+      if (orgId) campFilter += ` AND camp_slug IN (SELECT slug FROM programs WHERE organization_id = ${orgId})`;
 
       const pageViewCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'page_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
       const formViewCount = row0(await db.execute(sql.raw(`SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE event_type = 'form_view' AND timestamp >= '${from}' AND timestamp < '${to}'::date + interval '1 day' ${campFilter}`)));
@@ -1784,12 +1788,14 @@ export async function registerRoutes(
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
       const campSlug = req.query.campSlug as string || null;
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
 
       let regFilter = "";
       if (campSlug) {
         const camp = await storage.getProgramBySlug(campSlug);
         if (camp) regFilter = `AND r.program_id = ${camp.id}`;
       }
+      if (orgId) regFilter += ` AND r.program_id IN (SELECT id FROM programs WHERE organization_id = ${orgId})`;
 
       const revenueRows = await db.execute(sql.raw(`
         SELECT
@@ -1862,17 +1868,20 @@ export async function registerRoutes(
     try {
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
+      const orgFilter = orgId ? `AND r.program_id IN (SELECT id FROM programs WHERE organization_id = ${orgId})` : "";
+      const orgFilterPlain = orgId ? `AND program_id IN (SELECT id FROM programs WHERE organization_id = ${orgId})` : "";
 
       const totalFamilies = row0(await db.execute(sql.raw(`
-        SELECT COUNT(DISTINCT r.contact_id) as total FROM registrations r WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        SELECT COUNT(DISTINCT r.contact_id) as total FROM registrations r WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day' ${orgFilter}
       `)));
 
       const newFamilies = row0(await db.execute(sql.raw(`
         SELECT COUNT(DISTINCT r.contact_id) as count FROM registrations r
-        WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+        WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day' ${orgFilter}
         AND r.contact_id NOT IN (
           SELECT DISTINCT r2.contact_id FROM registrations r2
-          WHERE r2.status = 'confirmed' AND r2.registered_at < '${from}'
+          WHERE r2.status = 'confirmed' AND r2.registered_at < '${from}' ${orgFilter.replace(/\br\./g, 'r2.')}
         )
       `)));
 
@@ -1880,7 +1889,7 @@ export async function registerRoutes(
         SELECT COUNT(*) as count FROM (
           SELECT r.contact_id FROM registration_items ri
           JOIN registrations r ON ri.registration_id = r.id
-          WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
+          WHERE r.status = 'confirmed' AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day' ${orgFilter}
           GROUP BY r.contact_id
           HAVING COUNT(DISTINCT ri.child_id) >= 2
         ) sub
@@ -1889,7 +1898,7 @@ export async function registerRoutes(
       const avgRegsPerFamily = row0(await db.execute(sql.raw(`
         SELECT COALESCE(AVG(reg_count), 0) as avg FROM (
           SELECT contact_id, COUNT(*) as reg_count FROM registrations
-          WHERE status = 'confirmed'
+          WHERE status = 'confirmed' ${orgFilterPlain}
           GROUP BY contact_id
         ) sub
       `)));
@@ -1897,7 +1906,7 @@ export async function registerRoutes(
       const ltv = row0(await db.execute(sql.raw(`
         SELECT COALESCE(AVG(total_spent), 0) as avg_ltv FROM (
           SELECT contact_id, SUM(total_cents) as total_spent FROM registrations
-          WHERE status = 'confirmed'
+          WHERE status = 'confirmed' ${orgFilterPlain}
           GROUP BY contact_id
         ) sub
       `)));
@@ -1923,6 +1932,8 @@ export async function registerRoutes(
     try {
       const from = req.query.from as string || new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
+      const orgFilter = orgId ? `AND p.organization_id = ${orgId}` : "";
 
       const campPerformance = await db.execute(sql.raw(`
         SELECT p.id, p.name, p.slug, p.start_date, p.end_date,
@@ -1932,7 +1943,7 @@ export async function registerRoutes(
         FROM programs p
         LEFT JOIN registrations r ON r.program_id = p.id AND r.status = 'confirmed'
         AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
-        WHERE p.type = 'holiday_camp'
+        WHERE p.type = 'holiday_camp' ${orgFilter}
         GROUP BY p.id, p.name, p.slug, p.start_date, p.end_date, p.age_min, p.age_max
         ORDER BY p.start_date DESC
       `));
@@ -1941,7 +1952,7 @@ export async function registerRoutes(
         SELECT DATE(r.registered_at) as date, COUNT(*) as count, p.slug as camp_slug
         FROM registrations r
         JOIN programs p ON r.program_id = p.id
-        WHERE r.status = 'confirmed'
+        WHERE r.status = 'confirmed' ${orgFilter}
         AND r.registered_at >= '${from}' AND r.registered_at < '${to}'::date + interval '1 day'
         GROUP BY DATE(r.registered_at), p.slug
         ORDER BY date
@@ -1962,8 +1973,10 @@ export async function registerRoutes(
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
       const campSlug = req.query.campSlug as string || null;
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
       let campFilter = "";
       if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+      if (orgId) campFilter += ` AND camp_slug IN (SELECT slug FROM programs WHERE organization_id = ${orgId})`;
 
       const clickData = await db.execute(sql.raw(`
         SELECT metadata->>'x' as x, metadata->>'y' as y, metadata->>'scrollY' as scroll_y,
@@ -2022,8 +2035,10 @@ export async function registerRoutes(
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const to = req.query.to as string || new Date().toISOString().split('T')[0];
       const campSlug = req.query.campSlug as string || null;
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
       let campFilter = "";
       if (campSlug) campFilter = `AND camp_slug = '${campSlug.replace(/'/g, "''")}'`;
+      if (orgId) campFilter += ` AND camp_slug IN (SELECT slug FROM programs WHERE organization_id = ${orgId})`;
 
       const timeline = await db.execute(sql.raw(`
         SELECT DATE(timestamp) as date,
