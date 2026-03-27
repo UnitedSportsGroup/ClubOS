@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum, uniqueIndex, time } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,8 @@ export const genderEnum = pgEnum("gender_type", ["male", "female", "other"]);
 export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training"]);
 export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
+export const facilityTypeEnum = pgEnum("facility_type", ["field", "mini_pitch", "meeting_room", "changing_room", "futsal", "court", "other"]);
+export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "paid", "pending", "cancelled"]);
 
 export const organizations = pgTable("organizations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -279,9 +281,69 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const facilities = pgTable("facilities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: facilityTypeEnum("type").notNull().default("field"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  halfFull: boolean("half_full").default(false),
+  floodlights: boolean("floodlights").default(false),
+  bufferMinutes: integer("buffer_minutes").default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const facilityPricingRules = pgTable("facility_pricing_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  facilityId: integer("facility_id").notNull().references(() => facilities.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  dayOfWeek: integer("day_of_week"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  pricePerHour: decimal("price_per_hour", { precision: 10, scale: 2 }).notNull(),
+  isDefault: boolean("is_default").default(false),
+});
+
+export const facilityBookings = pgTable("facility_bookings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  facilityId: integer("facility_id").notNull().references(() => facilities.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  customerPhone: text("customer_phone"),
+  bookingDate: date("booking_date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  gstAmount: decimal("gst_amount", { precision: 10, scale: 2 }),
+  status: bookingStatusEnum("status").notNull().default("pending"),
+  stripePaymentId: text("stripe_payment_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const facilityAddons = pgTable("facility_addons", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+  unit: text("unit").notNull().default("per_hour"),
+  appliesToAll: boolean("applies_to_all").default(true),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertSettingSchema = createInsertSchema(settings).omit({ updatedAt: true });
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
+
+export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true });
+export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricingRules).omit({ id: true });
+export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
+export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
@@ -349,3 +411,11 @@ export type InsertEmailCampaign = z.infer<typeof insertEmailCampaignSchema>;
 export type EmailCampaign = typeof emailCampaigns.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertFacility = z.infer<typeof insertFacilitySchema>;
+export type Facility = typeof facilities.$inferSelect;
+export type InsertFacilityPricingRule = z.infer<typeof insertFacilityPricingRuleSchema>;
+export type FacilityPricingRule = typeof facilityPricingRules.$inferSelect;
+export type InsertFacilityBooking = z.infer<typeof insertFacilityBookingSchema>;
+export type FacilityBooking = typeof facilityBookings.$inferSelect;
+export type InsertFacilityAddon = z.infer<typeof insertFacilityAddonSchema>;
+export type FacilityAddon = typeof facilityAddons.$inferSelect;

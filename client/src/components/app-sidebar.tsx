@@ -23,6 +23,11 @@ import {
   ChevronDown,
   Check,
   Building2,
+  Calendar,
+  BarChart3,
+  Shield,
+  Puzzle,
+  CreditCard,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -38,7 +43,7 @@ type Org = {
   userRole: string;
 };
 
-const mainNav = [
+const campsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Camps", url: "/admin/camps", icon: Tent },
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
@@ -46,13 +51,28 @@ const mainNav = [
   { title: "Mailer", url: "/admin/mailer", icon: Mail },
 ];
 
-const secondaryNav = [
+const venueNav = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "Bookings Calendar", url: "/admin/calendar", icon: Calendar },
+  { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
+  { title: "Facilities", url: "/admin/facilities", icon: Shield },
+  { title: "Add-ons", url: "/admin/addons", icon: Puzzle },
+  { title: "People & Access", url: "/admin/people", icon: Users },
+  { title: "Payments", url: "/admin/payments", icon: CreditCard },
+];
+
+const campsSecondary = [
   { title: "Settings", url: "/admin/settings", icon: Settings },
+];
+
+const venueSecondary = [
+  { title: "Settings", url: "/admin/venue-settings", icon: Settings },
 ];
 
 function WorkspaceSwitcher() {
   const { currentOrg, setCurrentOrg, organizations, setOrganizations } = useWorkspace();
   const [open, setOpen] = useState(false);
+  const [, setLocation] = useLocation();
   const { data: user } = useQuery<{ organizations?: Org[] }>({ queryKey: ["/api/auth/me"] });
 
   useEffect(() => {
@@ -62,6 +82,12 @@ function WorkspaceSwitcher() {
   }, [user?.organizations, setOrganizations]);
 
   if (!currentOrg || organizations.length === 0) return null;
+
+  const handleSwitch = (org: Org) => {
+    setCurrentOrg(org);
+    setOpen(false);
+    setLocation("/admin");
+  };
 
   return (
     <div className="relative">
@@ -95,11 +121,9 @@ function WorkspaceSwitcher() {
               {organizations.map(org => (
                 <button
                   key={org.id}
-                  onClick={() => { setCurrentOrg(org); setOpen(false); }}
+                  onClick={() => handleSwitch(org)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 transition-all cursor-pointer ${
-                    currentOrg.id === org.id
-                      ? "bg-blue-500/10"
-                      : "hover:bg-white/[0.03]"
+                    currentOrg.id === org.id ? "bg-blue-500/10" : "hover:bg-white/[0.03]"
                   }`}
                   data-testid={`button-workspace-${org.slug}`}
                 >
@@ -126,9 +150,18 @@ function WorkspaceSwitcher() {
   );
 }
 
+function isVenueWorkspace(slug: string | undefined) {
+  return slug === "united-sports-centre";
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
+  const { currentOrg } = useWorkspace();
   const { data: user } = useQuery<{ firstName: string; lastName: string; role: string }>({ queryKey: ["/api/auth/me"] });
+
+  const isVenue = isVenueWorkspace(currentOrg?.slug);
+  const mainNav = isVenue ? venueNav : campsNav;
+  const secondaryNav = isVenue ? venueSecondary : campsSecondary;
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),
@@ -143,13 +176,13 @@ export function AppSidebar() {
       <SidebarHeader className="px-3 py-4 border-b border-blue-500/[0.08] space-y-3">
         <div className="flex items-center gap-3 px-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse-glow">
-            <span className="text-white font-bold text-xs tracking-tight">CU</span>
+            <span className="text-white font-bold text-xs tracking-tight">{isVenue ? "US" : "CU"}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-semibold text-[13px] text-white/90 tracking-tight truncate" data-testid="text-club-name">
               ClubOS
             </span>
-            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">Management</span>
+            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">{isVenue ? "Venue" : "Management"}</span>
           </div>
         </div>
         <WorkspaceSwitcher />
@@ -176,7 +209,7 @@ export function AppSidebar() {
                           : "text-white/40 border border-transparent hover:text-white/60 hover:bg-white/[0.03]"
                       }`}
                     >
-                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}>
+                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/[\s&]/g, '-')}`}>
                         <item.icon className="w-4 h-4" />
                         <span className="text-[13px] font-medium">{item.title}</span>
                       </Link>

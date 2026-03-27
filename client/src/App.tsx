@@ -22,11 +22,19 @@ import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
 import BookingCancel from "@/pages/booking-cancel";
 import CheckoutPage from "@/pages/checkout-page";
+import VenueDashboard from "@/pages/venue-dashboard";
+import VenueCalendar from "@/pages/venue-calendar";
+import VenueAnalytics from "@/pages/venue-analytics";
+import VenueFacilities from "@/pages/venue-facilities";
+import VenueAddons from "@/pages/venue-addons";
+import VenuePeople from "@/pages/venue-people";
+import VenuePayments from "@/pages/venue-payments";
+import VenueSettings from "@/pages/venue-settings";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceProvider } from "@/lib/workspace-context";
+import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-context";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading, error } = useQuery({
@@ -55,6 +63,25 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AdminRouter() {
+  const { currentOrg } = useWorkspace();
+  const isVenue = currentOrg?.slug === "united-sports-centre";
+
+  if (isVenue) {
+    return (
+      <Switch>
+        <Route path="/admin" component={VenueDashboard} />
+        <Route path="/admin/calendar" component={VenueCalendar} />
+        <Route path="/admin/analytics" component={VenueAnalytics} />
+        <Route path="/admin/facilities" component={VenueFacilities} />
+        <Route path="/admin/addons" component={VenueAddons} />
+        <Route path="/admin/people" component={VenuePeople} />
+        <Route path="/admin/payments" component={VenuePayments} />
+        <Route path="/admin/venue-settings" component={VenueSettings} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
+
   return (
     <Switch>
       <Route path="/admin" component={AdminDashboard} />

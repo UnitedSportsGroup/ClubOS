@@ -8,6 +8,7 @@ import {
   children, childMedical, registrationItems,
   attendance, emailLogs, metaEventLogs, emailCampaigns,
   organizations, userOrganizations,
+  facilities, facilityPricingRules, facilityBookings, facilityAddons,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -29,6 +30,10 @@ import {
   type InsertAuditLog, type AuditLog,
   type Setting,
   type Organization,
+  type InsertFacility, type Facility,
+  type InsertFacilityPricingRule, type FacilityPricingRule,
+  type InsertFacilityBooking, type FacilityBooking,
+  type InsertFacilityAddon, type FacilityAddon,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -75,6 +80,26 @@ export interface IStorage {
   setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]>;
 
   getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]>;
+
+  getFacilities(orgId: number): Promise<Facility[]>;
+  getFacility(id: number): Promise<Facility | undefined>;
+  createFacility(data: InsertFacility): Promise<Facility>;
+  updateFacility(id: number, data: Partial<InsertFacility>): Promise<Facility | undefined>;
+  deleteFacility(id: number): Promise<void>;
+  getFacilityPricingRules(facilityId: number): Promise<FacilityPricingRule[]>;
+  createFacilityPricingRule(data: InsertFacilityPricingRule): Promise<FacilityPricingRule>;
+  deleteFacilityPricingRule(id: number): Promise<void>;
+
+  getFacilityBookings(orgId: number): Promise<(FacilityBooking & { facility?: Facility })[]>;
+  getFacilityBooking(id: number): Promise<FacilityBooking | undefined>;
+  createFacilityBooking(data: InsertFacilityBooking): Promise<FacilityBooking>;
+  updateFacilityBooking(id: number, data: Partial<InsertFacilityBooking>): Promise<FacilityBooking | undefined>;
+  deleteFacilityBooking(id: number): Promise<void>;
+
+  getFacilityAddons(orgId: number): Promise<FacilityAddon[]>;
+  createFacilityAddon(data: InsertFacilityAddon): Promise<FacilityAddon>;
+  updateFacilityAddon(id: number, data: Partial<InsertFacilityAddon>): Promise<FacilityAddon | undefined>;
+  deleteFacilityAddon(id: number): Promise<void>;
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
@@ -893,6 +918,90 @@ export class DatabaseStorage implements IStorage {
     }
 
     return [];
+  }
+
+  async getFacilities(orgId: number): Promise<Facility[]> {
+    return db.select().from(facilities).where(eq(facilities.organizationId, orgId)).orderBy(asc(facilities.name));
+  }
+
+  async getFacility(id: number): Promise<Facility | undefined> {
+    const [f] = await db.select().from(facilities).where(eq(facilities.id, id));
+    return f;
+  }
+
+  async createFacility(data: InsertFacility): Promise<Facility> {
+    const [f] = await db.insert(facilities).values(data).returning();
+    return f;
+  }
+
+  async updateFacility(id: number, data: Partial<InsertFacility>): Promise<Facility | undefined> {
+    const [f] = await db.update(facilities).set(data).where(eq(facilities.id, id)).returning();
+    return f;
+  }
+
+  async deleteFacility(id: number): Promise<void> {
+    await db.delete(facilities).where(eq(facilities.id, id));
+  }
+
+  async getFacilityPricingRules(facilityId: number): Promise<FacilityPricingRule[]> {
+    return db.select().from(facilityPricingRules).where(eq(facilityPricingRules.facilityId, facilityId));
+  }
+
+  async createFacilityPricingRule(data: InsertFacilityPricingRule): Promise<FacilityPricingRule> {
+    const [r] = await db.insert(facilityPricingRules).values(data).returning();
+    return r;
+  }
+
+  async deleteFacilityPricingRule(id: number): Promise<void> {
+    await db.delete(facilityPricingRules).where(eq(facilityPricingRules.id, id));
+  }
+
+  async getFacilityBookings(orgId: number): Promise<(FacilityBooking & { facility?: Facility })[]> {
+    const rows = await db.select({
+      booking: facilityBookings,
+      facility: facilities,
+    }).from(facilityBookings)
+      .leftJoin(facilities, eq(facilityBookings.facilityId, facilities.id))
+      .where(eq(facilityBookings.organizationId, orgId))
+      .orderBy(desc(facilityBookings.createdAt));
+    return rows.map(r => ({ ...r.booking, facility: r.facility || undefined }));
+  }
+
+  async getFacilityBooking(id: number): Promise<FacilityBooking | undefined> {
+    const [b] = await db.select().from(facilityBookings).where(eq(facilityBookings.id, id));
+    return b;
+  }
+
+  async createFacilityBooking(data: InsertFacilityBooking): Promise<FacilityBooking> {
+    const [b] = await db.insert(facilityBookings).values(data).returning();
+    return b;
+  }
+
+  async updateFacilityBooking(id: number, data: Partial<InsertFacilityBooking>): Promise<FacilityBooking | undefined> {
+    const [b] = await db.update(facilityBookings).set(data).where(eq(facilityBookings.id, id)).returning();
+    return b;
+  }
+
+  async deleteFacilityBooking(id: number): Promise<void> {
+    await db.delete(facilityBookings).where(eq(facilityBookings.id, id));
+  }
+
+  async getFacilityAddons(orgId: number): Promise<FacilityAddon[]> {
+    return db.select().from(facilityAddons).where(eq(facilityAddons.organizationId, orgId)).orderBy(asc(facilityAddons.name));
+  }
+
+  async createFacilityAddon(data: InsertFacilityAddon): Promise<FacilityAddon> {
+    const [a] = await db.insert(facilityAddons).values(data).returning();
+    return a;
+  }
+
+  async updateFacilityAddon(id: number, data: Partial<InsertFacilityAddon>): Promise<FacilityAddon | undefined> {
+    const [a] = await db.update(facilityAddons).set(data).where(eq(facilityAddons.id, id)).returning();
+    return a;
+  }
+
+  async deleteFacilityAddon(id: number): Promise<void> {
+    await db.delete(facilityAddons).where(eq(facilityAddons.id, id));
   }
 }
 

@@ -915,6 +915,156 @@ export async function registerRoutes(
     }
   });
 
+  // ============ VENUE / FACILITY ROUTES ============
+
+  app.get("/api/admin/venue/facilities", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const list = await storage.getFacilities(orgId);
+      const withRules = await Promise.all(list.map(async f => {
+        const rules = await storage.getFacilityPricingRules(f.id);
+        return { ...f, pricingRulesCount: rules.length };
+      }));
+      res.json(withRules);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/facilities", requireAuth, async (req, res) => {
+    try {
+      const facility = await storage.createFacility(req.body);
+      res.json(facility);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/venue/facilities/:id", requireAuth, async (req, res) => {
+    try {
+      const facility = await storage.updateFacility(parseInt(req.params.id), req.body);
+      if (!facility) return res.status(404).json({ message: "Not found" });
+      res.json(facility);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/venue/facilities/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteFacility(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/venue/facilities/:id/pricing", requireAuth, async (req, res) => {
+    try {
+      const rules = await storage.getFacilityPricingRules(parseInt(req.params.id));
+      res.json(rules);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/facilities/:id/pricing", requireAuth, async (req, res) => {
+    try {
+      const rule = await storage.createFacilityPricingRule({ ...req.body, facilityId: parseInt(req.params.id) });
+      res.json(rule);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/venue/pricing/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteFacilityPricingRule(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/venue/bookings", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const bookings = await storage.getFacilityBookings(orgId);
+      res.json(bookings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/bookings", requireAuth, async (req, res) => {
+    try {
+      const booking = await storage.createFacilityBooking(req.body);
+      res.json(booking);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/venue/bookings/:id", requireAuth, async (req, res) => {
+    try {
+      const booking = await storage.updateFacilityBooking(parseInt(req.params.id), req.body);
+      if (!booking) return res.status(404).json({ message: "Not found" });
+      res.json(booking);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/venue/bookings/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteFacilityBooking(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/venue/addons", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const addons = await storage.getFacilityAddons(orgId);
+      res.json(addons);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/addons", requireAuth, async (req, res) => {
+    try {
+      const addon = await storage.createFacilityAddon(req.body);
+      res.json(addon);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/venue/addons/:id", requireAuth, async (req, res) => {
+    try {
+      const addon = await storage.updateFacilityAddon(parseInt(req.params.id), req.body);
+      if (!addon) return res.status(404).json({ message: "Not found" });
+      res.json(addon);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/venue/addons/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteFacilityAddon(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/audit-logs", requireAuth, async (_req, res) => {
     try {
       const logs = await storage.getAuditLogs();

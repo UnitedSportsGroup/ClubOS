@@ -40,7 +40,16 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - Workspace switcher in sidebar header — stores selection in localStorage
 - `/api/auth/me` returns user's organizations array
 - Logos served from `/logos/` in client/public
-- Note: Backend filtering by workspace is not yet implemented — currently UI-only switching
+- Workspace-aware sidebar: CU shows Camps nav, USC shows VenueFlow nav
+- Workspace-aware routing: AdminRouter renders different page sets based on currentOrg.slug
+
+### United Sports Centre — VenueFlow
+- Facility hire management platform built inside the USC workspace
+- DB tables: `facilities`, `facility_pricing_rules`, `facility_bookings`, `facility_addons`
+- 9 seeded facilities: S1/S2 (Fields), Mini Pitch 1/2, Meeting Room, Changing Room 1/2/3, Futsal Court
+- API routes under `/api/admin/venue/*` (facilities, bookings, addons — all require orgId query param)
+- Pages: venue-dashboard, venue-calendar, venue-analytics, venue-facilities, venue-addons, venue-people, venue-payments, venue-settings
+- Sidebar nav: Dashboard, Bookings Calendar, Analytics, Facilities, Add-ons, People & Access, Payments, Settings
 
 ## Auth & Roles
 - express-session with PgSession store (connect-pg-simple)

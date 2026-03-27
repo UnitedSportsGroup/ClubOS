@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations } from "@shared/schema";
+import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities } from "@shared/schema";
 import { sql, eq } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
@@ -258,4 +258,26 @@ async function seedOrganizations() {
     }
   }
   console.log("Organizations seeded");
+
+  const uscOrg = allOrgs.find(o => o.slug === "united-sports-centre");
+  if (uscOrg) {
+    const [existingFacilities] = await db.select({ count: sql<number>`count(*)` }).from(facilities);
+    if (Number(existingFacilities.count) === 0) {
+      const facilityData = [
+        { organizationId: uscOrg.id, name: "S1 (Field 1)", type: "field" as const, halfFull: true, floodlights: true },
+        { organizationId: uscOrg.id, name: "S2 (Field 2)", type: "field" as const, halfFull: true, floodlights: true },
+        { organizationId: uscOrg.id, name: "Mini Pitch 1", type: "mini_pitch" as const, floodlights: true },
+        { organizationId: uscOrg.id, name: "Mini Pitch 2", type: "mini_pitch" as const, floodlights: true },
+        { organizationId: uscOrg.id, name: "Meeting Room", type: "meeting_room" as const },
+        { organizationId: uscOrg.id, name: "Changing Room 1", type: "changing_room" as const },
+        { organizationId: uscOrg.id, name: "Changing Room 2", type: "changing_room" as const },
+        { organizationId: uscOrg.id, name: "Changing Room 3", type: "changing_room" as const },
+        { organizationId: uscOrg.id, name: "Futsal Court", type: "futsal" as const, floodlights: true },
+      ];
+      for (const f of facilityData) {
+        await db.insert(facilities).values(f);
+      }
+      console.log("USC facilities seeded");
+    }
+  }
 }
