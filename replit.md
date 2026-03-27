@@ -40,7 +40,7 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - Workspace switcher in sidebar header — stores selection in localStorage
 - `/api/auth/me` returns user's organizations array
 - Logos served from `/logos/` in client/public
-- Workspace-aware sidebar: CU shows Camps nav, USC shows VenueFlow nav
+- Workspace-aware sidebar: CU shows Camps nav, USC shows VenueFlow nav, MFL shows Leagues nav
 - Workspace-aware routing: AdminRouter renders different page sets based on currentOrg.slug
 
 ### United Sports Centre — VenueFlow
@@ -50,6 +50,15 @@ Holiday camp booking and management platform for Christchurch United Football Cl
 - API routes under `/api/admin/venue/*` (facilities, bookings, addons — all require orgId query param)
 - Pages: venue-dashboard, venue-calendar, venue-analytics, venue-facilities, venue-addons, venue-people, venue-payments, venue-settings
 - Sidebar nav: Dashboard, Bookings Calendar, Analytics, Facilities, Add-ons, People & Access, Payments, Settings
+
+### Mini Football Leagues — League Management
+- SportNinja-inspired league management platform in the MFL workspace
+- DB tables: `league_competitions`, `league_divisions`, `league_teams`, `league_games`, `league_coupons`
+- Seeded data: 2 competitions (Saturday Morning Mini League, Friday Night Futsal), 4 divisions, 24 teams, sample games with scores
+- API routes under `/api/admin/league/*` (competitions, divisions, teams, games, standings, coupons)
+- Pages: league-dashboard, league-competitions, league-competition-detail (tabs: Schedule/Standings/Setup/Registration/Coupons), league-teams, league-settings
+- Sidebar nav: Dashboard, Competitions, Teams + Settings (secondary)
+- Competition detail features: game scheduling, live standings calculation, division management, registration status toggle, coupon management
 
 ## Auth & Roles
 - express-session with PgSession store (connect-pg-simple)

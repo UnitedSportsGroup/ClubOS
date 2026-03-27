@@ -1065,6 +1065,216 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/league/competitions", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const comps = await storage.getLeagueCompetitions(orgId);
+      res.json(comps);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/competitions/:id", requireAuth, async (req, res) => {
+    try {
+      const comp = await storage.getLeagueCompetition(parseInt(req.params.id));
+      if (!comp) return res.status(404).json({ message: "Not found" });
+      res.json(comp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/league/competitions", requireAuth, async (req, res) => {
+    try {
+      const comp = await storage.createLeagueCompetition(req.body);
+      res.json(comp);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/league/competitions/:id", requireAuth, async (req, res) => {
+    try {
+      const comp = await storage.updateLeagueCompetition(parseInt(req.params.id), req.body);
+      if (!comp) return res.status(404).json({ message: "Not found" });
+      res.json(comp);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/league/competitions/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteLeagueCompetition(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/competitions/:id/divisions", requireAuth, async (req, res) => {
+    try {
+      const divs = await storage.getLeagueDivisions(parseInt(req.params.id));
+      res.json(divs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/league/divisions", requireAuth, async (req, res) => {
+    try {
+      const div = await storage.createLeagueDivision(req.body);
+      res.json(div);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/league/divisions/:id", requireAuth, async (req, res) => {
+    try {
+      const div = await storage.updateLeagueDivision(parseInt(req.params.id), req.body);
+      if (!div) return res.status(404).json({ message: "Not found" });
+      res.json(div);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/league/divisions/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteLeagueDivision(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/teams", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const competitionId = req.query.competitionId ? parseInt(req.query.competitionId as string) : undefined;
+      const teams = await storage.getLeagueTeams(orgId, competitionId);
+      res.json(teams);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/league/teams", requireAuth, async (req, res) => {
+    try {
+      const team = await storage.createLeagueTeam(req.body);
+      res.json(team);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/league/teams/:id", requireAuth, async (req, res) => {
+    try {
+      const team = await storage.updateLeagueTeam(parseInt(req.params.id), req.body);
+      if (!team) return res.status(404).json({ message: "Not found" });
+      res.json(team);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/league/teams/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteLeagueTeam(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/competitions/:id/games", requireAuth, async (req, res) => {
+    try {
+      const games = await storage.getLeagueGames(parseInt(req.params.id));
+      res.json(games);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/league/games", requireAuth, async (req, res) => {
+    try {
+      const game = await storage.createLeagueGame(req.body);
+      res.json(game);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/league/games/:id", requireAuth, async (req, res) => {
+    try {
+      const game = await storage.updateLeagueGame(parseInt(req.params.id), req.body);
+      if (!game) return res.status(404).json({ message: "Not found" });
+      res.json(game);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/league/games/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteLeagueGame(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/competitions/:id/standings", requireAuth, async (req, res) => {
+    try {
+      const divisionId = req.query.divisionId ? parseInt(req.query.divisionId as string) : undefined;
+      const standings = await storage.getLeagueStandings(parseInt(req.params.id), divisionId);
+      res.json(standings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/league/competitions/:id/coupons", requireAuth, async (req, res) => {
+    try {
+      const coupons = await storage.getLeagueCoupons(parseInt(req.params.id));
+      res.json(coupons);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/league/coupons", requireAuth, async (req, res) => {
+    try {
+      const coupon = await storage.createLeagueCoupon(req.body);
+      res.json(coupon);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/league/coupons/:id", requireAuth, async (req, res) => {
+    try {
+      const coupon = await storage.updateLeagueCoupon(parseInt(req.params.id), req.body);
+      if (!coupon) return res.status(404).json({ message: "Not found" });
+      res.json(coupon);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/league/coupons/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteLeagueCoupon(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/audit-logs", requireAuth, async (_req, res) => {
     try {
       const logs = await storage.getAuditLogs();

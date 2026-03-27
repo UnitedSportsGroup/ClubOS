@@ -30,6 +30,11 @@ import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
 import VenuePayments from "@/pages/venue-payments";
 import VenueSettings from "@/pages/venue-settings";
+import LeagueDashboard from "@/pages/league-dashboard";
+import LeagueCompetitions from "@/pages/league-competitions";
+import LeagueCompetitionDetail from "@/pages/league-competition-detail";
+import LeagueTeams from "@/pages/league-teams";
+import LeagueSettings from "@/pages/league-settings";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -65,6 +70,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function AdminRouter() {
   const { currentOrg } = useWorkspace();
   const isVenue = currentOrg?.slug === "united-sports-centre";
+  const isLeague = currentOrg?.slug === "mini-football-leagues";
+
+  if (isLeague) {
+    return (
+      <Switch>
+        <Route path="/admin" component={LeagueDashboard} />
+        <Route path="/admin/competitions/:id" component={LeagueCompetitionDetail} />
+        <Route path="/admin/competitions" component={LeagueCompetitions} />
+        <Route path="/admin/teams" component={LeagueTeams} />
+        <Route path="/admin/league-settings" component={LeagueSettings} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
 
   if (isVenue) {
     return (

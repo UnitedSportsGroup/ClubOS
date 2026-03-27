@@ -336,6 +336,94 @@ export const facilityAddons = pgTable("facility_addons", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const leagueRegistrationStatusEnum = pgEnum("league_reg_status", ["open", "closed", "none"]);
+export const gameStatusEnum = pgEnum("game_status", ["scheduled", "in_progress", "final", "cancelled", "forfeit"]);
+
+export const leagueCompetitions = pgTable("league_competitions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sport: text("sport").notNull().default("Soccer"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  registrationStatus: text("registration_status").notNull().default("none"),
+  youthLeague: boolean("youth_league").default(true),
+  teamChat: boolean("team_chat").default(false),
+  playoffCompetition: boolean("playoff_competition").default(false),
+  enableRegistration: boolean("enable_registration").default(false),
+  isPrivate: boolean("is_private").default(false),
+  archived: boolean("archived").default(false),
+  settingsJson: text("settings_json"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  contactWebsite: text("contact_website"),
+  bannerImageUrl: text("banner_image_url"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leagueDivisions = pgTable("league_divisions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  competitionId: integer("competition_id").notNull().references(() => leagueCompetitions.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  gender: text("gender"),
+  ageGroup: text("age_group"),
+  dayOfWeek: text("day_of_week"),
+  maxTeams: integer("max_teams"),
+  teamCostCents: integer("team_cost_cents").default(0),
+  playerCostCents: integer("player_cost_cents").default(0),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leagueTeams = pgTable("league_teams", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  competitionId: integer("competition_id").notNull().references(() => leagueCompetitions.id, { onDelete: "cascade" }),
+  divisionId: integer("division_id").references(() => leagueDivisions.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  logoUrl: text("logo_url"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  primaryColor: text("primary_color"),
+  secondaryColor: text("secondary_color"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leagueGames = pgTable("league_games", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  competitionId: integer("competition_id").notNull().references(() => leagueCompetitions.id, { onDelete: "cascade" }),
+  divisionId: integer("division_id").references(() => leagueDivisions.id, { onDelete: "set null" }),
+  homeTeamId: integer("home_team_id").references(() => leagueTeams.id, { onDelete: "set null" }),
+  awayTeamId: integer("away_team_id").references(() => leagueTeams.id, { onDelete: "set null" }),
+  gameNumber: integer("game_number"),
+  gameDate: date("game_date"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  location: text("location"),
+  surface: text("surface"),
+  status: text("status").notNull().default("scheduled"),
+  homeScore: integer("home_score"),
+  awayScore: integer("away_score"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leagueCoupons = pgTable("league_coupons", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  competitionId: integer("competition_id").notNull().references(() => leagueCompetitions.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  discountPercent: integer("discount_percent"),
+  discountAmountCents: integer("discount_amount_cents"),
+  maxUsage: integer("max_usage"),
+  currentUsage: integer("current_usage").default(0),
+  validUntil: date("valid_until"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertSettingSchema = createInsertSchema(settings).omit({ updatedAt: true });
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
@@ -344,6 +432,12 @@ export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: tr
 export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricingRules).omit({ id: true });
 export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
 export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
+
+export const insertLeagueCompetitionSchema = createInsertSchema(leagueCompetitions).omit({ id: true, createdAt: true });
+export const insertLeagueDivisionSchema = createInsertSchema(leagueDivisions).omit({ id: true, createdAt: true });
+export const insertLeagueTeamSchema = createInsertSchema(leagueTeams).omit({ id: true, createdAt: true });
+export const insertLeagueGameSchema = createInsertSchema(leagueGames).omit({ id: true, createdAt: true });
+export const insertLeagueCouponSchema = createInsertSchema(leagueCoupons).omit({ id: true, createdAt: true });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
@@ -419,3 +513,13 @@ export type InsertFacilityBooking = z.infer<typeof insertFacilityBookingSchema>;
 export type FacilityBooking = typeof facilityBookings.$inferSelect;
 export type InsertFacilityAddon = z.infer<typeof insertFacilityAddonSchema>;
 export type FacilityAddon = typeof facilityAddons.$inferSelect;
+export type InsertLeagueCompetition = z.infer<typeof insertLeagueCompetitionSchema>;
+export type LeagueCompetition = typeof leagueCompetitions.$inferSelect;
+export type InsertLeagueDivision = z.infer<typeof insertLeagueDivisionSchema>;
+export type LeagueDivision = typeof leagueDivisions.$inferSelect;
+export type InsertLeagueTeam = z.infer<typeof insertLeagueTeamSchema>;
+export type LeagueTeam = typeof leagueTeams.$inferSelect;
+export type InsertLeagueGame = z.infer<typeof insertLeagueGameSchema>;
+export type LeagueGame = typeof leagueGames.$inferSelect;
+export type InsertLeagueCoupon = z.infer<typeof insertLeagueCouponSchema>;
+export type LeagueCoupon = typeof leagueCoupons.$inferSelect;

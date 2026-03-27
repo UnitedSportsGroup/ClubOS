@@ -28,6 +28,8 @@ import {
   Shield,
   Puzzle,
   CreditCard,
+  Trophy,
+  UsersRound,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -65,8 +67,18 @@ const campsSecondary = [
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
+const leagueNav = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "Competitions", url: "/admin/competitions", icon: Trophy },
+  { title: "Teams", url: "/admin/teams", icon: UsersRound },
+];
+
 const venueSecondary = [
   { title: "Settings", url: "/admin/venue-settings", icon: Settings },
+];
+
+const leagueSecondary = [
+  { title: "Settings", url: "/admin/league-settings", icon: Settings },
 ];
 
 function WorkspaceSwitcher() {
@@ -154,14 +166,31 @@ function isVenueWorkspace(slug: string | undefined) {
   return slug === "united-sports-centre";
 }
 
+function isLeagueWorkspace(slug: string | undefined) {
+  return slug === "mini-football-leagues";
+}
+
+function getWorkspaceLabel(slug: string | undefined) {
+  if (isVenueWorkspace(slug)) return "Venue";
+  if (isLeagueWorkspace(slug)) return "Leagues";
+  return "Management";
+}
+
+function getWorkspaceInitials(slug: string | undefined) {
+  if (isVenueWorkspace(slug)) return "US";
+  if (isLeagueWorkspace(slug)) return "ML";
+  return "CU";
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { currentOrg } = useWorkspace();
   const { data: user } = useQuery<{ firstName: string; lastName: string; role: string }>({ queryKey: ["/api/auth/me"] });
 
   const isVenue = isVenueWorkspace(currentOrg?.slug);
-  const mainNav = isVenue ? venueNav : campsNav;
-  const secondaryNav = isVenue ? venueSecondary : campsSecondary;
+  const isLeague = isLeagueWorkspace(currentOrg?.slug);
+  const mainNav = isLeague ? leagueNav : isVenue ? venueNav : campsNav;
+  const secondaryNav = isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),
@@ -176,13 +205,13 @@ export function AppSidebar() {
       <SidebarHeader className="px-3 py-4 border-b border-blue-500/[0.08] space-y-3">
         <div className="flex items-center gap-3 px-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/25 animate-pulse-glow">
-            <span className="text-white font-bold text-xs tracking-tight">{isVenue ? "US" : "CU"}</span>
+            <span className="text-white font-bold text-xs tracking-tight">{getWorkspaceInitials(currentOrg?.slug)}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-semibold text-[13px] text-white/90 tracking-tight truncate" data-testid="text-club-name">
               ClubOS
             </span>
-            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">{isVenue ? "Venue" : "Management"}</span>
+            <span className="text-[10px] text-blue-400/40 tracking-wider uppercase">{getWorkspaceLabel(currentOrg?.slug)}</span>
           </div>
         </div>
         <WorkspaceSwitcher />

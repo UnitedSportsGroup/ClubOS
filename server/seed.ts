@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities } from "@shared/schema";
+import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames } from "@shared/schema";
 import { sql, eq } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
@@ -278,6 +278,91 @@ async function seedOrganizations() {
         await db.insert(facilities).values(f);
       }
       console.log("USC facilities seeded");
+    }
+  }
+
+  const mflOrg = allOrgs.find(o => o.slug === "mini-football-leagues");
+  if (mflOrg) {
+    const [existingComps] = await db.select({ count: sql<number>`count(*)` }).from(leagueCompetitions).where(eq(leagueCompetitions.organizationId, mflOrg.id));
+    if (Number(existingComps.count) === 0) {
+      const [comp1] = await db.insert(leagueCompetitions).values({
+        organizationId: mflOrg.id,
+        name: "Saturday Morning Mini League",
+        sport: "Soccer",
+        startDate: "2026-03-07",
+        endDate: "2026-06-27",
+        registrationStatus: "open",
+        youthLeague: true,
+        enableRegistration: true,
+        contactEmail: "leagues@cufc.co.nz",
+        contactPhone: "021 446 212",
+      }).returning();
+
+      const [comp2] = await db.insert(leagueCompetitions).values({
+        organizationId: mflOrg.id,
+        name: "Friday Night Futsal",
+        sport: "Futsal",
+        startDate: "2026-04-03",
+        endDate: "2026-07-31",
+        registrationStatus: "closed",
+        youthLeague: true,
+        enableRegistration: true,
+        contactEmail: "futsal@cufc.co.nz",
+      }).returning();
+
+      const [div1] = await db.insert(leagueDivisions).values({ competitionId: comp1.id, name: "Year 3-4 Mixed", ageGroup: "Year 3-4", gender: "Mixed", dayOfWeek: "Saturday", maxTeams: 12, sortOrder: 0 }).returning();
+      const [div2] = await db.insert(leagueDivisions).values({ competitionId: comp1.id, name: "Year 5-6 Mixed", ageGroup: "Year 5-6", gender: "Mixed", dayOfWeek: "Saturday", maxTeams: 10, sortOrder: 1 }).returning();
+      const [div3] = await db.insert(leagueDivisions).values({ competitionId: comp1.id, name: "Year 7-8 Boys", ageGroup: "Year 7-8", gender: "Boys", dayOfWeek: "Saturday", maxTeams: 8, sortOrder: 2 }).returning();
+      const [div4] = await db.insert(leagueDivisions).values({ competitionId: comp2.id, name: "Year 5-6 Futsal", ageGroup: "Year 5-6", dayOfWeek: "Friday", maxTeams: 8, sortOrder: 0 }).returning();
+
+      const teamNames34 = ["Christchurch United Blue", "Halswell United", "Burnside FC", "Cashmere Tech Gold", "Avon Rangers", "Ferrymead Bays Red", "Papanui FC", "Northern United"];
+      const teamNames56 = ["CU Academy", "Cashmere Tech Blue", "Selwyn United", "Burnham FC", "Lincoln FC", "Darfield Rangers"];
+      const teamNames78 = ["CU Development", "South Island Stars", "Port Hills United", "Waimak FC"];
+      const futsalNames = ["CU Futsal A", "CU Futsal B", "Burnside Futsal", "Northern Futsal", "Cashmere Futsal", "Selwyn Futsal"];
+
+      const allTeamData = [
+        ...teamNames34.map(n => ({ organizationId: mflOrg.id, competitionId: comp1.id, divisionId: div1.id, name: n })),
+        ...teamNames56.map(n => ({ organizationId: mflOrg.id, competitionId: comp1.id, divisionId: div2.id, name: n })),
+        ...teamNames78.map(n => ({ organizationId: mflOrg.id, competitionId: comp1.id, divisionId: div3.id, name: n })),
+        ...futsalNames.map(n => ({ organizationId: mflOrg.id, competitionId: comp2.id, divisionId: div4.id, name: n })),
+      ];
+
+      const insertedTeams = [];
+      for (const t of allTeamData) {
+        const [team] = await db.insert(leagueTeams).values(t).returning();
+        insertedTeams.push(team);
+      }
+
+      const div1Teams = insertedTeams.filter(t => t.divisionId === div1.id);
+      const gameData = [];
+      let gameNum = 1;
+      const startDate = new Date("2026-03-07");
+      for (let week = 0; week < 4; week++) {
+        const gameDate = new Date(startDate);
+        gameDate.setDate(gameDate.getDate() + week * 7);
+        const dateStr = gameDate.toISOString().split("T")[0];
+        for (let i = 0; i < div1Teams.length - 1; i += 2) {
+          gameData.push({
+            competitionId: comp1.id,
+            divisionId: div1.id,
+            homeTeamId: div1Teams[i].id,
+            awayTeamId: div1Teams[i + 1].id,
+            gameNumber: gameNum++,
+            gameDate: dateStr,
+            startTime: `${9 + Math.floor(i / 2)}:00`,
+            location: "Christchurch Football Centre",
+            status: week < 2 ? "final" : "scheduled",
+            homeScore: week < 2 ? Math.floor(Math.random() * 5) : null,
+            awayScore: week < 2 ? Math.floor(Math.random() * 4) : null,
+          });
+        }
+      }
+
+      for (const g of gameData) {
+        await db.insert(leagueGames).values(g);
+      }
+
+      console.log("MFL competitions, divisions, teams, and games seeded");
     }
   }
 }

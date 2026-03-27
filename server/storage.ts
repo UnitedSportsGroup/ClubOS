@@ -9,6 +9,7 @@ import {
   attendance, emailLogs, metaEventLogs, emailCampaigns,
   organizations, userOrganizations,
   facilities, facilityPricingRules, facilityBookings, facilityAddons,
+  leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueCoupons,
   type InsertUser, type User,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
@@ -34,6 +35,11 @@ import {
   type InsertFacilityPricingRule, type FacilityPricingRule,
   type InsertFacilityBooking, type FacilityBooking,
   type InsertFacilityAddon, type FacilityAddon,
+  type InsertLeagueCompetition, type LeagueCompetition,
+  type InsertLeagueDivision, type LeagueDivision,
+  type InsertLeagueTeam, type LeagueTeam,
+  type InsertLeagueGame, type LeagueGame,
+  type InsertLeagueCoupon, type LeagueCoupon,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -100,6 +106,37 @@ export interface IStorage {
   createFacilityAddon(data: InsertFacilityAddon): Promise<FacilityAddon>;
   updateFacilityAddon(id: number, data: Partial<InsertFacilityAddon>): Promise<FacilityAddon | undefined>;
   deleteFacilityAddon(id: number): Promise<void>;
+
+  getLeagueCompetitions(orgId: number): Promise<LeagueCompetition[]>;
+  getLeagueCompetition(id: number): Promise<LeagueCompetition | undefined>;
+  createLeagueCompetition(data: InsertLeagueCompetition): Promise<LeagueCompetition>;
+  updateLeagueCompetition(id: number, data: Partial<InsertLeagueCompetition>): Promise<LeagueCompetition | undefined>;
+  deleteLeagueCompetition(id: number): Promise<void>;
+
+  getLeagueDivisions(competitionId: number): Promise<LeagueDivision[]>;
+  getLeagueDivision(id: number): Promise<LeagueDivision | undefined>;
+  createLeagueDivision(data: InsertLeagueDivision): Promise<LeagueDivision>;
+  updateLeagueDivision(id: number, data: Partial<InsertLeagueDivision>): Promise<LeagueDivision | undefined>;
+  deleteLeagueDivision(id: number): Promise<void>;
+
+  getLeagueTeams(orgId: number, competitionId?: number): Promise<(LeagueTeam & { division?: LeagueDivision })[]>;
+  getLeagueTeam(id: number): Promise<LeagueTeam | undefined>;
+  createLeagueTeam(data: InsertLeagueTeam): Promise<LeagueTeam>;
+  updateLeagueTeam(id: number, data: Partial<InsertLeagueTeam>): Promise<LeagueTeam | undefined>;
+  deleteLeagueTeam(id: number): Promise<void>;
+
+  getLeagueGames(competitionId: number): Promise<(LeagueGame & { homeTeam?: LeagueTeam; awayTeam?: LeagueTeam; division?: LeagueDivision })[]>;
+  getLeagueGame(id: number): Promise<LeagueGame | undefined>;
+  createLeagueGame(data: InsertLeagueGame): Promise<LeagueGame>;
+  updateLeagueGame(id: number, data: Partial<InsertLeagueGame>): Promise<LeagueGame | undefined>;
+  deleteLeagueGame(id: number): Promise<void>;
+
+  getLeagueCoupons(competitionId: number): Promise<LeagueCoupon[]>;
+  createLeagueCoupon(data: InsertLeagueCoupon): Promise<LeagueCoupon>;
+  updateLeagueCoupon(id: number, data: Partial<InsertLeagueCoupon>): Promise<LeagueCoupon | undefined>;
+  deleteLeagueCoupon(id: number): Promise<void>;
+
+  getLeagueStandings(competitionId: number, divisionId?: number): Promise<{ teamId: number; teamName: string; divisionId: number | null; divisionName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]>;
 
   getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]>;
   getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]>;
@@ -1002,6 +1039,182 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFacilityAddon(id: number): Promise<void> {
     await db.delete(facilityAddons).where(eq(facilityAddons.id, id));
+  }
+
+  async getLeagueCompetitions(orgId: number): Promise<LeagueCompetition[]> {
+    return db.select().from(leagueCompetitions).where(eq(leagueCompetitions.organizationId, orgId)).orderBy(desc(leagueCompetitions.createdAt));
+  }
+
+  async getLeagueCompetition(id: number): Promise<LeagueCompetition | undefined> {
+    const [c] = await db.select().from(leagueCompetitions).where(eq(leagueCompetitions.id, id));
+    return c;
+  }
+
+  async createLeagueCompetition(data: InsertLeagueCompetition): Promise<LeagueCompetition> {
+    const [c] = await db.insert(leagueCompetitions).values(data).returning();
+    return c;
+  }
+
+  async updateLeagueCompetition(id: number, data: Partial<InsertLeagueCompetition>): Promise<LeagueCompetition | undefined> {
+    const [c] = await db.update(leagueCompetitions).set(data).where(eq(leagueCompetitions.id, id)).returning();
+    return c;
+  }
+
+  async deleteLeagueCompetition(id: number): Promise<void> {
+    await db.delete(leagueCompetitions).where(eq(leagueCompetitions.id, id));
+  }
+
+  async getLeagueDivisions(competitionId: number): Promise<LeagueDivision[]> {
+    return db.select().from(leagueDivisions).where(eq(leagueDivisions.competitionId, competitionId)).orderBy(asc(leagueDivisions.sortOrder));
+  }
+
+  async getLeagueDivision(id: number): Promise<LeagueDivision | undefined> {
+    const [d] = await db.select().from(leagueDivisions).where(eq(leagueDivisions.id, id));
+    return d;
+  }
+
+  async createLeagueDivision(data: InsertLeagueDivision): Promise<LeagueDivision> {
+    const [d] = await db.insert(leagueDivisions).values(data).returning();
+    return d;
+  }
+
+  async updateLeagueDivision(id: number, data: Partial<InsertLeagueDivision>): Promise<LeagueDivision | undefined> {
+    const [d] = await db.update(leagueDivisions).set(data).where(eq(leagueDivisions.id, id)).returning();
+    return d;
+  }
+
+  async deleteLeagueDivision(id: number): Promise<void> {
+    await db.delete(leagueDivisions).where(eq(leagueDivisions.id, id));
+  }
+
+  async getLeagueTeams(orgId: number, competitionId?: number): Promise<(LeagueTeam & { division?: LeagueDivision })[]> {
+    const conditions = [eq(leagueTeams.organizationId, orgId)];
+    if (competitionId) conditions.push(eq(leagueTeams.competitionId, competitionId));
+    const rows = await db.select({
+      team: leagueTeams,
+      division: leagueDivisions,
+    }).from(leagueTeams)
+      .leftJoin(leagueDivisions, eq(leagueTeams.divisionId, leagueDivisions.id))
+      .where(and(...conditions))
+      .orderBy(asc(leagueTeams.name));
+    return rows.map(r => ({ ...r.team, division: r.division || undefined }));
+  }
+
+  async getLeagueTeam(id: number): Promise<LeagueTeam | undefined> {
+    const [t] = await db.select().from(leagueTeams).where(eq(leagueTeams.id, id));
+    return t;
+  }
+
+  async createLeagueTeam(data: InsertLeagueTeam): Promise<LeagueTeam> {
+    const [t] = await db.insert(leagueTeams).values(data).returning();
+    return t;
+  }
+
+  async updateLeagueTeam(id: number, data: Partial<InsertLeagueTeam>): Promise<LeagueTeam | undefined> {
+    const [t] = await db.update(leagueTeams).set(data).where(eq(leagueTeams.id, id)).returning();
+    return t;
+  }
+
+  async deleteLeagueTeam(id: number): Promise<void> {
+    await db.delete(leagueTeams).where(eq(leagueTeams.id, id));
+  }
+
+  async getLeagueGames(competitionId: number): Promise<(LeagueGame & { homeTeam?: LeagueTeam; awayTeam?: LeagueTeam; division?: LeagueDivision })[]> {
+    const allGames = await db.select().from(leagueGames).where(eq(leagueGames.competitionId, competitionId)).orderBy(asc(leagueGames.gameDate), asc(leagueGames.startTime));
+    if (allGames.length === 0) return [];
+    const teamIds = [...new Set(allGames.flatMap(g => [g.homeTeamId, g.awayTeamId]).filter(Boolean))] as number[];
+    const divIds = [...new Set(allGames.map(g => g.divisionId).filter(Boolean))] as number[];
+    const teams = teamIds.length > 0 ? await db.select().from(leagueTeams).where(inArray(leagueTeams.id, teamIds)) : [];
+    const divs = divIds.length > 0 ? await db.select().from(leagueDivisions).where(inArray(leagueDivisions.id, divIds)) : [];
+    const teamMap = Object.fromEntries(teams.map(t => [t.id, t]));
+    const divMap = Object.fromEntries(divs.map(d => [d.id, d]));
+    return allGames.map(g => ({
+      ...g,
+      homeTeam: g.homeTeamId ? teamMap[g.homeTeamId] : undefined,
+      awayTeam: g.awayTeamId ? teamMap[g.awayTeamId] : undefined,
+      division: g.divisionId ? divMap[g.divisionId] : undefined,
+    }));
+  }
+
+  async getLeagueGame(id: number): Promise<LeagueGame | undefined> {
+    const [g] = await db.select().from(leagueGames).where(eq(leagueGames.id, id));
+    return g;
+  }
+
+  async createLeagueGame(data: InsertLeagueGame): Promise<LeagueGame> {
+    const [g] = await db.insert(leagueGames).values(data).returning();
+    return g;
+  }
+
+  async updateLeagueGame(id: number, data: Partial<InsertLeagueGame>): Promise<LeagueGame | undefined> {
+    const [g] = await db.update(leagueGames).set(data).where(eq(leagueGames.id, id)).returning();
+    return g;
+  }
+
+  async deleteLeagueGame(id: number): Promise<void> {
+    await db.delete(leagueGames).where(eq(leagueGames.id, id));
+  }
+
+  async getLeagueCoupons(competitionId: number): Promise<LeagueCoupon[]> {
+    return db.select().from(leagueCoupons).where(eq(leagueCoupons.competitionId, competitionId)).orderBy(desc(leagueCoupons.createdAt));
+  }
+
+  async createLeagueCoupon(data: InsertLeagueCoupon): Promise<LeagueCoupon> {
+    const [c] = await db.insert(leagueCoupons).values(data).returning();
+    return c;
+  }
+
+  async updateLeagueCoupon(id: number, data: Partial<InsertLeagueCoupon>): Promise<LeagueCoupon | undefined> {
+    const [c] = await db.update(leagueCoupons).set(data).where(eq(leagueCoupons.id, id)).returning();
+    return c;
+  }
+
+  async deleteLeagueCoupon(id: number): Promise<void> {
+    await db.delete(leagueCoupons).where(eq(leagueCoupons.id, id));
+  }
+
+  async getLeagueStandings(competitionId: number, divisionId?: number): Promise<{ teamId: number; teamName: string; divisionId: number | null; divisionName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]> {
+    const conditions = [eq(leagueGames.competitionId, competitionId), eq(leagueGames.status, "final")];
+    if (divisionId) conditions.push(eq(leagueGames.divisionId, divisionId));
+    const games = await db.select().from(leagueGames).where(and(...conditions));
+    const teamIds = [...new Set(games.flatMap(g => [g.homeTeamId, g.awayTeamId]).filter(Boolean))] as number[];
+    if (teamIds.length === 0) return [];
+    const teams = await db.select().from(leagueTeams).where(inArray(leagueTeams.id, teamIds));
+    const divIds = [...new Set(teams.map(t => t.divisionId).filter(Boolean))] as number[];
+    const divs = divIds.length > 0 ? await db.select().from(leagueDivisions).where(inArray(leagueDivisions.id, divIds)) : [];
+    const divMap = Object.fromEntries(divs.map(d => [d.id, d.name]));
+    const stats: Record<number, { mp: number; w: number; l: number; d: number; gf: number; ga: number }> = {};
+    for (const t of teams) stats[t.id] = { mp: 0, w: 0, l: 0, d: 0, gf: 0, ga: 0 };
+    for (const g of games) {
+      if (g.homeTeamId && stats[g.homeTeamId] && g.homeScore !== null && g.awayScore !== null) {
+        stats[g.homeTeamId].mp++;
+        stats[g.homeTeamId].gf += g.homeScore;
+        stats[g.homeTeamId].ga += g.awayScore;
+        if (g.homeScore > g.awayScore) stats[g.homeTeamId].w++;
+        else if (g.homeScore < g.awayScore) stats[g.homeTeamId].l++;
+        else stats[g.homeTeamId].d++;
+      }
+      if (g.awayTeamId && stats[g.awayTeamId] && g.homeScore !== null && g.awayScore !== null) {
+        stats[g.awayTeamId].mp++;
+        stats[g.awayTeamId].gf += g.awayScore;
+        stats[g.awayTeamId].ga += g.homeScore;
+        if (g.awayScore > g.homeScore) stats[g.awayTeamId].w++;
+        else if (g.awayScore < g.homeScore) stats[g.awayTeamId].l++;
+        else stats[g.awayTeamId].d++;
+      }
+    }
+    return teams.map(t => {
+      const s = stats[t.id] || { mp: 0, w: 0, l: 0, d: 0, gf: 0, ga: 0 };
+      return {
+        teamId: t.id,
+        teamName: t.name,
+        divisionId: t.divisionId,
+        divisionName: t.divisionId ? (divMap[t.divisionId] || "Unknown") : "Unassigned",
+        mp: s.mp, w: s.w, l: s.l, d: s.d,
+        gf: s.gf, ga: s.ga, gd: s.gf - s.ga,
+        pts: s.w * 3 + s.d,
+      };
+    }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
   }
 }
 
