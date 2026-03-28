@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, tournaments, tournamentGroups, tournamentTeams } from "@shared/schema";
+import { users, contacts, programs, registrations, contactRelationships, auditLogs, settings, campPricing, campDates, campSettings, programDiscounts, organizations, userOrganizations, facilities, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, tournaments, tournamentGroups, tournamentTeams, analyticsEvents } from "@shared/schema";
 import { sql, eq } from "drizzle-orm";
 import { hashPassword } from "./auth";
 
@@ -436,4 +436,79 @@ async function seedOrganizations() {
       console.log("CIC tournaments, groups, and teams seeded");
     }
   }
+
+  await db.execute(sql`ALTER TABLE programs ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`);
+  await db.execute(sql`UPDATE programs SET organization_id = 1 WHERE organization_id IS NULL`);
+
+  await seedAnalyticsData();
+}
+
+async function seedAnalyticsData() {
+  const [existing] = await db.select({ count: sql<number>`count(*)` }).from(analyticsEvents);
+  if (Number(existing.count) >= 500) return;
+
+  const campRows = await db.select({ slug: programs.slug }).from(programs).where(eq(programs.type, "holiday_camp"));
+  if (campRows.length === 0) return;
+
+  const slugs = campRows.map(c => c.slug);
+  const devices = ["mobile", "desktop", "tablet"];
+  const browsers = ["Chrome", "Safari", "Firefox", "Edge"];
+  const sources = ["Direct", "Meta Ads", "Google Ads", "Organic Search", "Meta Organic", "Referral"];
+  const uuid = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16); });
+
+  const events: any[] = [];
+  const now = Date.now();
+
+  for (let day = 0; day < 30; day++) {
+    const sessionsPerDay = 10 + Math.floor(Math.random() * 30);
+    for (let s = 0; s < sessionsPerDay; s++) {
+      const visitorId = uuid();
+      const sessionId = uuid();
+      const campSlug = slugs[Math.floor(Math.random() * slugs.length)];
+      const device = devices[Math.floor(Math.random() * devices.length)];
+      const browser = browsers[Math.floor(Math.random() * browsers.length)];
+      const source = sources[Math.floor(Math.random() * sources.length)];
+      const ts = new Date(now - day * 86400000 - Math.random() * 86400000);
+      const isNew = Math.random() > 0.4;
+      const screenW = device === "mobile" ? 375 : device === "tablet" ? 768 : 1440;
+      const scrollPct = Math.floor(Math.random() * 100);
+      const timeOnPage = 5 + Math.floor(Math.random() * 180);
+      const bounced = Math.random() < 0.15 && timeOnPage < 10;
+
+      const base = { visitorId, sessionId, page: `/${campSlug}`, referrer: null, utmSource: source.includes("Ads") ? source.toLowerCase().replace(" ", "_") : null, utmMedium: source.includes("Ads") ? "cpc" : null, utmCampaign: null, device, browser, screenWidth: screenW, campSlug };
+
+      events.push({ ...base, eventType: "session_start", timestamp: ts, metadata: { trafficSource: source, isNewVisitor: isNew } });
+      events.push({ ...base, eventType: "page_view", timestamp: new Date(ts.getTime() + 100), metadata: { trafficSource: source } });
+      events.push({ ...base, eventType: "scroll_depth", timestamp: new Date(ts.getTime() + timeOnPage * 1000), metadata: { maxPercent: scrollPct } });
+      events.push({ ...base, eventType: "time_on_page", timestamp: new Date(ts.getTime() + timeOnPage * 1000 + 100), metadata: { seconds: timeOnPage } });
+
+      if (bounced) {
+        events.push({ ...base, eventType: "bounce", timestamp: new Date(ts.getTime() + timeOnPage * 1000 + 200), metadata: {} });
+      }
+
+      if (Math.random() < 0.35) {
+        events.push({ ...base, eventType: "cta_click", timestamp: new Date(ts.getTime() + Math.random() * timeOnPage * 1000), metadata: { element: "button", text: "Book Now", testid: "cta-book", href: `/${campSlug}/book`, x: Math.floor(Math.random() * screenW), y: Math.floor(Math.random() * 800) } });
+      }
+
+      if (Math.random() < 0.5) {
+        const clickTime = new Date(ts.getTime() + Math.random() * timeOnPage * 1000);
+        events.push({ ...base, eventType: "click", timestamp: clickTime, metadata: { element: "a", text: "Learn More", testid: "", href: "#", x: Math.floor(Math.random() * screenW), y: Math.floor(Math.random() * 1500), scrollY: Math.floor(Math.random() * 2000) } });
+      }
+
+      if (Math.random() < 0.25) {
+        events.push({ ...base, eventType: "form_view", page: `/${campSlug}/book`, timestamp: new Date(ts.getTime() + 5000), metadata: {} });
+        if (Math.random() < 0.6) {
+          events.push({ ...base, eventType: "form_step", page: `/${campSlug}/book`, timestamp: new Date(ts.getTime() + 15000), metadata: { step: "1" } });
+        }
+        if (Math.random() < 0.3) {
+          events.push({ ...base, eventType: "form_step", page: `/${campSlug}/book`, timestamp: new Date(ts.getTime() + 30000), metadata: { step: "2" } });
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < events.length; i += 100) {
+    await db.insert(analyticsEvents).values(events.slice(i, i + 100));
+  }
+  console.log(`Analytics seeded: ${events.length} events for ${slugs.length} camps`);
 }

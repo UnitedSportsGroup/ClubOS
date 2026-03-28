@@ -48,9 +48,10 @@
 
   function getCampSlug() {
     var path = window.location.pathname;
-    if (path.startsWith('/admin')) return null;
+    if (path === '/' || path.startsWith('/admin') || path.startsWith('/login') || path.startsWith('/api')) return null;
     var parts = path.split('/').filter(Boolean);
-    if (parts.length >= 1 && parts[0] !== 'api') return parts[0];
+    var skipPaths = ['login', 'admin', 'api', 'auth', 'settings', 'register'];
+    if (parts.length >= 1 && skipPaths.indexOf(parts[0]) === -1) return parts[0];
     return null;
   }
 
@@ -107,10 +108,12 @@
     if (eventQueue.length === 0) return;
     var events = eventQueue.splice(0, eventQueue.length);
     try {
+      var payload = JSON.stringify({ events: events });
       if (navigator.sendBeacon) {
-        navigator.sendBeacon(BATCH_ENDPOINT, JSON.stringify({ events: events }));
+        var blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon(BATCH_ENDPOINT, blob);
       } else {
-        fetch(BATCH_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: events }), keepalive: true });
+        fetch(BATCH_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true });
       }
     } catch(e) {}
   }
@@ -122,6 +125,18 @@
   }
 
   queueEvent('page_view', { trafficSource: getTrafficSource() });
+
+  var lastPath = window.location.pathname;
+  setInterval(function() {
+    var currentPath = window.location.pathname;
+    if (currentPath !== lastPath) {
+      lastPath = currentPath;
+      var slug = getCampSlug();
+      if (slug) {
+        queueEvent('page_view', { trafficSource: getTrafficSource() });
+      }
+    }
+  }, 1000);
 
   window.addEventListener('scroll', function() {
     var scrollTop = window.pageYOffset || document.documentElement.scrollTop;

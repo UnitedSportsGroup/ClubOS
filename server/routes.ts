@@ -1673,7 +1673,7 @@ export async function registerRoutes(
 
   app.post("/api/public/analytics/batch", async (req, res) => {
     try {
-      const { events } = req.body;
+      const { events } = req.body || {};
       if (!events || !Array.isArray(events) || events.length === 0) {
         return res.json({ ok: true });
       }
