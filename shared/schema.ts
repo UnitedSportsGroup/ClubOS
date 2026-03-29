@@ -698,3 +698,21 @@ export type InsertTournamentStaff = z.infer<typeof insertTournamentStaffSchema>;
 export type TournamentStaff = typeof tournamentStaff.$inferSelect;
 export type InsertTournamentGame = z.infer<typeof insertTournamentGameSchema>;
 export type TournamentGame = typeof tournamentGames.$inferSelect;
+
+export const apiKeys = pgTable("api_keys", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  scopes: text("scopes").array().notNull().default(sql`ARRAY['read']::text[]`),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+export type ApiKey = typeof apiKeys.$inferSelect;

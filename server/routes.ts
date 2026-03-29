@@ -1,14 +1,15 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
+import crypto from "crypto";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2570,6 +2571,479 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── API Key helpers ──
+  function hashApiKey(key: string): string {
+    return crypto.createHash("sha256").update(key).digest("hex");
+  }
+
+  function generateApiKey(): { raw: string; prefix: string; hash: string } {
+    const raw = `clubos_${crypto.randomBytes(32).toString("hex")}`;
+    const prefix = raw.slice(0, 12) + "...";
+    const hash = hashApiKey(raw);
+    return { raw, prefix, hash };
+  }
+
+  async function requireApiKey(req: Request, res: Response, next: NextFunction) {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Missing or invalid Authorization header. Use: Bearer <api_key>" });
+      }
+      const key = authHeader.slice(7);
+      const hash = hashApiKey(key);
+      const [apiKey] = await db.select().from(apiKeys).where(and(eq(apiKeys.keyHash, hash), eq(apiKeys.active, true)));
+      if (!apiKey) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      if (apiKey.expiresAt && new Date(apiKey.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "API key has expired" });
+      }
+      await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, apiKey.id));
+      (req as any).apiKeyOrg = apiKey.organizationId;
+      (req as any).apiKeyScopes = apiKey.scopes;
+      next();
+    } catch (error: any) {
+      res.status(500).json({ error: "Authentication error" });
+    }
+  }
+
+  // ── Admin: API Key Management (super_admin only) ──
+  app.get("/api/admin/api-keys", requireSuperAdmin, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string) || 1;
+      const keys = await db.select({
+        id: apiKeys.id,
+        name: apiKeys.name,
+        keyPrefix: apiKeys.keyPrefix,
+        organizationId: apiKeys.organizationId,
+        scopes: apiKeys.scopes,
+        lastUsedAt: apiKeys.lastUsedAt,
+        expiresAt: apiKeys.expiresAt,
+        active: apiKeys.active,
+        createdAt: apiKeys.createdAt,
+      }).from(apiKeys).where(eq(apiKeys.organizationId, orgId)).orderBy(desc(apiKeys.createdAt));
+      res.json(keys);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/api-keys", requireSuperAdmin, async (req, res) => {
+    try {
+      const { name, organizationId, expiresInDays } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const orgId = parseInt(organizationId) || 1;
+      const { raw, prefix, hash } = generateApiKey();
+      const expiresAt = expiresInDays && parseInt(expiresInDays) > 0 ? new Date(Date.now() + parseInt(expiresInDays) * 86400000) : null;
+      const [created] = await db.insert(apiKeys).values({
+        name: String(name).slice(0, 100),
+        keyHash: hash,
+        keyPrefix: prefix,
+        organizationId: orgId,
+        createdById: (req as any).session.userId,
+        scopes: ["read"],
+        expiresAt,
+      }).returning();
+      res.json({ id: created.id, name: created.name, key: raw, keyPrefix: prefix, expiresAt: created.expiresAt, scopes: created.scopes, message: "Save this key now — it won't be shown again." });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/api-keys/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const keyId = parseInt(req.params.id);
+      if (isNaN(keyId)) return res.status(400).json({ message: "Invalid key ID" });
+      await db.update(apiKeys).set({ active: false }).where(eq(apiKeys.id, keyId));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── External API v1 (authenticated by API key) ──
+  app.get("/api/v1/overview", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      const { rows: revenueRows } = await db.execute(sql.raw(`
+        SELECT COALESCE(SUM(r.total_cents), 0) as total_revenue,
+               COUNT(DISTINCT r.id) as total_registrations,
+               COUNT(DISTINCT r.contact_id) as unique_customers,
+               CASE WHEN COUNT(r.id) > 0 THEN ROUND(SUM(r.total_cents)::numeric / COUNT(r.id), 0) ELSE 0 END as avg_order_value
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+          AND r.registered_at >= '${since}'
+          AND r.status = 'confirmed'
+      `));
+      const rev = revenueRows[0] || {};
+
+      const { rows: analyticsRows } = await db.execute(sql.raw(`
+        SELECT COUNT(*) FILTER (WHERE event_type = 'page_view') as page_views,
+               COUNT(DISTINCT session_id) as sessions,
+               COUNT(DISTINCT visitor_id) as unique_visitors,
+               COUNT(*) FILTER (WHERE event_type = 'cta_click') as cta_clicks
+        FROM analytics_events ae
+        JOIN programs p ON ae.camp_slug = p.slug
+        WHERE p.organization_id = ${orgId}
+          AND ae.timestamp >= '${since}'
+      `));
+      const analytics = analyticsRows[0] || {};
+
+      const totalRev = Number(rev.total_revenue || 0);
+      const totalRegs = Number(rev.total_registrations || 0);
+      const pageViews = Number(analytics.page_views || 0);
+
+      res.json({
+        period: { days, since },
+        revenue: {
+          totalCents: totalRev,
+          totalFormatted: `$${(totalRev / 100).toFixed(2)}`,
+          currency: "NZD",
+        },
+        registrations: totalRegs,
+        uniqueCustomers: Number(rev.unique_customers || 0),
+        avgOrderValueCents: Number(rev.avg_order_value || 0),
+        analytics: {
+          pageViews,
+          sessions: Number(analytics.sessions || 0),
+          uniqueVisitors: Number(analytics.unique_visitors || 0),
+          ctaClicks: Number(analytics.cta_clicks || 0),
+          conversionRate: pageViews > 0 ? parseFloat(((totalRegs / pageViews) * 100).toFixed(2)) : 0,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/revenue", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT p.id as camp_id, p.name as camp_name, p.slug,
+               COUNT(r.id) as registrations,
+               COALESCE(SUM(r.total_cents), 0) as revenue_cents,
+               CASE WHEN COUNT(r.id) > 0 THEN ROUND(SUM(r.total_cents)::numeric / COUNT(r.id), 0) ELSE 0 END as avg_order_cents
+        FROM programs p
+        LEFT JOIN registrations r ON r.program_id = p.id AND r.status = 'confirmed' AND r.registered_at >= '${since}'
+        WHERE p.organization_id = ${orgId}
+        GROUP BY p.id, p.name, p.slug
+        ORDER BY revenue_cents DESC
+      `));
+
+      const camps = rows.map((r: any) => ({
+        campId: r.camp_id,
+        campName: r.camp_name,
+        slug: r.slug,
+        registrations: Number(r.registrations),
+        revenueCents: Number(r.revenue_cents),
+        revenueFormatted: `$${(Number(r.revenue_cents) / 100).toFixed(2)}`,
+        avgOrderCents: Number(r.avg_order_cents),
+      }));
+
+      const totals = {
+        totalRevenueCents: camps.reduce((s: number, c: any) => s + c.revenueCents, 0),
+        totalRegistrations: camps.reduce((s: number, c: any) => s + c.registrations, 0),
+      };
+
+      res.json({ period: { days, since }, camps, totals: { ...totals, totalRevenueFormatted: `$${(totals.totalRevenueCents / 100).toFixed(2)}` } });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/analytics", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      const campSlug = req.query.camp as string;
+
+      let slugFilter = "";
+      if (campSlug) {
+        const safeSlug = campSlug.replace(/[^a-z0-9\-_]/gi, "");
+        slugFilter = `AND ae.camp_slug = '${safeSlug}'`;
+      }
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT COUNT(*) FILTER (WHERE event_type = 'page_view') as page_views,
+               COUNT(DISTINCT session_id) as sessions,
+               COUNT(DISTINCT visitor_id) as unique_visitors,
+               COUNT(*) FILTER (WHERE event_type = 'cta_click') as cta_clicks,
+               COUNT(*) FILTER (WHERE event_type = 'form_view') as form_views,
+               COUNT(*) FILTER (WHERE event_type = 'form_step') as form_steps,
+               COUNT(*) FILTER (WHERE event_type = 'session_start') as session_starts,
+               ROUND(AVG(CASE WHEN event_type = 'time_on_page' THEN (metadata->>'seconds')::numeric END), 1) as avg_time_on_page,
+               ROUND(AVG(CASE WHEN event_type = 'scroll_depth' THEN (metadata->>'depth')::numeric END), 1) as avg_scroll_depth
+        FROM analytics_events ae
+        JOIN programs p ON ae.camp_slug = p.slug
+        WHERE p.organization_id = ${orgId}
+          AND ae.timestamp >= '${since}'
+          ${slugFilter}
+      `));
+
+      const a = rows[0] || {};
+      const pageViews = Number(a.page_views || 0);
+      const formViews = Number(a.form_views || 0);
+
+      const { rows: deviceRows } = await db.execute(sql.raw(`
+        SELECT COALESCE(device, 'unknown') as device, COUNT(*) as count
+        FROM analytics_events ae
+        JOIN programs p ON ae.camp_slug = p.slug
+        WHERE p.organization_id = ${orgId}
+          AND ae.timestamp >= '${since}'
+          AND ae.event_type = 'page_view'
+          ${slugFilter}
+        GROUP BY device ORDER BY count DESC
+      `));
+
+      const { rows: sourceRows } = await db.execute(sql.raw(`
+        SELECT COALESCE(ae.metadata->>'trafficSource', 'Direct') as source, COUNT(*) as count
+        FROM analytics_events ae
+        JOIN programs p ON ae.camp_slug = p.slug
+        WHERE p.organization_id = ${orgId}
+          AND ae.timestamp >= '${since}'
+          AND ae.event_type = 'page_view'
+          ${slugFilter}
+        GROUP BY source ORDER BY count DESC
+      `));
+
+      const { rows: dailyRows } = await db.execute(sql.raw(`
+        SELECT DATE(ae.timestamp) as date,
+               COUNT(*) FILTER (WHERE event_type = 'page_view') as page_views,
+               COUNT(DISTINCT session_id) as sessions
+        FROM analytics_events ae
+        JOIN programs p ON ae.camp_slug = p.slug
+        WHERE p.organization_id = ${orgId}
+          AND ae.timestamp >= '${since}'
+          ${slugFilter}
+        GROUP BY DATE(ae.timestamp) ORDER BY date
+      `));
+
+      res.json({
+        period: { days, since },
+        pageViews,
+        sessions: Number(a.sessions || 0),
+        uniqueVisitors: Number(a.unique_visitors || 0),
+        ctaClicks: Number(a.cta_clicks || 0),
+        formViews,
+        formSteps: Number(a.form_steps || 0),
+        funnelConversion: formViews > 0 ? parseFloat(((Number(a.form_steps || 0) / formViews) * 100).toFixed(2)) : 0,
+        avgTimeOnPage: Number(a.avg_time_on_page || 0),
+        avgScrollDepth: Number(a.avg_scroll_depth || 0),
+        devices: deviceRows.map((d: any) => ({ device: d.device, count: Number(d.count) })),
+        sources: sourceRows.map((s: any) => ({ source: s.source, count: Number(s.count) })),
+        daily: dailyRows.map((d: any) => ({ date: d.date, pageViews: Number(d.page_views), sessions: Number(d.sessions) })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/customers", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.created_at,
+               COUNT(DISTINCT r.id) as total_orders,
+               COALESCE(SUM(r.total_cents), 0) as lifetime_value_cents,
+               MAX(r.registered_at) as last_order_at
+        FROM contacts c
+        JOIN registrations r ON r.contact_id = c.id AND r.status = 'confirmed'
+        JOIN programs p ON r.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+        GROUP BY c.id, c.first_name, c.last_name, c.email, c.phone, c.created_at
+        ORDER BY lifetime_value_cents DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `));
+
+      const { rows: countRows } = await db.execute(sql.raw(`
+        SELECT COUNT(DISTINCT c.id) as total
+        FROM contacts c
+        JOIN registrations r ON r.contact_id = c.id AND r.status = 'confirmed'
+        JOIN programs p ON r.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+      `));
+
+      res.json({
+        customers: rows.map((c: any) => ({
+          id: c.id,
+          firstName: c.first_name,
+          lastName: c.last_name,
+          email: c.email,
+          phone: c.phone,
+          totalOrders: Number(c.total_orders),
+          lifetimeValueCents: Number(c.lifetime_value_cents),
+          lifetimeValueFormatted: `$${(Number(c.lifetime_value_cents) / 100).toFixed(2)}`,
+          lastOrderAt: c.last_order_at,
+          createdAt: c.created_at,
+        })),
+        total: Number(countRows[0]?.total || 0),
+        limit,
+        offset,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/camps", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT p.id, p.name, p.slug, p.type, p.location, p.capacity, p.fee,
+               p.start_date, p.end_date, p.is_active, p.created_at,
+               COUNT(r.id) FILTER (WHERE r.status = 'confirmed') as confirmed_registrations,
+               COALESCE(SUM(r.total_cents) FILTER (WHERE r.status = 'confirmed'), 0) as revenue_cents
+        FROM programs p
+        LEFT JOIN registrations r ON r.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+        GROUP BY p.id
+        ORDER BY p.start_date DESC
+      `));
+
+      res.json({
+        camps: rows.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          type: c.type,
+          location: c.location,
+          capacity: c.capacity,
+          fee: c.fee,
+          startDate: c.start_date,
+          endDate: c.end_date,
+          active: c.is_active,
+          confirmedRegistrations: Number(c.confirmed_registrations),
+          revenueCents: Number(c.revenue_cents),
+          revenueFormatted: `$${(Number(c.revenue_cents) / 100).toFixed(2)}`,
+          occupancyRate: c.capacity > 0 ? parseFloat(((Number(c.confirmed_registrations) / c.capacity) * 100).toFixed(1)) : 0,
+          createdAt: c.created_at,
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/split-tests", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT st.id, st.program_id, st.field, st.status, st.started_at, st.ended_at,
+               st.winner_id, st.end_condition, p.name as camp_name
+        FROM split_tests st
+        JOIN programs p ON st.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+        ORDER BY st.started_at DESC
+      `));
+
+      const tests = [];
+      for (const t of rows as any[]) {
+        const { rows: variants } = await db.execute(sql.raw(`
+          SELECT id, label, value, views, registrations, revenue, is_control
+          FROM split_test_variants
+          WHERE split_test_id = ${t.id}
+          ORDER BY is_control DESC
+        `));
+
+        const totalViews = variants.reduce((s: number, v: any) => s + Number(v.views || 0), 0);
+        const totalRegs = variants.reduce((s: number, v: any) => s + Number(v.registrations || 0), 0);
+
+        tests.push({
+          id: t.id,
+          campName: t.camp_name,
+          programId: t.program_id,
+          field: t.field,
+          status: t.status,
+          startedAt: t.started_at,
+          endedAt: t.ended_at,
+          winnerId: t.winner_id,
+          endCondition: t.end_condition,
+          conversionRate: totalViews > 0 ? parseFloat(((totalRegs / totalViews) * 100).toFixed(2)) : 0,
+          variants: variants.map((v: any) => ({
+            id: v.id,
+            label: v.label,
+            value: v.value,
+            isControl: v.is_control,
+            views: Number(v.views || 0),
+            registrations: Number(v.registrations || 0),
+            revenue: Number(v.revenue || 0),
+            conversionRate: Number(v.views || 0) > 0 ? parseFloat(((Number(v.registrations || 0) / Number(v.views || 0)) * 100).toFixed(2)) : 0,
+          })),
+        });
+      }
+
+      res.json({ splitTests: tests });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/registrations", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const { rows } = await db.execute(sql.raw(`
+        SELECT r.id, r.status, r.total_cents, r.currency, r.registered_at,
+               p.name as camp_name, p.slug as camp_slug,
+               c.first_name, c.last_name, c.email
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        JOIN contacts c ON r.contact_id = c.id
+        WHERE p.organization_id = ${orgId}
+          AND r.registered_at >= '${since}'
+        ORDER BY r.registered_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `));
+
+      const { rows: countRows } = await db.execute(sql.raw(`
+        SELECT COUNT(*) as total
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE p.organization_id = ${orgId}
+          AND r.registered_at >= '${since}'
+      `));
+
+      res.json({
+        period: { days, since },
+        registrations: rows.map((r: any) => ({
+          id: r.id,
+          status: r.status,
+          totalCents: r.total_cents,
+          totalFormatted: `$${(Number(r.total_cents || 0) / 100).toFixed(2)}`,
+          currency: r.currency,
+          registeredAt: r.registered_at,
+          campName: r.camp_name,
+          campSlug: r.camp_slug,
+          contactName: `${r.first_name} ${r.last_name}`,
+          contactEmail: r.email,
+        })),
+        total: Number(countRows[0]?.total || 0),
+        limit,
+        offset,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
