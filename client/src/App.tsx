@@ -26,6 +26,8 @@ import VenueDashboard from "@/pages/venue-dashboard";
 import VenueCalendar from "@/pages/venue-calendar";
 import VenueAnalytics from "@/pages/venue-analytics";
 import CampAnalytics from "@/pages/camp-analytics";
+import AdminDiscounts from "@/pages/admin-discounts";
+import AdminDiscountDetail from "@/pages/admin-discount-detail";
 import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
@@ -143,6 +145,9 @@ function AdminRouter() {
       <Route path="/admin/contacts/player/:id" component={AdminContactDetail} />
       <Route path="/admin/mailer" component={AdminMailer} />
       <Route path="/admin/analytics" component={CampAnalytics} />
+      <Route path="/admin/discounts/new" component={AdminDiscountDetail} />
+      <Route path="/admin/discounts/:id" component={AdminDiscountDetail} />
+      <Route path="/admin/discounts" component={AdminDiscounts} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route component={NotFound} />
     </Switch>

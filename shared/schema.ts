@@ -699,6 +699,44 @@ export type TournamentStaff = typeof tournamentStaff.$inferSelect;
 export type InsertTournamentGame = z.infer<typeof insertTournamentGameSchema>;
 export type TournamentGame = typeof tournamentGames.$inferSelect;
 
+export const discounts = pgTable("discounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  code: text("code"),
+  type: text("type").notNull().default("amount_off_order"),
+  method: text("method").notNull().default("code"),
+  valueType: text("value_type").notNull().default("percentage"),
+  value: decimal("value", { precision: 10, scale: 2 }).notNull().default("0"),
+  appliesTo: text("applies_to").notNull().default("all"),
+  campIds: integer("camp_ids").array(),
+  eligibility: text("eligibility").notNull().default("all"),
+  customerEmails: text("customer_emails").array(),
+  minPurchaseType: text("min_purchase_type").notNull().default("none"),
+  minPurchaseValue: decimal("min_purchase_value", { precision: 10, scale: 2 }),
+  minQuantity: integer("min_quantity"),
+  maxTotalUses: integer("max_total_uses"),
+  onePerCustomer: boolean("one_per_customer").notNull().default(false),
+  combinesWithProduct: boolean("combines_with_product").notNull().default(false),
+  combinesWithOrder: boolean("combines_with_order").notNull().default(false),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  status: text("status").notNull().default("active"),
+  timesUsed: integer("times_used").notNull().default(0),
+  totalDiscountedCents: integer("total_discounted_cents").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const discountUsages = pgTable("discount_usages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  discountId: integer("discount_id").notNull().references(() => discounts.id, { onDelete: "cascade" }),
+  registrationId: integer("registration_id").references(() => registrations.id),
+  contactEmail: text("contact_email"),
+  discountedCents: integer("discounted_cents").notNull().default(0),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+});
+
 export const apiKeys = pgTable("api_keys", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
@@ -712,6 +750,14 @@ export const apiKeys = pgTable("api_keys", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const insertDiscountSchema2 = createInsertSchema(discounts).omit({ id: true, createdAt: true, updatedAt: true, timesUsed: true, totalDiscountedCents: true });
+export type InsertDiscount2 = z.infer<typeof insertDiscountSchema2>;
+export type Discount = typeof discounts.$inferSelect;
+
+export const insertDiscountUsageSchema = createInsertSchema(discountUsages).omit({ id: true, usedAt: true });
+export type InsertDiscountUsage = z.infer<typeof insertDiscountUsageSchema>;
+export type DiscountUsage = typeof discountUsages.$inferSelect;
 
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
 export type InsertApiKey = z.infer<typeof insertApiKeySchema>;

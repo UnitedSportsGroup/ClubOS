@@ -2031,6 +2031,82 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/discounts", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string) || 1;
+      const list = await storage.getDiscountsByOrg(orgId);
+      res.json(list);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/discounts/:id", requireAuth, async (req, res) => {
+    try {
+      const d = await storage.getDiscount(parseInt(req.params.id));
+      if (!d) return res.status(404).json({ message: "Discount not found" });
+      const user = req.user as any;
+      const userOrgs = await storage.getUserOrganizations(user.id);
+      if (!userOrgs.some(o => o.id === d.organizationId)) return res.status(403).json({ message: "Forbidden" });
+      res.json(d);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/discounts", requireAuth, async (req, res) => {
+    try {
+      const data = req.body;
+      if (!data.title || !data.organizationId) return res.status(400).json({ message: "Title and organizationId required" });
+      const user = req.user as any;
+      const userOrgs = await storage.getUserOrganizations(user.id);
+      if (!userOrgs.some((o: any) => o.id === data.organizationId)) return res.status(403).json({ message: "Forbidden" });
+      if (data.method === 'code' && data.code) {
+        const existing = await storage.getDiscountsByOrg(data.organizationId);
+        const codeExists = existing.find((d: any) => d.code?.toLowerCase() === data.code.toLowerCase());
+        if (codeExists) return res.status(400).json({ message: "A discount with this code already exists" });
+      }
+      if (data.startDate && typeof data.startDate === 'string') data.startDate = new Date(data.startDate);
+      if (data.endDate && typeof data.endDate === 'string') data.endDate = new Date(data.endDate);
+      const d = await storage.createDiscount(data);
+      res.json(d);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/discounts/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getDiscount(id);
+      if (!existing) return res.status(404).json({ message: "Discount not found" });
+      const user = req.user as any;
+      const userOrgs = await storage.getUserOrganizations(user.id);
+      if (!userOrgs.some((o: any) => o.id === existing.organizationId)) return res.status(403).json({ message: "Forbidden" });
+      const data = req.body;
+      if (data.startDate && typeof data.startDate === 'string') data.startDate = new Date(data.startDate);
+      if (data.endDate && typeof data.endDate === 'string') data.endDate = new Date(data.endDate);
+      const d = await storage.updateDiscount(id, data);
+      res.json(d);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/discounts/:id", requireAuth, async (req, res) => {
+    try {
+      const existing = await storage.getDiscount(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Discount not found" });
+      const user = req.user as any;
+      const userOrgs = await storage.getUserOrganizations(user.id);
+      if (!userOrgs.some((o: any) => o.id === existing.organizationId)) return res.status(403).json({ message: "Forbidden" });
+      await storage.deleteDiscount(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/analytics/order-timing", requireAuth, async (req, res) => {
     try {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;

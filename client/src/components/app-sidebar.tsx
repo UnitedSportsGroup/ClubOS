@@ -32,6 +32,7 @@ import {
   UsersRound,
   Award,
   Dumbbell,
+  Tag,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -54,6 +55,7 @@ const campsNav = [
   { title: "Contacts", url: "/admin/contacts", icon: Users },
   { title: "Mailer", url: "/admin/mailer", icon: Mail },
   { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
+  { title: "Discounts", url: "/admin/discounts", icon: Tag },
 ];
 
 const venueNav = [

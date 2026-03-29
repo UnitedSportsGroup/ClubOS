@@ -44,6 +44,14 @@ The analytics module at `/admin/analytics` provides comprehensive insights via t
 - **Engagement**: Engagement heatmap (page views by time)
 - **Order Timing**: Day×hour heatmap showing when customers place orders (NZ timezone), with peak day/hour cards, day-of-week bars, and time-of-day period breakdown
 
+## Discounts Module
+Shopify-style discount management at `/admin/discounts` (Christchurch United workspace only):
+- **List page**: Searchable, filterable table (by status: active/expired/scheduled/disabled)
+- **Create/Edit page**: Full Shopify-style form with discount type selector, code or automatic method, value configuration, eligibility, minimum purchase requirements, usage limits, combination rules, and active date scheduling
+- **Discount types**: Amount off products, Amount off order, Buy X get Y, Free shipping
+- **Schema**: `discounts` table with org-scoped CRUD, `discount_usages` for tracking usage per registration
+- **Security**: Org-scoped authorization on all CRUD endpoints (user must belong to discount's org)
+
 ## External API v1
 API key-authenticated endpoints at `/api/v1/*` for AIOS integration:
 - `/api/v1/overview` — High-level org metrics

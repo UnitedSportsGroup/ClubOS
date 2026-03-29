@@ -40,6 +40,9 @@ import {
   type InsertLeagueTeam, type LeagueTeam,
   type InsertLeagueGame, type LeagueGame,
   type InsertLeagueCoupon, type LeagueCoupon,
+  discounts, discountUsages,
+  type InsertDiscount2, type Discount,
+  type InsertDiscountUsage, type DiscountUsage,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
@@ -258,6 +261,12 @@ export interface IStorage {
   getSettings(): Promise<Record<string, string>>;
   getSetting(key: string): Promise<string | null>;
   upsertSettings(entries: { key: string; value: string }[]): Promise<void>;
+
+  getDiscountsByOrg(organizationId: number): Promise<Discount[]>;
+  getDiscount(id: number): Promise<Discount | undefined>;
+  createDiscount(data: InsertDiscount2): Promise<Discount>;
+  updateDiscount(id: number, data: Partial<InsertDiscount2>): Promise<Discount | undefined>;
+  deleteDiscount(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1447,6 +1456,28 @@ export class DatabaseStorage implements IStorage {
         pts: s.w * ptsWin + s.d * ptsDraw,
       };
     }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+  }
+  async getDiscountsByOrg(organizationId: number): Promise<Discount[]> {
+    return db.select().from(discounts).where(eq(discounts.organizationId, organizationId)).orderBy(desc(discounts.createdAt));
+  }
+
+  async getDiscount(id: number): Promise<Discount | undefined> {
+    const [d] = await db.select().from(discounts).where(eq(discounts.id, id));
+    return d;
+  }
+
+  async createDiscount(data: InsertDiscount2): Promise<Discount> {
+    const [d] = await db.insert(discounts).values(data).returning();
+    return d;
+  }
+
+  async updateDiscount(id: number, data: Partial<InsertDiscount2>): Promise<Discount | undefined> {
+    const [d] = await db.update(discounts).set({ ...data, updatedAt: new Date() }).where(eq(discounts.id, id)).returning();
+    return d;
+  }
+
+  async deleteDiscount(id: number): Promise<void> {
+    await db.delete(discounts).where(eq(discounts.id, id));
   }
 }
 
