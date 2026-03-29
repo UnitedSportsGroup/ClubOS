@@ -2031,6 +2031,85 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/analytics/order-timing", requireAuth, async (req, res) => {
+    try {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      const rawFrom = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const rawTo = req.query.to as string || new Date().toISOString().split('T')[0];
+      const from = dateRegex.test(rawFrom) ? rawFrom : new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const to = dateRegex.test(rawTo) ? rawTo : new Date().toISOString().split('T')[0];
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
+      let orgFilter = "";
+      if (orgId && !isNaN(orgId)) orgFilter = `AND p.organization_id = ${orgId}`;
+
+      const heatmapData = await db.execute(sql.raw(`
+        SELECT
+          EXTRACT(DOW FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as day_of_week,
+          EXTRACT(HOUR FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as hour_of_day,
+          COUNT(*) as order_count,
+          COALESCE(SUM(r.total_cents), 0) as revenue_cents
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+          AND r.registered_at >= '${from}'
+          AND r.registered_at < '${to}'::date + interval '1 day'
+          ${orgFilter}
+        GROUP BY day_of_week, hour_of_day
+        ORDER BY day_of_week, hour_of_day
+      `));
+
+      const dailyTotals = await db.execute(sql.raw(`
+        SELECT
+          EXTRACT(DOW FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as day_of_week,
+          COUNT(*) as order_count,
+          COALESCE(SUM(r.total_cents), 0) as revenue_cents
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+          AND r.registered_at >= '${from}'
+          AND r.registered_at < '${to}'::date + interval '1 day'
+          ${orgFilter}
+        GROUP BY day_of_week
+        ORDER BY order_count DESC
+      `));
+
+      const hourlyTotals = await db.execute(sql.raw(`
+        SELECT
+          EXTRACT(HOUR FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as hour_of_day,
+          COUNT(*) as order_count,
+          COALESCE(SUM(r.total_cents), 0) as revenue_cents
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+          AND r.registered_at >= '${from}'
+          AND r.registered_at < '${to}'::date + interval '1 day'
+          ${orgFilter}
+        GROUP BY hour_of_day
+        ORDER BY hour_of_day
+      `));
+
+      const totalOrders = await db.execute(sql.raw(`
+        SELECT COUNT(*) as total, COALESCE(SUM(r.total_cents), 0) as revenue
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+          AND r.registered_at >= '${from}'
+          AND r.registered_at < '${to}'::date + interval '1 day'
+          ${orgFilter}
+      `));
+
+      res.json({
+        heatmap: rows(heatmapData),
+        dailyTotals: rows(dailyTotals),
+        hourlyTotals: rows(hourlyTotals),
+        summary: row0(totalOrders),
+      });
+    } catch (error: any) {
+      console.error("Analytics order-timing error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/analytics/timeline", requireAuth, async (req, res) => {
     try {
       const from = req.query.from as string || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
@@ -3041,6 +3120,44 @@ export async function registerRoutes(
         total: Number(countRows[0]?.total || 0),
         limit,
         offset,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/v1/order-timing", requireApiKey, async (req: Request, res: Response) => {
+    try {
+      const orgId = (req as any).apiKeyOrg;
+      const days = parseInt(req.query.days as string) || 30;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      const { rows: heatmapRows } = await db.execute(sql.raw(`
+        SELECT
+          EXTRACT(DOW FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as day_of_week,
+          EXTRACT(HOUR FROM r.registered_at AT TIME ZONE 'Pacific/Auckland') as hour_of_day,
+          COUNT(*) as order_count,
+          COALESCE(SUM(r.total_cents), 0) as revenue_cents
+        FROM registrations r
+        JOIN programs p ON r.program_id = p.id
+        WHERE r.status = 'confirmed'
+          AND p.organization_id = ${orgId}
+          AND r.registered_at >= '${since}'
+        GROUP BY day_of_week, hour_of_day
+        ORDER BY day_of_week, hour_of_day
+      `));
+
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+      res.json({
+        period: { days, since },
+        heatmap: heatmapRows.map((r: any) => ({
+          dayOfWeek: Number(r.day_of_week),
+          dayName: dayNames[Number(r.day_of_week)],
+          hourOfDay: Number(r.hour_of_day),
+          orderCount: Number(r.order_count),
+          revenueCents: Number(r.revenue_cents),
+        })),
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

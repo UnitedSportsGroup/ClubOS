@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Eye, Users, Clock, ArrowDown, MousePointerClick, Monitor, Smartphone, Tablet, TrendingUp, DollarSign, UserCheck, BarChart3, Target, ArrowRight, Percent, RefreshCw } from "lucide-react";
+import { Eye, Users, Clock, ArrowDown, MousePointerClick, Monitor, Smartphone, Tablet, TrendingUp, DollarSign, UserCheck, BarChart3, Target, ArrowRight, Percent, RefreshCw, CalendarDays } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 
 function formatCurrency(cents: number) {
@@ -559,6 +559,223 @@ function HeatmapTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlu
   );
 }
 
+function OrderTimingTab({ dateRange, orgId }: { dateRange: string; orgId?: number }) {
+  const params = new URLSearchParams();
+  const [from, to] = getDateRange(dateRange);
+  params.set("from", from);
+  params.set("to", to);
+  if (orgId) params.set("orgId", String(orgId));
+
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/analytics/order-timing", dateRange, orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/analytics/order-timing?${params}`);
+      if (!r.ok) throw new Error(`Failed to load order timing data`);
+      return r.json();
+    },
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center py-16"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>;
+  if (!data) return <div className="text-center py-16 text-muted-foreground">No data available</div>;
+
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
+  const dayLabelsMF = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const grid: Record<string, number> = {};
+  let maxCount = 0;
+  (data.heatmap || []).forEach((cell: any) => {
+    const key = `${cell.day_of_week}-${cell.hour_of_day}`;
+    const count = Number(cell.order_count);
+    grid[key] = count;
+    if (count > maxCount) maxCount = count;
+  });
+
+  function getCellColor(count: number): string {
+    if (count === 0 || maxCount === 0) return "bg-muted/30";
+    const intensity = count / maxCount;
+    if (intensity > 0.8) return "bg-emerald-500";
+    if (intensity > 0.6) return "bg-emerald-400";
+    if (intensity > 0.4) return "bg-emerald-300 dark:bg-emerald-600";
+    if (intensity > 0.2) return "bg-emerald-200 dark:bg-emerald-700";
+    return "bg-emerald-100 dark:bg-emerald-800";
+  }
+
+  const dailySorted = [...(data.dailyTotals || [])].sort((a: any, b: any) => Number(b.order_count) - Number(a.order_count));
+  const peakDay = dailySorted[0];
+  const hourlySorted = [...(data.hourlyTotals || [])].sort((a: any, b: any) => Number(b.order_count) - Number(a.order_count));
+  const peakHour = hourlySorted[0];
+
+  const totalOrders = Number(data.summary?.total || 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard
+          title="Total Orders"
+          value={formatNumber(totalOrders)}
+          subtitle={`${dateRange === "30d" ? "Last 30 days" : dateRange === "7d" ? "Last 7 days" : dateRange === "90d" ? "Last 90 days" : "Selected period"}`}
+          icon={CalendarDays}
+          color="blue"
+        />
+        <MetricCard
+          title="Peak Day"
+          value={peakDay ? dayLabels[Number(peakDay.day_of_week)] : "—"}
+          subtitle={peakDay ? `${peakDay.order_count} orders` : "No data"}
+          icon={TrendingUp}
+          color="green"
+        />
+        <MetricCard
+          title="Peak Hour"
+          value={peakHour ? `${Number(peakHour.hour_of_day) === 0 ? '12' : Number(peakHour.hour_of_day) > 12 ? Number(peakHour.hour_of_day) - 12 : peakHour.hour_of_day}${Number(peakHour.hour_of_day) < 12 ? 'am' : 'pm'}` : "—"}
+          subtitle={peakHour ? `${peakHour.order_count} orders` : "No data"}
+          icon={Clock}
+          color="purple"
+        />
+        <MetricCard
+          title="Revenue"
+          value={formatCurrency(Number(data.summary?.revenue || 0))}
+          icon={DollarSign}
+          color="gold"
+        />
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" />
+            Order Heatmap — Day of Week × Time of Day
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">Showing when customers place orders (NZ time). Darker = more orders.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <div className="min-w-[700px]">
+              <div className="flex">
+                <div className="w-12 flex-shrink-0" />
+                {Array.from({ length: 24 }, (_, h) => (
+                  <div key={h} className="flex-1 text-center text-[10px] text-muted-foreground font-medium px-0.5">
+                    {h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`}
+                  </div>
+                ))}
+              </div>
+
+              {dayOrder.map((dow, dayIdx) => (
+                <div key={dow} className="flex items-center gap-0" data-testid={`heatmap-row-${dayLabelsMF[dayIdx].toLowerCase()}`}>
+                  <div className="w-12 flex-shrink-0 text-xs font-medium text-muted-foreground pr-2 text-right">
+                    {dayLabelsMF[dayIdx]}
+                  </div>
+                  {Array.from({ length: 24 }, (_, h) => {
+                    const count = grid[`${dow}-${h}`] || 0;
+                    return (
+                      <div
+                        key={h}
+                        className={`flex-1 aspect-square m-[1px] rounded-sm ${getCellColor(count)} transition-colors cursor-default group relative`}
+                        data-testid={`heatmap-cell-${dayLabelsMF[dayIdx].toLowerCase()}-${h}`}
+                      >
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10">
+                          <div className="bg-popover text-popover-foreground border rounded-md shadow-md px-2 py-1 text-[11px] whitespace-nowrap">
+                            <span className="font-medium">{dayLabelsMF[dayIdx]} {h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`}</span>
+                            <br />
+                            {count} order{count !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+
+              <div className="flex items-center justify-end gap-2 mt-3 pt-2 border-t">
+                <span className="text-[10px] text-muted-foreground">Fewer</span>
+                <div className="flex gap-0.5">
+                  <div className="w-3 h-3 rounded-sm bg-muted/30" />
+                  <div className="w-3 h-3 rounded-sm bg-emerald-100 dark:bg-emerald-800" />
+                  <div className="w-3 h-3 rounded-sm bg-emerald-200 dark:bg-emerald-700" />
+                  <div className="w-3 h-3 rounded-sm bg-emerald-300 dark:bg-emerald-600" />
+                  <div className="w-3 h-3 rounded-sm bg-emerald-400" />
+                  <div className="w-3 h-3 rounded-sm bg-emerald-500" />
+                </div>
+                <span className="text-[10px] text-muted-foreground">More</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Orders by Day of Week</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {dayOrder.map((dow, dayIdx) => {
+                const dayData = (data.dailyTotals || []).find((d: any) => Number(d.day_of_week) === dow);
+                const count = Number(dayData?.order_count || 0);
+                const maxDay = Math.max(...(data.dailyTotals || []).map((d: any) => Number(d.order_count || 0)), 1);
+                const pct = (count / maxDay) * 100;
+                const isTop = peakDay && Number(peakDay.day_of_week) === dow;
+                return (
+                  <div key={dow} className="flex items-center gap-2" data-testid={`day-bar-${dayLabelsMF[dayIdx].toLowerCase()}`}>
+                    <span className={`w-8 text-xs font-medium ${isTop ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>{dayLabelsMF[dayIdx]}</span>
+                    <div className="flex-1 h-5 bg-muted rounded overflow-hidden">
+                      <div className={`h-full rounded ${isTop ? 'bg-emerald-500' : 'bg-primary/40'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className={`w-8 text-right text-xs font-medium ${isTop ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Orders by Time of Day</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {[
+                { label: "Morning", range: "6am–12pm", hours: [6, 7, 8, 9, 10, 11] },
+                { label: "Afternoon", range: "12pm–5pm", hours: [12, 13, 14, 15, 16] },
+                { label: "Evening", range: "5pm–9pm", hours: [17, 18, 19, 20] },
+                { label: "Night", range: "9pm–12am", hours: [21, 22, 23] },
+                { label: "Late Night", range: "12am–6am", hours: [0, 1, 2, 3, 4, 5] },
+              ].map(period => {
+                const count = (data.hourlyTotals || [])
+                  .filter((h: any) => period.hours.includes(Number(h.hour_of_day)))
+                  .reduce((s: number, h: any) => s + Number(h.order_count || 0), 0);
+                const pct = totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0;
+                return (
+                  <div key={period.label} className="flex items-center gap-2" data-testid={`period-${period.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <span className="w-20 text-xs font-medium text-muted-foreground">{period.label}</span>
+                    <span className="w-16 text-[10px] text-muted-foreground">{period.range}</span>
+                    <div className="flex-1 h-5 bg-muted rounded overflow-hidden">
+                      <div className="h-full bg-primary/40 rounded" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-12 text-right text-xs font-medium">{count} <span className="text-muted-foreground">({pct}%)</span></span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {totalOrders === 0 && (
+        <Card className="border-dashed">
+          <CardContent className="p-8 text-center">
+            <CalendarDays className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No confirmed orders in this time period yet.</p>
+            <p className="text-xs text-muted-foreground mt-1">Once customers start booking, you'll see exactly when they buy — helping you time your campaigns for maximum impact.</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function getDateRange(preset: string): [string, string] {
   const now = new Date();
   const to = now.toISOString().split('T')[0];
@@ -641,6 +858,7 @@ export default function CampAnalytics() {
           <TabsTrigger value="customers" data-testid="tab-customers">Customers</TabsTrigger>
           <TabsTrigger value="camps" data-testid="tab-camps">Camp Performance</TabsTrigger>
           <TabsTrigger value="heatmap" data-testid="tab-heatmap">Engagement</TabsTrigger>
+          <TabsTrigger value="order-timing" data-testid="tab-order-timing">Order Timing</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -660,6 +878,9 @@ export default function CampAnalytics() {
         </TabsContent>
         <TabsContent value="heatmap">
           <HeatmapTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
+        </TabsContent>
+        <TabsContent value="order-timing">
+          <OrderTimingTab dateRange={dateRange} orgId={orgId} />
         </TabsContent>
       </Tabs>
     </div>

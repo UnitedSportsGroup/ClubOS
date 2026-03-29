@@ -33,3 +33,24 @@ The application follows a client-server architecture.
 - **shadcn/ui**: UI component library.
 - **TanStack React Query**: Data fetching and state management library.
 - **Wistia**: For video embedding on public pages.
+
+## Analytics Module
+The analytics module at `/admin/analytics` provides comprehensive insights via tabbed views:
+- **Overview**: Key metrics (page views, unique visitors, bounce rate, avg session time)
+- **Funnel**: Conversion funnel from page views → registrations
+- **Revenue**: Revenue trends and breakdowns
+- **Customers**: Customer demographics and behavior
+- **Camp Performance**: Per-camp comparison metrics
+- **Engagement**: Engagement heatmap (page views by time)
+- **Order Timing**: Day×hour heatmap showing when customers place orders (NZ timezone), with peak day/hour cards, day-of-week bars, and time-of-day period breakdown
+
+## External API v1
+API key-authenticated endpoints at `/api/v1/*` for AIOS integration:
+- `/api/v1/overview` — High-level org metrics
+- `/api/v1/revenue` — Revenue data
+- `/api/v1/analytics` — Analytics events
+- `/api/v1/customers` — Customer data
+- `/api/v1/camps` — Camp/program listings
+- `/api/v1/split-tests` — A/B test results
+- `/api/v1/registrations` — Registration records
+- `/api/v1/order-timing` — Order timing heatmap data (day×hour)
