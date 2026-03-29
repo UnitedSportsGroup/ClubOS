@@ -54,6 +54,15 @@ Shopify-style discount management at `/admin/discounts` (Christchurch United wor
 - **Booking integration**: Discount codes can be applied during camp registration at checkout. Promo code input appears in the pricing summary on the booking page. Validation endpoint at `/api/public/validate-discount`. Server-side application in `/api/public/book` with proper discount calculation (percentage or fixed). Usage tracking (`timesUsed`, `totalDiscountedCents`) only increments on confirmed payment, not on pending bookings.
 - **Registration schema**: `registrations` table includes `discount_code` and `discount_id` columns to track which discount was used per registration.
 
+## Custom Domains
+Multi-workspace custom domain mapping at `/admin/domains` (available in all workspaces):
+- **Schema**: `custom_domains` table with `id`, `organizationId`, `domain`, `status` (pending/active/failed), `verified`, `verifiedAt`, `isPrimary`, `createdAt`
+- **Admin UI**: Domain management page to add/remove custom domains per workspace, DNS configuration instructions, verification status badges
+- **API routes**: Full CRUD at `/api/admin/domains` with org-scoped authorization (user must belong to domain's org), whitelisted PATCH fields
+- **Domain resolution**: Public endpoint `/api/public/resolve-domain?hostname=...` resolves a domain to its organization and active programs
+- **Storage**: `getCustomDomainsByOrg`, `getCustomDomainByHostname`, `createCustomDomain`, `updateCustomDomain`, `deleteCustomDomain`
+- **Security**: All admin endpoints verify user belongs to the domain's organization. PATCH only allows `isPrimary` field updates.
+
 ## External API v1
 API key-authenticated endpoints at `/api/v1/*` for AIOS integration:
 - `/api/v1/overview` — High-level org metrics

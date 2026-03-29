@@ -764,3 +764,18 @@ export type DiscountUsage = typeof discountUsages.$inferSelect;
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true });
 export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+export const customDomains = pgTable("custom_domains", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  domain: text("domain").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  verified: boolean("verified").notNull().default(false),
+  verifiedAt: timestamp("verified_at"),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCustomDomainSchema = createInsertSchema(customDomains).omit({ id: true, createdAt: true, verifiedAt: true });
+export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
+export type CustomDomain = typeof customDomains.$inferSelect;

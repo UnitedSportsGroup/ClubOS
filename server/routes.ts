@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -2103,6 +2103,69 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/domains", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === orgId)) return res.status(403).json({ message: "Forbidden" });
+      const domains = await storage.getCustomDomainsByOrg(orgId);
+      res.json(domains);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/domains", requireAuth, async (req, res) => {
+    try {
+      const { organizationId, domain } = req.body;
+      if (!organizationId || !domain) return res.status(400).json({ message: "organizationId and domain required" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === organizationId)) return res.status(403).json({ message: "Forbidden" });
+      const cleanDomain = domain.toLowerCase().trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(cleanDomain)) {
+        return res.status(400).json({ message: "Invalid domain format" });
+      }
+      const existing = await storage.getCustomDomainByHostname(cleanDomain);
+      if (existing) return res.status(400).json({ message: "This domain is already registered" });
+      const d = await storage.createCustomDomain({ organizationId, domain: cleanDomain, status: "active", verified: false, isPrimary: false });
+      res.json(d);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/domains/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
+      if (!domains.length) return res.status(404).json({ message: "Domain not found" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === domains[0].organizationId)) return res.status(403).json({ message: "Forbidden" });
+      const { isPrimary } = req.body;
+      const allowedUpdates: Record<string, any> = {};
+      if (typeof isPrimary === "boolean") allowedUpdates.isPrimary = isPrimary;
+      const d = await storage.updateCustomDomain(id, allowedUpdates);
+      res.json(d);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/domains/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
+      if (!domains.length) return res.status(404).json({ message: "Domain not found" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === domains[0].organizationId)) return res.status(403).json({ message: "Forbidden" });
+      await storage.deleteCustomDomain(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/analytics/order-timing", requireAuth, async (req, res) => {
     try {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -2414,6 +2477,21 @@ export async function registerRoutes(
       res.json({ camp, pricing, dates, discounts, splitTests: activeSplitTests });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/resolve-domain", async (req, res) => {
+    try {
+      const hostname = (req.query.hostname as string || "").toLowerCase().trim();
+      if (!hostname) return res.json({ resolved: false });
+      const domain = await storage.getCustomDomainByHostname(hostname);
+      if (!domain || domain.status !== "active") return res.json({ resolved: false });
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, domain.organizationId));
+      if (!org) return res.json({ resolved: false });
+      const programsResult = await db.execute(sql.raw(`SELECT * FROM programs WHERE organization_id = ${domain.organizationId} AND is_active = true`));
+      res.json({ resolved: true, organization: { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl }, programs: programsResult.rows });
+    } catch (error: any) {
+      res.json({ resolved: false });
     }
   });
 

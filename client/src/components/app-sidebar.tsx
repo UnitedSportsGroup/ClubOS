@@ -33,6 +33,7 @@ import {
   Award,
   Dumbbell,
   Tag,
+  Globe,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -69,6 +70,7 @@ const venueNav = [
 ];
 
 const campsSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
@@ -79,10 +81,12 @@ const leagueNav = [
 ];
 
 const venueSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/venue-settings", icon: Settings },
 ];
 
 const leagueSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/league-settings", icon: Settings },
 ];
 
@@ -92,6 +96,7 @@ const tournamentNav = [
 ];
 
 const tournamentSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/tournament-settings", icon: Settings },
 ];
 
@@ -100,6 +105,7 @@ const gymnasticsNav = [
 ];
 
 const gymnasticsSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/gymnastics-settings", icon: Settings },
 ];
 

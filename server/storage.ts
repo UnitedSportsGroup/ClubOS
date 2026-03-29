@@ -43,6 +43,7 @@ import {
   discounts, discountUsages,
   type InsertDiscount2, type Discount,
   type InsertDiscountUsage, type DiscountUsage,
+  customDomains, type InsertCustomDomain, type CustomDomain,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
@@ -261,6 +262,12 @@ export interface IStorage {
   getSettings(): Promise<Record<string, string>>;
   getSetting(key: string): Promise<string | null>;
   upsertSettings(entries: { key: string; value: string }[]): Promise<void>;
+
+  getCustomDomainsByOrg(organizationId: number): Promise<CustomDomain[]>;
+  getCustomDomainByHostname(hostname: string): Promise<CustomDomain | undefined>;
+  createCustomDomain(data: InsertCustomDomain): Promise<CustomDomain>;
+  updateCustomDomain(id: number, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
+  deleteCustomDomain(id: number): Promise<void>;
 
   getDiscountsByOrg(organizationId: number): Promise<Discount[]>;
   getDiscount(id: number): Promise<Discount | undefined>;
@@ -1476,6 +1483,29 @@ export class DatabaseStorage implements IStorage {
   async updateDiscount(id: number, data: Partial<InsertDiscount2>): Promise<Discount | undefined> {
     const [d] = await db.update(discounts).set({ ...data, updatedAt: new Date() }).where(eq(discounts.id, id)).returning();
     return d;
+  }
+
+  async getCustomDomainsByOrg(organizationId: number): Promise<CustomDomain[]> {
+    return db.select().from(customDomains).where(eq(customDomains.organizationId, organizationId)).orderBy(desc(customDomains.createdAt));
+  }
+
+  async getCustomDomainByHostname(hostname: string): Promise<CustomDomain | undefined> {
+    const [d] = await db.select().from(customDomains).where(eq(customDomains.domain, hostname.toLowerCase()));
+    return d;
+  }
+
+  async createCustomDomain(data: InsertCustomDomain): Promise<CustomDomain> {
+    const [d] = await db.insert(customDomains).values({ ...data, domain: data.domain.toLowerCase() }).returning();
+    return d;
+  }
+
+  async updateCustomDomain(id: number, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined> {
+    const [d] = await db.update(customDomains).set(data).where(eq(customDomains.id, id)).returning();
+    return d;
+  }
+
+  async deleteCustomDomain(id: number): Promise<void> {
+    await db.delete(customDomains).where(eq(customDomains.id, id));
   }
 
   async getDiscountByCode(code: string, organizationId: number): Promise<Discount | undefined> {

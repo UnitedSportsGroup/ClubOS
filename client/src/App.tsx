@@ -28,6 +28,7 @@ import VenueAnalytics from "@/pages/venue-analytics";
 import CampAnalytics from "@/pages/camp-analytics";
 import AdminDiscounts from "@/pages/admin-discounts";
 import AdminDiscountDetail from "@/pages/admin-discount-detail";
+import AdminDomainSettings from "@/pages/admin-domain-settings";
 import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
@@ -86,6 +87,7 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={GymnasticsDashboard} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -98,6 +100,7 @@ function AdminRouter() {
         <Route path="/admin/tournaments/:tournamentId/teams/:teamId" component={TournamentTeamDetail} />
         <Route path="/admin/tournaments/:id" component={TournamentDetail} />
         <Route path="/admin/tournaments" component={TournamentList} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -111,6 +114,7 @@ function AdminRouter() {
         <Route path="/admin/competitions" component={LeagueCompetitions} />
         <Route path="/admin/teams" component={LeagueTeams} />
         <Route path="/admin/league-settings" component={LeagueSettings} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -127,6 +131,7 @@ function AdminRouter() {
         <Route path="/admin/people" component={VenuePeople} />
         <Route path="/admin/payments" component={VenuePayments} />
         <Route path="/admin/venue-settings" component={VenueSettings} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -148,6 +153,7 @@ function AdminRouter() {
       <Route path="/admin/discounts/new" component={AdminDiscountDetail} />
       <Route path="/admin/discounts/:id" component={AdminDiscountDetail} />
       <Route path="/admin/discounts" component={AdminDiscounts} />
+      <Route path="/admin/domains" component={AdminDomainSettings} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route component={NotFound} />
     </Switch>
