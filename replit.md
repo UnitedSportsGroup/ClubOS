@@ -51,6 +51,8 @@ Shopify-style discount management at `/admin/discounts` (Christchurch United wor
 - **Discount types**: Amount off products, Amount off order, Buy X get Y, Free shipping
 - **Schema**: `discounts` table with org-scoped CRUD, `discount_usages` for tracking usage per registration
 - **Security**: Org-scoped authorization on all CRUD endpoints (user must belong to discount's org)
+- **Booking integration**: Discount codes can be applied during camp registration at checkout. Promo code input appears in the pricing summary on the booking page. Validation endpoint at `/api/public/validate-discount`. Server-side application in `/api/public/book` with proper discount calculation (percentage or fixed). Usage tracking (`timesUsed`, `totalDiscountedCents`) only increments on confirmed payment, not on pending bookings.
+- **Registration schema**: `registrations` table includes `discount_code` and `discount_id` columns to track which discount was used per registration.
 
 ## External API v1
 API key-authenticated endpoints at `/api/v1/*` for AIOS integration:

@@ -2045,8 +2045,7 @@ export async function registerRoutes(
     try {
       const d = await storage.getDiscount(parseInt(req.params.id));
       if (!d) return res.status(404).json({ message: "Discount not found" });
-      const user = req.user as any;
-      const userOrgs = await storage.getUserOrganizations(user.id);
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
       if (!userOrgs.some(o => o.id === d.organizationId)) return res.status(403).json({ message: "Forbidden" });
       res.json(d);
     } catch (error: any) {
@@ -2058,8 +2057,7 @@ export async function registerRoutes(
     try {
       const data = req.body;
       if (!data.title || !data.organizationId) return res.status(400).json({ message: "Title and organizationId required" });
-      const user = req.user as any;
-      const userOrgs = await storage.getUserOrganizations(user.id);
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
       if (!userOrgs.some((o: any) => o.id === data.organizationId)) return res.status(403).json({ message: "Forbidden" });
       if (data.method === 'code' && data.code) {
         const existing = await storage.getDiscountsByOrg(data.organizationId);
@@ -2080,8 +2078,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const existing = await storage.getDiscount(id);
       if (!existing) return res.status(404).json({ message: "Discount not found" });
-      const user = req.user as any;
-      const userOrgs = await storage.getUserOrganizations(user.id);
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
       if (!userOrgs.some((o: any) => o.id === existing.organizationId)) return res.status(403).json({ message: "Forbidden" });
       const data = req.body;
       if (data.startDate && typeof data.startDate === 'string') data.startDate = new Date(data.startDate);
@@ -2097,8 +2094,7 @@ export async function registerRoutes(
     try {
       const existing = await storage.getDiscount(parseInt(req.params.id));
       if (!existing) return res.status(404).json({ message: "Discount not found" });
-      const user = req.user as any;
-      const userOrgs = await storage.getUserOrganizations(user.id);
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
       if (!userOrgs.some((o: any) => o.id === existing.organizationId)) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteDiscount(parseInt(req.params.id));
       res.json({ success: true });
@@ -2421,9 +2417,39 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/public/validate-discount", async (req, res) => {
+    try {
+      const { code, campSlug } = req.body;
+      if (!code || !campSlug) return res.status(400).json({ valid: false, message: "Code and camp are required" });
+      const camp = await storage.getProgramBySlug(campSlug);
+      if (!camp) return res.status(404).json({ valid: false, message: "Camp not found" });
+      const orgId = (camp as any).organizationId || 1;
+      const discount = await storage.getDiscountByCode(code.trim(), orgId);
+      if (!discount) return res.json({ valid: false, message: "Invalid discount code" });
+      if (discount.status === "disabled") return res.json({ valid: false, message: "This discount code is no longer active" });
+      const now = new Date();
+      if (discount.startDate && new Date(discount.startDate) > now) return res.json({ valid: false, message: "This discount code is not yet active" });
+      if (discount.endDate && new Date(discount.endDate) < now) return res.json({ valid: false, message: "This discount code has expired" });
+      if (discount.maxTotalUses && discount.timesUsed >= discount.maxTotalUses) return res.json({ valid: false, message: "This discount code has reached its usage limit" });
+      res.json({
+        valid: true,
+        discount: {
+          id: discount.id,
+          code: discount.code,
+          type: discount.type,
+          valueType: discount.valueType,
+          value: discount.value,
+          title: discount.title,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ valid: false, message: error.message });
+    }
+  });
+
   app.post("/api/public/book", async (req, res) => {
     try {
-      const { parent, children: childrenData, items, campSlug, utmSource, utmMedium, utmCampaign, fbclid, fbp, fbc, userAgent } = req.body;
+      const { parent, children: childrenData, items, campSlug, discountCode, utmSource, utmMedium, utmCampaign, fbclid, fbp, fbc, userAgent } = req.body;
 
       const camp = await storage.getProgramBySlug(campSlug);
       if (!camp) return res.status(404).json({ message: "Camp not found" });
@@ -2485,12 +2511,40 @@ export async function registerRoutes(
       }
 
       let discountCents = 0;
+      let appliedDiscountId: number | null = null;
+      let appliedDiscountCode: string | null = null;
       const totalItems = registrationItems.length;
-      const applicableDiscount = discounts
-        .filter(d => totalItems >= d.minBookings)
-        .sort((a, b) => Number(b.discountPercent) - Number(a.discountPercent))[0];
-      if (applicableDiscount) {
-        discountCents = Math.round(subtotalCents * Number(applicableDiscount.discountPercent) / 100);
+
+      if (discountCode) {
+        const orgId = (camp as any).organizationId || 1;
+        const promoDiscount = await storage.getDiscountByCode(discountCode.trim(), orgId);
+        if (promoDiscount && promoDiscount.status !== "disabled") {
+          const now = new Date();
+          const startOk = !promoDiscount.startDate || new Date(promoDiscount.startDate) <= now;
+          const endOk = !promoDiscount.endDate || new Date(promoDiscount.endDate) >= now;
+          const usageOk = !promoDiscount.maxTotalUses || promoDiscount.timesUsed < promoDiscount.maxTotalUses;
+          if (startOk && endOk && usageOk) {
+            if (promoDiscount.valueType === "percentage") {
+              discountCents = Math.round(subtotalCents * Number(promoDiscount.value) / 100);
+            } else {
+              discountCents = Math.round(Number(promoDiscount.value) * 100);
+            }
+            if (discountCents > subtotalCents) discountCents = subtotalCents;
+            appliedDiscountId = promoDiscount.id;
+            appliedDiscountCode = promoDiscount.code;
+          }
+        }
+      }
+
+      let volumeDiscountLabel: string | null = null;
+      if (discountCents === 0) {
+        const applicableDiscount = discounts
+          .filter(d => totalItems >= d.minBookings)
+          .sort((a, b) => Number(b.discountPercent) - Number(a.discountPercent))[0];
+        if (applicableDiscount) {
+          discountCents = Math.round(subtotalCents * Number(applicableDiscount.discountPercent) / 100);
+          volumeDiscountLabel = `${applicableDiscount.discountPercent}%`;
+        }
       }
 
       const totalCents = subtotalCents - discountCents;
@@ -2502,6 +2556,8 @@ export async function registerRoutes(
         status: "pending",
         subtotalCents,
         discountCents,
+        discountCode: appliedDiscountCode || null,
+        discountId: appliedDiscountId || null,
         totalCents,
         currency: "NZD",
         registrationLocation: "online",
@@ -2557,7 +2613,7 @@ export async function registerRoutes(
           discountCents,
           totalCents,
           currency: "NZD",
-          discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
+          discountApplied: appliedDiscountCode || volumeDiscountLabel || null,
           requiresPayment: true,
           campSlug,
         });
@@ -2568,7 +2624,7 @@ export async function registerRoutes(
           discountCents,
           totalCents,
           currency: "NZD",
-          discountApplied: applicableDiscount ? `${applicableDiscount.discountPercent}%` : null,
+          discountApplied: appliedDiscountCode || volumeDiscountLabel || null,
         });
       }
     } catch (error: any) {
@@ -2587,6 +2643,9 @@ export async function registerRoutes(
       }
       await storage.updateRegistration(registrationId, { status: "confirmed" });
       await storage.assignOrderNumber(registrationId);
+      if ((reg as any).discountId && reg.discountCents && reg.discountCents > 0) {
+        await storage.incrementDiscountUsage((reg as any).discountId, reg.discountCents);
+      }
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -3251,6 +3310,10 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
     status: "confirmed",
   });
   await storage.assignOrderNumber(registrationId);
+
+  if ((reg as any).discountId && reg.discountCents && reg.discountCents > 0) {
+    await storage.incrementDiscountUsage((reg as any).discountId, reg.discountCents);
+  }
 
   const contact = await storage.getContact(reg.contactId);
   const program = await storage.getProgram(reg.programId);

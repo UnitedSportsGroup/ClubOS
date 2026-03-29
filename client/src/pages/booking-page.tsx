@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
-import { ArrowLeft, Plus, X, User, Calendar, CreditCard, ShieldCheck, Clock, ArrowRight, CheckCircle, Lock, Sparkles, Heart } from "lucide-react";
+import { ArrowLeft, Plus, X, User, Calendar, CreditCard, ShieldCheck, Clock, ArrowRight, CheckCircle, Lock, Sparkles, Heart, Tag } from "lucide-react";
 import { trackEvent, getFbp, getFbc, generateEventId } from "@/lib/meta-pixel";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -238,6 +238,10 @@ export default function BookingPage() {
 
   const [bookingResult, setBookingResult] = useState<any>(null);
   const [checkoutData, setCheckoutData] = useState<any>(null);
+  const [promoCode, setPromoCode] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{ id: number; code: string; type: string; valueType: string; value: string; title: string } | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
 
   const { data, isLoading } = useQuery<{ camp: any; pricing: any[]; dates: any[]; discounts: any[] }>({
     queryKey: ["/api/public/camps", slug],
@@ -265,6 +269,7 @@ export default function BookingPage() {
           }
           return expandedItems;
         })(),
+        discountCode: appliedPromo?.code || null,
         utmSource: urlParams.get("utm_source"),
         utmMedium: urlParams.get("utm_medium"),
         utmCampaign: urlParams.get("utm_campaign"),
@@ -341,6 +346,36 @@ export default function BookingPage() {
 
   const validChildCount = Math.max(1, children.filter(c => c.firstName.trim()).length);
 
+  const applyPromoCode = async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true);
+    setPromoError("");
+    try {
+      const res = await fetch("/api/public/validate-discount", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: promoCode.trim(), campSlug: slug }),
+      });
+      const result = await res.json();
+      if (result.valid) {
+        setAppliedPromo(result.discount);
+        setPromoError("");
+      } else {
+        setPromoError(result.message || "Invalid code");
+        setAppliedPromo(null);
+      }
+    } catch {
+      setPromoError("Could not validate code");
+    }
+    setPromoLoading(false);
+  };
+
+  const removePromoCode = () => {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError("");
+  };
+
   const calcTotal = () => {
     let perChildSubtotal = 0;
     items.forEach(item => {
@@ -350,7 +385,17 @@ export default function BookingPage() {
     const totalItems = items.length * validChildCount;
     let discount = 0;
     let discountLabel = "";
-    if (data?.discounts) {
+
+    if (appliedPromo) {
+      if (appliedPromo.valueType === "percentage") {
+        discount = Math.round(subtotal * Number(appliedPromo.value) / 100);
+        discountLabel = `${Number(appliedPromo.value)}% (${appliedPromo.code})`;
+      } else {
+        discount = Math.round(Number(appliedPromo.value) * 100);
+        discountLabel = `$${Number(appliedPromo.value).toFixed(2)} (${appliedPromo.code})`;
+      }
+      if (discount > subtotal) discount = subtotal;
+    } else if (data?.discounts) {
       const applicable = data.discounts
         .filter((d: any) => totalItems >= d.minBookings)
         .sort((a: any, b: any) => Number(b.discountPercent) - Number(a.discountPercent))[0];
@@ -535,11 +580,53 @@ export default function BookingPage() {
                     </div>
                   )}
                 </div>
-                {data.discounts.length > 0 && pricing.discount === 0 && (
+                {data.discounts.length > 0 && pricing.discount === 0 && !appliedPromo && (
                   <p className="text-[12px] rounded-lg px-3 py-2" style={{ background: `${BRAND.gold}12`, color: '#92750a' }}>
                     Book {data.discounts[0]?.minBookings}+ sessions to unlock {data.discounts[0]?.discountPercent}% off
                   </p>
                 )}
+                <div className="border-t pt-3" style={{ borderColor: `${BRAND.gold}25` }}>
+                  {appliedPromo ? (
+                    <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: '#ecfdf5' }} data-testid="promo-applied">
+                      <div className="flex items-center gap-2">
+                        <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-[13px] font-semibold text-emerald-700">{appliedPromo.code}</span>
+                      </div>
+                      <button
+                        onClick={removePromoCode}
+                        className="text-[12px] text-slate-400 hover:text-slate-600 font-medium"
+                        data-testid="button-remove-promo"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={promoCode}
+                          onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoError(""); }}
+                          placeholder="Discount code"
+                          className="rounded-xl border-slate-200 focus:border-blue-400 focus:ring-blue-400/20 h-9 text-[13px] font-mono flex-1"
+                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyPromoCode(); } }}
+                          data-testid="input-promo-code"
+                        />
+                        <Button
+                          onClick={applyPromoCode}
+                          disabled={!promoCode.trim() || promoLoading}
+                          variant="outline"
+                          className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 h-9 text-[13px] px-4"
+                          data-testid="button-apply-promo"
+                        >
+                          {promoLoading ? "..." : "Apply"}
+                        </Button>
+                      </div>
+                      {promoError && (
+                        <p className="text-[12px] text-red-500 mt-1" data-testid="text-promo-error">{promoError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

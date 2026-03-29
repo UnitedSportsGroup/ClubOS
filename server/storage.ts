@@ -264,9 +264,11 @@ export interface IStorage {
 
   getDiscountsByOrg(organizationId: number): Promise<Discount[]>;
   getDiscount(id: number): Promise<Discount | undefined>;
+  getDiscountByCode(code: string, organizationId: number): Promise<Discount | undefined>;
   createDiscount(data: InsertDiscount2): Promise<Discount>;
   updateDiscount(id: number, data: Partial<InsertDiscount2>): Promise<Discount | undefined>;
   deleteDiscount(id: number): Promise<void>;
+  incrementDiscountUsage(id: number, discountedCents: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1476,8 +1478,25 @@ export class DatabaseStorage implements IStorage {
     return d;
   }
 
+  async getDiscountByCode(code: string, organizationId: number): Promise<Discount | undefined> {
+    const [d] = await db.select().from(discounts)
+      .where(and(
+        sql`lower(${discounts.code}) = lower(${code})`,
+        eq(discounts.organizationId, organizationId)
+      ));
+    return d;
+  }
+
   async deleteDiscount(id: number): Promise<void> {
     await db.delete(discounts).where(eq(discounts.id, id));
+  }
+
+  async incrementDiscountUsage(id: number, discountedCents: number): Promise<void> {
+    await db.update(discounts).set({
+      timesUsed: sql`${discounts.timesUsed} + 1`,
+      totalDiscountedCents: sql`${discounts.totalDiscountedCents} + ${discountedCents}`,
+      updatedAt: new Date(),
+    }).where(eq(discounts.id, id));
   }
 }
 

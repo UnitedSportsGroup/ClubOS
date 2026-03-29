@@ -158,6 +158,8 @@ export const registrations = pgTable("registrations", {
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   subtotalCents: integer("subtotal_cents"),
   discountCents: integer("discount_cents").default(0),
+  discountCode: text("discount_code"),
+  discountId: integer("discount_id"),
   totalCents: integer("total_cents"),
   currency: text("currency").default("NZD"),
   registrationLocation: text("registration_location").default("online"),
