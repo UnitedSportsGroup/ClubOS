@@ -2224,19 +2224,71 @@ export async function registerRoutes(
 
   app.post("/api/admin/calendar-events", requireAuth, async (req, res) => {
     try {
-      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId } = req.body;
+      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId, repeatRule } = req.body;
       if (!title || !startTime || !endTime) return res.status(400).json({ message: "title, startTime, and endTime required" });
-      const event = await storage.createCalendarEvent({
-        title, description, location,
-        startTime: new Date(startTime), endTime: new Date(endTime),
-        allDay: allDay || false,
-        calendarType: calendarType || "general",
-        color: color || "#3b82f6",
-        recurrence,
-        organizationId: organizationId || null,
-        createdBy: req.session.userId!,
-      });
-      res.json(event);
+
+      const baseStart = new Date(startTime);
+      const baseEnd = new Date(endTime);
+      const durationMs = baseEnd.getTime() - baseStart.getTime();
+
+      if (!repeatRule || repeatRule.type === "none") {
+        const event = await storage.createCalendarEvent({
+          title, description, location,
+          startTime: baseStart, endTime: baseEnd,
+          allDay: allDay || false,
+          calendarType: calendarType || "general",
+          color: color || "#3b82f6",
+          recurrence: recurrence || null,
+          organizationId: organizationId || null,
+          createdBy: req.session.userId!,
+        });
+        return res.json(event);
+      }
+
+      const { type: rType, interval: rawInterval = 1, until } = repeatRule;
+      const allowedTypes = ["daily", "weekly", "monthly", "yearly"];
+      if (!allowedTypes.includes(rType)) {
+        return res.status(400).json({ message: "Invalid repeat type" });
+      }
+      const interval = Math.max(1, Math.min(99, Math.floor(Number(rawInterval) || 1)));
+      const untilDate = until ? new Date(new Date(until).getTime() + 86400000 - 1) : null;
+      const maxOccurrences = 365;
+      const occurrences: Date[] = [baseStart];
+      let current = new Date(baseStart);
+
+      for (let i = 1; i < maxOccurrences; i++) {
+        const next = new Date(current);
+        if (rType === "daily") next.setDate(next.getDate() + interval);
+        else if (rType === "weekly") next.setDate(next.getDate() + 7 * interval);
+        else if (rType === "monthly") next.setMonth(next.getMonth() + interval);
+        else if (rType === "yearly") next.setFullYear(next.getFullYear() + interval);
+        else break;
+
+        if (untilDate && next > untilDate) break;
+        if (!untilDate && i >= 52) break;
+        occurrences.push(new Date(next));
+        current = next;
+      }
+
+      const recurrenceLabel = `${rType}${interval > 1 ? `:${interval}` : ""}${untilDate ? `:until:${untilDate.toISOString().split("T")[0]}` : ""}`;
+
+      const createdEvents = [];
+      for (const occ of occurrences) {
+        const occEnd = new Date(occ.getTime() + durationMs);
+        const event = await storage.createCalendarEvent({
+          title, description, location,
+          startTime: occ, endTime: occEnd,
+          allDay: allDay || false,
+          calendarType: calendarType || "general",
+          color: color || "#3b82f6",
+          recurrence: recurrenceLabel,
+          organizationId: organizationId || null,
+          createdBy: req.session.userId!,
+        });
+        createdEvents.push(event);
+      }
+
+      res.json({ created: createdEvents.length, events: createdEvents });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
-  Trash2, Edit
+  Trash2, Edit, Repeat
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -121,6 +121,11 @@ export default function GroupCalendar() {
   const [formAllDay, setFormAllDay] = useState(false);
   const [formCalType, setFormCalType] = useState("general");
   const [formColor, setFormColor] = useState("#3b82f6");
+  const [formRepeatType, setFormRepeatType] = useState<"none"|"daily"|"weekly"|"monthly"|"yearly"|"custom">("none");
+  const [formRepeatInterval, setFormRepeatInterval] = useState(1);
+  const [formRepeatFreq, setFormRepeatFreq] = useState<"daily"|"weekly"|"monthly"|"yearly">("weekly");
+  const [formRepeatUntil, setFormRepeatUntil] = useState("");
+  const [showCustomRepeat, setShowCustomRepeat] = useState(false);
 
   const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
@@ -154,9 +159,13 @@ export default function GroupCalendar() {
       const res = await apiRequest("POST", "/api/admin/calendar-events", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
-      toast({ title: "Event created" });
+      if (result?.created && result.created > 1) {
+        toast({ title: `${result.created} events created` });
+      } else {
+        toast({ title: "Event created" });
+      }
       closeModal();
       closeDraft();
     },
@@ -258,6 +267,11 @@ export default function GroupCalendar() {
     setFormAllDay(false);
     setFormCalType("general");
     setFormColor("#3b82f6");
+    setFormRepeatType("none");
+    setFormRepeatInterval(1);
+    setFormRepeatFreq("weekly");
+    setFormRepeatUntil("");
+    setShowCustomRepeat(false);
     setShowModal(true);
   }
 
@@ -275,6 +289,11 @@ export default function GroupCalendar() {
     setFormAllDay(event.allDay);
     setFormCalType(event.calendarType);
     setFormColor(event.color);
+    setFormRepeatType("none");
+    setFormRepeatInterval(1);
+    setFormRepeatFreq("weekly");
+    setFormRepeatUntil("");
+    setShowCustomRepeat(false);
     setShowModal(true);
     setSelectedEvent(null);
   }
@@ -315,10 +334,19 @@ export default function GroupCalendar() {
       color: formColor,
     };
 
+    let repeatRule: any = null;
+    if (formRepeatType !== "none") {
+      if (formRepeatType === "custom") {
+        repeatRule = { type: formRepeatFreq, interval: formRepeatInterval, until: formRepeatUntil || null };
+      } else {
+        repeatRule = { type: formRepeatType, interval: 1, until: formRepeatUntil || null };
+      }
+    }
+
     if (editingEvent) {
       updateMutation.mutate({ id: editingEvent.id, ...data });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate({ ...data, repeatRule });
     }
   }
 
@@ -506,6 +534,54 @@ export default function GroupCalendar() {
                 </div>
               </div>
             </div>
+
+            {!editingEvent && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <Repeat className="w-4 h-4 text-white/30" />
+                  <Select value={formRepeatType} onValueChange={(v: any) => { setFormRepeatType(v); if (v === "custom") setShowCustomRepeat(true); else setShowCustomRepeat(false); }}>
+                    <SelectTrigger className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="select-repeat-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Does not repeat</SelectItem>
+                      <SelectItem value="daily">Repeats daily</SelectItem>
+                      <SelectItem value="weekly">Repeats weekly</SelectItem>
+                      <SelectItem value="monthly">Repeats monthly</SelectItem>
+                      <SelectItem value="yearly">Repeats yearly</SelectItem>
+                      <SelectItem value="custom">Custom...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formRepeatType === "custom" && (
+                  <div className="ml-7 space-y-2 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-white/40 w-16">Repeat every</span>
+                      <Input type="number" min={1} max={99} value={formRepeatInterval} onChange={e => setFormRepeatInterval(Math.max(1, parseInt(e.target.value) || 1))} className="premium-input text-white/70 text-xs rounded-lg w-16 h-8 text-center" data-testid="input-repeat-interval" />
+                      <Select value={formRepeatFreq} onValueChange={(v: any) => setFormRepeatFreq(v)}>
+                        <SelectTrigger className="premium-input text-white/70 text-xs rounded-lg h-8 w-[100px]" data-testid="select-repeat-freq"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">{formRepeatInterval > 1 ? "days" : "day"}</SelectItem>
+                          <SelectItem value="weekly">{formRepeatInterval > 1 ? "weeks" : "week"}</SelectItem>
+                          <SelectItem value="monthly">{formRepeatInterval > 1 ? "months" : "month"}</SelectItem>
+                          <SelectItem value="yearly">{formRepeatInterval > 1 ? "years" : "year"}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                {formRepeatType !== "none" && (
+                  <div className="ml-7 flex items-center gap-2">
+                    <span className="text-xs text-white/40">Until</span>
+                    <Input type="date" value={formRepeatUntil} onChange={e => setFormRepeatUntil(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1 h-8" data-testid="input-repeat-until" placeholder="No end date" />
+                    {formRepeatUntil && (
+                      <button onClick={() => setFormRepeatUntil("")} className="text-white/30 hover:text-white/50"><X className="w-3.5 h-3.5" /></button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
               <MapPin className="w-4 h-4 text-white/30" />
               <Input placeholder="Add location" value={formLocation} onChange={e => setFormLocation(e.target.value)} className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="input-event-location" />
