@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,13 @@ const CALENDAR_TYPES = [
 ];
 
 type ViewMode = "month" | "week" | "day";
+
+interface DraftEvent {
+  day: Date;
+  startMinutes: number;
+  endMinutes: number;
+  columnIndex: number;
+}
 
 function getWeekDays(date: Date): Date[] {
   const d = new Date(date);
@@ -56,6 +63,14 @@ function formatTime(d: Date): string {
   return d.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function formatMinutes(m: number): string {
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  const ampm = h < 12 ? "am" : "pm";
+  const hh = h % 12 || 12;
+  return mm === 0 ? `${hh}${ampm}` : `${hh}:${String(mm).padStart(2, "0")}${ampm}`;
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
@@ -70,17 +85,22 @@ function toLocalTime(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function toLocalISO(d: Date): string {
-  return `${toLocalDate(d)}T${toLocalTime(d)}`;
+function minutesToTime(minutes: number): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 }
 
 function buildDate(dateStr: string, timeStr: string): Date {
   if (!dateStr) return new Date(NaN);
-  if (!timeStr) {
-    return new Date(dateStr + "T00:00:00");
-  }
+  if (!timeStr) return new Date(dateStr + "T00:00:00");
   return new Date(`${dateStr}T${timeStr}:00`);
 }
+
+function snapToGrid(minutes: number, gridSize: number = 15): number {
+  return Math.round(minutes / gridSize) * gridSize;
+}
+
+const HOUR_HEIGHT = 60;
 
 export default function GroupCalendar() {
   const { toast } = useToast();
@@ -101,6 +121,10 @@ export default function GroupCalendar() {
   const [formAllDay, setFormAllDay] = useState(false);
   const [formCalType, setFormCalType] = useState("general");
   const [formColor, setFormColor] = useState("#3b82f6");
+
+  const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const quickTitleRef = useRef<HTMLInputElement>(null);
 
   const rangeStart = useMemo(() => {
     if (viewMode === "month") return new Date(currentDate.getFullYear(), currentDate.getMonth(), -6);
@@ -134,6 +158,7 @@ export default function GroupCalendar() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
       toast({ title: "Event created" });
       closeModal();
+      closeDraft();
     },
     onError: (e: any) => toast({ title: "Error creating event", description: e.message, variant: "destructive" }),
   });
@@ -161,13 +186,68 @@ export default function GroupCalendar() {
     },
   });
 
+  function closeDraft() {
+    setDraftEvent(null);
+    setShowQuickCreate(false);
+  }
+
+  function handleDraftCreated(day: Date, startMinutes: number, endMinutes: number, columnIndex: number) {
+    setSelectedEvent(null);
+    setDraftEvent({ day, startMinutes, endMinutes, columnIndex });
+    setShowQuickCreate(true);
+    setTimeout(() => quickTitleRef.current?.focus(), 50);
+  }
+
+  function handleDraftResize(endMinutes: number) {
+    if (!draftEvent) return;
+    setDraftEvent({ ...draftEvent, endMinutes: Math.max(endMinutes, draftEvent.startMinutes + 15) });
+  }
+
+  function handleQuickSave(title: string) {
+    if (!draftEvent || !title.trim()) return;
+    const startDate = new Date(draftEvent.day);
+    startDate.setHours(0, 0, 0, 0);
+    const startTime = new Date(startDate.getTime() + draftEvent.startMinutes * 60000);
+    const endTime = new Date(startDate.getTime() + draftEvent.endMinutes * 60000);
+    createMutation.mutate({
+      title: title.trim(),
+      description: null,
+      location: null,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      allDay: false,
+      calendarType: "general",
+      color: "#3b82f6",
+    });
+  }
+
+  function handleQuickMoreOptions() {
+    if (!draftEvent) return;
+    const startDate = new Date(draftEvent.day);
+    startDate.setHours(0, 0, 0, 0);
+    const start = new Date(startDate.getTime() + draftEvent.startMinutes * 60000);
+    const end = new Date(startDate.getTime() + draftEvent.endMinutes * 60000);
+    setEditingEvent(null);
+    setFormTitle((quickTitleRef.current?.value || "").trim());
+    setFormDesc("");
+    setFormLocation("");
+    setFormStartDate(toLocalDate(start));
+    setFormStartTime(toLocalTime(start));
+    setFormEndDate(toLocalDate(end));
+    setFormEndTime(toLocalTime(end));
+    setFormAllDay(false);
+    setFormCalType("general");
+    setFormColor("#3b82f6");
+    closeDraft();
+    setShowModal(true);
+  }
+
   function openCreateModal(date?: Date) {
     setEditingEvent(null);
     const d = date || new Date();
     const start = new Date(d);
-    start.setHours(9, 0, 0, 0);
-    const end = new Date(d);
-    end.setHours(10, 0, 0, 0);
+    if (start.getHours() === 0 && start.getMinutes() === 0) start.setHours(9, 0, 0, 0);
+    const end = new Date(start.getTime() + 3600000);
     setFormTitle("");
     setFormDesc("");
     setFormLocation("");
@@ -205,18 +285,9 @@ export default function GroupCalendar() {
   }
 
   function handleSave() {
-    if (!formTitle.trim()) {
-      toast({ title: "Title required", variant: "destructive" });
-      return;
-    }
-    if (!formStartDate) {
-      toast({ title: "Start date required", variant: "destructive" });
-      return;
-    }
-    if (!formEndDate) {
-      toast({ title: "End date required", variant: "destructive" });
-      return;
-    }
+    if (!formTitle.trim()) { toast({ title: "Title required", variant: "destructive" }); return; }
+    if (!formStartDate) { toast({ title: "Start date required", variant: "destructive" }); return; }
+    if (!formEndDate) { toast({ title: "End date required", variant: "destructive" }); return; }
 
     let startTime: Date;
     let endTime: Date;
@@ -225,23 +296,13 @@ export default function GroupCalendar() {
       startTime = new Date(formStartDate + "T00:00:00");
       endTime = new Date(formEndDate + "T23:59:59");
     } else {
-      if (!formStartTime || !formEndTime) {
-        toast({ title: "Please set both start and end times", variant: "destructive" });
-        return;
-      }
+      if (!formStartTime || !formEndTime) { toast({ title: "Please set both start and end times", variant: "destructive" }); return; }
       startTime = buildDate(formStartDate, formStartTime);
       endTime = buildDate(formEndDate, formEndTime);
     }
 
-    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-      toast({ title: "Invalid date or time", variant: "destructive" });
-      return;
-    }
-
-    if (endTime <= startTime) {
-      toast({ title: "End time must be after start time", variant: "destructive" });
-      return;
-    }
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) { toast({ title: "Invalid date or time", variant: "destructive" }); return; }
+    if (endTime <= startTime) { toast({ title: "End time must be after start time", variant: "destructive" }); return; }
 
     const data = {
       title: formTitle.trim(),
@@ -269,9 +330,7 @@ export default function GroupCalendar() {
     setCurrentDate(d);
   }
 
-  function goToday() {
-    setCurrentDate(new Date());
-  }
+  function goToday() { setCurrentDate(new Date()); }
 
   function toggleCalendar(id: string) {
     setVisibleCalendars(prev => {
@@ -302,13 +361,8 @@ export default function GroupCalendar() {
     });
   }
 
-  function getTimedEvents(dayEvents: CalendarEvent[]) {
-    return dayEvents.filter(e => !e.allDay);
-  }
-
-  function getAllDayEvents(dayEvents: CalendarEvent[]) {
-    return dayEvents.filter(e => e.allDay);
-  }
+  function getTimedEvents(dayEvents: CalendarEvent[]) { return dayEvents.filter(e => !e.allDay); }
+  function getAllDayEvents(dayEvents: CalendarEvent[]) { return dayEvents.filter(e => e.allDay); }
 
   function getEventStyle(event: CalendarEvent, dayStart: Date) {
     const start = new Date(event.startTime);
@@ -331,35 +385,21 @@ export default function GroupCalendar() {
   const today = new Date();
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" onClick={() => { if (showQuickCreate && !draftEvent) closeDraft(); }}>
       <div className="w-56 flex-shrink-0 border-r border-white/[0.06] p-4 space-y-5 overflow-y-auto" style={{ background: 'rgba(2,6,14,0.5)' }}>
-        <Button
-          onClick={() => openCreateModal()}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2"
-          data-testid="button-create-event"
-        >
+        <Button onClick={() => openCreateModal()} className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2" data-testid="button-create-event">
           <Plus className="w-4 h-4" /> Create
         </Button>
-
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Mini Calendar</div>
           <MiniCalendar date={currentDate} onSelect={(d) => { setCurrentDate(d); if (viewMode === "month") setViewMode("day"); }} />
         </div>
-
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Calendars</div>
           <div className="space-y-1">
             {CALENDAR_TYPES.map(cal => (
-              <button
-                key={cal.id}
-                onClick={() => toggleCalendar(cal.id)}
-                className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
-                data-testid={`toggle-calendar-${cal.id}`}
-              >
-                <div
-                  className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center"
-                  style={{ backgroundColor: visibleCalendars.has(cal.id) ? cal.color : "transparent", border: `2px solid ${cal.color}` }}
-                >
+              <button key={cal.id} onClick={() => toggleCalendar(cal.id)} className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors" data-testid={`toggle-calendar-${cal.id}`}>
+                <div className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: visibleCalendars.has(cal.id) ? cal.color : "transparent", border: `2px solid ${cal.color}` }}>
                   {visibleCalendars.has(cal.id) && <span className="text-white text-[8px]">✓</span>}
                 </div>
                 <span className="text-xs text-white/60">{cal.label}</span>
@@ -372,49 +412,27 @@ export default function GroupCalendar() {
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]" style={{ background: 'rgba(2,6,14,0.5)' }}>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={goToday} className="border-white/10 text-white/60 text-xs rounded-xl h-8" data-testid="button-today">
-              Today
-            </Button>
+            <Button variant="outline" size="sm" onClick={goToday} className="border-white/10 text-white/60 text-xs rounded-xl h-8" data-testid="button-today">Today</Button>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="h-7 w-7 text-white/40 hover:text-white/60" data-testid="button-prev">
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => navigate(1)} className="h-7 w-7 text-white/40 hover:text-white/60" data-testid="button-next">
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="h-7 w-7 text-white/40 hover:text-white/60" data-testid="button-prev"><ChevronLeft className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate(1)} className="h-7 w-7 text-white/40 hover:text-white/60" data-testid="button-next"><ChevronRight className="w-4 h-4" /></Button>
             </div>
             <h2 className="text-base font-medium text-white/80" data-testid="text-date-range">{headerLabel}</h2>
           </div>
           <div className="flex items-center gap-1 bg-white/[0.04] rounded-xl p-0.5">
             {(["day", "week", "month"] as ViewMode[]).map(v => (
-              <Button
-                key={v}
-                variant="ghost"
-                size="sm"
-                onClick={() => setViewMode(v)}
-                className={`text-xs h-7 rounded-lg capitalize ${viewMode === v ? "bg-blue-600 text-white hover:bg-blue-600" : "text-white/40 hover:text-white/60"}`}
-                data-testid={`button-view-${v}`}
-              >
-                {v}
-              </Button>
+              <Button key={v} variant="ghost" size="sm" onClick={() => setViewMode(v)} className={`text-xs h-7 rounded-lg capitalize ${viewMode === v ? "bg-blue-600 text-white hover:bg-blue-600" : "text-white/40 hover:text-white/60"}`} data-testid={`button-view-${v}`}>{v}</Button>
             ))}
           </div>
         </div>
 
         <div className="flex-1 overflow-auto">
           {viewMode === "month" && (
-            <MonthView
-              days={getMonthDays(currentDate)}
-              events={filteredEvents}
-              currentDate={currentDate}
-              today={today}
-              onDayClick={(d) => { setCurrentDate(d); setViewMode("day"); }}
-              onEventClick={setSelectedEvent}
-              onCreateClick={openCreateModal}
-            />
+            <MonthView days={getMonthDays(currentDate)} events={filteredEvents} currentDate={currentDate} today={today} onDayClick={(d) => { setCurrentDate(d); setViewMode("day"); }} onEventClick={setSelectedEvent} onCreateClick={openCreateModal} />
           )}
           {viewMode === "week" && (
-            <WeekView
+            <TimeGridView
+              mode="week"
               days={getWeekDays(currentDate)}
               events={filteredEvents}
               today={today}
@@ -423,19 +441,37 @@ export default function GroupCalendar() {
               getTimedEvents={getTimedEvents}
               getAllDayEvents={getAllDayEvents}
               onEventClick={setSelectedEvent}
-              onTimeClick={(d) => openCreateModal(d)}
+              draftEvent={draftEvent}
+              showQuickCreate={showQuickCreate}
+              onDraftCreated={handleDraftCreated}
+              onDraftResize={handleDraftResize}
+              onQuickSave={handleQuickSave}
+              onQuickMoreOptions={handleQuickMoreOptions}
+              onQuickClose={closeDraft}
+              quickTitleRef={quickTitleRef}
+              createPending={createMutation.isPending}
             />
           )}
           {viewMode === "day" && (
-            <DayView
-              day={currentDate}
+            <TimeGridView
+              mode="day"
+              days={[currentDate]}
               events={getEventsForDay(currentDate)}
+              today={today}
               hours={hours}
               getEventStyle={getEventStyle}
               getTimedEvents={getTimedEvents}
               getAllDayEvents={getAllDayEvents}
               onEventClick={setSelectedEvent}
-              onTimeClick={(d) => openCreateModal(d)}
+              draftEvent={draftEvent}
+              showQuickCreate={showQuickCreate}
+              onDraftCreated={handleDraftCreated}
+              onDraftResize={handleDraftResize}
+              onQuickSave={handleQuickSave}
+              onQuickMoreOptions={handleQuickMoreOptions}
+              onQuickClose={closeDraft}
+              quickTitleRef={quickTitleRef}
+              createPending={createMutation.isPending}
             />
           )}
         </div>
@@ -446,126 +482,53 @@ export default function GroupCalendar() {
           <div className="w-full max-w-md premium-card border border-white/[0.08] rounded-2xl p-6 space-y-4" onClick={e => e.stopPropagation()} data-testid="modal-event">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">{editingEvent ? "Edit Event" : "New Event"}</h3>
-              <Button variant="ghost" size="icon" onClick={closeModal} className="text-white/30 h-8 w-8">
-                <X className="w-4 h-4" />
-              </Button>
+              <Button variant="ghost" size="icon" onClick={closeModal} className="text-white/30 h-8 w-8"><X className="w-4 h-4" /></Button>
             </div>
-
             <div>
-              <Input
-                placeholder="Add title"
-                value={formTitle}
-                onChange={e => setFormTitle(e.target.value)}
-                className="premium-input text-white/90 text-lg border-0 border-b border-white/10 rounded-none px-0 focus-visible:ring-0"
-                data-testid="input-event-title"
-                autoFocus
-              />
+              <Input placeholder="Add title" value={formTitle} onChange={e => setFormTitle(e.target.value)} className="premium-input text-white/90 text-lg border-0 border-b border-white/10 rounded-none px-0 focus-visible:ring-0" data-testid="input-event-title" autoFocus />
             </div>
-
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Switch checked={formAllDay} onCheckedChange={(v) => { setFormAllDay(v); }} data-testid="switch-all-day" />
+                <Switch checked={formAllDay} onCheckedChange={setFormAllDay} data-testid="switch-all-day" />
                 <span className="text-xs text-white/40">All day / no fixed time</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <Clock className="w-4 h-4 text-white/30 flex-shrink-0" />
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="date"
-                      value={formStartDate}
-                      onChange={e => {
-                        setFormStartDate(e.target.value);
-                        if (!formEndDate || e.target.value > formEndDate) {
-                          setFormEndDate(e.target.value);
-                        }
-                      }}
-                      className="premium-input text-white/70 text-xs rounded-xl flex-1"
-                      data-testid="input-event-start-date"
-                    />
-                    {!formAllDay && (
-                      <Input
-                        type="time"
-                        value={formStartTime}
-                        onChange={e => setFormStartTime(e.target.value)}
-                        className="premium-input text-white/70 text-xs rounded-xl w-[120px]"
-                        data-testid="input-event-start-time"
-                      />
-                    )}
+                    <Input type="date" value={formStartDate} onChange={e => { setFormStartDate(e.target.value); if (!formEndDate || e.target.value > formEndDate) setFormEndDate(e.target.value); }} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-start-date" />
+                    {!formAllDay && <Input type="time" value={formStartTime} onChange={e => setFormStartTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-start-time" />}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="date"
-                      value={formEndDate}
-                      onChange={e => setFormEndDate(e.target.value)}
-                      className="premium-input text-white/70 text-xs rounded-xl flex-1"
-                      data-testid="input-event-end-date"
-                    />
-                    {!formAllDay && (
-                      <Input
-                        type="time"
-                        value={formEndTime}
-                        onChange={e => setFormEndTime(e.target.value)}
-                        className="premium-input text-white/70 text-xs rounded-xl w-[120px]"
-                        data-testid="input-event-end-time"
-                      />
-                    )}
+                    <Input type="date" value={formEndDate} onChange={e => setFormEndDate(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-end-date" />
+                    {!formAllDay && <Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-end-time" />}
                   </div>
                 </div>
               </div>
             </div>
-
             <div className="flex items-center gap-3">
               <MapPin className="w-4 h-4 text-white/30" />
-              <Input
-                placeholder="Add location"
-                value={formLocation}
-                onChange={e => setFormLocation(e.target.value)}
-                className="premium-input text-white/70 text-sm rounded-xl flex-1"
-                data-testid="input-event-location"
-              />
+              <Input placeholder="Add location" value={formLocation} onChange={e => setFormLocation(e.target.value)} className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="input-event-location" />
             </div>
-
             <div className="flex items-center gap-3">
               <CalIcon className="w-4 h-4 text-white/30" />
               <Select value={formCalType} onValueChange={(v) => { setFormCalType(v); const c = CALENDAR_TYPES.find(t => t.id === v); if (c) setFormColor(c.color); }}>
-                <SelectTrigger className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="select-calendar-type">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="select-calendar-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CALENDAR_TYPES.map(c => (
                     <SelectItem key={c.id} value={c.id}>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: c.color }} />
-                        {c.label}
-                      </div>
+                      <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: c.color }} />{c.label}</div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-
-            <Textarea
-              placeholder="Add description"
-              value={formDesc}
-              onChange={e => setFormDesc(e.target.value)}
-              className="premium-input text-white/70 text-sm rounded-xl min-h-[60px]"
-              data-testid="input-event-description"
-            />
-
+            <Textarea placeholder="Add description" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="premium-input text-white/70 text-sm rounded-xl min-h-[60px]" data-testid="input-event-description" />
             <div className="flex gap-2 pt-2">
-              <Button
-                onClick={handleSave}
-                disabled={!formTitle.trim() || createMutation.isPending || updateMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1"
-                data-testid="button-save-event"
-              >
+              <Button onClick={handleSave} disabled={!formTitle.trim() || createMutation.isPending || updateMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1" data-testid="button-save-event">
                 {(createMutation.isPending || updateMutation.isPending) ? "Saving..." : "Save"}
               </Button>
-              <Button variant="outline" onClick={closeModal} className="border-white/10 text-white/60 rounded-xl" data-testid="button-cancel-event">
-                Cancel
-              </Button>
+              <Button variant="outline" onClick={closeModal} className="border-white/10 text-white/60 rounded-xl" data-testid="button-cancel-event">Cancel</Button>
             </div>
           </div>
         </div>
@@ -581,9 +544,7 @@ export default function GroupCalendar() {
                   {CALENDAR_TYPES.find(c => c.id === selectedEvent.calendarType)?.label || selectedEvent.calendarType}
                 </Badge>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setSelectedEvent(null)} className="text-white/30 h-7 w-7">
-                <X className="w-3.5 h-3.5" />
-              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedEvent(null)} className="text-white/30 h-7 w-7"><X className="w-3.5 h-3.5" /></Button>
             </div>
             <h3 className="text-lg font-semibold text-white" data-testid="text-event-title">{selectedEvent.title}</h3>
             <div className="flex items-center gap-2 text-sm text-white/50">
@@ -594,36 +555,15 @@ export default function GroupCalendar() {
                     ? new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" }) + " (All day)"
                     : new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { month: "short", day: "numeric" }) + " – " + new Date(selectedEvent.endTime).toLocaleDateString("en-NZ", { month: "short", day: "numeric" }) + " (All day)"
                 ) : (
-                  <>
-                    {new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" })}
-                    {" "}
-                    {formatTime(new Date(selectedEvent.startTime))} – {formatTime(new Date(selectedEvent.endTime))}
-                  </>
+                  <>{new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" })} {formatTime(new Date(selectedEvent.startTime))} – {formatTime(new Date(selectedEvent.endTime))}</>
                 )}
               </span>
             </div>
-            {selectedEvent.location && (
-              <div className="flex items-center gap-2 text-sm text-white/50">
-                <MapPin className="w-3.5 h-3.5" />
-                <span>{selectedEvent.location}</span>
-              </div>
-            )}
-            {selectedEvent.description && (
-              <p className="text-sm text-white/40">{selectedEvent.description}</p>
-            )}
+            {selectedEvent.location && <div className="flex items-center gap-2 text-sm text-white/50"><MapPin className="w-3.5 h-3.5" /><span>{selectedEvent.location}</span></div>}
+            {selectedEvent.description && <p className="text-sm text-white/40">{selectedEvent.description}</p>}
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => openEditModal(selectedEvent)} className="border-white/10 text-white/60 rounded-xl gap-1.5 flex-1" data-testid="button-edit-event">
-                <Edit className="w-3.5 h-3.5" /> Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => { if (confirm("Delete this event?")) deleteMutation.mutate(selectedEvent.id); }}
-                className="border-red-500/20 text-red-400 hover:bg-red-500/10 rounded-xl gap-1.5"
-                data-testid="button-delete-event"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Delete
-              </Button>
+              <Button variant="outline" size="sm" onClick={() => openEditModal(selectedEvent)} className="border-white/10 text-white/60 rounded-xl gap-1.5 flex-1" data-testid="button-edit-event"><Edit className="w-3.5 h-3.5" /> Edit</Button>
+              <Button variant="outline" size="sm" onClick={() => { if (confirm("Delete this event?")) deleteMutation.mutate(selectedEvent.id); }} className="border-red-500/20 text-red-400 hover:bg-red-500/10 rounded-xl gap-1.5" data-testid="button-delete-event"><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
             </div>
           </div>
         </div>
@@ -636,7 +576,6 @@ function MiniCalendar({ date, onSelect }: { date: Date; onSelect: (d: Date) => v
   const [viewDate, setViewDate] = useState(new Date(date));
   const days = getMonthDays(viewDate);
   const today = new Date();
-
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -647,23 +586,13 @@ function MiniCalendar({ date, onSelect }: { date: Date; onSelect: (d: Date) => v
         </div>
       </div>
       <div className="grid grid-cols-7 gap-0">
-        {["M","T","W","T","F","S","S"].map((d, i) => (
-          <div key={i} className="text-center text-[9px] text-white/20 py-1">{d}</div>
-        ))}
+        {["M","T","W","T","F","S","S"].map((d, i) => <div key={i} className="text-center text-[9px] text-white/20 py-1">{d}</div>)}
         {days.map((d, i) => {
           const isCurrentMonth = d.getMonth() === viewDate.getMonth();
           const isToday = isSameDay(d, today);
           const isSelected = isSameDay(d, date);
           return (
-            <button
-              key={i}
-              onClick={() => onSelect(d)}
-              className={`text-center text-[10px] py-1 rounded transition-colors
-                ${isCurrentMonth ? "text-white/50 hover:bg-white/[0.06]" : "text-white/15"}
-                ${isToday ? "bg-blue-600 text-white hover:bg-blue-600" : ""}
-                ${isSelected && !isToday ? "bg-white/[0.08] text-white" : ""}
-              `}
-            >
+            <button key={i} onClick={() => onSelect(d)} className={`text-center text-[10px] py-1 rounded transition-colors ${isCurrentMonth ? "text-white/50 hover:bg-white/[0.06]" : "text-white/15"} ${isToday ? "bg-blue-600 text-white hover:bg-blue-600" : ""} ${isSelected && !isToday ? "bg-white/[0.08] text-white" : ""}`}>
               {d.getDate()}
             </button>
           );
@@ -678,13 +607,7 @@ function AllDayBanner({ events, onEventClick }: { events: CalendarEvent[]; onEve
   return (
     <div className="space-y-0.5 py-1 px-1">
       {events.map(event => (
-        <div
-          key={event.id}
-          onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-          className="text-[10px] px-1.5 py-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate"
-          style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }}
-          data-testid={`event-allday-${event.id}`}
-        >
+        <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate" style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }} data-testid={`event-allday-${event.id}`}>
           {event.title}
         </div>
       ))}
@@ -699,56 +622,28 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
   return (
     <div className="h-full flex flex-col">
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
-        {["MON","TUE","WED","THU","FRI","SAT","SUN"].map(d => (
-          <div key={d} className="text-center text-[10px] text-white/30 font-medium py-2 uppercase tracking-wider">{d}</div>
-        ))}
+        {["MON","TUE","WED","THU","FRI","SAT","SUN"].map(d => <div key={d} className="text-center text-[10px] text-white/30 font-medium py-2 uppercase tracking-wider">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 flex-1 auto-rows-fr">
         {days.map((day, i) => {
           const isCurrentMonth = day.getMonth() === currentDate.getMonth();
           const isToday = isSameDay(day, today);
-          const dayEvents = events.filter(e => {
-            const s = new Date(e.startTime);
-            return isSameDay(s, day);
-          });
+          const dayEvents = events.filter(e => isSameDay(new Date(e.startTime), day));
           const allDayEvts = dayEvents.filter(e => e.allDay);
           const timedEvts = dayEvents.filter(e => !e.allDay);
           return (
-            <div
-              key={i}
-              className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors ${!isCurrentMonth ? "opacity-30" : ""}`}
-              onClick={() => onDayClick(day)}
-              onDoubleClick={(e) => { e.stopPropagation(); onCreateClick(day); }}
-            >
-              <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>
-                {day.getDate()}
-              </div>
+            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)} onDoubleClick={(e) => { e.stopPropagation(); onCreateClick(day); }}>
+              <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
               <div className="space-y-0.5">
                 {allDayEvts.map(event => (
-                  <div
-                    key={event.id}
-                    onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                    className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium"
-                    style={{ backgroundColor: `${event.color}30`, color: event.color }}
-                    data-testid={`event-${event.id}`}
-                  >
-                    {event.title}
-                  </div>
+                  <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium" style={{ backgroundColor: `${event.color}30`, color: event.color }} data-testid={`event-${event.id}`}>{event.title}</div>
                 ))}
                 {timedEvts.slice(0, 3).map(event => (
-                  <div
-                    key={event.id}
-                    onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                    className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }}
-                    data-testid={`event-${event.id}`}
-                  >
+                  <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity" style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }} data-testid={`event-${event.id}`}>
                     {formatTime(new Date(event.startTime))} {event.title}
                   </div>
                 ))}
-                {timedEvts.length > 3 && (
-                  <div className="text-[9px] text-white/30 px-1">+{timedEvts.length - 3} more</div>
-                )}
+                {timedEvts.length > 3 && <div className="text-[9px] text-white/30 px-1">+{timedEvts.length - 3} more</div>}
               </div>
             </div>
           );
@@ -758,13 +653,86 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
   );
 }
 
-function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, getAllDayEvents, onEventClick, onTimeClick }: {
+interface QuickCreateProps {
+  draft: DraftEvent;
+  onSave: (title: string) => void;
+  onMoreOptions: () => void;
+  onClose: () => void;
+  titleRef: React.RefObject<HTMLInputElement | null>;
+  isPending: boolean;
+  columnIndex: number;
+  mode: "week" | "day";
+}
+
+function QuickCreatePopover({ draft, onSave, onMoreOptions, onClose, titleRef, isPending, columnIndex, mode }: QuickCreateProps) {
+  const [title, setTitle] = useState("");
+
+  const leftPercent = mode === "week"
+    ? ((columnIndex + 1) / 8) * 100
+    : (1 / 2) * 100;
+
+  const popoverStyle: any = {
+    position: "absolute" as const,
+    top: `${(draft.startMinutes / 1440) * 24 * HOUR_HEIGHT}px`,
+    zIndex: 40,
+    left: mode === "week" ? `calc(${leftPercent}% + 8px)` : "50%",
+    transform: mode === "day" ? "translateX(-50%)" : undefined,
+  };
+
+  return (
+    <div style={popoverStyle} className="w-[280px]" onClick={e => e.stopPropagation()} data-testid="popover-quick-create">
+      <div className="premium-card border border-white/[0.12] rounded-xl p-3 space-y-2.5 shadow-2xl shadow-black/50">
+        <Input
+          ref={titleRef}
+          placeholder="Add title"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && title.trim()) onSave(title); if (e.key === "Escape") onClose(); }}
+          className="premium-input text-white/90 text-sm border-0 border-b border-white/10 rounded-none px-0 focus-visible:ring-0 h-8"
+          data-testid="input-quick-title"
+          autoFocus
+        />
+        <div className="text-[11px] text-white/40 flex items-center gap-1.5">
+          <Clock className="w-3 h-3" />
+          {formatMinutes(draft.startMinutes)} – {formatMinutes(draft.endMinutes)}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => { if (title.trim()) onSave(title); }} disabled={!title.trim() || isPending} className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs h-7 flex-1" data-testid="button-quick-save">
+            {isPending ? "Saving..." : "Save"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={onMoreOptions} className="border-white/10 text-white/50 rounded-lg text-xs h-7" data-testid="button-quick-more">
+            More options
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTimedEvents, getAllDayEvents, onEventClick, draftEvent, showQuickCreate, onDraftCreated, onDraftResize, onQuickSave, onQuickMoreOptions, onQuickClose, quickTitleRef, createPending }: {
+  mode: "week" | "day";
   days: Date[]; events: CalendarEvent[]; today: Date; hours: number[];
   getEventStyle: (e: CalendarEvent, d: Date) => any;
   getTimedEvents: (events: CalendarEvent[]) => CalendarEvent[];
   getAllDayEvents: (events: CalendarEvent[]) => CalendarEvent[];
-  onEventClick: (e: CalendarEvent) => void; onTimeClick: (d: Date) => void;
+  onEventClick: (e: CalendarEvent) => void;
+  draftEvent: DraftEvent | null;
+  showQuickCreate: boolean;
+  onDraftCreated: (day: Date, startMinutes: number, endMinutes: number, colIndex: number) => void;
+  onDraftResize: (endMinutes: number) => void;
+  onQuickSave: (title: string) => void;
+  onQuickMoreOptions: () => void;
+  onQuickClose: () => void;
+  quickTitleRef: React.RefObject<HTMLInputElement | null>;
+  createPending: boolean;
 }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const dragColIndex = useRef(0);
+  const dragStartMinutes = useRef(0);
+
+  const colCount = mode === "week" ? 7 : 1;
+
   const dayEventsMap = useMemo(() => {
     return days.map(day => {
       const dayEvents = events.filter(e => {
@@ -778,28 +746,70 @@ function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, g
 
   const hasAnyAllDay = dayEventsMap.some(d => d.allDay.length > 0);
 
+  const getMinutesFromY = useCallback((clientY: number): number => {
+    if (!gridRef.current) return 0;
+    const rect = gridRef.current.getBoundingClientRect();
+    const y = clientY - rect.top;
+    const totalHeight = hours.length * HOUR_HEIGHT;
+    const minutes = (y / totalHeight) * 1440;
+    return snapToGrid(Math.max(0, Math.min(1425, minutes)));
+  }, [hours]);
+
+  const getColFromX = useCallback((clientX: number): number => {
+    if (!gridRef.current) return 0;
+    const rect = gridRef.current.getBoundingClientRect();
+    const gutterWidth = 60;
+    const x = clientX - rect.left - gutterWidth;
+    const colWidth = (rect.width - gutterWidth) / colCount;
+    return Math.max(0, Math.min(colCount - 1, Math.floor(x / colWidth)));
+  }, [colCount]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('[data-event-block]') || (e.target as HTMLElement).closest('[data-testid^="popover-"]')) return;
+    const minutes = getMinutesFromY(e.clientY);
+    const col = getColFromX(e.clientX);
+    isDragging.current = true;
+    dragColIndex.current = col;
+    dragStartMinutes.current = minutes;
+    onDraftCreated(days[col], minutes, minutes + 30, col);
+    e.preventDefault();
+  }, [days, getMinutesFromY, getColFromX, onDraftCreated]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    const minutes = getMinutesFromY(e.clientY);
+    const end = Math.max(minutes, dragStartMinutes.current + 15);
+    onDraftResize(end);
+  }, [getMinutesFromY, onDraftResize]);
+
+  const handleMouseUp = useCallback(() => {
+    isDragging.current = false;
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalUp = () => { isDragging.current = false; };
+    window.addEventListener("mouseup", handleGlobalUp);
+    return () => window.removeEventListener("mouseup", handleGlobalUp);
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-white/[0.06] sticky top-0 z-10" style={{ background: 'rgba(2,6,14,0.95)' }}>
+      <div className={`grid border-b border-white/[0.06] sticky top-0 z-10`} style={{ background: 'rgba(2,6,14,0.95)', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
         <div />
         {days.map((d, i) => {
           const isToday = isSameDay(d, today);
           return (
             <div key={i} className="text-center py-2 border-l border-white/[0.04]">
               <div className="text-[10px] text-white/30 uppercase">{d.toLocaleString("default", { weekday: "short" })}</div>
-              <div className={`text-lg font-medium ${isToday ? "w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto" : "text-white/60"}`}>
-                {d.getDate()}
-              </div>
+              <div className={`text-lg font-medium ${isToday ? "w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto" : "text-white/60"}`}>{d.getDate()}</div>
             </div>
           );
         })}
       </div>
 
       {hasAnyAllDay && (
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-white/[0.06] sticky z-[9]" style={{ background: 'rgba(2,6,14,0.9)', top: '68px' }}>
-          <div className="flex items-center justify-end pr-2">
-            <span className="text-[9px] text-white/20 uppercase">all day</span>
-          </div>
+        <div className={`grid border-b border-white/[0.06] sticky z-[9]`} style={{ background: 'rgba(2,6,14,0.9)', top: '68px', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
+          <div className="flex items-center justify-end pr-2"><span className="text-[9px] text-white/20 uppercase">all day</span></div>
           {days.map((_, i) => (
             <div key={i} className="border-l border-white/[0.04] min-h-[28px]">
               <AllDayBanner events={dayEventsMap[i].allDay} onEventClick={onEventClick} />
@@ -809,7 +819,14 @@ function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, g
       )}
 
       <div className="flex-1 overflow-auto">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] relative" style={{ height: `${hours.length * 60}px` }}>
+        <div
+          ref={gridRef}
+          className={`grid relative select-none`}
+          style={{ height: `${hours.length * HOUR_HEIGHT}px`, gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+        >
           <div>
             {hours.map(h => (
               <div key={h} className="h-[60px] flex items-start justify-end pr-2 pt-0">
@@ -820,19 +837,17 @@ function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, g
           {days.map((day, di) => (
             <div key={di} className="border-l border-white/[0.04] relative">
               {hours.map(h => (
-                <div
-                  key={h}
-                  className="h-[60px] border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
-                  onClick={() => { const d = new Date(day); d.setHours(h, 0, 0, 0); onTimeClick(d); }}
-                />
+                <div key={h} className="h-[60px] border-b border-white/[0.03]" />
               ))}
+
               {dayEventsMap[di].timed.map(event => {
                 const style = getEventStyle(event, day);
                 return (
                   <div
                     key={event.id}
+                    data-event-block
                     className="absolute left-0.5 right-1 rounded-lg px-1.5 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden"
-                    style={{ ...style, backgroundColor: `${event.color}30`, borderLeft: `3px solid ${event.color}` }}
+                    style={{ ...style, backgroundColor: `${event.color}30`, borderLeft: `3px solid ${event.color}`, zIndex: 10 }}
                     onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
                     data-testid={`event-${event.id}`}
                   >
@@ -843,83 +858,81 @@ function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, g
                   </div>
                 );
               })}
+
+              {draftEvent && draftEvent.columnIndex === di && (
+                <DraftEventBlock draft={draftEvent} onResize={onDraftResize} gridRef={gridRef} hours={hours} />
+              )}
             </div>
           ))}
+
+          {showQuickCreate && draftEvent && (
+            <QuickCreatePopover
+              draft={draftEvent}
+              onSave={onQuickSave}
+              onMoreOptions={onQuickMoreOptions}
+              onClose={onQuickClose}
+              titleRef={quickTitleRef}
+              isPending={createPending}
+              columnIndex={draftEvent.columnIndex}
+              mode={mode}
+            />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function DayView({ day, events, hours, getEventStyle, getTimedEvents, getAllDayEvents, onEventClick, onTimeClick }: {
-  day: Date; events: CalendarEvent[]; hours: number[];
-  getEventStyle: (e: CalendarEvent, d: Date) => any;
-  getTimedEvents: (events: CalendarEvent[]) => CalendarEvent[];
-  getAllDayEvents: (events: CalendarEvent[]) => CalendarEvent[];
-  onEventClick: (e: CalendarEvent) => void; onTimeClick: (d: Date) => void;
+function DraftEventBlock({ draft, onResize, gridRef, hours }: {
+  draft: DraftEvent;
+  onResize: (endMinutes: number) => void;
+  gridRef: React.RefObject<HTMLDivElement | null>;
+  hours: number[];
 }) {
-  const timedEvts = getTimedEvents(events);
-  const allDayEvts = getAllDayEvents(events);
+  const topPx = (draft.startMinutes / 60) * HOUR_HEIGHT;
+  const heightPx = Math.max(((draft.endMinutes - draft.startMinutes) / 60) * HOUR_HEIGHT, 20);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const handleMove = (me: MouseEvent) => {
+      if (!gridRef.current) return;
+      const rect = gridRef.current.getBoundingClientRect();
+      const y = me.clientY - rect.top;
+      const totalHeight = hours.length * HOUR_HEIGHT;
+      const minutes = snapToGrid(Math.max(draft.startMinutes + 15, Math.min(1440, (y / totalHeight) * 1440)));
+      onResize(minutes);
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  }, [draft.startMinutes, gridRef, hours, onResize]);
 
   return (
-    <div className="flex-1 overflow-auto">
-      {allDayEvts.length > 0 && (
-        <div className="border-b border-white/[0.06] px-4 py-2" style={{ background: 'rgba(2,6,14,0.6)' }}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[9px] text-white/20 uppercase tracking-wider">All day</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {allDayEvts.map(event => (
-              <div
-                key={event.id}
-                onClick={() => onEventClick(event)}
-                className="text-[11px] px-2.5 py-1 rounded-lg cursor-pointer hover:opacity-80 transition-opacity font-medium"
-                style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `3px solid ${event.color}` }}
-                data-testid={`event-allday-${event.id}`}
-              >
-                {event.title}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-[60px_1fr] relative" style={{ height: `${hours.length * 60}px` }}>
-        <div>
-          {hours.map(h => (
-            <div key={h} className="h-[60px] flex items-start justify-end pr-2">
-              <span className="text-[10px] text-white/20 -mt-1.5">{h === 0 ? "" : `${h % 12 || 12}${h < 12 ? "am" : "pm"}`}</span>
-            </div>
-          ))}
-        </div>
-        <div className="relative border-l border-white/[0.04]">
-          {hours.map(h => (
-            <div
-              key={h}
-              className="h-[60px] border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
-              onClick={() => { const d = new Date(day); d.setHours(h, 0, 0, 0); onTimeClick(d); }}
-            />
-          ))}
-          {timedEvts.map(event => {
-            const style = getEventStyle(event, day);
-            return (
-              <div
-                key={event.id}
-                className="absolute left-1 right-4 rounded-lg px-2 py-1 cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ ...style, backgroundColor: `${event.color}30`, borderLeft: `3px solid ${event.color}` }}
-                onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                data-testid={`event-${event.id}`}
-              >
-                <div className="text-xs font-medium" style={{ color: event.color }}>{event.title}</div>
-                <div className="text-[10px] opacity-70" style={{ color: event.color }}>
-                  {formatTime(new Date(event.startTime))} – {formatTime(new Date(event.endTime))}
-                </div>
-                {event.location && <div className="text-[10px] opacity-50 mt-0.5" style={{ color: event.color }}>{event.location}</div>}
-              </div>
-            );
-          })}
+    <div
+      data-event-block
+      className="absolute left-0.5 right-1 rounded-lg overflow-hidden cursor-default"
+      style={{ top: `${topPx}px`, height: `${heightPx}px`, backgroundColor: "rgba(59,130,246,0.3)", borderLeft: "3px solid #3b82f6", zIndex: 20 }}
+      onClick={e => e.stopPropagation()}
+      data-testid="draft-event-block"
+    >
+      <div className="px-1.5 py-0.5">
+        <div className="text-[11px] font-medium text-blue-300">(No title)</div>
+        <div className="text-[9px] text-blue-300/70">
+          {formatMinutes(draft.startMinutes)} – {formatMinutes(draft.endMinutes)}
         </div>
       </div>
+      <div
+        className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize hover:bg-blue-400/30 transition-colors"
+        onMouseDown={handleResizeMouseDown}
+        data-testid="draft-resize-handle"
+      />
     </div>
   );
 }
