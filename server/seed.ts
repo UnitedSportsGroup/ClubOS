@@ -226,6 +226,7 @@ async function seedOrganizations() {
     { name: "United Sports Centre", slug: "united-sports-centre", logoUrl: null },
     { name: "Christchurch International Cup", slug: "christchurch-international-cup", logoUrl: "/logos/christchurch-international-cup.png" },
     { name: "United Gymnastics", slug: "united-gymnastics", logoUrl: "/logos/united-gymnastics.png" },
+    { name: "United Sports Group", slug: "united-sports-group", logoUrl: "/logos/united-sports-group.png" },
   ];
 
   for (const org of orgData) {

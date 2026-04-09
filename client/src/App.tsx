@@ -29,6 +29,9 @@ import CampAnalytics from "@/pages/camp-analytics";
 import AdminDiscounts from "@/pages/admin-discounts";
 import AdminDiscountDetail from "@/pages/admin-discount-detail";
 import AdminDomainSettings from "@/pages/admin-domain-settings";
+import GroupDashboard from "@/pages/group-dashboard";
+import GroupCalendar from "@/pages/group-calendar";
+import GroupSponsorship from "@/pages/group-sponsorship";
 import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
@@ -82,6 +85,19 @@ function AdminRouter() {
   const isLeague = currentOrg?.slug === "mini-football-leagues";
   const isTournament = currentOrg?.slug === "christchurch-international-cup";
   const isGymnastics = currentOrg?.slug === "united-gymnastics";
+  const isGroup = currentOrg?.slug === "united-sports-group";
+
+  if (isGroup) {
+    return (
+      <Switch>
+        <Route path="/admin" component={GroupDashboard} />
+        <Route path="/admin/calendar" component={GroupCalendar} />
+        <Route path="/admin/sponsorship" component={GroupSponsorship} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
 
   if (isGymnastics) {
     return (

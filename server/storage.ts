@@ -44,6 +44,7 @@ import {
   type InsertDiscount2, type Discount,
   type InsertDiscountUsage, type DiscountUsage,
   customDomains, type InsertCustomDomain, type CustomDomain,
+  calendarEvents, type InsertCalendarEvent, type CalendarEvent,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
@@ -268,6 +269,12 @@ export interface IStorage {
   createCustomDomain(data: InsertCustomDomain): Promise<CustomDomain>;
   updateCustomDomain(id: number, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
   deleteCustomDomain(id: number): Promise<void>;
+
+  getCalendarEvents(filters: { organizationId?: number; startDate?: Date; endDate?: Date; calendarType?: string }): Promise<CalendarEvent[]>;
+  getCalendarEvent(id: number): Promise<CalendarEvent | undefined>;
+  createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent>;
+  updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: number): Promise<void>;
 
   getDiscountsByOrg(organizationId: number): Promise<Discount[]>;
   getDiscount(id: number): Promise<Discount | undefined>;
@@ -1527,6 +1534,35 @@ export class DatabaseStorage implements IStorage {
       totalDiscountedCents: sql`${discounts.totalDiscountedCents} + ${discountedCents}`,
       updatedAt: new Date(),
     }).where(eq(discounts.id, id));
+  }
+
+  async getCalendarEvents(filters: { organizationId?: number; startDate?: Date; endDate?: Date; calendarType?: string }): Promise<CalendarEvent[]> {
+    const conditions = [];
+    if (filters.organizationId) conditions.push(eq(calendarEvents.organizationId, filters.organizationId));
+    if (filters.calendarType) conditions.push(eq(calendarEvents.calendarType, filters.calendarType));
+    if (filters.startDate) conditions.push(sql`${calendarEvents.endTime} >= ${filters.startDate}`);
+    if (filters.endDate) conditions.push(sql`${calendarEvents.startTime} <= ${filters.endDate}`);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(calendarEvents).where(where).orderBy(asc(calendarEvents.startTime));
+  }
+
+  async getCalendarEvent(id: number): Promise<CalendarEvent | undefined> {
+    const [event] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id));
+    return event;
+  }
+
+  async createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent> {
+    const [event] = await db.insert(calendarEvents).values(data).returning();
+    return event;
+  }
+
+  async updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
+    const [event] = await db.update(calendarEvents).set({ ...data, updatedAt: new Date() }).where(eq(calendarEvents.id, id)).returning();
+    return event;
+  }
+
+  async deleteCalendarEvent(id: number): Promise<void> {
+    await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
   }
 }
 

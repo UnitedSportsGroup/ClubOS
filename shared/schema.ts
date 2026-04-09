@@ -779,3 +779,24 @@ export const customDomains = pgTable("custom_domains", {
 export const insertCustomDomainSchema = createInsertSchema(customDomains).omit({ id: true, createdAt: true, verifiedAt: true });
 export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
 export type CustomDomain = typeof customDomains.$inferSelect;
+
+export const calendarEvents = pgTable("calendar_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  location: text("location"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+  allDay: boolean("all_day").notNull().default(false),
+  calendarType: text("calendar_type").notNull().default("general"),
+  color: text("color").notNull().default("#3b82f6"),
+  recurrence: text("recurrence"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
+export type CalendarEvent = typeof calendarEvents.$inferSelect;

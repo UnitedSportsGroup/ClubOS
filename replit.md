@@ -14,7 +14,7 @@ The application follows a client-server architecture.
 - **UI/UX**:
     - **Public Pages**: Feature a brand-aligned color scheme (Blue, White, Gold, Dark Blue) with the Inter Tight font. The design is conversion-focused, incorporating video embeds, review carousels, and fade-in animations.
     - **Admin Pages**: Utilize a premium midnight blue-black theme with glassmorphic panels and blue glow effects, enhancing the professional feel of the administrative interface. Custom CSS utilities are employed for consistent styling.
-- **Multi-Brand Workspaces**: The platform supports multiple organizations (e.g., Christchurch United, United Sports Centre, Mini Football Leagues) through a workspace context. This allows for tailored features and routing based on the selected organization, enabling modules like VenueFlow for facility hire, League Management, and Tournament Management.
+- **Multi-Brand Workspaces**: The platform supports multiple organizations (e.g., Christchurch United, United Sports Centre, Mini Football Leagues, United Sports Group) through a workspace context. This allows for tailored features and routing based on the selected organization, enabling modules like VenueFlow for facility hire, League Management, Tournament Management, and the Group-level calendar and dashboard.
 - **Authentication & Roles**: Session-based authentication with `express-session` and `connect-pg-simple` ensures secure access. Role-based access control (RBAC) with roles like `super_admin`, `admin`, and `team_member` governs permissions across various routes and functionalities.
 - **Data Model**: The database schema includes tables for users, contacts, programs (camps), pricing, dates, settings, discounts, children, medical information, registrations, attendance, email logs, Meta event logs, audit logs, and analytics events.
 - **A/B Split Testing**: Integrated A/B testing functionality allows administrators to test different content variants (e.g., headlines) on public camp pages, track conversions, and automatically determine winning variants based on revenue or registrations.
@@ -53,6 +53,19 @@ Shopify-style discount management at `/admin/discounts` (Christchurch United wor
 - **Security**: Org-scoped authorization on all CRUD endpoints (user must belong to discount's org)
 - **Booking integration**: Discount codes can be applied during camp registration at checkout. Promo code input appears in the pricing summary on the booking page. Validation endpoint at `/api/public/validate-discount`. Server-side application in `/api/public/book` with proper discount calculation (percentage or fixed). Usage tracking (`timesUsed`, `totalDiscountedCents`) only increments on confirmed payment, not on pending bookings.
 - **Registration schema**: `registrations` table includes `discount_code` and `discount_id` columns to track which discount was used per registration.
+
+## United Sports Group Workspace
+Group-level workspace at "United Sports Group" (slug: `united-sports-group`) with ram logo:
+- **Dashboard** (`/admin`): Cross-workspace aggregated view showing total registrations, revenue, upcoming events, and workspace listing
+- **Calendar** (`/admin/calendar`): Google Calendar-inspired scheduling with:
+  - Day, Week, and Month views with smooth navigation
+  - Event create/edit modal with title, time, location, description, calendar type
+  - Color-coded calendar types: General, United Events, South Island United, Gymnastics, Payments & Finance, Training, Meetings, Personal
+  - Calendar filter toggles in sidebar to show/hide specific calendars
+  - Mini calendar in sidebar for quick date navigation
+  - Click on time slots to create events, click events to view details
+  - Schema: `calendar_events` table with title, description, location, start/end times, allDay, calendarType, color, recurrence, createdBy
+- **Sponsorship** (`/admin/sponsorship`): Placeholder page for future sponsor/contract management
 
 ## Custom Domains
 Multi-workspace custom domain mapping at `/admin/domains` (available in all workspaces):

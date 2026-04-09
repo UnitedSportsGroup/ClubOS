@@ -2166,6 +2166,76 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/calendar-events", requireAuth, async (req, res) => {
+    try {
+      const filters: any = {};
+      if (req.query.organizationId) filters.organizationId = parseInt(req.query.organizationId as string);
+      if (req.query.calendarType) filters.calendarType = req.query.calendarType as string;
+      if (req.query.startDate) filters.startDate = new Date(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = new Date(req.query.endDate as string);
+      const events = await storage.getCalendarEvents(filters);
+      res.json(events);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/calendar-events", requireAuth, async (req, res) => {
+    try {
+      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId } = req.body;
+      if (!title || !startTime || !endTime) return res.status(400).json({ message: "title, startTime, and endTime required" });
+      const event = await storage.createCalendarEvent({
+        title, description, location,
+        startTime: new Date(startTime), endTime: new Date(endTime),
+        allDay: allDay || false,
+        calendarType: calendarType || "general",
+        color: color || "#3b82f6",
+        recurrence,
+        organizationId: organizationId || null,
+        createdBy: req.session.userId!,
+      });
+      res.json(event);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/calendar-events/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getCalendarEvent(id);
+      if (!existing) return res.status(404).json({ message: "Event not found" });
+      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId } = req.body;
+      const updates: any = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (location !== undefined) updates.location = location;
+      if (startTime !== undefined) updates.startTime = new Date(startTime);
+      if (endTime !== undefined) updates.endTime = new Date(endTime);
+      if (allDay !== undefined) updates.allDay = allDay;
+      if (calendarType !== undefined) updates.calendarType = calendarType;
+      if (color !== undefined) updates.color = color;
+      if (recurrence !== undefined) updates.recurrence = recurrence;
+      if (organizationId !== undefined) updates.organizationId = organizationId;
+      const event = await storage.updateCalendarEvent(id, updates);
+      res.json(event);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/calendar-events/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getCalendarEvent(id);
+      if (!existing) return res.status(404).json({ message: "Event not found" });
+      await storage.deleteCalendarEvent(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/analytics/order-timing", requireAuth, async (req, res) => {
     try {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
