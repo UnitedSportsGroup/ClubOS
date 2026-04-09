@@ -175,9 +175,14 @@ export async function registerRoutes(
     try {
       const all = await storage.getPrograms();
       const academy = all.filter(p => p.type === "academy");
-      const enriched = await Promise.all(academy.map(async (p: any) => {
-        const row = await db.execute(sql.raw(`SELECT academy_section FROM programs WHERE id = ${p.id}`));
-        return { ...p, academySection: row.rows?.[0]?.academy_section || "core" };
+      const sectionRows = await db.execute(sql`SELECT id, academy_section FROM programs WHERE type = 'academy'`);
+      const sectionMap: Record<number, string> = {};
+      for (const row of sectionRows.rows) {
+        sectionMap[(row as any).id] = (row as any).academy_section || "core";
+      }
+      const enriched = academy.map((p: any) => ({
+        ...p,
+        academySection: sectionMap[p.id] || "core",
       }));
       res.json(enriched);
     } catch (error: any) {
@@ -199,11 +204,10 @@ export async function registerRoutes(
       const { academySection, ...rest } = req.body;
       const data = { ...rest, type: "academy" };
       const program = await storage.createProgram(data);
-      if (academySection) {
-        await db.execute(sql.raw(`UPDATE programs SET academy_section = '${academySection === 'additional' ? 'additional' : 'core'}' WHERE id = ${program.id}`));
-      }
+      const section = academySection === "additional" ? "additional" : "core";
+      await db.execute(sql`UPDATE programs SET academy_section = ${section} WHERE id = ${program.id}`);
       await storage.createAuditLog({ userId: req.session.userId, action: "create", entity: "academy", entityId: program.id, details: `Created academy program: ${program.name}` });
-      res.status(201).json({ ...program, academySection: academySection || "core" });
+      res.status(201).json({ ...program, academySection: section });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }

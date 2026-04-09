@@ -440,6 +440,9 @@ async function seedOrganizations() {
 
   await db.execute(sql`ALTER TABLE programs ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`);
   await db.execute(sql`UPDATE programs SET organization_id = 1 WHERE organization_id IS NULL`);
+  await db.execute(sql`ALTER TABLE programs ADD COLUMN IF NOT EXISTS academy_section text`);
+  await db.execute(sql`UPDATE programs SET academy_section = 'additional' WHERE type = 'academy' AND (slug LIKE 'technification%' OR slug LIKE 'gk-%' OR name ILIKE '%goalkeeper%' OR name ILIKE '%technification%') AND (academy_section IS NULL OR academy_section != 'additional')`);
+  await db.execute(sql`UPDATE programs SET academy_section = 'core' WHERE type = 'academy' AND academy_section IS NULL`);
 
   await seedAnalyticsData();
 }

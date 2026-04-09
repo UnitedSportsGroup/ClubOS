@@ -32,6 +32,7 @@ import AdminDomainSettings from "@/pages/admin-domain-settings";
 import GroupDashboard from "@/pages/group-dashboard";
 import GroupCalendar from "@/pages/group-calendar";
 import GroupSponsorship from "@/pages/group-sponsorship";
+import AdminAcademy from "@/pages/admin-academy";
 import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
@@ -160,6 +161,7 @@ function AdminRouter() {
       <Route path="/admin/camps/:id/edit-page" component={AdminEditPage} />
       <Route path="/admin/camps/:id" component={AdminCampDetail} />
       <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
+      <Route path="/admin/academy" component={AdminAcademy} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />
       <Route path="/admin/contacts/parent/:id" component={AdminContactDetail} />

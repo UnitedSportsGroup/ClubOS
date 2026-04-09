@@ -35,6 +35,7 @@ import {
   Tag,
   Globe,
   Handshake,
+  GraduationCap,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ type Org = {
 const campsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Camps", url: "/admin/camps", icon: Tent },
+  { title: "Academy", url: "/admin/academy", icon: GraduationCap },
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { title: "Contacts", url: "/admin/contacts", icon: Users },
   { title: "Mailer", url: "/admin/mailer", icon: Mail },
