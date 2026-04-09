@@ -1,7 +1,6 @@
 import { useState, useMemo, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
-  Eye, EyeOff, Trash2, Edit
+  Trash2, Edit
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -61,9 +60,26 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-function toLocalISO(d: Date): string {
+function toLocalDate(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+function toLocalTime(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toLocalISO(d: Date): string {
+  return `${toLocalDate(d)}T${toLocalTime(d)}`;
+}
+
+function buildDate(dateStr: string, timeStr: string): Date {
+  if (!dateStr) return new Date(NaN);
+  if (!timeStr) {
+    return new Date(dateStr + "T00:00:00");
+  }
+  return new Date(`${dateStr}T${timeStr}:00`);
 }
 
 export default function GroupCalendar() {
@@ -78,8 +94,10 @@ export default function GroupCalendar() {
   const [formTitle, setFormTitle] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formLocation, setFormLocation] = useState("");
-  const [formStart, setFormStart] = useState("");
-  const [formEnd, setFormEnd] = useState("");
+  const [formStartDate, setFormStartDate] = useState("");
+  const [formStartTime, setFormStartTime] = useState("");
+  const [formEndDate, setFormEndDate] = useState("");
+  const [formEndTime, setFormEndTime] = useState("");
   const [formAllDay, setFormAllDay] = useState(false);
   const [formCalType, setFormCalType] = useState("general");
   const [formColor, setFormColor] = useState("#3b82f6");
@@ -96,10 +114,10 @@ export default function GroupCalendar() {
     return new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() + 1);
   }, [currentDate, viewMode]);
 
-  const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
+  const { data: events = [] } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/admin/calendar-events", rangeStart.toISOString(), rangeEnd.toISOString()],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/calendar-events?startDate=${rangeStart.toISOString()}&endDate=${rangeEnd.toISOString()}`);
+      const r = await fetch(`/api/admin/calendar-events?startDate=${rangeStart.toISOString()}&endDate=${rangeEnd.toISOString()}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load events");
       return r.json();
     },
@@ -108,24 +126,30 @@ export default function GroupCalendar() {
   const filteredEvents = events.filter(e => visibleCalendars.has(e.calendarType));
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => apiRequest("POST", "/api/admin/calendar-events", data),
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/admin/calendar-events", data);
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
       toast({ title: "Event created" });
       closeModal();
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error creating event", description: e.message, variant: "destructive" }),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...data }: any) => apiRequest("PATCH", `/api/admin/calendar-events/${id}`, data),
+    mutationFn: async ({ id, ...data }: any) => {
+      const res = await apiRequest("PATCH", `/api/admin/calendar-events/${id}`, data);
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
       toast({ title: "Event updated" });
       closeModal();
       setSelectedEvent(null);
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error updating event", description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -147,8 +171,10 @@ export default function GroupCalendar() {
     setFormTitle("");
     setFormDesc("");
     setFormLocation("");
-    setFormStart(toLocalISO(start));
-    setFormEnd(toLocalISO(end));
+    setFormStartDate(toLocalDate(start));
+    setFormStartTime(toLocalTime(start));
+    setFormEndDate(toLocalDate(end));
+    setFormEndTime(toLocalTime(end));
     setFormAllDay(false);
     setFormCalType("general");
     setFormColor("#3b82f6");
@@ -157,11 +183,15 @@ export default function GroupCalendar() {
 
   function openEditModal(event: CalendarEvent) {
     setEditingEvent(event);
+    const start = new Date(event.startTime);
+    const end = new Date(event.endTime);
     setFormTitle(event.title);
     setFormDesc(event.description || "");
     setFormLocation(event.location || "");
-    setFormStart(toLocalISO(new Date(event.startTime)));
-    setFormEnd(toLocalISO(new Date(event.endTime)));
+    setFormStartDate(toLocalDate(start));
+    setFormStartTime(toLocalTime(start));
+    setFormEndDate(toLocalDate(end));
+    setFormEndTime(toLocalTime(end));
     setFormAllDay(event.allDay);
     setFormCalType(event.calendarType);
     setFormColor(event.color);
@@ -175,16 +205,55 @@ export default function GroupCalendar() {
   }
 
   function handleSave() {
+    if (!formTitle.trim()) {
+      toast({ title: "Title required", variant: "destructive" });
+      return;
+    }
+    if (!formStartDate) {
+      toast({ title: "Start date required", variant: "destructive" });
+      return;
+    }
+    if (!formEndDate) {
+      toast({ title: "End date required", variant: "destructive" });
+      return;
+    }
+
+    let startTime: Date;
+    let endTime: Date;
+
+    if (formAllDay) {
+      startTime = new Date(formStartDate + "T00:00:00");
+      endTime = new Date(formEndDate + "T23:59:59");
+    } else {
+      if (!formStartTime || !formEndTime) {
+        toast({ title: "Please set both start and end times", variant: "destructive" });
+        return;
+      }
+      startTime = buildDate(formStartDate, formStartTime);
+      endTime = buildDate(formEndDate, formEndTime);
+    }
+
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+      toast({ title: "Invalid date or time", variant: "destructive" });
+      return;
+    }
+
+    if (endTime <= startTime) {
+      toast({ title: "End time must be after start time", variant: "destructive" });
+      return;
+    }
+
     const data = {
-      title: formTitle,
+      title: formTitle.trim(),
       description: formDesc || null,
       location: formLocation || null,
-      startTime: new Date(formStart).toISOString(),
-      endTime: new Date(formEnd).toISOString(),
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
       allDay: formAllDay,
       calendarType: formCalType,
       color: formColor,
     };
+
     if (editingEvent) {
       updateMutation.mutate({ id: editingEvent.id, ...data });
     } else {
@@ -231,6 +300,14 @@ export default function GroupCalendar() {
       const end = new Date(e.endTime);
       return isSameDay(start, day) || isSameDay(end, day) || (start < day && end > day);
     });
+  }
+
+  function getTimedEvents(dayEvents: CalendarEvent[]) {
+    return dayEvents.filter(e => !e.allDay);
+  }
+
+  function getAllDayEvents(dayEvents: CalendarEvent[]) {
+    return dayEvents.filter(e => e.allDay);
   }
 
   function getEventStyle(event: CalendarEvent, dayStart: Date) {
@@ -343,6 +420,8 @@ export default function GroupCalendar() {
               today={today}
               hours={hours}
               getEventStyle={getEventStyle}
+              getTimedEvents={getTimedEvents}
+              getAllDayEvents={getAllDayEvents}
               onEventClick={setSelectedEvent}
               onTimeClick={(d) => openCreateModal(d)}
             />
@@ -353,6 +432,8 @@ export default function GroupCalendar() {
               events={getEventsForDay(currentDate)}
               hours={hours}
               getEventStyle={getEventStyle}
+              getTimedEvents={getTimedEvents}
+              getAllDayEvents={getAllDayEvents}
               onEventClick={setSelectedEvent}
               onTimeClick={(d) => openCreateModal(d)}
             />
@@ -381,29 +462,56 @@ export default function GroupCalendar() {
               />
             </div>
 
-            <div className="flex items-center gap-3">
-              <Clock className="w-4 h-4 text-white/30" />
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="datetime-local"
-                    value={formStart}
-                    onChange={e => setFormStart(e.target.value)}
-                    className="premium-input text-white/70 text-xs rounded-xl flex-1"
-                    data-testid="input-event-start"
-                  />
-                  <span className="text-white/30 text-xs">to</span>
-                  <Input
-                    type="datetime-local"
-                    value={formEnd}
-                    onChange={e => setFormEnd(e.target.value)}
-                    className="premium-input text-white/70 text-xs rounded-xl flex-1"
-                    data-testid="input-event-end"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={formAllDay} onCheckedChange={setFormAllDay} data-testid="switch-all-day" />
-                  <span className="text-xs text-white/40">All day</span>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Switch checked={formAllDay} onCheckedChange={(v) => { setFormAllDay(v); }} data-testid="switch-all-day" />
+                <span className="text-xs text-white/40">All day / no fixed time</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Clock className="w-4 h-4 text-white/30 flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="date"
+                      value={formStartDate}
+                      onChange={e => {
+                        setFormStartDate(e.target.value);
+                        if (!formEndDate || e.target.value > formEndDate) {
+                          setFormEndDate(e.target.value);
+                        }
+                      }}
+                      className="premium-input text-white/70 text-xs rounded-xl flex-1"
+                      data-testid="input-event-start-date"
+                    />
+                    {!formAllDay && (
+                      <Input
+                        type="time"
+                        value={formStartTime}
+                        onChange={e => setFormStartTime(e.target.value)}
+                        className="premium-input text-white/70 text-xs rounded-xl w-[120px]"
+                        data-testid="input-event-start-time"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="date"
+                      value={formEndDate}
+                      onChange={e => setFormEndDate(e.target.value)}
+                      className="premium-input text-white/70 text-xs rounded-xl flex-1"
+                      data-testid="input-event-end-date"
+                    />
+                    {!formAllDay && (
+                      <Input
+                        type="time"
+                        value={formEndTime}
+                        onChange={e => setFormEndTime(e.target.value)}
+                        className="premium-input text-white/70 text-xs rounded-xl w-[120px]"
+                        data-testid="input-event-end-time"
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -481,9 +589,17 @@ export default function GroupCalendar() {
             <div className="flex items-center gap-2 text-sm text-white/50">
               <Clock className="w-3.5 h-3.5" />
               <span>
-                {new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" })}
-                {" "}
-                {formatTime(new Date(selectedEvent.startTime))} – {formatTime(new Date(selectedEvent.endTime))}
+                {selectedEvent.allDay ? (
+                  isSameDay(new Date(selectedEvent.startTime), new Date(selectedEvent.endTime))
+                    ? new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" }) + " (All day)"
+                    : new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { month: "short", day: "numeric" }) + " – " + new Date(selectedEvent.endTime).toLocaleDateString("en-NZ", { month: "short", day: "numeric" }) + " (All day)"
+                ) : (
+                  <>
+                    {new Date(selectedEvent.startTime).toLocaleDateString("en-NZ", { weekday: "short", month: "short", day: "numeric" })}
+                    {" "}
+                    {formatTime(new Date(selectedEvent.startTime))} – {formatTime(new Date(selectedEvent.endTime))}
+                  </>
+                )}
               </span>
             </div>
             {selectedEvent.location && (
@@ -557,6 +673,25 @@ function MiniCalendar({ date, onSelect }: { date: Date; onSelect: (d: Date) => v
   );
 }
 
+function AllDayBanner({ events, onEventClick }: { events: CalendarEvent[]; onEventClick: (e: CalendarEvent) => void }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="space-y-0.5 py-1 px-1">
+      {events.map(event => (
+        <div
+          key={event.id}
+          onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+          className="text-[10px] px-1.5 py-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate"
+          style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }}
+          data-testid={`event-allday-${event.id}`}
+        >
+          {event.title}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MonthView({ days, events, currentDate, today, onDayClick, onEventClick, onCreateClick }: {
   days: Date[]; events: CalendarEvent[]; currentDate: Date; today: Date;
   onDayClick: (d: Date) => void; onEventClick: (e: CalendarEvent) => void; onCreateClick: (d: Date) => void;
@@ -576,6 +711,8 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
             const s = new Date(e.startTime);
             return isSameDay(s, day);
           });
+          const allDayEvts = dayEvents.filter(e => e.allDay);
+          const timedEvts = dayEvents.filter(e => !e.allDay);
           return (
             <div
               key={i}
@@ -587,7 +724,18 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
                 {day.getDate()}
               </div>
               <div className="space-y-0.5">
-                {dayEvents.slice(0, 3).map(event => (
+                {allDayEvts.map(event => (
+                  <div
+                    key={event.id}
+                    onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+                    className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium"
+                    style={{ backgroundColor: `${event.color}30`, color: event.color }}
+                    data-testid={`event-${event.id}`}
+                  >
+                    {event.title}
+                  </div>
+                ))}
+                {timedEvts.slice(0, 3).map(event => (
                   <div
                     key={event.id}
                     onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
@@ -595,11 +743,11 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
                     style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }}
                     data-testid={`event-${event.id}`}
                   >
-                    {event.title}
+                    {formatTime(new Date(event.startTime))} {event.title}
                   </div>
                 ))}
-                {dayEvents.length > 3 && (
-                  <div className="text-[9px] text-white/30 px-1">+{dayEvents.length - 3} more</div>
+                {timedEvts.length > 3 && (
+                  <div className="text-[9px] text-white/30 px-1">+{timedEvts.length - 3} more</div>
                 )}
               </div>
             </div>
@@ -610,11 +758,26 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
   );
 }
 
-function WeekView({ days, events, today, hours, getEventStyle, onEventClick, onTimeClick }: {
+function WeekView({ days, events, today, hours, getEventStyle, getTimedEvents, getAllDayEvents, onEventClick, onTimeClick }: {
   days: Date[]; events: CalendarEvent[]; today: Date; hours: number[];
   getEventStyle: (e: CalendarEvent, d: Date) => any;
+  getTimedEvents: (events: CalendarEvent[]) => CalendarEvent[];
+  getAllDayEvents: (events: CalendarEvent[]) => CalendarEvent[];
   onEventClick: (e: CalendarEvent) => void; onTimeClick: (d: Date) => void;
 }) {
+  const dayEventsMap = useMemo(() => {
+    return days.map(day => {
+      const dayEvents = events.filter(e => {
+        const s = new Date(e.startTime);
+        const en = new Date(e.endTime);
+        return isSameDay(s, day) || isSameDay(en, day) || (s < day && en > new Date(day.getTime() + 86400000));
+      });
+      return { timed: getTimedEvents(dayEvents), allDay: getAllDayEvents(dayEvents) };
+    });
+  }, [days, events, getTimedEvents, getAllDayEvents]);
+
+  const hasAnyAllDay = dayEventsMap.some(d => d.allDay.length > 0);
+
   return (
     <div className="flex flex-col h-full">
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-white/[0.06] sticky top-0 z-10" style={{ background: 'rgba(2,6,14,0.95)' }}>
@@ -631,6 +794,20 @@ function WeekView({ days, events, today, hours, getEventStyle, onEventClick, onT
           );
         })}
       </div>
+
+      {hasAnyAllDay && (
+        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-white/[0.06] sticky z-[9]" style={{ background: 'rgba(2,6,14,0.9)', top: '68px' }}>
+          <div className="flex items-center justify-end pr-2">
+            <span className="text-[9px] text-white/20 uppercase">all day</span>
+          </div>
+          {days.map((_, i) => (
+            <div key={i} className="border-l border-white/[0.04] min-h-[28px]">
+              <AllDayBanner events={dayEventsMap[i].allDay} onEventClick={onEventClick} />
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto">
         <div className="grid grid-cols-[60px_repeat(7,1fr)] relative" style={{ height: `${hours.length * 60}px` }}>
           <div>
@@ -640,54 +817,73 @@ function WeekView({ days, events, today, hours, getEventStyle, onEventClick, onT
               </div>
             ))}
           </div>
-          {days.map((day, di) => {
-            const dayEvents = events.filter(e => {
-              const s = new Date(e.startTime);
-              const en = new Date(e.endTime);
-              return isSameDay(s, day) || isSameDay(en, day) || (s < day && en > new Date(day.getTime() + 86400000));
-            });
-            return (
-              <div key={di} className="border-l border-white/[0.04] relative">
-                {hours.map(h => (
+          {days.map((day, di) => (
+            <div key={di} className="border-l border-white/[0.04] relative">
+              {hours.map(h => (
+                <div
+                  key={h}
+                  className="h-[60px] border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
+                  onClick={() => { const d = new Date(day); d.setHours(h, 0, 0, 0); onTimeClick(d); }}
+                />
+              ))}
+              {dayEventsMap[di].timed.map(event => {
+                const style = getEventStyle(event, day);
+                return (
                   <div
-                    key={h}
-                    className="h-[60px] border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer"
-                    onClick={() => { const d = new Date(day); d.setHours(h, 0, 0, 0); onTimeClick(d); }}
-                  />
-                ))}
-                {dayEvents.map(event => {
-                  const style = getEventStyle(event, day);
-                  return (
-                    <div
-                      key={event.id}
-                      className="absolute left-0.5 right-1 rounded-lg px-1.5 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden"
-                      style={{ ...style, backgroundColor: `${event.color}30`, borderLeft: `3px solid ${event.color}` }}
-                      onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                      data-testid={`event-${event.id}`}
-                    >
-                      <div className="text-[11px] font-medium truncate" style={{ color: event.color }}>{event.title}</div>
-                      <div className="text-[9px] opacity-70" style={{ color: event.color }}>
-                        {formatTime(new Date(event.startTime))} – {formatTime(new Date(event.endTime))}
-                      </div>
+                    key={event.id}
+                    className="absolute left-0.5 right-1 rounded-lg px-1.5 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden"
+                    style={{ ...style, backgroundColor: `${event.color}30`, borderLeft: `3px solid ${event.color}` }}
+                    onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+                    data-testid={`event-${event.id}`}
+                  >
+                    <div className="text-[11px] font-medium truncate" style={{ color: event.color }}>{event.title}</div>
+                    <div className="text-[9px] opacity-70" style={{ color: event.color }}>
+                      {formatTime(new Date(event.startTime))} – {formatTime(new Date(event.endTime))}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function DayView({ day, events, hours, getEventStyle, onEventClick, onTimeClick }: {
+function DayView({ day, events, hours, getEventStyle, getTimedEvents, getAllDayEvents, onEventClick, onTimeClick }: {
   day: Date; events: CalendarEvent[]; hours: number[];
   getEventStyle: (e: CalendarEvent, d: Date) => any;
+  getTimedEvents: (events: CalendarEvent[]) => CalendarEvent[];
+  getAllDayEvents: (events: CalendarEvent[]) => CalendarEvent[];
   onEventClick: (e: CalendarEvent) => void; onTimeClick: (d: Date) => void;
 }) {
+  const timedEvts = getTimedEvents(events);
+  const allDayEvts = getAllDayEvents(events);
+
   return (
     <div className="flex-1 overflow-auto">
+      {allDayEvts.length > 0 && (
+        <div className="border-b border-white/[0.06] px-4 py-2" style={{ background: 'rgba(2,6,14,0.6)' }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[9px] text-white/20 uppercase tracking-wider">All day</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {allDayEvts.map(event => (
+              <div
+                key={event.id}
+                onClick={() => onEventClick(event)}
+                className="text-[11px] px-2.5 py-1 rounded-lg cursor-pointer hover:opacity-80 transition-opacity font-medium"
+                style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `3px solid ${event.color}` }}
+                data-testid={`event-allday-${event.id}`}
+              >
+                {event.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-[60px_1fr] relative" style={{ height: `${hours.length * 60}px` }}>
         <div>
           {hours.map(h => (
@@ -704,7 +900,7 @@ function DayView({ day, events, hours, getEventStyle, onEventClick, onTimeClick 
               onClick={() => { const d = new Date(day); d.setHours(h, 0, 0, 0); onTimeClick(d); }}
             />
           ))}
-          {events.map(event => {
+          {timedEvts.map(event => {
             const style = getEventStyle(event, day);
             return (
               <div
