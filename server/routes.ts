@@ -2224,7 +2224,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/calendar-events", requireAuth, async (req, res) => {
     try {
-      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId, repeatRule } = req.body;
+      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId, repeatRule, amount } = req.body;
       if (!title || !startTime || !endTime) return res.status(400).json({ message: "title, startTime, and endTime required" });
 
       const baseStart = new Date(startTime);
@@ -2239,6 +2239,7 @@ export async function registerRoutes(
           calendarType: calendarType || "general",
           color: color || "#3b82f6",
           recurrence: recurrence || null,
+          amount: amount || null,
           organizationId: organizationId || null,
           createdBy: req.session.userId!,
         });
@@ -2282,6 +2283,7 @@ export async function registerRoutes(
           calendarType: calendarType || "general",
           color: color || "#3b82f6",
           recurrence: recurrenceLabel,
+          amount: amount || null,
           organizationId: organizationId || null,
           createdBy: req.session.userId!,
         });
@@ -2299,7 +2301,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const existing = await storage.getCalendarEvent(id);
       if (!existing) return res.status(404).json({ message: "Event not found" });
-      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId } = req.body;
+      const { title, description, location, startTime, endTime, allDay, calendarType, color, recurrence, organizationId, amount } = req.body;
       const updates: any = {};
       if (title !== undefined) updates.title = title;
       if (description !== undefined) updates.description = description;
@@ -2311,6 +2313,7 @@ export async function registerRoutes(
       if (color !== undefined) updates.color = color;
       if (recurrence !== undefined) updates.recurrence = recurrence;
       if (organizationId !== undefined) updates.organizationId = organizationId;
+      if (amount !== undefined) updates.amount = amount;
       const event = await storage.updateCalendarEvent(id, updates);
       res.json(event);
     } catch (error: any) {

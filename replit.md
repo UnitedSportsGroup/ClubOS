@@ -64,7 +64,9 @@ Group-level workspace at "United Sports Group" (slug: `united-sports-group`) wit
   - Calendar filter toggles in sidebar to show/hide specific calendars
   - Mini calendar in sidebar for quick date navigation
   - Click on time slots to create events, click events to view details
-  - Schema: `calendar_events` table with title, description, location, start/end times, allDay, calendarType, color, recurrence, createdBy
+  - Recurring events: Create daily/weekly/monthly/yearly repeating events with custom intervals and optional end dates
+  - Dollar amount field: Optional amount input appears when "Payments & Finance" calendar is selected, displayed on event blocks and detail popup in gold accent
+  - Schema: `calendar_events` table with title, description, location, start/end times, allDay, calendarType, color, recurrence, amount (decimal), createdBy
 - **Sponsorship** (`/admin/sponsorship`): Placeholder page for future sponsor/contract management
 
 ## Custom Domains

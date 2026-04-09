@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
-  Trash2, Edit, Repeat
+  Trash2, Edit, Repeat, DollarSign
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -126,6 +126,7 @@ export default function GroupCalendar() {
   const [formRepeatFreq, setFormRepeatFreq] = useState<"daily"|"weekly"|"monthly"|"yearly">("weekly");
   const [formRepeatUntil, setFormRepeatUntil] = useState("");
   const [showCustomRepeat, setShowCustomRepeat] = useState(false);
+  const [formAmount, setFormAmount] = useState("");
 
   const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
@@ -272,6 +273,7 @@ export default function GroupCalendar() {
     setFormRepeatFreq("weekly");
     setFormRepeatUntil("");
     setShowCustomRepeat(false);
+    setFormAmount("");
     setShowModal(true);
   }
 
@@ -294,6 +296,7 @@ export default function GroupCalendar() {
     setFormRepeatFreq("weekly");
     setFormRepeatUntil("");
     setShowCustomRepeat(false);
+    setFormAmount(event.amount ? String(event.amount) : "");
     setShowModal(true);
     setSelectedEvent(null);
   }
@@ -332,6 +335,7 @@ export default function GroupCalendar() {
       allDay: formAllDay,
       calendarType: formCalType,
       color: formColor,
+      amount: formCalType === "payments" && formAmount ? formAmount : null,
     };
 
     let repeatRule: any = null;
@@ -599,6 +603,26 @@ export default function GroupCalendar() {
                 </SelectContent>
               </Select>
             </div>
+
+            {formCalType === "payments" && (
+              <div className="flex items-center gap-3">
+                <DollarSign className="w-4 h-4 text-amber-400/60" />
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm">$</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formAmount}
+                    onChange={e => setFormAmount(e.target.value)}
+                    className="premium-input text-white/70 text-sm rounded-xl pl-7"
+                    data-testid="input-event-amount"
+                  />
+                </div>
+              </div>
+            )}
+
             <Textarea placeholder="Add description" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="premium-input text-white/70 text-sm rounded-xl min-h-[60px]" data-testid="input-event-description" />
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formTitle.trim() || createMutation.isPending || updateMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1" data-testid="button-save-event">
@@ -636,6 +660,12 @@ export default function GroupCalendar() {
               </span>
             </div>
             {selectedEvent.location && <div className="flex items-center gap-2 text-sm text-white/50"><MapPin className="w-3.5 h-3.5" /><span>{selectedEvent.location}</span></div>}
+            {selectedEvent.amount && (
+              <div className="flex items-center gap-2 text-sm text-amber-400/80" data-testid="text-event-amount">
+                <DollarSign className="w-3.5 h-3.5" />
+                <span className="font-medium">${parseFloat(selectedEvent.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
             {selectedEvent.description && <p className="text-sm text-white/40">{selectedEvent.description}</p>}
             <div className="flex gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => openEditModal(selectedEvent)} className="border-white/10 text-white/60 rounded-xl gap-1.5 flex-1" data-testid="button-edit-event"><Edit className="w-3.5 h-3.5" /> Edit</Button>
@@ -712,7 +742,7 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
               <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
               <div className="space-y-0.5">
                 {allDayEvts.map(event => (
-                  <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium" style={{ backgroundColor: `${event.color}30`, color: event.color }} data-testid={`event-${event.id}`}>{event.title}</div>
+                  <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium" style={{ backgroundColor: `${event.color}30`, color: event.color }} data-testid={`event-${event.id}`}>{event.title}{event.amount && <span className="ml-1 text-amber-400/80">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}</span>}</div>
                 ))}
                 {timedEvts.slice(0, 3).map(event => (
                   <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity" style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }} data-testid={`event-${event.id}`}>
@@ -927,7 +957,10 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
                     onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
                     data-testid={`event-${event.id}`}
                   >
-                    <div className="text-[11px] font-medium truncate" style={{ color: event.color }}>{event.title}</div>
+                    <div className="text-[11px] font-medium truncate" style={{ color: event.color }}>
+                      {event.title}
+                      {event.amount && <span className="ml-1 text-amber-400/80">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}</span>}
+                    </div>
                     <div className="text-[9px] opacity-70" style={{ color: event.color }}>
                       {formatTime(new Date(event.startTime))} – {formatTime(new Date(event.endTime))}
                     </div>

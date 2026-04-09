@@ -792,6 +792,7 @@ export const calendarEvents = pgTable("calendar_events", {
   calendarType: text("calendar_type").notNull().default("general"),
   color: text("color").notNull().default("#3b82f6"),
   recurrence: text("recurrence"),
+  amount: decimal("amount", { precision: 12, scale: 2 }),
   createdBy: integer("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
