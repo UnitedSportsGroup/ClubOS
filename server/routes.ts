@@ -171,6 +171,44 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/academy", requireAuth, async (_req, res) => {
+    try {
+      const all = await storage.getPrograms();
+      const academy = all.filter(p => p.type === "academy");
+      const enriched = await Promise.all(academy.map(async (p: any) => {
+        const row = await db.execute(sql.raw(`SELECT academy_section FROM programs WHERE id = ${p.id}`));
+        return { ...p, academySection: row.rows?.[0]?.academy_section || "core" };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/academy/registration-counts", requireAuth, async (_req, res) => {
+    try {
+      const counts = await storage.getCampRegistrationCounts();
+      res.json(counts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/academy", requireAuth, async (req, res) => {
+    try {
+      const { academySection, ...rest } = req.body;
+      const data = { ...rest, type: "academy" };
+      const program = await storage.createProgram(data);
+      if (academySection) {
+        await db.execute(sql.raw(`UPDATE programs SET academy_section = '${academySection === 'additional' ? 'additional' : 'core'}' WHERE id = ${program.id}`));
+      }
+      await storage.createAuditLog({ userId: req.session.userId, action: "create", entity: "academy", entityId: program.id, details: `Created academy program: ${program.name}` });
+      res.status(201).json({ ...program, academySection: academySection || "core" });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/:id", requireAuth, async (req, res) => {
     try {
       const camp = await storage.getProgram(parseInt(req.params.id));
