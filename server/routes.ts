@@ -3544,6 +3544,180 @@ export async function registerRoutes(
     }
   });
 
+  // ─── United Prints Routes ───────────────────────────────────
+
+  app.get("/api/admin/print-orders", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const orders = await storage.getPrintOrdersByOrg(orgId);
+      res.json(orders);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-orders", requireAuth, async (req, res) => {
+    try {
+      const order = await storage.createPrintOrder({ ...req.body, createdBy: req.session.userId! });
+      res.json(order);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/print-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const order = await storage.updatePrintOrder(parseInt(req.params.id), req.body);
+      if (!order) return res.status(404).json({ message: "Not found" });
+      res.json(order);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/print-orders/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePrintOrder(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-projects", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const projects = await storage.getPrintProjectsByOrg(orgId);
+      res.json(projects);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-projects", requireAuth, async (req, res) => {
+    try {
+      const project = await storage.createPrintProject({ ...req.body, createdBy: req.session.userId! });
+      res.json(project);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/print-projects/:id", requireAuth, async (req, res) => {
+    try {
+      const project = await storage.updatePrintProject(parseInt(req.params.id), req.body);
+      if (!project) return res.status(404).json({ message: "Not found" });
+      res.json(project);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/print-projects/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePrintProject(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-contacts", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const contacts = await storage.getPrintContactsByOrg(orgId);
+      res.json(contacts);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-contacts", requireAuth, async (req, res) => {
+    try {
+      const contact = await storage.createPrintContact(req.body);
+      res.json(contact);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/print-contacts/:id", requireAuth, async (req, res) => {
+    try {
+      const contact = await storage.updatePrintContact(parseInt(req.params.id), req.body);
+      if (!contact) return res.status(404).json({ message: "Not found" });
+      res.json(contact);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/print-contacts/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePrintContact(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-landing-pages", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const pages = await storage.getPrintLandingPagesByOrg(orgId);
+      res.json(pages);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-landing-pages", requireAuth, async (req, res) => {
+    try {
+      const page = await storage.createPrintLandingPage(req.body);
+      res.json(page);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/print-landing-pages/:id", requireAuth, async (req, res) => {
+    try {
+      const page = await storage.updatePrintLandingPage(parseInt(req.params.id), req.body);
+      if (!page) return res.status(404).json({ message: "Not found" });
+      res.json(page);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/print-landing-pages/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePrintLandingPage(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-emails", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const emails = await storage.getPrintEmailsByOrg(orgId);
+      res.json(emails);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-emails", requireAuth, async (req, res) => {
+    try {
+      const email = await storage.createPrintEmail({ ...req.body, createdBy: req.session.userId! });
+      res.json(email);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/print-emails/:id", requireAuth, async (req, res) => {
+    try {
+      const email = await storage.updatePrintEmail(parseInt(req.params.id), req.body);
+      if (!email) return res.status(404).json({ message: "Not found" });
+      res.json(email);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-analytics", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const orders = await storage.getPrintOrdersByOrg(orgId);
+      const projects = await storage.getPrintProjectsByOrg(orgId);
+      const contacts = await storage.getPrintContactsByOrg(orgId);
+      const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.amount || "0")), 0);
+      const statusCounts: Record<string, number> = {};
+      orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
+      const projectStatusCounts: Record<string, number> = {};
+      projects.forEach(p => { projectStatusCounts[p.status] = (projectStatusCounts[p.status] || 0) + 1; });
+      res.json({
+        totalOrders: orders.length,
+        totalRevenue,
+        totalProjects: projects.length,
+        totalContacts: contacts.length,
+        ordersByStatus: statusCounts,
+        projectsByStatus: projectStatusCounts,
+        recentOrders: orders.slice(0, 5),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   return httpServer;
 }
 

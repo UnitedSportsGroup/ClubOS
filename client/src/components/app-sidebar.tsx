@@ -36,6 +36,11 @@ import {
   Globe,
   Handshake,
   GraduationCap,
+  Printer,
+  ShoppingCart,
+  FolderKanban,
+  FileText,
+  Send,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -119,6 +124,21 @@ const groupNav = [
 ];
 
 const groupSecondary = [
+  { title: "Domains", url: "/admin/domains", icon: Globe },
+  { title: "Settings", url: "/admin/settings", icon: Settings },
+];
+
+const printsNav = [
+  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "CRM", url: "/admin/print-crm", icon: Users },
+  { title: "Orders", url: "/admin/print-orders", icon: ShoppingCart },
+  { title: "Projects", url: "/admin/print-projects", icon: FolderKanban },
+  { title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
+  { title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
+  { title: "Email Sender", url: "/admin/print-email", icon: Send },
+];
+
+const printsSecondary = [
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
@@ -224,12 +244,17 @@ function isGroupWorkspace(slug: string | undefined) {
   return slug === "united-sports-group";
 }
 
+function isPrintsWorkspace(slug: string | undefined) {
+  return slug === "united-prints";
+}
+
 function getWorkspaceLabel(slug: string | undefined) {
   if (isVenueWorkspace(slug)) return "Venue";
   if (isLeagueWorkspace(slug)) return "Leagues";
   if (isTournamentWorkspace(slug)) return "Tournaments";
   if (isGymnasticsWorkspace(slug)) return "Gymnastics";
   if (isGroupWorkspace(slug)) return "Group";
+  if (isPrintsWorkspace(slug)) return "Print Studio";
   return "Management";
 }
 
@@ -239,6 +264,7 @@ function getWorkspaceInitials(slug: string | undefined) {
   if (isTournamentWorkspace(slug)) return "CI";
   if (isGymnasticsWorkspace(slug)) return "UG";
   if (isGroupWorkspace(slug)) return "SG";
+  if (isPrintsWorkspace(slug)) return "UP";
   return "CU";
 }
 
@@ -252,8 +278,9 @@ export function AppSidebar() {
   const isTournament = isTournamentWorkspace(currentOrg?.slug);
   const isGymnastics = isGymnasticsWorkspace(currentOrg?.slug);
   const isGroup = isGroupWorkspace(currentOrg?.slug);
-  const mainNav = isGroup ? groupNav : isGymnastics ? gymnasticsNav : isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
-  const secondaryNav = isGroup ? groupSecondary : isGymnastics ? gymnasticsSecondary : isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
+  const isPrints = isPrintsWorkspace(currentOrg?.slug);
+  const mainNav = isPrints ? printsNav : isGroup ? groupNav : isGymnastics ? gymnasticsNav : isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
+  const secondaryNav = isPrints ? printsSecondary : isGroup ? groupSecondary : isGymnastics ? gymnasticsSecondary : isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),

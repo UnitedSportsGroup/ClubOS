@@ -801,3 +801,107 @@ export const calendarEvents = pgTable("calendar_events", {
 export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
+
+export const printOrderStatusEnum = pgEnum("print_order_status", ["inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled"]);
+
+export const printOrders = pgTable("print_orders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: printOrderStatusEnum("status").notNull().default("inquiry"),
+  amount: decimal("amount", { precision: 12, scale: 2 }),
+  dueDate: date("due_date"),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrintOrderSchema = createInsertSchema(printOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrintOrder = z.infer<typeof insertPrintOrderSchema>;
+export type PrintOrder = typeof printOrders.$inferSelect;
+
+export const printProjectStatusEnum = pgEnum("print_project_status", ["planning", "active", "on_hold", "completed", "archived"]);
+
+export const printProjects = pgTable("print_projects", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email"),
+  description: text("description"),
+  status: printProjectStatusEnum("status").notNull().default("planning"),
+  budget: decimal("budget", { precision: 12, scale: 2 }),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrintProjectSchema = createInsertSchema(printProjects).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrintProject = z.infer<typeof insertPrintProjectSchema>;
+export type PrintProject = typeof printProjects.$inferSelect;
+
+export const printContacts = pgTable("print_contacts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  company: text("company"),
+  type: text("type").notNull().default("customer"),
+  tags: text("tags").array(),
+  notes: text("notes"),
+  totalOrders: integer("total_orders").notNull().default(0),
+  totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrintContactSchema = createInsertSchema(printContacts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrintContact = z.infer<typeof insertPrintContactSchema>;
+export type PrintContact = typeof printContacts.$inferSelect;
+
+export const printLandingPages = pgTable("print_landing_pages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  slug: text("slug").notNull(),
+  headline: text("headline"),
+  subheadline: text("subheadline"),
+  ctaText: text("cta_text").default("Get a Quote"),
+  ctaUrl: text("cta_url"),
+  content: text("content"),
+  published: boolean("published").notNull().default(false),
+  views: integer("views").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrintLandingPageSchema = createInsertSchema(printLandingPages).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrintLandingPage = z.infer<typeof insertPrintLandingPageSchema>;
+export type PrintLandingPage = typeof printLandingPages.$inferSelect;
+
+export const printEmails = pgTable("print_emails", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  sentAt: timestamp("sent_at"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPrintEmailSchema = createInsertSchema(printEmails).omit({ id: true, createdAt: true });
+export type InsertPrintEmail = z.infer<typeof insertPrintEmailSchema>;
+export type PrintEmail = typeof printEmails.$inferSelect;

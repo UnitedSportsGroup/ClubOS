@@ -78,6 +78,18 @@ Multi-workspace custom domain mapping at `/admin/domains` (available in all work
 - **Storage**: `getCustomDomainsByOrg`, `getCustomDomainByHostname`, `createCustomDomain`, `updateCustomDomain`, `deleteCustomDomain`
 - **Security**: All admin endpoints verify user belongs to the domain's organization. PATCH only allows `isPrimary` field updates.
 
+## United Prints Workspace
+Signage & print studio management workspace (slug: `united-prints`):
+- **Dashboard** (`/admin`): Overview with order pipeline, revenue stats, recent orders
+- **CRM** (`/admin/print-crm`): Contact management with customer/supplier/partner types, search, revenue tracking
+- **Orders** (`/admin/print-orders`): Full order pipeline with statuses (inquiry → quoted → confirmed → in_production → ready → delivered/cancelled), amounts, due dates, status filters
+- **Projects** (`/admin/print-projects`): Project tracking with statuses (planning/active/on_hold/completed/archived), budgets, date ranges, grid view
+- **Analytics** (`/admin/print-analytics`): Business performance with order/project status breakdowns, revenue totals, recent orders table
+- **Landing Pages** (`/admin/print-landing`): Landing page builder with title, slug, headline, CTA, published/draft status, view counts
+- **Email Sender** (`/admin/print-email`): Email campaigns to CRM contacts, compose/send/draft workflow
+- **Schema**: `print_orders`, `print_projects`, `print_contacts`, `print_landing_pages`, `print_emails` tables with full CRUD storage and API routes
+- **Enums**: `print_order_status` (inquiry/quoted/confirmed/in_production/ready/delivered/cancelled), `print_project_status` (planning/active/on_hold/completed/archived) — created directly in DB
+
 ## External API v1
 API key-authenticated endpoints at `/api/v1/*` for AIOS integration:
 - `/api/v1/overview` — High-level org metrics

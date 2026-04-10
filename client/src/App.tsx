@@ -48,6 +48,13 @@ import TournamentDashboard from "@/pages/tournament-dashboard";
 import TournamentList from "@/pages/tournament-list";
 import TournamentDetail from "@/pages/tournament-detail";
 import TournamentTeamDetail from "@/pages/tournament-team-detail";
+import PrintsDashboard from "@/pages/prints-dashboard";
+import PrintsCRM from "@/pages/prints-crm";
+import PrintsOrders from "@/pages/prints-orders";
+import PrintsProjects from "@/pages/prints-projects";
+import PrintsAnalytics from "@/pages/prints-analytics";
+import PrintsLanding from "@/pages/prints-landing";
+import PrintsEmail from "@/pages/prints-email";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -87,6 +94,24 @@ function AdminRouter() {
   const isTournament = currentOrg?.slug === "christchurch-international-cup";
   const isGymnastics = currentOrg?.slug === "united-gymnastics";
   const isGroup = currentOrg?.slug === "united-sports-group";
+  const isPrints = currentOrg?.slug === "united-prints";
+
+  if (isPrints) {
+    return (
+      <Switch>
+        <Route path="/admin" component={PrintsDashboard} />
+        <Route path="/admin/print-crm" component={PrintsCRM} />
+        <Route path="/admin/print-orders" component={PrintsOrders} />
+        <Route path="/admin/print-projects" component={PrintsProjects} />
+        <Route path="/admin/print-analytics" component={PrintsAnalytics} />
+        <Route path="/admin/print-landing" component={PrintsLanding} />
+        <Route path="/admin/print-email" component={PrintsEmail} />
+        <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/settings" component={AdminSettings} />
+        <Route component={NotFound} />
+      </Switch>
+    );
+  }
 
   if (isGroup) {
     return (

@@ -45,6 +45,11 @@ import {
   type InsertDiscountUsage, type DiscountUsage,
   customDomains, type InsertCustomDomain, type CustomDomain,
   calendarEvents, type InsertCalendarEvent, type CalendarEvent,
+  printOrders, type InsertPrintOrder, type PrintOrder,
+  printProjects, type InsertPrintProject, type PrintProject,
+  printContacts, type InsertPrintContact, type PrintContact,
+  printLandingPages, type InsertPrintLandingPage, type PrintLandingPage,
+  printEmails, type InsertPrintEmail, type PrintEmail,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
@@ -283,6 +288,34 @@ export interface IStorage {
   updateDiscount(id: number, data: Partial<InsertDiscount2>): Promise<Discount | undefined>;
   deleteDiscount(id: number): Promise<void>;
   incrementDiscountUsage(id: number, discountedCents: number): Promise<void>;
+
+  getPrintOrdersByOrg(orgId: number): Promise<PrintOrder[]>;
+  getPrintOrder(id: number): Promise<PrintOrder | undefined>;
+  createPrintOrder(data: InsertPrintOrder): Promise<PrintOrder>;
+  updatePrintOrder(id: number, data: Partial<InsertPrintOrder>): Promise<PrintOrder | undefined>;
+  deletePrintOrder(id: number): Promise<void>;
+
+  getPrintProjectsByOrg(orgId: number): Promise<PrintProject[]>;
+  getPrintProject(id: number): Promise<PrintProject | undefined>;
+  createPrintProject(data: InsertPrintProject): Promise<PrintProject>;
+  updatePrintProject(id: number, data: Partial<InsertPrintProject>): Promise<PrintProject | undefined>;
+  deletePrintProject(id: number): Promise<void>;
+
+  getPrintContactsByOrg(orgId: number): Promise<PrintContact[]>;
+  getPrintContact(id: number): Promise<PrintContact | undefined>;
+  createPrintContact(data: InsertPrintContact): Promise<PrintContact>;
+  updatePrintContact(id: number, data: Partial<InsertPrintContact>): Promise<PrintContact | undefined>;
+  deletePrintContact(id: number): Promise<void>;
+
+  getPrintLandingPagesByOrg(orgId: number): Promise<PrintLandingPage[]>;
+  getPrintLandingPage(id: number): Promise<PrintLandingPage | undefined>;
+  createPrintLandingPage(data: InsertPrintLandingPage): Promise<PrintLandingPage>;
+  updatePrintLandingPage(id: number, data: Partial<InsertPrintLandingPage>): Promise<PrintLandingPage | undefined>;
+  deletePrintLandingPage(id: number): Promise<void>;
+
+  getPrintEmailsByOrg(orgId: number): Promise<PrintEmail[]>;
+  createPrintEmail(data: InsertPrintEmail): Promise<PrintEmail>;
+  updatePrintEmail(id: number, data: Partial<InsertPrintEmail>): Promise<PrintEmail | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1563,6 +1596,80 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCalendarEvent(id: number): Promise<void> {
     await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
+  }
+
+  async getPrintOrdersByOrg(orgId: number): Promise<PrintOrder[]> {
+    return db.select().from(printOrders).where(eq(printOrders.organizationId, orgId)).orderBy(desc(printOrders.createdAt));
+  }
+  async getPrintOrder(id: number): Promise<PrintOrder | undefined> {
+    const [r] = await db.select().from(printOrders).where(eq(printOrders.id, id)); return r;
+  }
+  async createPrintOrder(data: InsertPrintOrder): Promise<PrintOrder> {
+    const [r] = await db.insert(printOrders).values(data).returning(); return r;
+  }
+  async updatePrintOrder(id: number, data: Partial<InsertPrintOrder>): Promise<PrintOrder | undefined> {
+    const [r] = await db.update(printOrders).set({ ...data, updatedAt: new Date() }).where(eq(printOrders.id, id)).returning(); return r;
+  }
+  async deletePrintOrder(id: number): Promise<void> {
+    await db.delete(printOrders).where(eq(printOrders.id, id));
+  }
+
+  async getPrintProjectsByOrg(orgId: number): Promise<PrintProject[]> {
+    return db.select().from(printProjects).where(eq(printProjects.organizationId, orgId)).orderBy(desc(printProjects.createdAt));
+  }
+  async getPrintProject(id: number): Promise<PrintProject | undefined> {
+    const [r] = await db.select().from(printProjects).where(eq(printProjects.id, id)); return r;
+  }
+  async createPrintProject(data: InsertPrintProject): Promise<PrintProject> {
+    const [r] = await db.insert(printProjects).values(data).returning(); return r;
+  }
+  async updatePrintProject(id: number, data: Partial<InsertPrintProject>): Promise<PrintProject | undefined> {
+    const [r] = await db.update(printProjects).set({ ...data, updatedAt: new Date() }).where(eq(printProjects.id, id)).returning(); return r;
+  }
+  async deletePrintProject(id: number): Promise<void> {
+    await db.delete(printProjects).where(eq(printProjects.id, id));
+  }
+
+  async getPrintContactsByOrg(orgId: number): Promise<PrintContact[]> {
+    return db.select().from(printContacts).where(eq(printContacts.organizationId, orgId)).orderBy(desc(printContacts.createdAt));
+  }
+  async getPrintContact(id: number): Promise<PrintContact | undefined> {
+    const [r] = await db.select().from(printContacts).where(eq(printContacts.id, id)); return r;
+  }
+  async createPrintContact(data: InsertPrintContact): Promise<PrintContact> {
+    const [r] = await db.insert(printContacts).values(data).returning(); return r;
+  }
+  async updatePrintContact(id: number, data: Partial<InsertPrintContact>): Promise<PrintContact | undefined> {
+    const [r] = await db.update(printContacts).set({ ...data, updatedAt: new Date() }).where(eq(printContacts.id, id)).returning(); return r;
+  }
+  async deletePrintContact(id: number): Promise<void> {
+    await db.delete(printContacts).where(eq(printContacts.id, id));
+  }
+
+  async getPrintLandingPagesByOrg(orgId: number): Promise<PrintLandingPage[]> {
+    return db.select().from(printLandingPages).where(eq(printLandingPages.organizationId, orgId)).orderBy(desc(printLandingPages.createdAt));
+  }
+  async getPrintLandingPage(id: number): Promise<PrintLandingPage | undefined> {
+    const [r] = await db.select().from(printLandingPages).where(eq(printLandingPages.id, id)); return r;
+  }
+  async createPrintLandingPage(data: InsertPrintLandingPage): Promise<PrintLandingPage> {
+    const [r] = await db.insert(printLandingPages).values(data).returning(); return r;
+  }
+  async updatePrintLandingPage(id: number, data: Partial<InsertPrintLandingPage>): Promise<PrintLandingPage | undefined> {
+    const [r] = await db.update(printLandingPages).set({ ...data, updatedAt: new Date() }).where(eq(printLandingPages.id, id)).returning(); return r;
+  }
+  async deletePrintLandingPage(id: number): Promise<void> {
+    await db.delete(printLandingPages).where(eq(printLandingPages.id, id));
+  }
+
+  async getPrintEmailsByOrg(orgId: number): Promise<PrintEmail[]> {
+    return db.select().from(printEmails).where(eq(printEmails.organizationId, orgId)).orderBy(desc(printEmails.createdAt));
+  }
+  async createPrintEmail(data: InsertPrintEmail): Promise<PrintEmail> {
+    const [r] = await db.insert(printEmails).values(data).returning(); return r;
+  }
+  async updatePrintEmail(id: number, data: Partial<InsertPrintEmail>): Promise<PrintEmail | undefined> {
+    const [r] = await db.update(printEmails).set(data).where(eq(printEmails.id, id)).returning(); return r;
   }
 }
 
