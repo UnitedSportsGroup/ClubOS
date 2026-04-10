@@ -58,7 +58,7 @@ Shopify-style discount management at `/admin/discounts` (Christchurch United wor
 Group-level workspace at "United Sports Group" (slug: `united-sports-group`) with ram logo:
 - **Dashboard** (`/admin`): Cross-workspace aggregated view showing total registrations, revenue, upcoming events, and workspace listing
 - **Calendar** (`/admin/calendar`): Google Calendar-inspired scheduling with:
-  - Day, Week, and Month views with smooth navigation
+  - Day, Week, Month, and Year views with smooth navigation
   - Event create/edit modal with title, time, location, description, calendar type
   - Color-coded calendar types: General, United Events, South Island United, Gymnastics, Payments & Finance, Training, Meetings, Personal
   - Calendar filter toggles in sidebar to show/hide specific calendars
