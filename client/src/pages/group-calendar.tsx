@@ -782,7 +782,7 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
                         <span className={`text-[9px] flex-shrink-0 w-6 ${isWeekend ? "text-white/20" : "text-white/30"} ${isToday ? "text-blue-400 font-semibold" : ""}`}>
                           {SHORT_DAY_NAMES[dayOfWeek]}
                         </span>
-                        <div className="flex-1 min-w-0 space-y-px">
+                        <div className="flex-1 min-w-0 space-y-px overflow-hidden">
                           {dayEvents.slice(0, 3).map(event => (
                             <div
                               key={event.id}
@@ -827,9 +827,9 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
           const allDayEvts = dayEvents.filter(e => e.allDay);
           const timedEvts = dayEvents.filter(e => !e.allDay);
           return (
-            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)} onDoubleClick={(e) => { e.stopPropagation(); onCreateClick(day); }}>
+            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors overflow-hidden ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)} onDoubleClick={(e) => { e.stopPropagation(); onCreateClick(day); }}>
               <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 overflow-hidden">
                 {allDayEvts.map(event => (
                   <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium" style={{ backgroundColor: `${event.color}30`, color: event.color }} data-testid={`event-${event.id}`}>{event.title}{event.amount && <span className="ml-1 text-amber-400/80">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}</span>}</div>
                 ))}
@@ -1006,7 +1006,7 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
         <div className={`grid border-b border-white/[0.06] sticky z-[9]`} style={{ background: 'rgba(2,6,14,0.9)', top: '68px', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
           <div className="flex items-center justify-end pr-2"><span className="text-[9px] text-white/20 uppercase">all day</span></div>
           {days.map((_, i) => (
-            <div key={i} className="border-l border-white/[0.04] min-h-[28px]">
+            <div key={i} className="border-l border-white/[0.04] min-h-[28px] overflow-hidden">
               <AllDayBanner events={dayEventsMap[i].allDay} onEventClick={onEventClick} />
             </div>
           ))}
@@ -1030,7 +1030,7 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
             ))}
           </div>
           {days.map((day, di) => (
-            <div key={di} className="border-l border-white/[0.04] relative">
+            <div key={di} className="border-l border-white/[0.04] relative overflow-hidden">
               {hours.map(h => (
                 <div key={h} className="h-[60px] border-b border-white/[0.03]" />
               ))}
