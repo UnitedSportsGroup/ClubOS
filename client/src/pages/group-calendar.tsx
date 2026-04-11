@@ -748,22 +748,24 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
 
   return (
     <div className="h-full overflow-auto" data-testid="year-view">
-      <div className="min-w-[1200px]">
-        <div className="sticky top-0 z-10 grid gap-0" style={{ gridTemplateColumns: "48px repeat(12, 1fr)", background: 'rgba(2,6,14,0.95)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <div className="py-2 px-1 text-center text-[10px] text-white/20 font-medium" />
-          {MONTH_NAMES.map(m => (
-            <div key={m} className="py-2 px-1 text-center text-[11px] text-white/50 font-semibold uppercase tracking-wider">{m}</div>
-          ))}
-        </div>
-        <div>
+      <table className="w-full border-collapse table-fixed min-w-[1200px]">
+        <thead className="sticky top-0 z-10" style={{ background: 'rgba(2,6,14,0.95)' }}>
+          <tr className="border-b border-white/[0.06]">
+            <th className="w-[48px] py-2 px-1 text-center text-[10px] text-white/20 font-medium" />
+            {MONTH_NAMES.map(m => (
+              <th key={m} className="py-2 px-1 text-center text-[11px] text-white/50 font-semibold uppercase tracking-wider">{m}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
           {Array.from({ length: 31 }, (_, row) => {
             const dayNum = row + 1;
             return (
-              <div key={dayNum} className="grid gap-0 border-b border-white/[0.03]" style={{ gridTemplateColumns: "48px repeat(12, 1fr)" }}>
-                <div className="py-1 px-1 text-center text-[11px] text-white/25 font-medium flex items-start justify-center pt-1.5">{dayNum}</div>
+              <tr key={dayNum} className="border-b border-white/[0.03]">
+                <td className="w-[48px] py-1 px-1 text-center text-[11px] text-white/25 font-medium align-top pt-1.5">{dayNum}</td>
                 {Array.from({ length: 12 }, (_, monthIdx) => {
                   const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
-                  if (dayNum > daysInMonth) return <div key={monthIdx} className="border-r border-white/[0.02] bg-white/[0.01]" />;
+                  if (dayNum > daysInMonth) return <td key={monthIdx} className="border-r border-white/[0.02] bg-white/[0.01]" />;
                   const date = new Date(year, monthIdx, dayNum);
                   const dateKey = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
                   const dayOfWeek = date.getDay();
@@ -772,40 +774,42 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
                   const dayEvents = eventsByDay[dateKey] || [];
 
                   return (
-                    <div
+                    <td
                       key={monthIdx}
-                      className={`border-r border-white/[0.03] px-1 py-0.5 min-h-[28px] cursor-pointer hover:bg-white/[0.04] transition-colors ${isWeekend ? "bg-white/[0.015]" : ""} ${isToday ? "ring-1 ring-inset ring-blue-500/40 bg-blue-500/[0.06]" : ""}`}
+                      className={`border-r border-white/[0.03] px-1 py-0.5 min-h-[28px] cursor-pointer hover:bg-white/[0.04] transition-colors overflow-hidden align-top ${isWeekend ? "bg-white/[0.015]" : ""} ${isToday ? "ring-1 ring-inset ring-blue-500/40 bg-blue-500/[0.06]" : ""}`}
                       onClick={() => onDayClick(date)}
                       data-testid={`year-cell-${dateKey}`}
                     >
-                      <div className="flex items-start gap-1">
-                        <span className={`text-[9px] flex-shrink-0 w-6 ${isWeekend ? "text-white/20" : "text-white/30"} ${isToday ? "text-blue-400 font-semibold" : ""}`}>
-                          {SHORT_DAY_NAMES[dayOfWeek]}
-                        </span>
-                        <div className="flex-1 min-w-0 space-y-px overflow-hidden">
-                          {dayEvents.slice(0, 3).map(event => (
-                            <div
-                              key={event.id}
-                              onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                              className="text-[9px] leading-tight px-1 py-px rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium"
-                              style={{ backgroundColor: `${event.color}25`, color: event.color }}
-                              data-testid={`year-event-${event.id}`}
-                            >
-                              {event.title}
-                              {event.amount && <span className="ml-0.5 text-amber-400/70">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 0 })}</span>}
-                            </div>
-                          ))}
-                          {dayEvents.length > 3 && <div className="text-[8px] text-white/25 px-1">+{dayEvents.length - 3}</div>}
+                      <div className="overflow-hidden">
+                        <div className="flex items-start gap-1">
+                          <span className={`text-[9px] flex-shrink-0 w-6 ${isWeekend ? "text-white/20" : "text-white/30"} ${isToday ? "text-blue-400 font-semibold" : ""}`}>
+                            {SHORT_DAY_NAMES[dayOfWeek]}
+                          </span>
+                          <div className="flex-1 min-w-0 space-y-px overflow-hidden">
+                            {dayEvents.slice(0, 3).map(event => (
+                              <div
+                                key={event.id}
+                                onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+                                className="text-[9px] leading-tight px-1 py-px rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium"
+                                style={{ backgroundColor: `${event.color}25`, color: event.color }}
+                                data-testid={`year-event-${event.id}`}
+                              >
+                                {event.title}
+                                {event.amount && <span className="ml-0.5 text-amber-400/70">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 0 })}</span>}
+                              </div>
+                            ))}
+                            {dayEvents.length > 3 && <div className="text-[8px] text-white/25 px-1">+{dayEvents.length - 3}</div>}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </td>
                   );
                 })}
-              </div>
+              </tr>
             );
           })}
-        </div>
-      </div>
+        </tbody>
+      </table>
     </div>
   );
 }
