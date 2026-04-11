@@ -429,7 +429,7 @@ export default function GroupCalendar() {
         </Button>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Mini Calendar</div>
-          <MiniCalendar date={currentDate} onSelect={(d) => { setCurrentDate(d); if (viewMode === "month") setViewMode("day"); }} />
+          <MiniCalendar date={currentDate} onSelect={(d) => { setCurrentDate(d); }} />
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Calendars</div>
@@ -465,10 +465,10 @@ export default function GroupCalendar() {
 
         <div className="flex-1 overflow-auto">
           {viewMode === "year" && (
-            <YearView year={currentDate.getFullYear()} events={filteredEvents} today={today} onDayClick={(d) => { setCurrentDate(d); setViewMode("day"); }} onEventClick={setSelectedEvent} />
+            <YearView year={currentDate.getFullYear()} events={filteredEvents} today={today} onDayClick={(d) => { openCreateModal(d); }} onEventClick={setSelectedEvent} />
           )}
           {viewMode === "month" && (
-            <MonthView days={getMonthDays(currentDate)} events={filteredEvents} currentDate={currentDate} today={today} onDayClick={(d) => { setCurrentDate(d); setViewMode("day"); }} onEventClick={setSelectedEvent} onCreateClick={openCreateModal} />
+            <MonthView days={getMonthDays(currentDate)} events={filteredEvents} currentDate={currentDate} today={today} onDayClick={(d) => { openCreateModal(d); }} onEventClick={setSelectedEvent} />
           )}
           {viewMode === "week" && (
             <TimeGridView
@@ -810,9 +810,9 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
   );
 }
 
-function MonthView({ days, events, currentDate, today, onDayClick, onEventClick, onCreateClick }: {
+function MonthView({ days, events, currentDate, today, onDayClick, onEventClick }: {
   days: Date[]; events: CalendarEvent[]; currentDate: Date; today: Date;
-  onDayClick: (d: Date) => void; onEventClick: (e: CalendarEvent) => void; onCreateClick: (d: Date) => void;
+  onDayClick: (d: Date) => void; onEventClick: (e: CalendarEvent) => void;
 }) {
   return (
     <div className="h-full flex flex-col">
@@ -827,7 +827,7 @@ function MonthView({ days, events, currentDate, today, onDayClick, onEventClick,
           const allDayEvts = dayEvents.filter(e => e.allDay);
           const timedEvts = dayEvents.filter(e => !e.allDay);
           return (
-            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors overflow-hidden ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)} onDoubleClick={(e) => { e.stopPropagation(); onCreateClick(day); }}>
+            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors overflow-hidden ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)}>
               <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
               <div className="space-y-0.5 overflow-hidden">
                 {allDayEvts.map(event => (
