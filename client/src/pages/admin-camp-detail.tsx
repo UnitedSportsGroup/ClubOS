@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
+import { formatCurrency } from "@/lib/format";
 import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -564,7 +565,7 @@ function PerformanceTab({ campId }: { campId: number }) {
                       </div>
                       <div>
                         <p className="text-white/40">Revenue</p>
-                        <p className="font-semibold text-green-400">${(v.revenue / 100).toFixed(2)}</p>
+                        <p className="font-semibold text-green-400">{formatCurrency(v.revenue, { fromCents: true })}</p>
                       </div>
                       <div>
                         <p className="text-white/40">Conv Rate</p>
@@ -582,7 +583,7 @@ function PerformanceTab({ campId }: { campId: number }) {
             <div className="px-4 py-2 border-t border-purple-500/10 bg-white/[0.01] flex items-center gap-6 text-xs text-white/40">
               <span>Total Views: {totalViews.toLocaleString()}</span>
               <span>Total Regs: {totalRegs}</span>
-              <span>Total Revenue: ${(totalRev / 100).toFixed(2)}</span>
+              <span>Total Revenue: {formatCurrency(totalRev, { fromCents: true })}</span>
             </div>
           </div>
         );
@@ -611,7 +612,7 @@ function PerformanceTab({ campId }: { campId: number }) {
                     <Trophy className="w-3.5 h-3.5 text-yellow-500" />
                     <span className="text-xs text-white/50">Winner:</span>
                     <span className="text-xs text-white/80 font-medium truncate">{winnerVariant.value}</span>
-                    <span className="text-xs text-green-400 ml-auto">${(winnerVariant.revenue / 100).toFixed(2)} rev · {winnerVariant.registrations} regs</span>
+                    <span className="text-xs text-green-400 ml-auto">{formatCurrency(winnerVariant.revenue, { fromCents: true })} rev · {winnerVariant.registrations} regs</span>
                   </div>
                 )}
                 <div className="divide-y divide-white/[0.03]">
@@ -621,7 +622,7 @@ function PerformanceTab({ campId }: { campId: number }) {
                       <span className="text-white/50 flex-1 truncate">{v.value}</span>
                       <span className="text-white/30">{v.views} views</span>
                       <span className="text-white/30">{v.registrations} regs</span>
-                      <span className="text-white/40">${(v.revenue / 100).toFixed(2)}</span>
+                      <span className="text-white/40">{formatCurrency(v.revenue, { fromCents: true })}</span>
                       {v.id === test.winnerId && <Trophy className="w-3 h-3 text-yellow-500" />}
                     </div>
                   ))}
@@ -738,7 +739,7 @@ function StatsHeader({ campId }: { campId: number }) {
   const statItems = [
     { label: "Total Registrations", value: stats?.totalRegistrations || 0, icon: Users, color: "text-blue-400" },
     { label: "Confirmed", value: stats?.confirmedRegistrations || 0, icon: TrendingUp, color: "text-emerald-400" },
-    { label: "Revenue", value: `$${((stats?.totalRevenueCents || 0) / 100).toFixed(0)}`, icon: DollarSign, color: "text-amber-400" },
+    { label: "Revenue", value: formatCurrency(stats?.totalRevenueCents || 0, { fromCents: true, decimals: 0 }), icon: DollarSign, color: "text-amber-400" },
     { label: "Avg Occupancy", value: `${avgOccupancy}%`, icon: BarChart3, color: "text-purple-400" },
   ];
 

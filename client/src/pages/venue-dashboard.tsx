@@ -5,8 +5,9 @@ import type { FacilityBooking, Facility } from "@shared/schema";
 
 type BookingWithFacility = FacilityBooking & { facility?: Facility };
 
+import { formatCurrency as _formatCurrency } from "@/lib/format";
 function formatCurrency(amount: string | number) {
-  return `$${Number(amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}`;
+  return _formatCurrency(amount);
 }
 
 function formatDate(dateStr: string) {

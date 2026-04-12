@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tent, Users, ClipboardCheck, DollarSign, ArrowRight, CalendarPlus, ClipboardList, Download } from "lucide-react";
 import { Link } from "wouter";
+import { formatCurrency } from "@/lib/format";
 
 export default function AdminDashboard() {
   const { data: stats, isLoading } = useQuery<{
@@ -19,7 +20,7 @@ export default function AdminDashboard() {
     { title: "Total Parents", value: stats?.totalParents ?? 0, icon: Users, color: "blue", delay: 50 },
     { title: "Active Camps", value: stats?.activeCamps ?? 0, icon: Tent, color: "emerald", delay: 100 },
     { title: "Registrations", value: stats?.totalRegistrations ?? 0, icon: ClipboardCheck, color: "amber", delay: 150 },
-    { title: "Revenue", value: `$${((stats?.totalRevenueCents ?? 0) / 100).toFixed(2)}`, icon: DollarSign, color: "violet", delay: 200 },
+    { title: "Revenue", value: formatCurrency((stats?.totalRevenueCents ?? 0), { fromCents: true }), icon: DollarSign, color: "violet", delay: 200 },
   ];
 
   const colorMap: Record<string, string> = {

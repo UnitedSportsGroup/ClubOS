@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
+import { formatCurrency } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Puzzle, Plus, Pencil, Trash2, X } from "lucide-react";
@@ -144,7 +145,7 @@ export default function VenueAddons() {
                 <h3 className="text-sm font-semibold text-white">{a.name}</h3>
                 {a.description && <p className="text-xs text-white/30 mt-0.5">{a.description}</p>}
                 <div className="flex items-center gap-3 mt-1 text-xs text-white/25">
-                  <span>${Number(a.price).toFixed(2)} ex GST</span>
+                  <span>{formatCurrency(Number(a.price))} ex GST</span>
                   <span>{UNITS.find(u => u.value === a.unit)?.label || a.unit}</span>
                   {a.appliesToAll && <span>All resources</span>}
                   <span className={a.active ? "text-green-400" : "text-red-400"}>{a.active ? "Active" : "Inactive"}</span>

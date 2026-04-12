@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useRoute, Link, useLocation } from "wouter";
 import { ArrowLeft, User, Users, Mail, Phone, Calendar, AlertTriangle, MapPin, Shield } from "lucide-react";
+import { formatCurrency } from "@/lib/format";
 
 function formatAge(dob: string | null | undefined): string {
   if (!dob) return "";
@@ -144,7 +145,7 @@ function ParentDetailPage() {
                   <div>
                     <p className="text-[13px] font-medium text-white/70">{reg.program?.name || `Program #${reg.programId}`}</p>
                     <p className="text-[11px] text-white/30">
-                      {reg.items?.length || 0} session{(reg.items?.length || 0) !== 1 ? "s" : ""} · ${((reg.amountPaid || 0) * 1).toFixed(2)} paid
+                      {reg.items?.length || 0} session{(reg.items?.length || 0) !== 1 ? "s" : ""} · {formatCurrency(reg.amountPaid || 0)} paid
                     </p>
                   </div>
                   <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${reg.status === "confirmed" ? "text-emerald-400/70 border-emerald-500/20 bg-emerald-500/8" : "text-white/30 border-white/10 bg-white/[0.02]"}`}>

@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
+import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +57,7 @@ function getMethodBadge(method: string) {
 function formatValue(discount: Discount) {
   if (discount.type === "free_shipping") return "Free shipping";
   if (discount.valueType === "percentage") return `${discount.value}%`;
-  return `$${(Number(discount.value) / 1).toFixed(2)}`;
+  return formatCurrency(Number(discount.value));
 }
 
 export default function AdminDiscounts() {

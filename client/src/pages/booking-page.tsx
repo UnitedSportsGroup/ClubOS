@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -206,7 +207,7 @@ function PaymentFormInner({ slug, registrationId, totalCents, parentEmail, paren
         data-testid="button-pay"
       >
         <Lock className="w-4 h-4 mr-2" />
-        {processing ? "Processing payment..." : `Pay $${(totalCents / 100).toFixed(2)} NZD`}
+        {processing ? "Processing payment..." : `Pay ${formatCurrency(totalCents, { fromCents: true })} NZD`}
       </Button>
 
       <div className="flex items-center justify-center gap-6 text-[11px] text-slate-400 pt-1">
@@ -392,7 +393,7 @@ export default function BookingPage() {
         discountLabel = `${Number(appliedPromo.value)}% (${appliedPromo.code})`;
       } else {
         discount = Math.round(Number(appliedPromo.value) * 100);
-        discountLabel = `$${Number(appliedPromo.value).toFixed(2)} (${appliedPromo.code})`;
+        discountLabel = `${formatCurrency(Number(appliedPromo.value))} (${appliedPromo.code})`;
       }
       if (discount > subtotal) discount = subtotal;
     } else if (data?.discounts) {
@@ -565,18 +566,18 @@ export default function BookingPage() {
                 <div className="border-t pt-3" style={{ borderColor: `${BRAND.gold}25` }}>
                   <div className="flex justify-between text-[14px]">
                     <span className="text-slate-600">{items.length} session{items.length !== 1 ? "s" : ""}</span>
-                    <span className="font-bold" style={{ color: BRAND.darkBlue }}>${(pricing.subtotal / 100).toFixed(2)}</span>
+                    <span className="font-bold" style={{ color: BRAND.darkBlue }}>{formatCurrency(pricing.subtotal, { fromCents: true })}</span>
                   </div>
                   {pricing.discount > 0 && (
                     <div className="flex justify-between text-[13px] mt-1">
                       <span className="text-emerald-600">Discount ({pricing.discountLabel})</span>
-                      <span className="text-emerald-600 font-semibold">−${(pricing.discount / 100).toFixed(2)}</span>
+                      <span className="text-emerald-600 font-semibold">−{formatCurrency(pricing.discount, { fromCents: true })}</span>
                     </div>
                   )}
                   {pricing.discount > 0 && (
                     <div className="flex justify-between text-[16px] font-bold mt-2 pt-2" style={{ borderTop: `1px solid ${BRAND.gold}25` }}>
                       <span style={{ color: BRAND.darkBlue }}>Total</span>
-                      <span style={{ color: BRAND.darkBlue }}>${(pricing.total / 100).toFixed(2)}</span>
+                      <span style={{ color: BRAND.darkBlue }}>{formatCurrency(pricing.total, { fromCents: true })}</span>
                     </div>
                   )}
                 </div>
@@ -743,17 +744,17 @@ export default function BookingPage() {
                 <div className="space-y-1.5 text-[13px]">
                   <div className="flex justify-between">
                     <span className="text-slate-500">{pricing.totalItems} session{pricing.totalItems !== 1 ? "s" : ""}{validChildCount > 1 ? ` (${items.length} × ${validChildCount} children)` : ""}</span>
-                    <span className="text-slate-700 font-medium">${(pricing.subtotal / 100).toFixed(2)}</span>
+                    <span className="text-slate-700 font-medium">{formatCurrency(pricing.subtotal, { fromCents: true })}</span>
                   </div>
                   {pricing.discount > 0 && (
                     <div className="flex justify-between text-emerald-600">
                       <span>Discount ({pricing.discountLabel})</span>
-                      <span className="font-medium">−${(pricing.discount / 100).toFixed(2)}</span>
+                      <span className="font-medium">−{formatCurrency(pricing.discount, { fromCents: true })}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-[15px] font-bold pt-2 border-t border-slate-100">
                     <span style={{ color: BRAND.darkBlue }}>Total</span>
-                    <span style={{ color: BRAND.darkBlue }} data-testid="text-total">${(pricing.total / 100).toFixed(2)} NZD</span>
+                    <span style={{ color: BRAND.darkBlue }} data-testid="text-total">{formatCurrency(pricing.total, { fromCents: true })} NZD</span>
                   </div>
                 </div>
               </div>
@@ -802,17 +803,17 @@ export default function BookingPage() {
               <div className="border-t border-slate-100 pt-3 space-y-1.5 text-[13px]">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Subtotal</span>
-                  <span className="text-slate-700 font-medium">${(pricing.subtotal / 100).toFixed(2)}</span>
+                  <span className="text-slate-700 font-medium">{formatCurrency(pricing.subtotal, { fromCents: true })}</span>
                 </div>
                 {pricing.discount > 0 && (
                   <div className="flex justify-between text-emerald-600">
                     <span>Discount ({pricing.discountLabel})</span>
-                    <span className="font-medium">−${(pricing.discount / 100).toFixed(2)}</span>
+                    <span className="font-medium">−{formatCurrency(pricing.discount, { fromCents: true })}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-[16px] font-bold pt-2 border-t border-slate-100">
                   <span style={{ color: BRAND.darkBlue }}>Total</span>
-                  <span style={{ color: BRAND.darkBlue }} data-testid="text-checkout-total">${(checkoutData.totalCents / 100).toFixed(2)} NZD</span>
+                  <span style={{ color: BRAND.darkBlue }} data-testid="text-checkout-total">{formatCurrency(checkoutData.totalCents, { fromCents: true })} NZD</span>
                 </div>
               </div>
             </div>

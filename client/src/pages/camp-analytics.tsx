@@ -7,15 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Eye, Users, Clock, ArrowDown, MousePointerClick, Monitor, Smartphone, Tablet, TrendingUp, DollarSign, UserCheck, BarChart3, Target, ArrowRight, Percent, RefreshCw, CalendarDays } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
+import { formatCurrency as _fc, formatCompact } from "@/lib/format";
 
 function formatCurrency(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
+  return _fc(cents, { fromCents: true });
 }
 
 function formatNumber(n: number) {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return n.toString();
+  return formatCompact(n);
 }
 
 function MetricCard({ title, value, subtitle, icon: Icon, color = "blue" }: { title: string; value: string | number; subtitle?: string; icon: any; color?: string }) {

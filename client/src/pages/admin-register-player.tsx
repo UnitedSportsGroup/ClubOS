@@ -1,6 +1,7 @@
 import { useState, useMemo, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,7 +105,7 @@ export function RegisterPlayerModal({ open, onClose }: { open: boolean; onClose:
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps/registration-counts"] });
       toast({
         title: "Registration created",
-        description: `Registration #${data.registrationId} — $${(data.totalCents / 100).toFixed(2)} — ${data.status}`,
+        description: `Registration #${data.registrationId} — ${formatCurrency(data.totalCents, { fromCents: true })} — ${data.status}`,
       });
       resetForm();
       onClose();
@@ -435,9 +436,9 @@ export function RegisterPlayerModal({ open, onClose }: { open: boolean; onClose:
                 <p className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold flex items-center gap-1.5">
                   <CreditCard className="w-3 h-3" /> Pricing
                 </p>
-                <p className="text-[12px] text-white/40">Subtotal: ${(subtotalCents / 100).toFixed(2)}</p>
-                {discountCents > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -${(discountCents / 100).toFixed(2)}</p>}
-                <p className="text-[14px] text-white/80 font-semibold">Total: ${(totalCents / 100).toFixed(2)} NZD</p>
+                <p className="text-[12px] text-white/40">Subtotal: {formatCurrency(subtotalCents, { fromCents: true })}</p>
+                {discountCents > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -{formatCurrency(discountCents, { fromCents: true })}</p>}
+                <p className="text-[14px] text-white/80 font-semibold">Total: {formatCurrency(totalCents, { fromCents: true })} NZD</p>
               </div>
 
               <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-4 space-y-3">

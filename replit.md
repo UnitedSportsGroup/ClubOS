@@ -90,6 +90,13 @@ Signage & print studio management workspace (slug: `united-prints`):
 - **Schema**: `print_orders`, `print_projects`, `print_contacts`, `print_landing_pages`, `print_emails` tables with full CRUD storage and API routes
 - **Enums**: `print_order_status` (inquiry/quoted/confirmed/in_production/ready/delivered/cancelled), `print_project_status` (planning/active/on_hold/completed/archived) — created directly in DB
 
+## Currency Formatting
+Shared utility at `client/src/lib/format.ts` provides:
+- `formatCurrency(amount, options?)` — Formats monetary values with `$`, thousand separators (commas), and configurable decimals. Options: `{ fromCents?: boolean, decimals?: number }`. Default: 2 decimal places, dollars input.
+- `formatNumber(value)` — Adds thousand separators to any number.
+- `formatCompact(n)` — Shortens large numbers (e.g. 1500 → "1.5K").
+All pages displaying monetary values use these shared utilities instead of inline `.toFixed()` calls.
+
 ## External API v1
 API key-authenticated endpoints at `/api/v1/*` for AIOS integration:
 - `/api/v1/overview` — High-level org metrics

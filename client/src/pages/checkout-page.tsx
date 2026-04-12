@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Lock, ShieldCheck, CreditCard, CheckCircle, Calendar, User } from "lucide-react";
 import { trackEvent, generateEventId } from "@/lib/meta-pixel";
+import { formatCurrency } from "@/lib/format";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -142,7 +143,7 @@ function PaymentForm({ checkoutData, slug }: { checkoutData: CheckoutData; slug:
             data-testid="button-pay"
           >
             <Lock className="w-4 h-4 mr-2" />
-            {processing ? "Processing payment..." : `Pay $${(checkoutData.totalCents / 100).toFixed(2)} NZD`}
+            {processing ? "Processing payment..." : `Pay ${formatCurrency(checkoutData.totalCents, { fromCents: true })} NZD`}
           </Button>
 
           <div className="flex items-center justify-center gap-6 text-[12px] text-slate-400">
@@ -176,21 +177,21 @@ function PaymentForm({ checkoutData, slug }: { checkoutData: CheckoutData; slug:
             <div className="border-t border-slate-100 pt-4 space-y-2.5">
               <div className="flex justify-between text-[13px]">
                 <span className="text-slate-500">Subtotal (ex GST)</span>
-                <span className="text-slate-700 font-medium">${(exGstAmount / 100).toFixed(2)}</span>
+                <span className="text-slate-700 font-medium">{formatCurrency(exGstAmount, { fromCents: true })}</span>
               </div>
               <div className="flex justify-between text-[13px]">
                 <span className="text-slate-500">GST (15%)</span>
-                <span className="text-slate-700 font-medium">${(gstAmount / 100).toFixed(2)}</span>
+                <span className="text-slate-700 font-medium">{formatCurrency(gstAmount, { fromCents: true })}</span>
               </div>
               {checkoutData.discountCents > 0 && (
                 <div className="flex justify-between text-[13px]">
                   <span className="text-emerald-600">Discount</span>
-                  <span className="text-emerald-600 font-medium">-${(checkoutData.discountCents / 100).toFixed(2)}</span>
+                  <span className="text-emerald-600 font-medium">-{formatCurrency(checkoutData.discountCents, { fromCents: true })}</span>
                 </div>
               )}
               <div className="flex justify-between text-[16px] font-bold pt-2 border-t border-slate-100">
                 <span className="text-slate-800">Total</span>
-                <span className="text-slate-900" data-testid="text-checkout-total">${(checkoutData.totalCents / 100).toFixed(2)} NZD</span>
+                <span className="text-slate-900" data-testid="text-checkout-total">{formatCurrency(checkoutData.totalCents, { fromCents: true })} NZD</span>
               </div>
             </div>
 

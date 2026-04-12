@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle, Calendar, Mail, ArrowRight, Home, Clock, ShieldCheck, Sparkles } from "lucide-react";
 import { trackEvent, generateEventId } from "@/lib/meta-pixel";
+import { formatCurrency } from "@/lib/format";
 
 const BRAND = {
   blue: '#22399B',
@@ -137,7 +138,7 @@ export default function BookingSuccess() {
                   {registration.totalCents > 0 && (
                     <div className="flex justify-between text-[16px] font-bold pt-3 border-t border-slate-100">
                       <span className="text-slate-600">Total Paid</span>
-                      <span style={{ color: BRAND.darkBlue }}>${(registration.totalCents / 100).toFixed(2)} {registration.currency}</span>
+                      <span style={{ color: BRAND.darkBlue }}>{formatCurrency(registration.totalCents, { fromCents: true })} {registration.currency}</span>
                     </div>
                   )}
                 </div>

@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -707,7 +708,7 @@ export default function AdminDiscountDetail() {
                     </p>
                     {existingDiscount.totalDiscountedCents > 0 && (
                       <p className="text-xs text-white/50">
-                        ${(existingDiscount.totalDiscountedCents / 100).toFixed(2)} total discounted
+                        {formatCurrency(existingDiscount.totalDiscountedCents, { fromCents: true })} total discounted
                       </p>
                     )}
                   </div>

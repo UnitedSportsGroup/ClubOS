@@ -6,8 +6,9 @@ import type { FacilityBooking, Facility } from "@shared/schema";
 
 type BookingWithFacility = FacilityBooking & { facility?: Facility };
 
+import { formatCurrency as _formatCurrency } from "@/lib/format";
 function formatCurrency(v: number) {
-  return `$${v.toLocaleString("en-NZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  return _formatCurrency(v, { decimals: 0 });
 }
 
 const PERIOD_DAYS: Record<string, number> = { "7 Days": 7, "30 Days": 30, "90 Days": 90, "1 Year": 365 };

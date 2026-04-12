@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatCurrency } from "@/lib/format";
 import {
   ClipboardCheck, Search, ChevronDown, ChevronUp, User, Phone, Mail,
   MapPin, Calendar, Clock, Baby, CreditCard, Pencil, X, Plus, Trash2, Check, Save,
@@ -396,7 +397,7 @@ export default function AdminRegistrations() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[13px] font-medium text-white/60" data-testid={`text-reg-total-${reg.id}`}>
-                        ${((reg.totalCents || 0) / 100).toFixed(2)}
+                        {formatCurrency(reg.totalCents || 0, { fromCents: true })}
                       </span>
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-md border uppercase tracking-wider ${statusColors[reg.status] || statusColors.pending}`} data-testid={`badge-reg-status-${reg.id}`}>
                         {reg.status}
@@ -439,9 +440,9 @@ export default function AdminRegistrations() {
                             <CreditCard className="w-3 h-3" /> Pricing
                           </p>
                           <div className="space-y-1">
-                            <p className="text-[12px] text-white/40">Subtotal: ${((reg.subtotalCents || 0) / 100).toFixed(2)}</p>
-                            {(reg.discountCents || 0) > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -${((reg.discountCents || 0) / 100).toFixed(2)}</p>}
-                            <p className="text-[13px] text-white/70 font-medium">Total: ${((reg.totalCents || 0) / 100).toFixed(2)}</p>
+                            <p className="text-[12px] text-white/40">Subtotal: {formatCurrency(reg.subtotalCents || 0, { fromCents: true })}</p>
+                            {(reg.discountCents || 0) > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -{formatCurrency(reg.discountCents || 0, { fromCents: true })}</p>}
+                            <p className="text-[13px] text-white/70 font-medium">Total: {formatCurrency(reg.totalCents || 0, { fromCents: true })}</p>
                           </div>
                           <div className="pt-1 border-t border-white/[0.04] flex items-center justify-between">
                             <p className="text-[11px] text-white/25">

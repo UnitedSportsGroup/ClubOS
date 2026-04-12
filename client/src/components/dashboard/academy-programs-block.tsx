@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency } from "@/lib/format";
 import {
   GraduationCap,
   Users,
@@ -166,7 +167,7 @@ function TierDetail({ tier, onBack }: { tier: Tier; onBack: () => void }) {
         </div>
         <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-3 text-center">
           <DollarSign className="w-4 h-4 text-violet-400/50 mx-auto mb-1.5" />
-          <span className="text-[18px] font-bold text-white block">${tier.totalRevenue.toLocaleString()}</span>
+          <span className="text-[18px] font-bold text-white block">{formatCurrency(tier.totalRevenue, { decimals: 0 })}</span>
           <span className="text-[9px] text-white/30 uppercase tracking-wider">Revenue</span>
         </div>
       </div>
@@ -212,7 +213,7 @@ function TierDetail({ tier, onBack }: { tier: Tier; onBack: () => void }) {
                   <span className="text-[10px] text-white/35">{program.pendingRegistrations} pending</span>
                 </div>
                 <div className="ml-auto">
-                  <span className="text-[10px] text-white/25">${program.revenue.toLocaleString()} collected</span>
+                  <span className="text-[10px] text-white/25">{formatCurrency(program.revenue, { decimals: 0 })} collected</span>
                 </div>
               </div>
             </div>

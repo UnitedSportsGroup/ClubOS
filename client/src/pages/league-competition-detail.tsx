@@ -1,6 +1,7 @@
 import { useState, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
+import { formatCurrency } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -577,7 +578,7 @@ function CouponsTab({ competitionId }: { competitionId: number }) {
               {coupons.map(c => (
                 <tr key={c.id} className="border-b border-white/[0.02]">
                   <td className="px-4 py-2.5 text-sm text-white/70 font-mono">{c.code}</td>
-                  <td className="px-4 py-2.5 text-sm text-white/50">{c.discountPercent ? `${c.discountPercent}%` : c.discountAmountCents ? `$${(c.discountAmountCents / 100).toFixed(2)}` : "—"}</td>
+                  <td className="px-4 py-2.5 text-sm text-white/50">{c.discountPercent ? `${c.discountPercent}%` : c.discountAmountCents ? formatCurrency(c.discountAmountCents, { fromCents: true }) : "—"}</td>
                   <td className="px-4 py-2.5 text-sm text-white/40">{c.currentUsage || 0}{c.maxUsage ? ` / ${c.maxUsage}` : ""}</td>
                   <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full ${c.active ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>{c.active ? "Active" : "Inactive"}</span></td>
                   <td className="px-3 py-2.5">
