@@ -2582,6 +2582,149 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/public/tournament/tournaments", async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId || isNaN(orgId)) {
+        return res.status(400).json({ message: "orgId query parameter is required" });
+      }
+      const all = await storage.getTournaments(orgId);
+      const visible = all.filter(t => t.status === "active" || t.status === "completed");
+      res.json(visible.map(t => ({
+        id: t.id,
+        name: t.name,
+        ageGroup: t.ageGroup,
+        location: t.location,
+        status: t.status,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        numGroups: t.numGroups,
+        teamsPerGroup: t.teamsPerGroup,
+        gameDurationMinutes: t.gameDurationMinutes,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/tournament/tournaments/:id", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      res.json({
+        id: t.id,
+        name: t.name,
+        ageGroup: t.ageGroup,
+        location: t.location,
+        status: t.status,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        numGroups: t.numGroups,
+        teamsPerGroup: t.teamsPerGroup,
+        groupStageFormat: t.groupStageFormat,
+        knockoutFormat: t.knockoutFormat,
+        gameDurationMinutes: t.gameDurationMinutes,
+        breakBetweenMinutes: t.breakBetweenMinutes,
+        pointsForWin: t.pointsForWin,
+        pointsForDraw: t.pointsForDraw,
+        pointsForLoss: t.pointsForLoss,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/tournament/tournaments/:id/groups", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const groups = await storage.getTournamentGroups(t.id);
+      res.json(groups.map(g => ({
+        id: g.id,
+        name: g.name,
+        sortOrder: g.sortOrder,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/tournament/tournaments/:id/teams", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const teams = await storage.getTournamentTeams(t.id);
+      res.json(teams.map(tm => ({
+        id: tm.id,
+        name: tm.name,
+        clubName: tm.clubName,
+        logoUrl: tm.logoUrl,
+        primaryColor: tm.primaryColor,
+        secondaryColor: tm.secondaryColor,
+        groupId: tm.groupId,
+        groupName: tm.group?.name || null,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/tournament/tournaments/:id/games", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const games = await storage.getTournamentGames(t.id);
+      const category = req.query.stage as string | undefined;
+      const filtered = category ? games.filter(g => g.stage === category) : games;
+      res.json(filtered.map(g => ({
+        id: g.id,
+        gameNumber: g.gameNumber,
+        roundNumber: g.roundNumber,
+        stage: g.stage,
+        stageDetail: g.stageDetail,
+        gameDate: g.gameDate,
+        startTime: g.startTime,
+        field: g.field,
+        status: g.status,
+        homeTeamId: g.homeTeamId,
+        awayTeamId: g.awayTeamId,
+        homeTeamName: g.homeTeam?.name || g.homeTeamPlaceholder || "TBD",
+        awayTeamName: g.awayTeam?.name || g.awayTeamPlaceholder || "TBD",
+        homeTeamLogo: g.homeTeam?.logoUrl || null,
+        awayTeamLogo: g.awayTeam?.logoUrl || null,
+        homeScore: g.homeScore,
+        awayScore: g.awayScore,
+        homePenalties: g.homePenalties,
+        awayPenalties: g.awayPenalties,
+        groupId: g.groupId,
+        groupName: g.group?.name || null,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/tournament/tournaments/:id/standings", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const standings = await storage.getTournamentGroupStandings(t.id);
+      res.json(standings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/public/camps", async (_req, res) => {
     try {
       const all = await storage.getPrograms();
