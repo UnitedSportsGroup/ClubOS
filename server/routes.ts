@@ -3176,6 +3176,83 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/public/registrations/:id/attribution", async (req, res) => {
+    try {
+      const regId = parseInt(req.params.id);
+      const { referralSource } = req.body;
+      if (!referralSource || typeof referralSource !== "string") {
+        return res.status(400).json({ message: "referralSource is required" });
+      }
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      await storage.updateRegistration(regId, { referralSource });
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/attribution", requireAuth, async (req, res) => {
+    try {
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : undefined;
+      const campSlug = req.query.campSlug as string | undefined;
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+
+      const allRegs = await storage.getRegistrations();
+      let filtered = allRegs.filter(r => r.status === "confirmed");
+
+      if (orgId) {
+        const programs = await storage.getPrograms();
+        const orgProgramIds = programs.filter(p => p.organizationId === orgId).map(p => p.id);
+        filtered = filtered.filter(r => orgProgramIds.includes(r.programId));
+      }
+
+      if (campSlug && campSlug !== "all") {
+        const programs = await storage.getPrograms();
+        const program = programs.find(p => p.slug === campSlug);
+        if (program) filtered = filtered.filter(r => r.programId === program.id);
+      }
+
+      if (from) filtered = filtered.filter(r => r.registeredAt >= new Date(from));
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setDate(toDate.getDate() + 1);
+        filtered = filtered.filter(r => r.registeredAt < toDate);
+      }
+
+      const totalResponses = filtered.filter(r => r.referralSource).length;
+      const totalRegistrations = filtered.length;
+      const responseRate = totalRegistrations > 0 ? Math.round((totalResponses / totalRegistrations) * 100) : 0;
+
+      const sourceCounts: Record<string, { count: number; revenue: number }> = {};
+      for (const reg of filtered) {
+        const src = reg.referralSource || "No Response";
+        if (!sourceCounts[src]) sourceCounts[src] = { count: 0, revenue: 0 };
+        sourceCounts[src].count++;
+        sourceCounts[src].revenue += reg.totalCents || 0;
+      }
+
+      const sources = Object.entries(sourceCounts)
+        .map(([source, data]) => ({
+          source,
+          count: data.count,
+          revenue: data.revenue,
+          percentage: totalRegistrations > 0 ? Math.round((data.count / totalRegistrations) * 100) : 0,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({
+        totalRegistrations,
+        totalResponses,
+        responseRate,
+        sources,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ── API Key helpers ──
   function hashApiKey(key: string): string {
     return crypto.createHash("sha256").update(key).digest("hex");

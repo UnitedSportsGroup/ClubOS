@@ -775,6 +775,163 @@ function OrderTimingTab({ dateRange, orgId }: { dateRange: string; orgId?: numbe
   );
 }
 
+function AttributionTab({ dateRange, campSlug, orgId }: { dateRange: string; campSlug: string; orgId?: number }) {
+  const params = new URLSearchParams();
+  const [from, to] = getDateRange(dateRange);
+  params.set("from", from);
+  params.set("to", to);
+  if (campSlug !== "all") params.set("campSlug", campSlug);
+  if (orgId) params.set("orgId", String(orgId));
+
+  const { data, isLoading } = useQuery<{
+    totalRegistrations: number;
+    totalResponses: number;
+    responseRate: number;
+    sources: { source: string; count: number; revenue: number; percentage: number }[];
+  }>({
+    queryKey: ["/api/admin/analytics/attribution", dateRange, campSlug, orgId],
+    queryFn: () => fetch(`/api/admin/analytics/attribution?${params}`).then(r => r.json()),
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center py-16"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>;
+  if (!data) return <div className="text-center py-16 text-muted-foreground">No data available</div>;
+
+  const respondedSources = data.sources.filter(s => s.source !== "No Response");
+  const noResponseEntry = data.sources.find(s => s.source === "No Response");
+  const maxCount = respondedSources.length > 0 ? Math.max(...respondedSources.map(s => s.count)) : 1;
+
+  const sourceLabels: Record<string, { label: string; color: string; emoji: string }> = {
+    instagram: { label: "Instagram", color: "#E4405F", emoji: "📸" },
+    facebook: { label: "Facebook", color: "#1877F2", emoji: "📘" },
+    youtube: { label: "YouTube", color: "#FF0000", emoji: "🎬" },
+    tiktok: { label: "TikTok", color: "#000000", emoji: "🎵" },
+    google: { label: "Google Search", color: "#4285F4", emoji: "🔍" },
+    facebook_ad: { label: "Facebook / Instagram Ad", color: "#1877F2", emoji: "📢" },
+    word_of_mouth: { label: "Word of Mouth", color: "#22399B", emoji: "🗣️" },
+    friend_family: { label: "Friend or Family", color: "#22399B", emoji: "👋" },
+    school_club: { label: "School or Club", color: "#059669", emoji: "🏫" },
+    billboard_sign: { label: "Billboard or Sign", color: "#D97706", emoji: "📋" },
+    email_newsletter: { label: "Email / Newsletter", color: "#7C3AED", emoji: "📧" },
+    other: { label: "Other", color: "#6B7280", emoji: "💬" },
+  };
+
+  const getSourceInfo = (source: string) => {
+    if (sourceLabels[source]) return sourceLabels[source];
+    if (source.startsWith("Other:")) return { label: source, color: "#6B7280", emoji: "💬" };
+    return { label: source, color: "#6B7280", emoji: "📊" };
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard title="Total Registrations" value={formatNumber(data.totalRegistrations)} icon={Users} color="blue" />
+        <MetricCard title="Survey Responses" value={formatNumber(data.totalResponses)} icon={Target} color="green" />
+        <MetricCard title="Response Rate" value={`${data.responseRate}%`} icon={Percent} color="purple" />
+        <MetricCard title="Top Source" value={respondedSources.length > 0 ? getSourceInfo(respondedSources[0].source).label : "—"} icon={TrendingUp} color="gold" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Attribution Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {respondedSources.length === 0 ? (
+              <div className="text-center py-8">
+                <Target className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-30" />
+                <p className="text-sm text-muted-foreground">No attribution data yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Responses will appear here as customers complete the post-booking survey.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {respondedSources.map(src => {
+                  const info = getSourceInfo(src.source);
+                  const barWidth = maxCount > 0 ? (src.count / maxCount) * 100 : 0;
+                  return (
+                    <div key={src.source} data-testid={`attribution-row-${src.source}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{info.emoji}</span>
+                          <span className="text-sm font-medium">{info.label}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-bold">{src.count}</span>
+                          <Badge variant="outline" className="text-[10px]">{src.percentage}%</Badge>
+                        </div>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${barWidth}%`, background: info.color }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Revenue by Source</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {respondedSources.length === 0 ? (
+              <div className="text-center py-8">
+                <DollarSign className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-30" />
+                <p className="text-sm text-muted-foreground">No revenue attribution data yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {respondedSources
+                  .filter(s => s.revenue > 0)
+                  .sort((a, b) => b.revenue - a.revenue)
+                  .map(src => {
+                    const info = getSourceInfo(src.source);
+                    return (
+                      <div key={src.source} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0" data-testid={`revenue-row-${src.source}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{info.emoji}</span>
+                          <span className="text-sm font-medium">{info.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-bold">{formatCurrency(src.revenue)}</span>
+                          <span className="text-xs text-muted-foreground ml-2">({src.count} bookings)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {respondedSources.filter(s => s.revenue > 0).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Revenue data will appear once bookings with attribution are confirmed.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {noResponseEntry && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Unanswered Surveys</p>
+                <p className="text-xs text-muted-foreground">Bookings where the customer skipped the attribution question</p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold">{noResponseEntry.count}</p>
+                <p className="text-xs text-muted-foreground">{noResponseEntry.percentage}% of registrations</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function getDateRange(preset: string): [string, string] {
   const now = new Date();
   const to = now.toISOString().split('T')[0];
@@ -858,6 +1015,7 @@ export default function CampAnalytics() {
           <TabsTrigger value="camps" data-testid="tab-camps">Camp Performance</TabsTrigger>
           <TabsTrigger value="heatmap" data-testid="tab-heatmap">Engagement</TabsTrigger>
           <TabsTrigger value="order-timing" data-testid="tab-order-timing">Order Timing</TabsTrigger>
+          <TabsTrigger value="attribution" data-testid="tab-attribution">Attribution</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -880,6 +1038,9 @@ export default function CampAnalytics() {
         </TabsContent>
         <TabsContent value="order-timing">
           <OrderTimingTab dateRange={dateRange} orgId={orgId} />
+        </TabsContent>
+        <TabsContent value="attribution">
+          <AttributionTab dateRange={dateRange} campSlug={campSlug} orgId={orgId} />
         </TabsContent>
       </Tabs>
     </div>

@@ -47,7 +47,7 @@ function PaymentForm({ checkoutData, slug }: { checkoutData: CheckoutData; slug:
 
     const protocol = window.location.protocol;
     const host = window.location.host;
-    const returnUrl = `${protocol}//${host}/${slug}/success?registrationId=${checkoutData.registrationId}`;
+    const returnUrl = `${protocol}//${host}/${slug}/feedback?registrationId=${checkoutData.registrationId}`;
 
     const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -86,12 +86,12 @@ function PaymentForm({ checkoutData, slug }: { checkoutData: CheckoutData; slug:
           num_items: checkoutData.items.length,
         }, eventId);
 
-        setLocation(`/${slug}/success?registrationId=${checkoutData.registrationId}&total=${checkoutData.totalCents}`);
+        setLocation(`/${slug}/feedback?registrationId=${checkoutData.registrationId}`);
       } else if (paymentIntent.status === "requires_action") {
         setError("Additional authentication required. Please complete the verification.");
         setProcessing(false);
       } else if (paymentIntent.status === "processing") {
-        setLocation(`/${slug}/success?registrationId=${checkoutData.registrationId}&total=${checkoutData.totalCents}`);
+        setLocation(`/${slug}/feedback?registrationId=${checkoutData.registrationId}`);
       } else {
         setError("Payment could not be processed. Please try a different payment method.");
         setProcessing(false);

@@ -22,6 +22,7 @@ The application follows a client-server architecture.
 - **A/B Split Testing**: Integrated A/B testing functionality allows administrators to test different content variants (e.g., headlines) on public camp pages, track conversions, and automatically determine winning variants based on revenue or registrations.
 - **Routing**: A comprehensive routing strategy manages public-facing camp pages, booking flows, and a detailed admin panel for managing camps, registrations, contacts, analytics, and settings.
 - **Payment Flow**: Utilizes Stripe Payment Intents for secure and embedded payment processing. The flow involves session selection, parent and child details, and an inline Stripe PaymentElement. Confirmation emails and Meta Purchase events are triggered upon successful payment.
+- **Attribution Survey**: Post-payment "Where did you hear about us?" survey at `/:slug/feedback?registrationId=X`. After booking (paid or free), users are redirected to the survey page instead of directly to success. 12 source options: Instagram, Facebook, YouTube, TikTok, Google, Facebook Ad, Word of Mouth, Friend/Family, School/Club, Billboard, Email, Other (with text input). Stored in `registrations.referral_source` column. Users can skip. On submit/skip, navigates to `/:slug/success`. Referral source shown as violet badge on admin registration detail and contact profile pages. Public PATCH endpoint: `/api/public/registrations/:id/attribution`. Admin analytics endpoint: `/api/admin/analytics/attribution`.
 
 ## External Dependencies
 - **Stripe**: For payment processing and webhook handling.
@@ -45,6 +46,7 @@ The analytics module at `/admin/analytics` provides comprehensive insights via t
 - **Camp Performance**: Per-camp comparison metrics
 - **Engagement**: Engagement heatmap (page views by time)
 - **Order Timing**: Day×hour heatmap showing when customers place orders (NZ timezone), with peak day/hour cards, day-of-week bars, and time-of-day period breakdown
+- **Attribution**: Post-payment survey analytics showing how customers heard about the camps. Displays total registrations, survey responses, response rate, top source, attribution breakdown bars with source labels/colors, and revenue per source.
 
 ## Discounts Module
 Shopify-style discount management at `/admin/discounts` (Christchurch United workspace only):

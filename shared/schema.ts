@@ -163,6 +163,7 @@ export const registrations = pgTable("registrations", {
   totalCents: integer("total_cents"),
   currency: text("currency").default("NZD"),
   registrationLocation: text("registration_location").default("online"),
+  referralSource: text("referral_source"),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
 });
 

@@ -124,7 +124,7 @@ function PaymentFormInner({ slug, registrationId, totalCents, parentEmail, paren
     setProcessing(true);
     setError(null);
 
-    const returnUrl = `${window.location.protocol}//${window.location.host}/${slug}/success?registrationId=${registrationId}`;
+    const returnUrl = `${window.location.protocol}//${window.location.host}/${slug}/feedback?registrationId=${registrationId}`;
 
     const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -172,9 +172,9 @@ function PaymentFormInner({ slug, registrationId, totalCents, parentEmail, paren
           }
         } catch {}
 
-        setLocation(`/${slug}/success?registrationId=${registrationId}&total=${totalCents}`);
+        setLocation(`/${slug}/feedback?registrationId=${registrationId}`);
       } else if (paymentIntent.status === "processing") {
-        setLocation(`/${slug}/success?registrationId=${registrationId}&total=${totalCents}`);
+        setLocation(`/${slug}/feedback?registrationId=${registrationId}`);
       } else {
         setError("Payment could not be processed. Please try a different payment method.");
         setProcessing(false);
@@ -304,7 +304,7 @@ export default function BookingPage() {
             }
           }
         } catch {}
-        setLocation(`/${slug}/success?registrationId=${result.registrationId}&total=0`);
+        setLocation(`/${slug}/feedback?registrationId=${result.registrationId}`);
         return;
       }
 
@@ -319,7 +319,7 @@ export default function BookingPage() {
           toast({ title: "Error loading payment", description: err.message, variant: "destructive" });
         }
       } else {
-        setLocation(`/${slug}/success?registrationId=${result.registrationId}&total=${result.totalCents}`);
+        setLocation(`/${slug}/feedback?registrationId=${result.registrationId}`);
       }
     },
     onError: (e: Error) => toast({ title: "Booking failed", description: e.message, variant: "destructive" }),

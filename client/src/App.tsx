@@ -20,6 +20,7 @@ import AdminEditPage from "@/pages/admin-edit-page";
 import CampPage from "@/pages/camp-page";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
+import AttributionSurvey from "@/pages/attribution-survey";
 import BookingCancel from "@/pages/booking-cancel";
 import CheckoutPage from "@/pages/checkout-page";
 import VenueDashboard from "@/pages/venue-dashboard";
@@ -248,6 +249,7 @@ function App() {
   const [isCampBook] = useRoute("/:slug/book");
   const [isCampCheckout] = useRoute("/:slug/checkout");
   const [isCampSuccess] = useRoute("/:slug/success");
+  const [isCampFeedback] = useRoute("/:slug/feedback");
   const [isCampCancel] = useRoute("/:slug/cancel");
   const [isAdminLogin] = useRoute("/admin/login");
   const [isAdminEditPage] = useRoute("/admin/camps/:id/edit-page");
@@ -272,6 +274,7 @@ function App() {
             </Route>
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
+            <Route path="/:slug/feedback" component={AttributionSurvey} />
             <Route path="/:slug/success" component={BookingSuccess} />
             <Route path="/:slug/cancel" component={BookingCancel} />
             <Route path="/:slug" component={CampPage} />

@@ -148,9 +148,16 @@ function ParentDetailPage() {
                       {reg.items?.length || 0} session{(reg.items?.length || 0) !== 1 ? "s" : ""} · {formatCurrency(reg.amountPaid || 0)} paid
                     </p>
                   </div>
-                  <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${reg.status === "confirmed" ? "text-emerald-400/70 border-emerald-500/20 bg-emerald-500/8" : "text-white/30 border-white/10 bg-white/[0.02]"}`}>
-                    {reg.status}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {reg.referralSource && (
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-violet-500/25 text-violet-400/70 bg-violet-500/5" data-testid={`badge-referral-${reg.id}`}>
+                        {reg.referralSource.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${reg.status === "confirmed" ? "text-emerald-400/70 border-emerald-500/20 bg-emerald-500/8" : "text-white/30 border-white/10 bg-white/[0.02]"}`}>
+                      {reg.status}
+                    </Badge>
+                  </div>
                 </div>
               </div>
             ))}
@@ -309,9 +316,16 @@ function PlayerDetailPage() {
                       {reg.items?.length || 0} session{(reg.items?.length || 0) !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${reg.status === "confirmed" ? "text-emerald-400/70 border-emerald-500/20 bg-emerald-500/8" : "text-white/30 border-white/10 bg-white/[0.02]"}`}>
-                    {reg.status}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {reg.referralSource && (
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-violet-500/25 text-violet-400/70 bg-violet-500/5">
+                        {reg.referralSource.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${reg.status === "confirmed" ? "text-emerald-400/70 border-emerald-500/20 bg-emerald-500/8" : "text-white/30 border-white/10 bg-white/[0.02]"}`}>
+                      {reg.status}
+                    </Badge>
+                  </div>
                 </div>
               </div>
             ))}
