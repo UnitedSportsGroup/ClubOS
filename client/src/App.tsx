@@ -18,6 +18,7 @@ import AdminMailer from "@/pages/admin-mailer";
 import AdminSettings from "@/pages/admin-settings";
 import AdminEditPage from "@/pages/admin-edit-page";
 import CampPage from "@/pages/camp-page";
+import TermsPage from "@/pages/terms";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
 import AttributionSurvey from "@/pages/attribution-survey";
@@ -272,6 +273,7 @@ function App() {
             <Route path="/">
               <Redirect to="/fundamentals-camp" />
             </Route>
+            <Route path="/terms" component={TermsPage} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/feedback" component={AttributionSurvey} />
