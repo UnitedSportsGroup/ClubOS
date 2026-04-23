@@ -364,12 +364,12 @@ export default function PrivacyPage() {
                 Christchurch United Football Club Incorporated · Christchurch, New Zealand
               </p>
               <a
-                href="mailto:office@cufc.co.nz"
+                href="mailto:info@cufc.co.nz"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-[13px] transition-transform hover:scale-105"
                 style={{ background: BRAND.gold, color: BRAND.darkBlue }}
                 data-testid="link-email-office"
               >
-                <Mail className="w-3.5 h-3.5" /> office@cufc.co.nz
+                <Mail className="w-3.5 h-3.5" /> info@cufc.co.nz
               </a>
             </div>
           </section>
