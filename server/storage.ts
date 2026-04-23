@@ -527,7 +527,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {
-    const regs = await db.select().from(registrations).where(eq(registrations.status, "confirmed")).orderBy(desc(registrations.orderNumber), desc(registrations.registeredAt));
+    const regs = await db.select().from(registrations).where(sql`${registrations.status} IN ('confirmed', 'refunded')`).orderBy(desc(registrations.orderNumber), desc(registrations.registeredAt));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       const [program] = await db.select().from(programs).where(eq(programs.id, r.programId));

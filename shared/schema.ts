@@ -164,6 +164,11 @@ export const registrations = pgTable("registrations", {
   currency: text("currency").default("NZD"),
   registrationLocation: text("registration_location").default("online"),
   referralSource: text("referral_source"),
+  refundedAt: timestamp("refunded_at"),
+  refundedAmountCents: integer("refunded_amount_cents"),
+  refundReason: text("refund_reason"),
+  refundedBy: integer("refunded_by"),
+  stripeRefundId: text("stripe_refund_id"),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
 });
 

@@ -35,6 +35,28 @@ export async function retrievePaymentIntent(id: string): Promise<Stripe.PaymentI
   return stripe.paymentIntents.retrieve(id);
 }
 
+export async function createRefund(params: {
+  paymentIntentId: string;
+  amountCents?: number;
+  reason?: string;
+  metadata?: Record<string, string>;
+  idempotencyKey?: string;
+}): Promise<Stripe.Refund> {
+  const refund = await stripe.refunds.create(
+    {
+      payment_intent: params.paymentIntentId,
+      ...(params.amountCents ? { amount: params.amountCents } : {}),
+      reason: "requested_by_customer",
+      metadata: {
+        ...(params.reason ? { admin_reason: params.reason } : {}),
+        ...params.metadata,
+      },
+    },
+    params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined
+  );
+  return refund;
+}
+
 export function constructWebhookEvent(payload: string | Buffer, sig: string): Stripe.Event {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {

@@ -10,7 +10,19 @@ import { formatCurrency } from "@/lib/format";
 import {
   ClipboardCheck, Search, ChevronDown, ChevronUp, User, Phone, Mail,
   MapPin, Calendar, Clock, Baby, CreditCard, Pencil, X, Plus, Trash2, Check, Save,
+  RotateCcw, AlertTriangle, Loader2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type RegItem = {
   id: number;
@@ -41,6 +53,11 @@ type Registration = {
   registeredAt: string;
   registrationLocation?: string | null;
   referralSource?: string | null;
+  refundedAt?: string | null;
+  refundedAmountCents?: number | null;
+  refundReason?: string | null;
+  stripeRefundId?: string | null;
+  stripePaymentIntentId?: string | null;
   contact?: { firstName: string; lastName: string; email?: string; phone?: string; address?: string; emergencyContact?: string; emergencyPhone?: string };
   program?: { id: number; name: string };
   items?: RegItem[];
@@ -71,6 +88,122 @@ function calcAge(dob: string | undefined | null) {
 type CampDateOption = { id: number; date: string };
 
 type EditItem = { childId: number; campDateId: number; productType: string };
+
+function RefundDialog({
+  reg,
+  open,
+  onOpenChange,
+}: {
+  reg: Registration;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [reason, setReason] = useState("");
+  const [amountInput, setAmountInput] = useState("");
+  const totalDollars = ((reg.totalCents || 0) / 100).toFixed(2);
+
+  const refundMut = useMutation({
+    mutationFn: async () => {
+      const parsed = parseFloat(amountInput);
+      const amountCents = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) : undefined;
+      return apiRequest("POST", `/api/admin/registrations/${reg.id}/refund`, {
+        amountCents,
+        reason: reason.trim() || undefined,
+      });
+    },
+    onSuccess: async (res: any) => {
+      const data = await res.json().catch(() => ({}));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
+      toast({
+        title: "Refund processed",
+        description: `${formatCurrency(data.amountRefunded || reg.totalCents || 0, { fromCents: true })} refunded via Stripe`,
+      });
+      onOpenChange(false);
+      setReason("");
+      setAmountInput("");
+    },
+    onError: (e: Error) => {
+      toast({ title: "Refund failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="bg-[#0a0e1a] border border-red-500/20 text-white/80" data-testid="dialog-refund">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2 text-white/90">
+            <AlertTriangle className="w-5 h-5 text-amber-400" />
+            Refund Registration #{reg.orderNumber || reg.id}?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-white/50 space-y-2">
+            <span className="block">
+              You're about to refund <strong className="text-white/80">{reg.contact?.firstName} {reg.contact?.lastName}</strong> for <strong className="text-white/80">{reg.program?.name}</strong>.
+            </span>
+            <span className="block">
+              Original payment: <strong className="text-white/80">{formatCurrency(reg.totalCents || 0, { fromCents: true })}</strong>
+            </span>
+            <span className="block text-amber-400/70 text-[12px]">
+              This will process a real refund through Stripe and cannot be undone.
+            </span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-3 py-2">
+          <div>
+            <label className="text-[12px] text-white/60 mb-1.5 block">
+              Refund amount (NZD) — leave blank for full refund of ${totalDollars}
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              max={totalDollars}
+              placeholder={totalDollars}
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              className="bg-white/[0.03] border-white/[0.08] text-white/80"
+              data-testid="input-refund-amount"
+            />
+          </div>
+          <div>
+            <label className="text-[12px] text-white/60 mb-1.5 block">Reason (optional, internal note)</label>
+            <Textarea
+              placeholder="e.g. Family emergency, child unwell, schedule clash"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              className="bg-white/[0.03] border-white/[0.08] text-white/80 resize-none"
+              data-testid="input-refund-reason"
+            />
+          </div>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            disabled={refundMut.isPending}
+            className="bg-white/[0.04] border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white/90"
+            data-testid="button-refund-cancel"
+          >
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); refundMut.mutate(); }}
+            disabled={refundMut.isPending}
+            className="bg-red-500/90 hover:bg-red-500 text-white border-0"
+            data-testid="button-refund-confirm"
+          >
+            {refundMut.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+            ) : (
+              <>Confirm Refund</>
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 function EditRegistrationModal({
   reg,
@@ -307,6 +440,7 @@ export default function AdminRegistrations() {
   };
 
   const [editingReg, setEditingReg] = useState<Registration | null>(null);
+  const [refundingReg, setRefundingReg] = useState<Registration | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const deleteRegMutation = useMutation({
@@ -444,7 +578,25 @@ export default function AdminRegistrations() {
                             <p className="text-[12px] text-white/40">Subtotal: {formatCurrency(reg.subtotalCents || 0, { fromCents: true })}</p>
                             {(reg.discountCents || 0) > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -{formatCurrency(reg.discountCents || 0, { fromCents: true })}</p>}
                             <p className="text-[13px] text-white/70 font-medium">Total: {formatCurrency(reg.totalCents || 0, { fromCents: true })}</p>
+                            {reg.refundedAt && (
+                              <p className="text-[12px] text-purple-400/70 font-medium" data-testid={`text-refunded-${reg.id}`}>
+                                Refunded: {formatCurrency(reg.refundedAmountCents || 0, { fromCents: true })}
+                                <span className="text-white/30 ml-1">({new Date(reg.refundedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })})</span>
+                              </p>
+                            )}
+                            {reg.refundReason && (
+                              <p className="text-[11px] text-white/40 italic">"{reg.refundReason}"</p>
+                            )}
                           </div>
+                          {!reg.refundedAt && reg.status !== "refunded" && (reg.totalCents || 0) > 0 && reg.stripePaymentIntentId && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setRefundingReg(reg); }}
+                              className="w-full flex items-center justify-center gap-1.5 text-[11px] text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/15 hover:border-red-500/30 rounded-lg py-1.5 transition-colors cursor-pointer"
+                              data-testid={`button-refund-${reg.id}`}
+                            >
+                              <RotateCcw className="w-3 h-3" /> Refund
+                            </button>
+                          )}
                           <div className="pt-1 border-t border-white/[0.04] space-y-1.5">
                             <div className="flex items-center justify-between">
                               <p className="text-[11px] text-white/25">
@@ -592,6 +744,13 @@ export default function AdminRegistrations() {
 
       {editingReg && (
         <EditRegistrationModal reg={editingReg} onClose={() => setEditingReg(null)} />
+      )}
+      {refundingReg && (
+        <RefundDialog
+          reg={refundingReg}
+          open={!!refundingReg}
+          onOpenChange={(open) => { if (!open) setRefundingReg(null); }}
+        />
       )}
     </div>
   );

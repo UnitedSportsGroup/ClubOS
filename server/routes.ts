@@ -6,7 +6,7 @@ import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
-import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent } from "./stripe";
+import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
 import crypto from "crypto";
@@ -425,6 +425,70 @@ export async function registerRoutes(
       await storage.deleteRegistration(regId);
       res.json({ ok: true });
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/registrations/:id/refund", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(req.params.id);
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+
+      if (reg.status === "refunded" || reg.refundedAt) {
+        return res.status(400).json({ message: "Registration is already refunded" });
+      }
+
+      const { amountCents, reason } = req.body || {};
+      const totalCents = reg.totalCents || 0;
+      const refundAmount = typeof amountCents === "number" && amountCents > 0 ? Math.min(amountCents, totalCents) : totalCents;
+
+      if (refundAmount <= 0) {
+        return res.status(400).json({ message: "Nothing to refund — registration has no payment amount" });
+      }
+
+      if (!reg.stripePaymentIntentId) {
+        return res.status(400).json({ message: "No Stripe payment found for this registration. Cannot process automated refund." });
+      }
+
+      let refund;
+      try {
+        refund = await createRefund({
+          paymentIntentId: reg.stripePaymentIntentId,
+          amountCents: refundAmount,
+          reason: reason || undefined,
+          idempotencyKey: `refund_reg_${regId}_${refundAmount}`,
+          metadata: {
+            registrationId: String(regId),
+            adminUserId: String((req.session as any).userId || ""),
+          },
+        });
+      } catch (stripeErr: any) {
+        console.error("Stripe refund failed:", stripeErr);
+        return res.status(400).json({
+          message: stripeErr?.message || "Stripe refund failed",
+          code: stripeErr?.code,
+        });
+      }
+
+      const isFullRefund = refundAmount >= totalCents;
+      await storage.updateRegistration(regId, {
+        status: isFullRefund ? "refunded" : reg.status,
+        refundedAt: new Date(),
+        refundedAmountCents: refundAmount,
+        refundReason: reason || null,
+        refundedBy: (req.session as any).userId || null,
+        stripeRefundId: refund.id,
+      });
+
+      res.json({
+        ok: true,
+        refundId: refund.id,
+        status: refund.status,
+        amountRefunded: refundAmount,
+      });
+    } catch (error: any) {
+      console.error("Refund endpoint error:", error);
       res.status(500).json({ message: error.message });
     }
   });
