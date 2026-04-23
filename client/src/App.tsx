@@ -19,6 +19,7 @@ import AdminSettings from "@/pages/admin-settings";
 import AdminEditPage from "@/pages/admin-edit-page";
 import CampPage from "@/pages/camp-page";
 import TermsPage from "@/pages/terms";
+import PrivacyPage from "@/pages/privacy";
 import BookingPage from "@/pages/booking-page";
 import BookingSuccess from "@/pages/booking-success";
 import AttributionSurvey from "@/pages/attribution-survey";
@@ -274,6 +275,7 @@ function App() {
               <Redirect to="/fundamentals-camp" />
             </Route>
             <Route path="/terms" component={TermsPage} />
+            <Route path="/privacy" component={PrivacyPage} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/feedback" component={AttributionSurvey} />
