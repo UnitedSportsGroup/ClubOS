@@ -7,7 +7,7 @@ export const roleEnum = pgEnum("role_type", ["super_admin", "admin", "team_membe
 export const contactTypeEnum = pgEnum("contact_type", ["player", "guardian", "staff", "volunteer", "sponsor"]);
 export const genderEnum = pgEnum("gender_type", ["male", "female", "other"]);
 export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training"]);
-export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded"]);
+export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded", "partially_refunded"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
 export const facilityTypeEnum = pgEnum("facility_type", ["field", "mini_pitch", "meeting_room", "changing_room", "futsal", "court", "other"]);
 export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "paid", "pending", "cancelled"]);
@@ -169,6 +169,7 @@ export const registrations = pgTable("registrations", {
   refundReason: text("refund_reason"),
   refundedBy: integer("refunded_by"),
   stripeRefundId: text("stripe_refund_id"),
+  stripeRefundStatus: text("stripe_refund_status"),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
 });
 
@@ -222,6 +223,7 @@ export const registrationItems = pgTable("registration_items", {
   childId: integer("child_id").notNull().references(() => children.id),
   campDateId: integer("camp_date_id").notNull().references(() => campDates.id),
   productType: text("product_type").notNull(),
+  refundedAmountCents: integer("refunded_amount_cents"),
 });
 
 export const attendance = pgTable("attendance", {

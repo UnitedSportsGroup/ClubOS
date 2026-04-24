@@ -57,6 +57,10 @@ export async function createRefund(params: {
   return refund;
 }
 
+export async function retrieveRefund(id: string): Promise<Stripe.Refund> {
+  return stripe.refunds.retrieve(id);
+}
+
 export function constructWebhookEvent(payload: string | Buffer, sig: string): Stripe.Event {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {

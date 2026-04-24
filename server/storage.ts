@@ -195,6 +195,7 @@ export interface IStorage {
   getRegistration(id: number): Promise<Registration | undefined>;
   createRegistration(reg: InsertRegistration): Promise<Registration>;
   updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined>;
+  updateRegistrationItem(id: number, data: Partial<InsertRegistrationItem>): Promise<RegistrationItem | undefined>;
   assignOrderNumber(id: number): Promise<number>;
   deleteRegistration(id: number): Promise<void>;
 
@@ -527,7 +528,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrations(): Promise<(Registration & { contact?: Contact; program?: Program })[]> {
-    const regs = await db.select().from(registrations).where(sql`${registrations.status} IN ('confirmed', 'refunded')`).orderBy(desc(registrations.orderNumber), desc(registrations.registeredAt));
+    const regs = await db.select().from(registrations).where(sql`${registrations.status} IN ('confirmed', 'refunded', 'partially_refunded')`).orderBy(desc(registrations.orderNumber), desc(registrations.registeredAt));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       const [program] = await db.select().from(programs).where(eq(programs.id, r.programId));
@@ -536,7 +537,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRegistrationsByProgram(programId: number): Promise<(Registration & { contact?: Contact })[]> {
-    const regs = await db.select().from(registrations).where(and(eq(registrations.programId, programId), eq(registrations.status, "confirmed")));
+    const regs = await db.select().from(registrations).where(and(eq(registrations.programId, programId), sql`${registrations.status} IN ('confirmed', 'refunded', 'partially_refunded')`));
     return Promise.all(regs.map(async (r) => {
       const [contact] = await db.select().from(contacts).where(eq(contacts.id, r.contactId));
       return { ...r, contact };
@@ -822,6 +823,11 @@ export class DatabaseStorage implements IStorage {
   async createRegistrationItems(items: InsertRegistrationItem[]): Promise<RegistrationItem[]> {
     if (items.length === 0) return [];
     return db.insert(registrationItems).values(items).returning();
+  }
+
+  async updateRegistrationItem(id: number, data: Partial<InsertRegistrationItem>): Promise<RegistrationItem | undefined> {
+    const [updated] = await db.update(registrationItems).set(data).where(eq(registrationItems.id, id)).returning();
+    return updated;
   }
 
   async replaceRegistrationItems(registrationId: number, items: InsertRegistrationItem[]): Promise<RegistrationItem[]> {

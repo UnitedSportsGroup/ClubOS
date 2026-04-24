@@ -6,7 +6,7 @@ import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
-import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund } from "./stripe";
+import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
 import crypto from "crypto";
@@ -435,32 +435,107 @@ export async function registerRoutes(
       const reg = await storage.getRegistration(regId);
       if (!reg) return res.status(404).json({ message: "Registration not found" });
 
-      if (reg.status === "refunded" || reg.refundedAt) {
-        return res.status(400).json({ message: "Registration is already refunded" });
+      if (reg.status === "refunded") {
+        return res.status(400).json({ message: "Registration is already fully refunded" });
       }
 
-      const { amountCents, reason } = req.body || {};
+      const { itemIds, amountCents, reason } = req.body || {};
       const totalCents = reg.totalCents || 0;
-      const refundAmount = typeof amountCents === "number" && amountCents > 0 ? Math.min(amountCents, totalCents) : totalCents;
 
-      if (refundAmount <= 0) {
+      if (totalCents <= 0) {
         return res.status(400).json({ message: "Nothing to refund — registration has no payment amount" });
       }
-
       if (!reg.stripePaymentIntentId) {
         return res.status(400).json({ message: "No Stripe payment found for this registration. Cannot process automated refund." });
       }
 
+      const allItems = await storage.getRegistrationItems(regId);
+      const pricing = await storage.getCampPricing(reg.programId);
+      const priceMap = new Map(pricing.map((p) => [p.productType, p.priceCents]));
+
+      let refundAmount = 0;
+      let selectedItemIds: number[] = [];
+      // Per-item refund allocation map (itemId -> cents). Computed deterministically so
+      // sum(itemAllocations) === refundAmount, preventing stranded cents that would block
+      // future refunds or leave the registration permanently in `partially_refunded`.
+      const itemAllocations = new Map<number, number>();
+
+      if (Array.isArray(itemIds) && itemIds.length > 0) {
+        const idSet = new Set(itemIds.map((i: any) => Number(i)));
+        const selected = allItems.filter((it) => idSet.has(it.id));
+        if (selected.length !== idSet.size) {
+          return res.status(400).json({ message: "One or more selected items don't belong to this registration" });
+        }
+        const alreadyRefunded = selected.filter((it) => it.refundedAmountCents && it.refundedAmountCents > 0);
+        if (alreadyRefunded.length > 0) {
+          return res.status(400).json({ message: `${alreadyRefunded.length} item(s) already refunded` });
+        }
+
+        const subtotalCents = reg.subtotalCents || totalCents;
+        const selectedBaseSum = selected.reduce((s, it) => s + (priceMap.get(it.productType) || 0), 0);
+        // Target refund amount with proportional discount applied (basket-level)
+        let targetRefund = (subtotalCents > 0 && totalCents !== subtotalCents)
+          ? Math.round((selectedBaseSum * totalCents) / subtotalCents)
+          : selectedBaseSum;
+
+        // If selected items are ALL the remaining unrefunded items, force the refund to
+        // exactly clear the remaining balance so the registration can transition to `refunded`.
+        const otherUnrefunded = allItems.filter(
+          (it) => !idSet.has(it.id) && !(it.refundedAmountCents && it.refundedAmountCents > 0)
+        );
+        const remainingBalance = totalCents - (reg.refundedAmountCents || 0);
+        if (otherUnrefunded.length === 0) {
+          targetRefund = remainingBalance;
+        } else if (targetRefund > remainingBalance) {
+          targetRefund = remainingBalance;
+        }
+
+        // Allocate per-item amounts via Largest-Remainder method so sum === targetRefund exactly
+        const denom = selectedBaseSum > 0 ? selectedBaseSum : selected.length;
+        const raw = selected.map((it) => {
+          const base = selectedBaseSum > 0 ? (priceMap.get(it.productType) || 0) : 1;
+          return { id: it.id, exact: (base * targetRefund) / denom };
+        });
+        const floors = raw.map((r) => ({ id: r.id, floor: Math.floor(r.exact), frac: r.exact - Math.floor(r.exact) }));
+        let allocated = floors.reduce((s, f) => s + f.floor, 0);
+        let remainder = targetRefund - allocated;
+        // Distribute the leftover cents to the items with the largest fractional parts (stable by id for ties)
+        const order = [...floors].sort((a, b) => b.frac - a.frac || a.id - b.id);
+        for (let i = 0; i < order.length && remainder > 0; i++, remainder--) {
+          order[i].floor += 1;
+        }
+        floors.forEach((f) => itemAllocations.set(f.id, f.floor));
+        refundAmount = targetRefund;
+        selectedItemIds = selected.map((it) => it.id);
+      } else if (typeof amountCents === "number" && amountCents > 0) {
+        refundAmount = Math.min(amountCents, totalCents - (reg.refundedAmountCents || 0));
+      } else {
+        // Default: full refund of remainder
+        refundAmount = totalCents - (reg.refundedAmountCents || 0);
+      }
+
+      if (refundAmount <= 0) {
+        return res.status(400).json({ message: "Refund amount must be greater than zero" });
+      }
+      const remainingRefundable = totalCents - (reg.refundedAmountCents || 0);
+      if (refundAmount > remainingRefundable) {
+        return res.status(400).json({ message: `Refund amount exceeds remaining balance ($${(remainingRefundable / 100).toFixed(2)})` });
+      }
+
       let refund;
       try {
+        const idemSuffix = selectedItemIds.length > 0
+          ? `items_${[...selectedItemIds].sort((a, b) => a - b).join("_")}`
+          : `amt_${refundAmount}`;
         refund = await createRefund({
           paymentIntentId: reg.stripePaymentIntentId,
           amountCents: refundAmount,
           reason: reason || undefined,
-          idempotencyKey: `refund_reg_${regId}_${refundAmount}`,
+          idempotencyKey: `refund_reg_${regId}_${idemSuffix}`,
           metadata: {
             registrationId: String(regId),
             adminUserId: String((req.session as any).userId || ""),
+            ...(selectedItemIds.length > 0 ? { itemIds: selectedItemIds.join(",") } : {}),
           },
         });
       } catch (stripeErr: any) {
@@ -471,14 +546,24 @@ export async function registerRoutes(
         });
       }
 
-      const isFullRefund = refundAmount >= totalCents;
+      // Mark refunded items using the allocation that sums exactly to refundAmount
+      if (selectedItemIds.length > 0) {
+        for (const itemId of selectedItemIds) {
+          const itemRefund = itemAllocations.get(itemId) ?? 0;
+          await storage.updateRegistrationItem(itemId, { refundedAmountCents: itemRefund });
+        }
+      }
+
+      const newRefundedTotal = (reg.refundedAmountCents || 0) + refundAmount;
+      const isFullRefund = newRefundedTotal >= totalCents;
       await storage.updateRegistration(regId, {
-        status: isFullRefund ? "refunded" : reg.status,
+        status: isFullRefund ? "refunded" : "partially_refunded",
         refundedAt: new Date(),
-        refundedAmountCents: refundAmount,
-        refundReason: reason || null,
+        refundedAmountCents: newRefundedTotal,
+        refundReason: reason || reg.refundReason || null,
         refundedBy: (req.session as any).userId || null,
         stripeRefundId: refund.id,
+        stripeRefundStatus: refund.status,
       });
 
       res.json({
@@ -486,9 +571,27 @@ export async function registerRoutes(
         refundId: refund.id,
         status: refund.status,
         amountRefunded: refundAmount,
+        totalRefunded: newRefundedTotal,
+        isFullRefund,
       });
     } catch (error: any) {
       console.error("Refund endpoint error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/registrations/:id/refund/refresh-status", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(req.params.id);
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      if (!reg.stripeRefundId) return res.status(400).json({ message: "No refund to refresh" });
+
+      const refund = await retrieveRefund(reg.stripeRefundId);
+      await storage.updateRegistration(regId, { stripeRefundStatus: refund.status });
+      res.json({ ok: true, status: refund.status });
+    } catch (error: any) {
+      console.error("Refresh refund status error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -3119,6 +3222,26 @@ export async function registerRoutes(
         const registrationId = parseInt(paymentIntent.metadata?.registrationId);
         if (registrationId) {
           await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
+        }
+      } else if (
+        event.type === "charge.refunded" ||
+        event.type === "refund.updated" ||
+        event.type === "refund.failed" ||
+        event.type === "charge.refund.updated"
+      ) {
+        const obj = event.data.object as any;
+        const refundId: string | undefined = obj?.id?.startsWith?.("re_")
+          ? obj.id
+          : obj?.refunds?.data?.[0]?.id;
+        const refundStatus: string | undefined = obj?.status || obj?.refunds?.data?.[0]?.status;
+        const regIdMeta = parseInt(obj?.metadata?.registrationId || obj?.refunds?.data?.[0]?.metadata?.registrationId || "");
+        if (regIdMeta && refundStatus) {
+          try {
+            await storage.updateRegistration(regIdMeta, { stripeRefundStatus: refundStatus, ...(refundId ? { stripeRefundId: refundId } : {}) });
+            console.log(`[Stripe Webhook] Updated reg ${regIdMeta} refund status → ${refundStatus}`);
+          } catch (err) {
+            console.error(`[Stripe Webhook] Failed to update reg ${regIdMeta}:`, err);
+          }
         }
       }
 

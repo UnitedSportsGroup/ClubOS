@@ -29,8 +29,16 @@ type RegItem = {
   childId: number;
   campDateId: number;
   productType: string;
+  refundedAmountCents?: number | null;
   child?: { id: number; firstName: string; lastName: string; dateOfBirth?: string; gender?: string };
   campDate?: { id: number; date: string; campId: number };
+};
+
+type CampPricingItem = {
+  id: number;
+  campId: number;
+  productType: string;
+  priceCents: number;
 };
 
 type RegChild = {
@@ -57,6 +65,7 @@ type Registration = {
   refundedAmountCents?: number | null;
   refundReason?: string | null;
   stripeRefundId?: string | null;
+  stripeRefundStatus?: string | null;
   stripePaymentIntentId?: string | null;
   contact?: { firstName: string; lastName: string; email?: string; phone?: string; address?: string; emergencyContact?: string; emergencyPhone?: string };
   program?: { id: number; name: string };
@@ -100,15 +109,66 @@ function RefundDialog({
 }) {
   const { toast } = useToast();
   const [reason, setReason] = useState("");
-  const [amountInput, setAmountInput] = useState("");
-  const totalDollars = ((reg.totalCents || 0) / 100).toFixed(2);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [confirmStep, setConfirmStep] = useState(false);
+
+  const items = reg.items || [];
+  const totalCents = reg.totalCents || 0;
+  const subtotalCents = reg.subtotalCents || totalCents;
+  const alreadyRefundedCents = reg.refundedAmountCents || 0;
+  const remainingCents = totalCents - alreadyRefundedCents;
+
+  const { data: pricing, isLoading: pricingLoading } = useQuery<CampPricingItem[]>({
+    queryKey: ["/api/admin/camps", reg.programId, "pricing"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/camps/${reg.programId}/pricing`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load pricing");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const priceMap = useMemo(() => {
+    const m = new Map<string, number>();
+    (pricing || []).forEach((p) => m.set(p.productType, p.priceCents));
+    return m;
+  }, [pricing]);
+
+  // Compute item refund value (with proportional discount applied)
+  const itemRefundValue = useCallback((it: RegItem) => {
+    const base = priceMap.get(it.productType) || 0;
+    if (subtotalCents > 0 && totalCents !== subtotalCents) {
+      return Math.round((base * totalCents) / subtotalCents);
+    }
+    return base;
+  }, [priceMap, subtotalCents, totalCents]);
+
+  const toggleItem = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const refundableItems = items.filter((it) => !(it.refundedAmountCents && it.refundedAmountCents > 0));
+
+  const selectAll = () => setSelectedIds(new Set(refundableItems.map((it) => it.id)));
+  const clearAll = () => setSelectedIds(new Set());
+
+  const selectedTotal = useMemo(() => {
+    let sum = 0;
+    items.forEach((it) => {
+      if (selectedIds.has(it.id)) sum += itemRefundValue(it);
+    });
+    return Math.min(sum, remainingCents);
+  }, [items, selectedIds, itemRefundValue, remainingCents]);
 
   const refundMut = useMutation({
     mutationFn: async () => {
-      const parsed = parseFloat(amountInput);
-      const amountCents = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) : undefined;
       return apiRequest("POST", `/api/admin/registrations/${reg.id}/refund`, {
-        amountCents,
+        itemIds: Array.from(selectedIds),
         reason: reason.trim() || undefined,
       });
     },
@@ -116,90 +176,211 @@ function RefundDialog({
       const data = await res.json().catch(() => ({}));
       queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
       toast({
-        title: "Refund processed",
-        description: `${formatCurrency(data.amountRefunded || reg.totalCents || 0, { fromCents: true })} refunded via Stripe`,
+        title: data.isFullRefund ? "Full refund processed" : "Partial refund processed",
+        description: `${formatCurrency(data.amountRefunded || 0, { fromCents: true })} refunded via Stripe`,
       });
-      onOpenChange(false);
-      setReason("");
-      setAmountInput("");
+      handleClose(false);
     },
     onError: (e: Error) => {
       toast({ title: "Refund failed", description: e.message, variant: "destructive" });
+      setConfirmStep(false);
     },
   });
 
+  const handleClose = (val: boolean) => {
+    onOpenChange(val);
+    if (!val) {
+      setSelectedIds(new Set());
+      setReason("");
+      setConfirmStep(false);
+    }
+  };
+
+  const canSubmit = selectedIds.size > 0 && selectedTotal > 0 && !refundMut.isPending;
+
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="bg-[#0a0e1a] border border-red-500/20 text-white/80" data-testid="dialog-refund">
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-white/90">
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
-            Refund Registration #{reg.orderNumber || reg.id}?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-white/50 space-y-2">
-            <span className="block">
-              You're about to refund <strong className="text-white/80">{reg.contact?.firstName} {reg.contact?.lastName}</strong> for <strong className="text-white/80">{reg.program?.name}</strong>.
-            </span>
-            <span className="block">
-              Original payment: <strong className="text-white/80">{formatCurrency(reg.totalCents || 0, { fromCents: true })}</strong>
-            </span>
-            <span className="block text-amber-400/70 text-[12px]">
-              This will process a real refund through Stripe and cannot be undone.
-            </span>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+    <AlertDialog open={open} onOpenChange={handleClose}>
+      <AlertDialogContent className="bg-[#0a0e1a] border border-red-500/20 text-white/80 max-w-lg" data-testid="dialog-refund">
+        {!confirmStep ? (
+          <>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2 text-white/90">
+                <RotateCcw className="w-5 h-5 text-red-400" />
+                Refund — #{reg.orderNumber || reg.id}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-white/50">
+                Select the sessions to refund for{" "}
+                <strong className="text-white/80">
+                  {reg.contact?.firstName} {reg.contact?.lastName}
+                </strong>
+                .
+              </AlertDialogDescription>
+            </AlertDialogHeader>
 
-        <div className="space-y-3 py-2">
-          <div>
-            <label className="text-[12px] text-white/60 mb-1.5 block">
-              Refund amount (NZD) — leave blank for full refund of ${totalDollars}
-            </label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              max={totalDollars}
-              placeholder={totalDollars}
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              className="bg-white/[0.03] border-white/[0.08] text-white/80"
-              data-testid="input-refund-amount"
-            />
-          </div>
-          <div>
-            <label className="text-[12px] text-white/60 mb-1.5 block">Reason (optional, internal note)</label>
-            <Textarea
-              placeholder="e.g. Family emergency, child unwell, schedule clash"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={2}
-              className="bg-white/[0.03] border-white/[0.08] text-white/80 resize-none"
-              data-testid="input-refund-reason"
-            />
-          </div>
-        </div>
+            <div className="space-y-3 py-1">
+              {/* Summary bar */}
+              <div className="flex items-center justify-between text-[11px] text-white/40 px-1">
+                <span>
+                  Paid: <span className="text-white/70 font-medium">{formatCurrency(totalCents, { fromCents: true })}</span>
+                  {alreadyRefundedCents > 0 && (
+                    <>
+                      {" · Already refunded: "}
+                      <span className="text-purple-400/80 font-medium">{formatCurrency(alreadyRefundedCents, { fromCents: true })}</span>
+                    </>
+                  )}
+                </span>
+                {refundableItems.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button onClick={selectAll} className="text-blue-400/70 hover:text-blue-400 transition-colors" data-testid="button-select-all">Select all</button>
+                    <span className="text-white/15">·</span>
+                    <button onClick={clearAll} className="text-white/40 hover:text-white/60 transition-colors" data-testid="button-clear-all">Clear</button>
+                  </div>
+                )}
+              </div>
 
-        <AlertDialogFooter>
-          <AlertDialogCancel
-            disabled={refundMut.isPending}
-            className="bg-white/[0.04] border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white/90"
-            data-testid="button-refund-cancel"
-          >
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => { e.preventDefault(); refundMut.mutate(); }}
-            disabled={refundMut.isPending}
-            className="bg-red-500/90 hover:bg-red-500 text-white border-0"
-            data-testid="button-refund-confirm"
-          >
-            {refundMut.isPending ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
-            ) : (
-              <>Confirm Refund</>
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
+              {/* Items list */}
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] max-h-[280px] overflow-y-auto divide-y divide-white/[0.04]">
+                {pricingLoading ? (
+                  <div className="p-3 space-y-2">
+                    {[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full rounded-lg bg-white/[0.04]" />)}
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="p-4 text-center text-[12px] text-white/30">No items to refund</div>
+                ) : (
+                  items.map((it) => {
+                    const isRefunded = !!(it.refundedAmountCents && it.refundedAmountCents > 0);
+                    const isSelected = selectedIds.has(it.id);
+                    const value = itemRefundValue(it);
+                    return (
+                      <label
+                        key={it.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                          isRefunded
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer hover:bg-white/[0.03]"
+                        }`}
+                        data-testid={`refund-item-${it.id}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={isRefunded}
+                          onChange={() => toggleItem(it.id)}
+                          className="w-4 h-4 rounded border-white/20 bg-white/[0.04] text-red-500 focus:ring-red-500/40 cursor-pointer disabled:cursor-not-allowed"
+                          data-testid={`checkbox-refund-item-${it.id}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] text-white/75 font-medium truncate">
+                              {it.child?.firstName} {it.child?.lastName}
+                            </span>
+                            {isRefunded && (
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-purple-500/30 text-purple-400/80 bg-purple-500/5">
+                                Refunded
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-white/40 mt-0.5">
+                            <Calendar className="w-3 h-3" />
+                            <span>{it.campDate?.date ? formatDate(it.campDate.date) : "Unknown date"}</span>
+                            <span className="text-white/15">·</span>
+                            <span>{formatProductType(it.productType)}</span>
+                          </div>
+                        </div>
+                        <div className="text-[13px] text-white/70 font-medium">
+                          {formatCurrency(value, { fromCents: true })}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Selected total */}
+              <div className="flex items-center justify-between rounded-xl bg-red-500/[0.06] border border-red-500/20 px-3.5 py-2.5">
+                <span className="text-[12px] text-white/60">
+                  {selectedIds.size === 0
+                    ? "No sessions selected"
+                    : `${selectedIds.size} session${selectedIds.size > 1 ? "s" : ""} selected`}
+                </span>
+                <span className="text-[15px] font-semibold text-red-400" data-testid="text-refund-total">
+                  {formatCurrency(selectedTotal, { fromCents: true })}
+                </span>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="text-[11px] text-white/50 mb-1.5 block">Reason (optional, internal note)</label>
+                <Textarea
+                  placeholder="e.g. Child unwell — medical certificate provided"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={2}
+                  className="bg-white/[0.03] border-white/[0.08] text-white/80 resize-none text-[13px]"
+                  data-testid="input-refund-reason"
+                />
+              </div>
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                className="bg-white/[0.04] border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white/90"
+                data-testid="button-refund-cancel"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => { e.preventDefault(); if (canSubmit) setConfirmStep(true); }}
+                disabled={!canSubmit}
+                className="bg-red-500/90 hover:bg-red-500 text-white border-0 disabled:opacity-40"
+                data-testid="button-refund-next"
+              >
+                Refund {formatCurrency(selectedTotal, { fromCents: true })}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </>
+        ) : (
+          <>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2 text-white/90">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+                Confirm refund
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-white/55 space-y-2">
+                <span className="block">
+                  Refund <strong className="text-red-400">{formatCurrency(selectedTotal, { fromCents: true })}</strong> to{" "}
+                  <strong className="text-white/85">{reg.contact?.firstName} {reg.contact?.lastName}</strong> for {selectedIds.size} session{selectedIds.size > 1 ? "s" : ""}.
+                </span>
+                <span className="block text-amber-400/80 text-[12px]">
+                  This processes a real refund through Stripe and cannot be undone. The money will appear in their account within 5–10 business days.
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={refundMut.isPending}
+                onClick={(e) => { e.preventDefault(); setConfirmStep(false); }}
+                className="bg-white/[0.04] border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white/90"
+                data-testid="button-refund-back"
+              >
+                Back
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => { e.preventDefault(); refundMut.mutate(); }}
+                disabled={refundMut.isPending}
+                className="bg-red-500/90 hover:bg-red-500 text-white border-0"
+                data-testid="button-refund-confirm"
+              >
+                {refundMut.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                ) : (
+                  <>Confirm refund</>
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </>
+        )}
       </AlertDialogContent>
     </AlertDialog>
   );
@@ -354,7 +535,7 @@ function EditRegistrationModal({
 }
 
 function itemsByChild(items: RegItem[]) {
-  const map = new Map<number, { child: RegItem["child"]; sessions: { date: string; productType: string; campDateId: number }[] }>();
+  const map = new Map<number, { child: RegItem["child"]; sessions: { date: string; productType: string; campDateId: number; refundedAmountCents?: number | null }[] }>();
   items.forEach(item => {
     if (!map.has(item.childId)) {
       map.set(item.childId, { child: item.child, sessions: [] });
@@ -363,6 +544,7 @@ function itemsByChild(items: RegItem[]) {
       date: item.campDate?.date || "",
       productType: item.productType,
       campDateId: item.campDateId,
+      refundedAmountCents: item.refundedAmountCents,
     });
   });
   map.forEach(v => v.sessions.sort((a, b) => a.date.localeCompare(b.date)));
@@ -437,7 +619,20 @@ export default function AdminRegistrations() {
     paid: "text-emerald-400/70 bg-emerald-500/10 border-emerald-500/15",
     cancelled: "text-red-400/70 bg-red-500/10 border-red-500/15",
     refunded: "text-purple-400/70 bg-purple-500/10 border-purple-500/15",
+    partially_refunded: "text-purple-400/70 bg-purple-500/10 border-purple-500/15",
   };
+
+  const statusLabel = (s: string) => s === "partially_refunded" ? "Partial Refund" : s;
+
+  const refreshRefundStatusMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/registrations/${id}/refund/refresh-status`),
+    onSuccess: async (res: any) => {
+      const data = await res.json().catch(() => ({}));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
+      toast({ title: "Refund status refreshed", description: `Stripe says: ${data.status || "unknown"}` });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't refresh status", description: e.message, variant: "destructive" }),
+  });
 
   const [editingReg, setEditingReg] = useState<Registration | null>(null);
   const [refundingReg, setRefundingReg] = useState<Registration | null>(null);
@@ -535,7 +730,7 @@ export default function AdminRegistrations() {
                         {formatCurrency(reg.totalCents || 0, { fromCents: true })}
                       </span>
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-md border uppercase tracking-wider ${statusColors[reg.status] || statusColors.pending}`} data-testid={`badge-reg-status-${reg.id}`}>
-                        {reg.status}
+                        {statusLabel(reg.status)}
                       </span>
                       {expandedId === reg.id ? <ChevronUp className="w-4 h-4 text-white/20" /> : <ChevronDown className="w-4 h-4 text-white/20" />}
                     </div>
@@ -578,23 +773,61 @@ export default function AdminRegistrations() {
                             <p className="text-[12px] text-white/40">Subtotal: {formatCurrency(reg.subtotalCents || 0, { fromCents: true })}</p>
                             {(reg.discountCents || 0) > 0 && <p className="text-[12px] text-emerald-400/60">Discount: -{formatCurrency(reg.discountCents || 0, { fromCents: true })}</p>}
                             <p className="text-[13px] text-white/70 font-medium">Total: {formatCurrency(reg.totalCents || 0, { fromCents: true })}</p>
-                            {reg.refundedAt && (
-                              <p className="text-[12px] text-purple-400/70 font-medium" data-testid={`text-refunded-${reg.id}`}>
-                                Refunded: {formatCurrency(reg.refundedAmountCents || 0, { fromCents: true })}
-                                <span className="text-white/30 ml-1">({new Date(reg.refundedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })})</span>
-                              </p>
-                            )}
-                            {reg.refundReason && (
-                              <p className="text-[11px] text-white/40 italic">"{reg.refundReason}"</p>
+                            {reg.refundedAt && (reg.refundedAmountCents || 0) > 0 && (
+                              <div className="rounded-lg bg-purple-500/[0.06] border border-purple-500/20 p-2.5 mt-2 space-y-1.5" data-testid={`refund-summary-${reg.id}`}>
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-[10px] uppercase tracking-wider font-semibold ${reg.status === "refunded" ? "text-purple-400/90" : "text-amber-400/90"}`}>
+                                    {reg.status === "refunded" ? "Fully Refunded" : "Partially Refunded"}
+                                  </span>
+                                  <span className="text-[12px] font-semibold text-purple-400" data-testid={`text-refunded-${reg.id}`}>
+                                    {formatCurrency(reg.refundedAmountCents || 0, { fromCents: true })}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-white/40">
+                                  {new Date(reg.refundedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}
+                                  {reg.status === "partially_refunded" && (
+                                    <span className="text-white/30"> · {formatCurrency(((reg.totalCents || 0) - (reg.refundedAmountCents || 0)), { fromCents: true })} remaining</span>
+                                  )}
+                                </p>
+                                {reg.refundReason && (
+                                  <p className="text-[10px] text-white/40 italic">"{reg.refundReason}"</p>
+                                )}
+                                {reg.stripeRefundStatus && (
+                                  <div className="flex items-center justify-between pt-1.5 border-t border-purple-500/10">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] text-white/40">Stripe status:</span>
+                                      <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 ${
+                                        reg.stripeRefundStatus === "succeeded"
+                                          ? "border-emerald-500/30 text-emerald-400/90 bg-emerald-500/5"
+                                          : reg.stripeRefundStatus === "failed" || reg.stripeRefundStatus === "canceled"
+                                          ? "border-red-500/30 text-red-400/90 bg-red-500/5"
+                                          : "border-amber-500/30 text-amber-400/90 bg-amber-500/5"
+                                      }`} data-testid={`badge-stripe-status-${reg.id}`}>
+                                        {reg.stripeRefundStatus === "succeeded" ? "Completed" : reg.stripeRefundStatus === "pending" ? "Processing" : reg.stripeRefundStatus}
+                                      </Badge>
+                                    </div>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); refreshRefundStatusMut.mutate(reg.id); }}
+                                      disabled={refreshRefundStatusMut.isPending}
+                                      className="text-[10px] text-blue-400/70 hover:text-blue-400 transition-colors flex items-center gap-1 disabled:opacity-40"
+                                      data-testid={`button-refresh-status-${reg.id}`}
+                                    >
+                                      {refreshRefundStatusMut.isPending && refreshRefundStatusMut.variables === reg.id
+                                        ? <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking</>
+                                        : <><RotateCcw className="w-2.5 h-2.5" /> Refresh</>}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
-                          {!reg.refundedAt && reg.status !== "refunded" && (reg.totalCents || 0) > 0 && reg.stripePaymentIntentId && (
+                          {reg.status !== "refunded" && (reg.totalCents || 0) > (reg.refundedAmountCents || 0) && reg.stripePaymentIntentId && (
                             <button
                               onClick={(e) => { e.stopPropagation(); setRefundingReg(reg); }}
                               className="w-full flex items-center justify-center gap-1.5 text-[11px] text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/15 hover:border-red-500/30 rounded-lg py-1.5 transition-colors cursor-pointer"
                               data-testid={`button-refund-${reg.id}`}
                             >
-                              <RotateCcw className="w-3 h-3" /> Refund
+                              <RotateCcw className="w-3 h-3" /> {reg.status === "partially_refunded" ? "Refund More Sessions" : "Refund"}
                             </button>
                           )}
                           <div className="pt-1 border-t border-white/[0.04] space-y-1.5">
@@ -654,23 +887,31 @@ export default function AdminRegistrations() {
                                 )}
                               </div>
                               <div className="ml-8 space-y-1">
-                                {g.sessions.map((s, si) => (
-                                  <div key={si} className="flex items-center gap-2 text-[12px]">
-                                    <Calendar className="w-3 h-3 text-white/15" />
-                                    <span className="text-white/35">{reg.program?.name}</span>
-                                    <span className="text-white/15">—</span>
-                                    <span className="text-white/45">{formatDate(s.date)}</span>
-                                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${
-                                      s.productType.toUpperCase() === "FULL_DAY"
-                                        ? "border-blue-500/20 text-blue-400/70 bg-blue-500/5"
-                                        : s.productType.toUpperCase() === "MORNING"
-                                        ? "border-amber-500/20 text-amber-400/70 bg-amber-500/5"
-                                        : "border-purple-500/20 text-purple-400/70 bg-purple-500/5"
-                                    }`} data-testid={`badge-session-${reg.id}-${gi}-${si}`}>
-                                      {formatProductType(s.productType)}
-                                    </Badge>
-                                  </div>
-                                ))}
+                                {g.sessions.map((s: { date: string; productType: string; campDateId: number; refundedAmountCents?: number | null }, si: number) => {
+                                  const sessionItemRefunded = !!(s.refundedAmountCents && s.refundedAmountCents > 0);
+                                  return (
+                                    <div key={si} className={`flex items-center gap-2 text-[12px] ${sessionItemRefunded ? "opacity-60" : ""}`} data-testid={`session-row-${reg.id}-${gi}-${si}`}>
+                                      <Calendar className="w-3 h-3 text-white/15" />
+                                      <span className={`${sessionItemRefunded ? "text-white/30 line-through" : "text-white/35"}`}>{reg.program?.name}</span>
+                                      <span className="text-white/15">—</span>
+                                      <span className={`${sessionItemRefunded ? "text-white/30 line-through" : "text-white/45"}`}>{formatDate(s.date)}</span>
+                                      <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${
+                                        s.productType.toUpperCase() === "FULL_DAY"
+                                          ? "border-blue-500/20 text-blue-400/70 bg-blue-500/5"
+                                          : s.productType.toUpperCase() === "MORNING"
+                                          ? "border-amber-500/20 text-amber-400/70 bg-amber-500/5"
+                                          : "border-purple-500/20 text-purple-400/70 bg-purple-500/5"
+                                      }`} data-testid={`badge-session-${reg.id}-${gi}-${si}`}>
+                                        {formatProductType(s.productType)}
+                                      </Badge>
+                                      {sessionItemRefunded && (
+                                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-purple-500/30 text-purple-400/80 bg-purple-500/5" data-testid={`badge-item-refunded-${reg.id}-${gi}-${si}`}>
+                                          Refunded {formatCurrency(s.refundedAmountCents || 0, { fromCents: true })}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ))}
