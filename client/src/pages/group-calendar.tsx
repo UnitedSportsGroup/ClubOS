@@ -8,21 +8,24 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
-  Trash2, Edit, Repeat, DollarSign
+  Trash2, Edit, Repeat, DollarSign, Pencil
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { CalendarEvent } from "@shared/schema";
+import { useWorkspace } from "@/lib/workspace-context";
+import type { CalendarEvent, CalendarCategory } from "@shared/schema";
 
-const CALENDAR_TYPES = [
+// Fallback list used only as a last-resort if the categories API hasn't loaded yet
+// (e.g. pre-render flash). The real list is fetched from /api/admin/calendar-categories
+// scoped to the currently active workspace.
+const DEFAULT_CALENDAR_TYPES = [
   { id: "general", label: "General", color: "#3b82f6" },
-  { id: "united", label: "United Events", color: "#6366f1" },
-  { id: "south-island", label: "South Island United", color: "#8b5cf6" },
-  { id: "gymnastics", label: "United Gymnastics", color: "#ec4899" },
-  { id: "payments", label: "Payments & Finance", color: "#f59e0b" },
-  { id: "training", label: "Training", color: "#22c55e" },
-  { id: "meetings", label: "Meetings", color: "#06b6d4" },
-  { id: "personal", label: "Personal", color: "#ef4444" },
+];
+
+// 12 swatches for the create / edit category modal.
+const CATEGORY_COLORS = [
+  "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#ef4444", "#f59e0b",
+  "#eab308", "#22c55e", "#10b981", "#06b6d4", "#0ea5e9", "#94a3b8",
 ];
 
 type ViewMode = "month" | "week" | "day" | "year";
@@ -104,12 +107,54 @@ const HOUR_HEIGHT = 60;
 
 export default function GroupCalendar() {
   const { toast } = useToast();
+  const { currentOrg } = useWorkspace();
+  const orgId = currentOrg?.id;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [showModal, setShowModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [visibleCalendars, setVisibleCalendars] = useState<Set<string>>(new Set(CALENDAR_TYPES.map(c => c.id)));
+  const [visibleCalendars, setVisibleCalendars] = useState<Set<string> | null>(null);
+
+  // Category management modal state
+  const [categoryModal, setCategoryModal] = useState<{ mode: "create" | "edit"; cat?: CalendarCategory } | null>(null);
+  const [catLabel, setCatLabel] = useState("");
+  const [catColor, setCatColor] = useState(CATEGORY_COLORS[0]);
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState<CalendarCategory | null>(null);
+
+  // Load this workspace's calendar categories. The server lazily seeds the historical
+  // built-in defaults on first request, so existing workspaces look identical.
+  const { data: categories = [] } = useQuery<CalendarCategory[]>({
+    queryKey: ["/api/admin/calendar-categories", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/calendar-categories?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load categories");
+      return r.json();
+    },
+    enabled: !!orgId,
+  });
+
+  // The "active set" we render in the UI; falls back to the bare default while loading.
+  const calendarTypes = categories.length > 0
+    ? categories.map(c => ({ id: c.slug, label: c.label, color: c.color, isSystem: c.isSystem, _id: c.id }))
+    : DEFAULT_CALENDAR_TYPES.map(c => ({ ...c, isSystem: true, _id: -1 }));
+
+  // Initialise / reconcile visibleCalendars when categories load. Newly added categories
+  // are visible by default; deleted ones are dropped from the set automatically.
+  useEffect(() => {
+    if (categories.length === 0) return;
+    setVisibleCalendars(prev => {
+      const all = new Set(categories.map(c => c.slug));
+      if (!prev) return all;
+      // Keep only slugs that still exist; add new ones as visible.
+      const next = new Set<string>();
+      for (const slug of prev) if (all.has(slug)) next.add(slug);
+      for (const slug of all) if (!prev.has(slug)) next.add(slug);
+      return next;
+    });
+  }, [categories]);
+
+  const visibleSet = visibleCalendars ?? new Set<string>(calendarTypes.map(c => c.id));
 
   const [formTitle, setFormTitle] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -155,7 +200,7 @@ export default function GroupCalendar() {
     },
   });
 
-  const filteredEvents = events.filter(e => visibleCalendars.has(e.calendarType));
+  const filteredEvents = events.filter(e => visibleSet.has(e.calendarType));
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -197,6 +242,78 @@ export default function GroupCalendar() {
       setSelectedEvent(null);
     },
   });
+
+  // ====== Category mutations ======
+  const createCategoryMutation = useMutation({
+    mutationFn: async (data: { label: string; color: string }) => {
+      const res = await apiRequest("POST", "/api/admin/calendar-categories", { ...data, organizationId: orgId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-categories", orgId] });
+      toast({ title: "Calendar added" });
+      setCategoryModal(null);
+    },
+    onError: (e: any) => toast({ title: "Couldn't add calendar", description: e.message, variant: "destructive" }),
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; label: string; color: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/calendar-categories/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-categories", orgId] });
+      // Existing events keep their stored color; reload them so any UI bound to category color refreshes too.
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
+      toast({ title: "Calendar updated" });
+      setCategoryModal(null);
+    },
+    onError: (e: any) => toast({ title: "Couldn't update calendar", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/calendar-categories/${id}`);
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-categories", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
+      const moved = result?.reassignedEvents || 0;
+      toast({
+        title: "Calendar deleted",
+        description: moved > 0 ? `${moved} event${moved === 1 ? "" : "s"} moved to General.` : undefined,
+      });
+      setConfirmDeleteCat(null);
+    },
+    onError: (e: any) => toast({ title: "Couldn't delete calendar", description: e.message, variant: "destructive" }),
+  });
+
+  function openCreateCategory() {
+    setCatLabel("");
+    setCatColor(CATEGORY_COLORS[0]);
+    setCategoryModal({ mode: "create" });
+  }
+
+  function openEditCategory(catId: number) {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat) return;
+    setCatLabel(cat.label);
+    setCatColor(cat.color);
+    setCategoryModal({ mode: "edit", cat });
+  }
+
+  function handleCategorySave() {
+    const label = catLabel.trim();
+    if (!label) { toast({ title: "Name required", variant: "destructive" }); return; }
+    if (!/^#[0-9a-fA-F]{6}$/.test(catColor)) { toast({ title: "Pick a colour", variant: "destructive" }); return; }
+    if (categoryModal?.mode === "edit" && categoryModal.cat) {
+      updateCategoryMutation.mutate({ id: categoryModal.cat.id, label, color: catColor });
+    } else {
+      createCategoryMutation.mutate({ label, color: catColor });
+    }
+  }
 
   function closeDraft() {
     setDraftEvent(null);
@@ -434,14 +551,48 @@ export default function GroupCalendar() {
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Calendars</div>
           <div className="space-y-1">
-            {CALENDAR_TYPES.map(cal => (
-              <button key={cal.id} onClick={() => toggleCalendar(cal.id)} className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors" data-testid={`toggle-calendar-${cal.id}`}>
-                <div className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: visibleCalendars.has(cal.id) ? cal.color : "transparent", border: `2px solid ${cal.color}` }}>
-                  {visibleCalendars.has(cal.id) && <span className="text-white text-[8px]">✓</span>}
-                </div>
-                <span className="text-xs text-white/60">{cal.label}</span>
-              </button>
+            {calendarTypes.map(cal => (
+              <div key={cal.id} className="group flex items-center gap-2 w-full px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors" data-testid={`row-calendar-${cal.id}`}>
+                <button onClick={() => toggleCalendar(cal.id)} className="flex items-center gap-2 flex-1 text-left" data-testid={`toggle-calendar-${cal.id}`}>
+                  <div className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: visibleSet.has(cal.id) ? cal.color : "transparent", border: `2px solid ${cal.color}` }}>
+                    {visibleSet.has(cal.id) && <span className="text-white text-[8px]">✓</span>}
+                  </div>
+                  <span className="text-xs text-white/60 truncate">{cal.label}</span>
+                </button>
+                {cal._id > 0 && (
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openEditCategory(cal._id); }}
+                      className="text-white/30 hover:text-white/70 p-0.5 rounded"
+                      title="Rename / recolour"
+                      data-testid={`button-edit-calendar-${cal.id}`}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    {!cal.isSystem && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); const c = categories.find(x => x.id === cal._id); if (c) setConfirmDeleteCat(c); }}
+                        className="text-white/30 hover:text-red-400 p-0.5 rounded"
+                        title="Delete calendar"
+                        data-testid={`button-delete-calendar-${cal.id}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
+            {orgId && (
+              <button
+                onClick={openCreateCategory}
+                className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors text-white/40 hover:text-white/70"
+                data-testid="button-add-calendar"
+              >
+                <Plus className="w-3 h-3" />
+                <span className="text-xs">Add calendar</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -600,10 +751,10 @@ export default function GroupCalendar() {
             </div>
             <div className="flex items-center gap-3">
               <CalIcon className="w-4 h-4 text-white/30" />
-              <Select value={formCalType} onValueChange={(v) => { setFormCalType(v); const c = CALENDAR_TYPES.find(t => t.id === v); if (c) setFormColor(c.color); }}>
+              <Select value={formCalType} onValueChange={(v) => { setFormCalType(v); const c = calendarTypes.find(t => t.id === v); if (c) setFormColor(c.color); }}>
                 <SelectTrigger className="premium-input text-white/70 text-sm rounded-xl flex-1" data-testid="select-calendar-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CALENDAR_TYPES.map(c => (
+                  {calendarTypes.map(c => (
                     <SelectItem key={c.id} value={c.id}>
                       <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: c.color }} />{c.label}</div>
                     </SelectItem>
@@ -649,7 +800,7 @@ export default function GroupCalendar() {
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: selectedEvent.color }} />
                 <Badge className="text-[10px]" style={{ backgroundColor: `${selectedEvent.color}20`, color: selectedEvent.color, borderColor: `${selectedEvent.color}30` }}>
-                  {CALENDAR_TYPES.find(c => c.id === selectedEvent.calendarType)?.label || selectedEvent.calendarType}
+                  {calendarTypes.find(c => c.id === selectedEvent.calendarType)?.label || selectedEvent.calendarType}
                 </Badge>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setSelectedEvent(null)} className="text-white/30 h-7 w-7"><X className="w-3.5 h-3.5" /></Button>
@@ -678,6 +829,86 @@ export default function GroupCalendar() {
             <div className="flex gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => openEditModal(selectedEvent)} className="border-white/10 text-white/60 rounded-xl gap-1.5 flex-1" data-testid="button-edit-event"><Edit className="w-3.5 h-3.5" /> Edit</Button>
               <Button variant="outline" size="sm" onClick={() => { if (confirm("Delete this event?")) deleteMutation.mutate(selectedEvent.id); }} className="border-red-500/20 text-red-400 hover:bg-red-500/10 rounded-xl gap-1.5" data-testid="button-delete-event"><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {categoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setCategoryModal(null)}>
+          <div className="w-full max-w-sm premium-card border border-white/[0.08] rounded-2xl p-6 space-y-4" onClick={e => e.stopPropagation()} data-testid="modal-category">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">
+                {categoryModal.mode === "edit" ? "Edit calendar" : "New calendar"}
+              </h3>
+              <Button variant="ghost" size="icon" onClick={() => setCategoryModal(null)} className="text-white/30 h-8 w-8"><X className="w-4 h-4" /></Button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/40">Name</label>
+              <Input
+                placeholder="e.g. Signage"
+                value={catLabel}
+                onChange={e => setCatLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleCategorySave(); }}
+                className="premium-input text-white/90 text-sm rounded-xl"
+                data-testid="input-category-label"
+                autoFocus
+                maxLength={60}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/40">Colour</label>
+              <div className="grid grid-cols-6 gap-2">
+                {CATEGORY_COLORS.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setCatColor(color)}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center transition-transform hover:scale-110"
+                    style={{ backgroundColor: color, outline: catColor === color ? "2px solid white" : "none", outlineOffset: 2 }}
+                    data-testid={`button-color-${color.slice(1)}`}
+                    aria-label={`Pick colour ${color}`}
+                  >
+                    {catColor === color && <span className="text-white text-xs">✓</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={handleCategorySave}
+                disabled={!catLabel.trim() || createCategoryMutation.isPending || updateCategoryMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1"
+                data-testid="button-save-category"
+              >
+                {(createCategoryMutation.isPending || updateCategoryMutation.isPending) ? "Saving..." : (categoryModal.mode === "edit" ? "Save" : "Add calendar")}
+              </Button>
+              <Button variant="outline" onClick={() => setCategoryModal(null)} className="border-white/10 text-white/60 rounded-xl" data-testid="button-cancel-category">Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteCat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmDeleteCat(null)}>
+          <div className="w-full max-w-sm premium-card border border-white/[0.08] rounded-2xl p-6 space-y-4" onClick={e => e.stopPropagation()} data-testid="modal-confirm-delete-category">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: confirmDeleteCat.color }} />
+              <h3 className="text-lg font-semibold text-white">Delete "{confirmDeleteCat.label}"?</h3>
+            </div>
+            <p className="text-sm text-white/50">
+              Any existing events in this calendar will be moved to <strong className="text-white/70">General</strong> so they aren't lost.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() => deleteCategoryMutation.mutate(confirmDeleteCat.id)}
+                disabled={deleteCategoryMutation.isPending}
+                className="bg-red-600 hover:bg-red-700 text-white rounded-xl flex-1"
+                data-testid="button-confirm-delete-category"
+              >
+                {deleteCategoryMutation.isPending ? "Deleting..." : "Delete calendar"}
+              </Button>
+              <Button variant="outline" onClick={() => setConfirmDeleteCat(null)} className="border-white/10 text-white/60 rounded-xl" data-testid="button-cancel-delete-category">Cancel</Button>
             </div>
           </div>
         </div>

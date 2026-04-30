@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -2843,6 +2843,115 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ====== Calendar categories (sub-calendars) ======
+  // Per-organization. Org-membership enforced. Defaults are lazily seeded on first GET.
+  app.get("/api/admin/calendar-categories", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const cats = await storage.getCalendarCategories(orgId);
+      res.json(cats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Slugify a label into a stable identifier we can store on each event.
+  function slugifyLabel(label: string): string {
+    return label.toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+  }
+
+  app.post("/api/admin/calendar-categories", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const label = String(req.body?.label || "").trim();
+      const color = String(req.body?.color || "#3b82f6").trim();
+      if (!label) return res.status(400).json({ message: "label required" });
+      if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ message: "color must be a #rrggbb hex" });
+      // Server generates the slug to keep it canonical and avoid client tampering.
+      let slug = slugifyLabel(label);
+      if (!slug) return res.status(400).json({ message: "label must contain letters or numbers" });
+      // If a category with this slug already exists for this org, append a numeric suffix.
+      const existing = await storage.getCalendarCategories(orgId);
+      let candidate = slug;
+      let n = 2;
+      while (existing.some(c => c.slug === candidate)) {
+        candidate = `${slug}-${n++}`;
+      }
+      const displayOrder = existing.length > 0 ? Math.max(...existing.map(c => c.displayOrder)) + 1 : 0;
+      const created = await storage.createCalendarCategory({
+        organizationId: orgId,
+        slug: candidate,
+        label,
+        color,
+        displayOrder,
+        isSystem: false,
+      });
+      res.json(created);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/calendar-categories/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getCalendarCategory(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: Partial<InsertCalendarCategory> = {};
+      if (req.body?.label !== undefined) {
+        const label = String(req.body.label).trim();
+        if (!label) return res.status(400).json({ message: "label cannot be empty" });
+        patch.label = label;
+      }
+      if (req.body?.color !== undefined) {
+        const color = String(req.body.color).trim();
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ message: "color must be a #rrggbb hex" });
+        patch.color = color;
+      }
+      if (req.body?.displayOrder !== undefined && Number.isFinite(Number(req.body.displayOrder))) {
+        patch.displayOrder = Number(req.body.displayOrder);
+      }
+      // slug, organizationId, isSystem are intentionally NOT mutable.
+      const updated = await storage.updateCalendarCategory(id, patch);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/calendar-categories/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getCalendarCategory(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      if (existing.isSystem) {
+        return res.status(400).json({ message: "Built-in calendars can't be deleted. You can rename or recolour them instead." });
+      }
+      // Re-home any existing events using this slug to "general" so they stay visible,
+      // then delete the category — atomically, in a single transaction. If anything
+      // fails mid-way we'd rather the whole operation roll back than leave events
+      // pointing at a deleted slug.
+      const reassigned = await storage.deleteCalendarCategoryWithReassign(
+        id,
+        existing.organizationId,
+        existing.slug,
+        "general"
+      );
+      res.json({ ok: true, reassignedEvents: reassigned });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
     }
   });
 

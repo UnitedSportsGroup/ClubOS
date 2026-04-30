@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum, uniqueIndex, time, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, date, decimal, pgEnum, uniqueIndex, unique, time, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -845,6 +845,25 @@ export const calendarEvents = pgTable("calendar_events", {
 export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
+
+// Per-organization calendar categories (a.k.a. sub-calendars) — admins can create their own.
+// Each event references one via the existing calendarEvents.calendarType slug.
+export const calendarCategories = pgTable("calendar_categories", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
+  label: text("label").notNull(),
+  color: text("color").notNull().default("#3b82f6"),
+  displayOrder: integer("display_order").notNull().default(0),
+  isSystem: boolean("is_system").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  uniqueOrgSlug: unique("calendar_categories_org_slug_unique").on(t.organizationId, t.slug),
+}));
+
+export const insertCalendarCategorySchema = createInsertSchema(calendarCategories).omit({ id: true, createdAt: true });
+export type InsertCalendarCategory = z.infer<typeof insertCalendarCategorySchema>;
+export type CalendarCategory = typeof calendarCategories.$inferSelect;
 
 export const printOrderStatusEnum = pgEnum("print_order_status", ["inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled"]);
 

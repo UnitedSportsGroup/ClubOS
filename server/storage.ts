@@ -46,6 +46,7 @@ import {
   type InsertDiscountUsage, type DiscountUsage,
   customDomains, type InsertCustomDomain, type CustomDomain,
   calendarEvents, type InsertCalendarEvent, type CalendarEvent,
+  calendarCategories, type InsertCalendarCategory, type CalendarCategory,
   printOrders, type InsertPrintOrder, type PrintOrder,
   printProjects, type InsertPrintProject, type PrintProject,
   printContacts, type InsertPrintContact, type PrintContact,
@@ -294,6 +295,13 @@ export interface IStorage {
   createCalendarEvent(data: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
   deleteCalendarEvent(id: number): Promise<void>;
+
+  getCalendarCategories(orgId: number): Promise<CalendarCategory[]>;
+  getCalendarCategory(id: number): Promise<CalendarCategory | undefined>;
+  createCalendarCategory(data: InsertCalendarCategory): Promise<CalendarCategory>;
+  updateCalendarCategory(id: number, data: Partial<InsertCalendarCategory>): Promise<CalendarCategory | undefined>;
+  deleteCalendarCategory(id: number): Promise<void>;
+  reassignCalendarEvents(orgId: number, fromSlug: string, toSlug: string): Promise<number>;
 
   getDiscountsByOrg(organizationId: number): Promise<Discount[]>;
   getDiscount(id: number): Promise<Discount | undefined>;
@@ -1718,6 +1726,73 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCalendarEvent(id: number): Promise<void> {
     await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
+  }
+
+  // Calendar categories (sub-calendars). Lazily seeds the 8 historical defaults the first
+  // time an org's list is requested, so existing workspaces continue to behave identically.
+  async getCalendarCategories(orgId: number): Promise<CalendarCategory[]> {
+    const existing = await db.select().from(calendarCategories)
+      .where(eq(calendarCategories.organizationId, orgId))
+      .orderBy(asc(calendarCategories.displayOrder), asc(calendarCategories.id));
+    if (existing.length > 0) return existing;
+
+    const defaults: Array<Omit<InsertCalendarCategory, "organizationId">> = [
+      { slug: "general", label: "General", color: "#3b82f6", displayOrder: 0, isSystem: true },
+      { slug: "united", label: "United Events", color: "#6366f1", displayOrder: 1, isSystem: true },
+      { slug: "south-island", label: "South Island United", color: "#8b5cf6", displayOrder: 2, isSystem: true },
+      { slug: "gymnastics", label: "United Gymnastics", color: "#ec4899", displayOrder: 3, isSystem: true },
+      { slug: "payments", label: "Payments & Finance", color: "#f59e0b", displayOrder: 4, isSystem: true },
+      { slug: "training", label: "Training", color: "#22c55e", displayOrder: 5, isSystem: true },
+      { slug: "meetings", label: "Meetings", color: "#06b6d4", displayOrder: 6, isSystem: true },
+      { slug: "personal", label: "Personal", color: "#ef4444", displayOrder: 7, isSystem: true },
+    ];
+    // Use ON CONFLICT so concurrent first-loads don't crash on the unique constraint.
+    await db.insert(calendarCategories)
+      .values(defaults.map(d => ({ ...d, organizationId: orgId })))
+      .onConflictDoNothing({ target: [calendarCategories.organizationId, calendarCategories.slug] });
+    return db.select().from(calendarCategories)
+      .where(eq(calendarCategories.organizationId, orgId))
+      .orderBy(asc(calendarCategories.displayOrder), asc(calendarCategories.id));
+  }
+
+  async getCalendarCategory(id: number): Promise<CalendarCategory | undefined> {
+    const [c] = await db.select().from(calendarCategories).where(eq(calendarCategories.id, id));
+    return c;
+  }
+
+  async createCalendarCategory(data: InsertCalendarCategory): Promise<CalendarCategory> {
+    const [c] = await db.insert(calendarCategories).values(data).returning();
+    return c;
+  }
+
+  async updateCalendarCategory(id: number, data: Partial<InsertCalendarCategory>): Promise<CalendarCategory | undefined> {
+    const [c] = await db.update(calendarCategories).set(data).where(eq(calendarCategories.id, id)).returning();
+    return c;
+  }
+
+  async deleteCalendarCategory(id: number): Promise<void> {
+    await db.delete(calendarCategories).where(eq(calendarCategories.id, id));
+  }
+
+  // Reassign all events for an org currently using one calendarType slug to another.
+  // Used when a category is deleted, so events don't disappear from the sidebar filter.
+  async reassignCalendarEvents(orgId: number, fromSlug: string, toSlug: string): Promise<number> {
+    const result = await db.update(calendarEvents)
+      .set({ calendarType: toSlug, updatedAt: new Date() })
+      .where(and(eq(calendarEvents.organizationId, orgId), eq(calendarEvents.calendarType, fromSlug)));
+    return (result as any).rowCount ?? 0;
+  }
+
+  // Atomic: reassign all events from a category's slug to `toSlug`, then delete the category,
+  // inside a single DB transaction so we can never leave events orphaned if one half fails.
+  async deleteCalendarCategoryWithReassign(id: number, orgId: number, fromSlug: string, toSlug: string): Promise<number> {
+    return await db.transaction(async (tx) => {
+      const updated = await tx.update(calendarEvents)
+        .set({ calendarType: toSlug, updatedAt: new Date() })
+        .where(and(eq(calendarEvents.organizationId, orgId), eq(calendarEvents.calendarType, fromSlug)));
+      await tx.delete(calendarCategories).where(eq(calendarCategories.id, id));
+      return (updated as any).rowCount ?? 0;
+    });
   }
 
   async getPrintOrdersByOrg(orgId: number): Promise<PrintOrder[]> {
