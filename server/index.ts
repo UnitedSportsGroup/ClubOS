@@ -68,6 +68,86 @@ app.use((req, res, next) => {
   await migrateScheduleData().catch((e) => console.error("Schedule migration error:", e));
   await registerRoutes(httpServer, app);
 
+  // Periodically sweep abandoned facility-booking carts: cancel any pending bookings older
+  // than 30 minutes and cancel their Stripe PaymentIntent so a late webhook can never flip
+  // them back to paid (which would otherwise risk double-booking the slot).
+  const sweepAbandonedFacilityBookings = async () => {
+    try {
+      const { storage } = await import("./storage");
+      const stale = await storage.getStalePendingFacilityBookings(30);
+      if (stale.length === 0) return;
+      const groups = new Map<string, typeof stale>();
+      for (const row of stale) {
+        const key = row.bookingGroupId || `pi:${row.stripePaymentIntentId || row.id}`;
+        if (!groups.has(key)) groups.set(key, [] as any);
+        (groups.get(key) as any).push(row);
+      }
+      let cancelledCount = 0;
+      const { stripe } = await import("./stripe");
+      for (const [, rows] of groups) {
+        const groupId = rows[0].bookingGroupId;
+        const pi = rows[0].stripePaymentIntentId;
+
+        // Safety check: if a Stripe PaymentIntent exists, only proceed when it is in a
+        // cancelable state. If it has already succeeded (or capture is pending), the
+        // webhook will flip the booking to paid — we must NOT pre-cancel it, otherwise
+        // the customer ends up charged for a cancelled booking.
+        // Stripe is the source of truth for whether the customer has been charged.
+        // Only cancel the DB row when we can verify the PI is in a terminal, non-paid state.
+        if (pi) {
+          let safeToCancel = false;
+          try {
+            const piObj = await stripe.paymentIntents.retrieve(pi);
+            if (piObj.status === "canceled") {
+              // PI already canceled (e.g. by previous sweeper run that crashed before DB cancel) — clean up the orphan row
+              safeToCancel = true;
+            } else if (["succeeded", "requires_capture"].includes(piObj.status)) {
+              // Customer has been (or is being) charged — webhook owns this row, never touch it
+              continue;
+            } else {
+              const cancelled = await stripe.paymentIntents.cancel(pi, { cancellation_reason: "abandoned" });
+              safeToCancel = cancelled.status === "canceled";
+            }
+          } catch (e: any) {
+            // Cancel failed — re-fetch and only cancel the DB row if the PI is now canceled.
+            // Crucially, do NOT cancel on 'succeeded' because the webhook will mark it paid.
+            try {
+              const piObj = await stripe.paymentIntents.retrieve(pi);
+              safeToCancel = piObj.status === "canceled";
+              if (!safeToCancel) {
+                console.warn(`[Sweeper] Skipping DB cancel for PI ${pi} (status=${piObj.status})`, e?.message || e);
+                continue;
+              }
+            } catch (e2: any) {
+              if (String(e2?.message || "").match(/No such/i)) {
+                // PI doesn't exist on Stripe at all — safe to cancel the orphan row
+                safeToCancel = true;
+              } else {
+                console.error("[Sweeper] PI re-check failed", e2?.message || e2);
+                continue;
+              }
+            }
+          }
+          if (!safeToCancel) continue;
+        }
+
+        if (groupId) {
+          try {
+            const out = await storage.cancelPendingFacilityBookingsByGroup(groupId);
+            cancelledCount += out.length;
+          } catch (e) {
+            console.error("[Sweeper] cancel group failed", e);
+          }
+        }
+      }
+      if (cancelledCount > 0) console.log(`[Sweeper] Cancelled ${cancelledCount} abandoned facility booking(s)`);
+    } catch (e) {
+      console.error("[Sweeper] Error:", e);
+    }
+  };
+  setInterval(sweepAbandonedFacilityBookings, 5 * 60 * 1000);
+  setTimeout(sweepAbandonedFacilityBookings, 30 * 1000);
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

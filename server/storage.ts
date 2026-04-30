@@ -8,7 +8,7 @@ import {
   children, childMedical, registrationItems,
   attendance, emailLogs, metaEventLogs, emailCampaigns,
   organizations, userOrganizations,
-  facilities, facilityPricingRules, facilityBookings, facilityAddons,
+  facilities, facilityPricingRules, facilityBookings, facilityAddons, venueSettings,
   leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueCoupons,
   type InsertUser, type User,
   type InsertContact, type Contact,
@@ -35,6 +35,7 @@ import {
   type InsertFacilityPricingRule, type FacilityPricingRule,
   type InsertFacilityBooking, type FacilityBooking,
   type InsertFacilityAddon, type FacilityAddon,
+  type InsertVenueSettings, type VenueSettings,
   type InsertLeagueCompetition, type LeagueCompetition,
   type InsertLeagueDivision, type LeagueDivision,
   type InsertLeagueTeam, type LeagueTeam,
@@ -115,6 +116,8 @@ export interface IStorage {
 
   getFacilityBookings(orgId: number): Promise<(FacilityBooking & { facility?: Facility })[]>;
   getFacilityBooking(id: number): Promise<FacilityBooking | undefined>;
+  getFacilityPricingRule(id: number): Promise<FacilityPricingRule | undefined>;
+  getFacilityAddon(id: number): Promise<FacilityAddon | undefined>;
   createFacilityBooking(data: InsertFacilityBooking): Promise<FacilityBooking>;
   updateFacilityBooking(id: number, data: Partial<InsertFacilityBooking>): Promise<FacilityBooking | undefined>;
   deleteFacilityBooking(id: number): Promise<void>;
@@ -123,6 +126,16 @@ export interface IStorage {
   createFacilityAddon(data: InsertFacilityAddon): Promise<FacilityAddon>;
   updateFacilityAddon(id: number, data: Partial<InsertFacilityAddon>): Promise<FacilityAddon | undefined>;
   deleteFacilityAddon(id: number): Promise<void>;
+
+  getVenueSettings(orgId: number): Promise<VenueSettings | undefined>;
+  upsertVenueSettings(orgId: number, data: Partial<InsertVenueSettings>): Promise<VenueSettings>;
+  getPublicFacilities(orgId: number): Promise<(Facility & { addons: FacilityAddon[]; pricingRules: FacilityPricingRule[] })[]>;
+  getFacilityBookingsForDates(facilityId: number, dates: string[]): Promise<FacilityBooking[]>;
+  createFacilityBookingDrafts(items: InsertFacilityBooking[]): Promise<FacilityBooking[]>;
+  confirmFacilityBookingsByPaymentIntent(paymentIntentId: string): Promise<FacilityBooking[]>;
+  cancelFacilityBookingsByGroup(groupId: string): Promise<void>;
+  cancelPendingFacilityBookingsByGroup(groupId: string): Promise<FacilityBooking[]>;
+  getStalePendingFacilityBookings(olderThanMinutes: number): Promise<FacilityBooking[]>;
 
   getLeagueCompetitions(orgId: number): Promise<LeagueCompetition[]>;
   getLeagueCompetition(id: number): Promise<LeagueCompetition | undefined>;
@@ -1090,6 +1103,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(facilityPricingRules).where(eq(facilityPricingRules.facilityId, facilityId));
   }
 
+  async getFacilityPricingRule(id: number): Promise<FacilityPricingRule | undefined> {
+    const [r] = await db.select().from(facilityPricingRules).where(eq(facilityPricingRules.id, id));
+    return r;
+  }
+
   async createFacilityPricingRule(data: InsertFacilityPricingRule): Promise<FacilityPricingRule> {
     const [r] = await db.insert(facilityPricingRules).values(data).returning();
     return r;
@@ -1133,6 +1151,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(facilityAddons).where(eq(facilityAddons.organizationId, orgId)).orderBy(asc(facilityAddons.name));
   }
 
+  async getFacilityAddon(id: number): Promise<FacilityAddon | undefined> {
+    const [a] = await db.select().from(facilityAddons).where(eq(facilityAddons.id, id));
+    return a;
+  }
+
   async createFacilityAddon(data: InsertFacilityAddon): Promise<FacilityAddon> {
     const [a] = await db.insert(facilityAddons).values(data).returning();
     return a;
@@ -1145,6 +1168,99 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFacilityAddon(id: number): Promise<void> {
     await db.delete(facilityAddons).where(eq(facilityAddons.id, id));
+  }
+
+  async getVenueSettings(orgId: number): Promise<VenueSettings | undefined> {
+    const [s] = await db.select().from(venueSettings).where(eq(venueSettings.organizationId, orgId));
+    return s;
+  }
+
+  async upsertVenueSettings(orgId: number, data: Partial<InsertVenueSettings>): Promise<VenueSettings> {
+    const existing = await this.getVenueSettings(orgId);
+    if (existing) {
+      const [s] = await db.update(venueSettings)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(venueSettings.organizationId, orgId))
+        .returning();
+      return s;
+    }
+    const [s] = await db.insert(venueSettings)
+      .values({ ...data, organizationId: orgId } as InsertVenueSettings)
+      .returning();
+    return s;
+  }
+
+  async getPublicFacilities(orgId: number): Promise<(Facility & { addons: FacilityAddon[]; pricingRules: FacilityPricingRule[] })[]> {
+    const facs = await db.select().from(facilities)
+      .where(and(eq(facilities.organizationId, orgId), eq(facilities.active, true), eq(facilities.publicVisible, true)))
+      .orderBy(asc(facilities.displayOrder), asc(facilities.name));
+    if (facs.length === 0) return [];
+    const facIds = facs.map(f => f.id);
+    const allRules = await db.select().from(facilityPricingRules).where(inArray(facilityPricingRules.facilityId, facIds));
+    const allAddons = await db.select().from(facilityAddons)
+      .where(and(eq(facilityAddons.organizationId, orgId), eq(facilityAddons.active, true)));
+    return facs.map(f => ({
+      ...f,
+      pricingRules: allRules.filter(r => r.facilityId === f.id),
+      addons: allAddons.filter(a => a.appliesToAll),
+    }));
+  }
+
+  async getFacilityBookingsForDates(facilityId: number, dates: string[]): Promise<FacilityBooking[]> {
+    if (dates.length === 0) return [];
+    return db.select().from(facilityBookings)
+      .where(and(
+        eq(facilityBookings.facilityId, facilityId),
+        inArray(facilityBookings.bookingDate, dates),
+        inArray(facilityBookings.status, ["pending", "confirmed", "paid"]),
+      ));
+  }
+
+  // Returns ids of pending bookings older than the cutoff (used by the abandoned-cart sweeper)
+  async getStalePendingFacilityBookings(olderThanMinutes: number): Promise<FacilityBooking[]> {
+    const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+    return db.select().from(facilityBookings)
+      .where(and(
+        eq(facilityBookings.status, "pending"),
+        sql`${facilityBookings.createdAt} < ${cutoff}`,
+      ));
+  }
+
+  async createFacilityBookingDrafts(items: InsertFacilityBooking[]): Promise<FacilityBooking[]> {
+    if (items.length === 0) return [];
+    return db.insert(facilityBookings).values(items).returning();
+  }
+
+  async confirmFacilityBookingsByPaymentIntent(paymentIntentId: string): Promise<FacilityBooking[]> {
+    // Idempotent: only flip pending → paid; later duplicate webhook deliveries return 0 rows
+    return db.update(facilityBookings)
+      .set({ status: "paid", paidAt: new Date() })
+      .where(and(
+        eq(facilityBookings.stripePaymentIntentId, paymentIntentId),
+        eq(facilityBookings.status, "pending"),
+      ))
+      .returning();
+  }
+
+  async cancelPendingFacilityBookingsByGroup(groupId: string): Promise<FacilityBooking[]> {
+    // Only cancel rows that are still pending — never override a paid/confirmed booking
+    return db.update(facilityBookings)
+      .set({ status: "cancelled" })
+      .where(and(
+        eq(facilityBookings.bookingGroupId, groupId),
+        eq(facilityBookings.status, "pending"),
+      ))
+      .returning();
+  }
+
+  async cancelFacilityBookingsByGroup(groupId: string): Promise<void> {
+    // Used by the payment_intent.payment_failed webhook to fully cancel a group
+    await db.update(facilityBookings)
+      .set({ status: "cancelled" })
+      .where(and(
+        eq(facilityBookings.bookingGroupId, groupId),
+        eq(facilityBookings.status, "pending"),
+      ));
   }
 
   async getLeagueCompetitions(orgId: number): Promise<LeagueCompetition[]> {

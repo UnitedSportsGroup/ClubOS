@@ -35,12 +35,31 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
     halfFull: facility?.halfFull || false,
     floodlights: facility?.floodlights || false,
     bufferMinutes: facility?.bufferMinutes || 0,
+    publicVisible: facility?.publicVisible ?? true,
+    displayOrder: facility?.displayOrder ?? 0,
+    pricePerHour: facility?.pricePerHourCents != null ? (facility.pricePerHourCents / 100).toFixed(2) : "",
+    halfPricePerHour: facility?.halfFieldPricePerHourCents != null ? (facility.halfFieldPricePerHourCents / 100).toFixed(2) : "",
   });
 
   const saveMutation = useMutation({
-    mutationFn: () => facility
-      ? apiRequest("PATCH", `/api/admin/venue/facilities/${facility.id}`, form)
-      : apiRequest("POST", "/api/admin/venue/facilities", { ...form, organizationId: orgId }),
+    mutationFn: () => {
+      const payload = {
+        name: form.name,
+        type: form.type,
+        description: form.description,
+        imageUrl: form.imageUrl,
+        halfFull: form.halfFull,
+        floodlights: form.floodlights,
+        bufferMinutes: form.bufferMinutes,
+        publicVisible: form.publicVisible,
+        displayOrder: form.displayOrder,
+        pricePerHourCents: form.pricePerHour ? Math.round(parseFloat(form.pricePerHour) * 100) : null,
+        halfFieldPricePerHourCents: form.halfPricePerHour ? Math.round(parseFloat(form.halfPricePerHour) * 100) : null,
+      };
+      return facility
+        ? apiRequest("PATCH", `/api/admin/venue/facilities/${facility.id}`, payload)
+        : apiRequest("POST", "/api/admin/venue/facilities", { ...payload, organizationId: orgId });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities"] });
       toast({ title: facility ? "Facility updated" : "Facility created" });
@@ -88,6 +107,54 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
           <div>
             <label className="text-xs text-white/40 mb-1 block">Buffer Minutes</label>
             <Input type="number" value={form.bufferMinutes} onChange={e => setForm({ ...form, bufferMinutes: parseInt(e.target.value) || 0 })} className="bg-white/5 border-white/10 text-white" data-testid="input-buffer-minutes" />
+          </div>
+
+          <div className="border-t border-white/[0.06] pt-3 space-y-3">
+            <div className="text-[11px] uppercase tracking-wider text-white/30">Public booking site</div>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white/40">Show publicly</span>
+                <Switch checked={form.publicVisible} onCheckedChange={v => setForm({ ...form, publicVisible: v })} data-testid="switch-public-visible" />
+              </div>
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-xs text-white/40">Display order</span>
+                <Input
+                  type="number"
+                  value={form.displayOrder}
+                  onChange={e => setForm({ ...form, displayOrder: parseInt(e.target.value) || 0 })}
+                  className="bg-white/5 border-white/10 text-white w-24"
+                  data-testid="input-display-order"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-white/40 mb-1 block">Price / hour (NZD)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.pricePerHour}
+                  onChange={e => setForm({ ...form, pricePerHour: e.target.value })}
+                  placeholder="e.g. 180.00"
+                  className="bg-white/5 border-white/10 text-white"
+                  data-testid="input-price-per-hour"
+                />
+              </div>
+              {form.halfFull && (
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">Half-field / hour (NZD)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.halfPricePerHour}
+                    onChange={e => setForm({ ...form, halfPricePerHour: e.target.value })}
+                    placeholder="defaults to 50%"
+                    className="bg-white/5 border-white/10 text-white"
+                    data-testid="input-half-price-per-hour"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-2">

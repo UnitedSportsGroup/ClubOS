@@ -302,6 +302,10 @@ export const facilities = pgTable("facilities", {
   floodlights: boolean("floodlights").default(false),
   bufferMinutes: integer("buffer_minutes").default(0),
   active: boolean("active").notNull().default(true),
+  publicVisible: boolean("public_visible").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  pricePerHourCents: integer("price_per_hour_cents").default(0),
+  halfFieldPricePerHourCents: integer("half_field_price_per_hour_cents"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -323,15 +327,44 @@ export const facilityBookings = pgTable("facility_bookings", {
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone"),
+  customerClub: text("customer_club"),
   bookingDate: date("booking_date").notNull(),
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),
+  halfFull: text("half_full"),
+  addonsJson: jsonb("addons_json"),
+  subtotalCents: integer("subtotal_cents").default(0),
+  gstCents: integer("gst_cents").default(0),
+  totalCents: integer("total_cents").default(0),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   gstAmount: decimal("gst_amount", { precision: 10, scale: 2 }),
   status: bookingStatusEnum("status").notNull().default("pending"),
   stripePaymentId: text("stripe_payment_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  paidAt: timestamp("paid_at"),
+  bookingGroupId: text("booking_group_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const venueSettings = pgTable("venue_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().unique().references(() => organizations.id, { onDelete: "cascade" }),
+  siteTitle: text("site_title").notNull().default("Book a Facility"),
+  introText: text("intro_text").default(""),
+  brandColor: text("brand_color").default("#6366f1"),
+  openingTime: text("opening_time").notNull().default("07:00"),
+  closingTime: text("closing_time").notNull().default("22:00"),
+  slotMinutes: integer("slot_minutes").notNull().default(30),
+  minDurationMinutes: integer("min_duration_minutes").notNull().default(60),
+  advanceBookingDays: integer("advance_booking_days").notNull().default(60),
+  gstRatePercent: decimal("gst_rate_percent", { precision: 5, scale: 2 }).notNull().default("15.00"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  footerText: text("footer_text").default(""),
+  paymentPolicy: text("payment_policy").default("Full payment required at booking. Cancellations 48 hours+ in advance receive a full refund."),
+  successMessage: text("success_message").default("Thanks for your booking! A confirmation has been sent to your email."),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const facilityAddons = pgTable("facility_addons", {
@@ -598,6 +631,7 @@ export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: tr
 export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricingRules).omit({ id: true });
 export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
 export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
+export const insertVenueSettingsSchema = createInsertSchema(venueSettings).omit({ id: true, updatedAt: true });
 
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({ id: true, createdAt: true });
 export const insertTournamentGroupSchema = createInsertSchema(tournamentGroups).omit({ id: true, createdAt: true });
@@ -686,6 +720,8 @@ export type InsertFacilityBooking = z.infer<typeof insertFacilityBookingSchema>;
 export type FacilityBooking = typeof facilityBookings.$inferSelect;
 export type InsertFacilityAddon = z.infer<typeof insertFacilityAddonSchema>;
 export type FacilityAddon = typeof facilityAddons.$inferSelect;
+export type InsertVenueSettings = z.infer<typeof insertVenueSettingsSchema>;
+export type VenueSettings = typeof venueSettings.$inferSelect;
 export type InsertLeagueCompetition = z.infer<typeof insertLeagueCompetitionSchema>;
 export type LeagueCompetition = typeof leagueCompetitions.$inferSelect;
 export type InsertLeagueDivision = z.infer<typeof insertLeagueDivisionSchema>;

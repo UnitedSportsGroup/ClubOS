@@ -1,9 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
@@ -1126,11 +1126,17 @@ export async function registerRoutes(
   });
 
   // ============ VENUE / FACILITY ROUTES ============
+  // Org-membership guard (mirrors the pattern used by /api/admin/discounts/*)
+  async function checkUserOrg(userId: number, orgId: number): Promise<boolean> {
+    const userOrgs = await storage.getUserOrganizations(userId);
+    return userOrgs.some((o: any) => o.id === orgId);
+  }
 
   app.get("/api/admin/venue/facilities", requireAuth, async (req, res) => {
     try {
       const orgId = parseInt(req.query.orgId as string);
       if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const list = await storage.getFacilities(orgId);
       const withRules = await Promise.all(list.map(async f => {
         const rules = await storage.getFacilityPricingRules(f.id);
@@ -1144,6 +1150,9 @@ export async function registerRoutes(
 
   app.post("/api/admin/venue/facilities", requireAuth, async (req, res) => {
     try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const facility = await storage.createFacility(req.body);
       res.json(facility);
     } catch (error: any) {
@@ -1153,7 +1162,12 @@ export async function registerRoutes(
 
   app.patch("/api/admin/venue/facilities/:id", requireAuth, async (req, res) => {
     try {
-      const facility = await storage.updateFacility(parseInt(req.params.id), req.body);
+      const existing = await storage.getFacility(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      // Don't allow moving a facility into another org via PATCH
+      const { organizationId: _ignore, ...patch } = req.body || {};
+      const facility = await storage.updateFacility(parseInt(req.params.id), patch);
       if (!facility) return res.status(404).json({ message: "Not found" });
       res.json(facility);
     } catch (error: any) {
@@ -1163,6 +1177,9 @@ export async function registerRoutes(
 
   app.delete("/api/admin/venue/facilities/:id", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getFacility(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteFacility(parseInt(req.params.id));
       res.json({ ok: true });
     } catch (error: any) {
@@ -1172,6 +1189,9 @@ export async function registerRoutes(
 
   app.get("/api/admin/venue/facilities/:id/pricing", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getFacility(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
       const rules = await storage.getFacilityPricingRules(parseInt(req.params.id));
       res.json(rules);
     } catch (error: any) {
@@ -1181,6 +1201,9 @@ export async function registerRoutes(
 
   app.post("/api/admin/venue/facilities/:id/pricing", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getFacility(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
       const rule = await storage.createFacilityPricingRule({ ...req.body, facilityId: parseInt(req.params.id) });
       res.json(rule);
     } catch (error: any) {
@@ -1190,6 +1213,11 @@ export async function registerRoutes(
 
   app.delete("/api/admin/venue/pricing/:id", requireAuth, async (req, res) => {
     try {
+      const rule = await storage.getFacilityPricingRule(parseInt(req.params.id));
+      if (!rule) return res.status(404).json({ message: "Not found" });
+      const fac = await storage.getFacility(rule.facilityId);
+      if (!fac) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, fac.organizationId))) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteFacilityPricingRule(parseInt(req.params.id));
       res.json({ ok: true });
     } catch (error: any) {
@@ -1201,6 +1229,7 @@ export async function registerRoutes(
     try {
       const orgId = parseInt(req.query.orgId as string);
       if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const bookings = await storage.getFacilityBookings(orgId);
       res.json(bookings);
     } catch (error: any) {
@@ -1210,6 +1239,16 @@ export async function registerRoutes(
 
   app.post("/api/admin/venue/bookings", requireAuth, async (req, res) => {
     try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      // Cross-resource check: facility must belong to the same org as the booking
+      const facId = parseInt(req.body?.facilityId);
+      if (!facId) return res.status(400).json({ message: "facilityId required" });
+      const fac = await storage.getFacility(facId);
+      if (!fac || fac.organizationId !== orgId) {
+        return res.status(400).json({ message: "Facility does not belong to this organization" });
+      }
       const booking = await storage.createFacilityBooking(req.body);
       res.json(booking);
     } catch (error: any) {
@@ -1219,7 +1258,19 @@ export async function registerRoutes(
 
   app.patch("/api/admin/venue/bookings/:id", requireAuth, async (req, res) => {
     try {
-      const booking = await storage.updateFacilityBooking(parseInt(req.params.id), req.body);
+      const existing = await storage.getFacilityBooking(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      // Strip organizationId so a row can't be moved to another org via PATCH
+      const { organizationId: _ignore, ...patch } = req.body || {};
+      // If facilityId is being changed, validate the new facility is in the same org
+      if (patch.facilityId !== undefined && parseInt(patch.facilityId) !== existing.facilityId) {
+        const newFac = await storage.getFacility(parseInt(patch.facilityId));
+        if (!newFac || newFac.organizationId !== existing.organizationId) {
+          return res.status(400).json({ message: "Facility does not belong to this organization" });
+        }
+      }
+      const booking = await storage.updateFacilityBooking(parseInt(req.params.id), patch);
       if (!booking) return res.status(404).json({ message: "Not found" });
       res.json(booking);
     } catch (error: any) {
@@ -1229,6 +1280,9 @@ export async function registerRoutes(
 
   app.delete("/api/admin/venue/bookings/:id", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getFacilityBooking(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteFacilityBooking(parseInt(req.params.id));
       res.json({ ok: true });
     } catch (error: any) {
@@ -1240,6 +1294,7 @@ export async function registerRoutes(
     try {
       const orgId = parseInt(req.query.orgId as string);
       if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const addons = await storage.getFacilityAddons(orgId);
       res.json(addons);
     } catch (error: any) {
@@ -1249,6 +1304,9 @@ export async function registerRoutes(
 
   app.post("/api/admin/venue/addons", requireAuth, async (req, res) => {
     try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const addon = await storage.createFacilityAddon(req.body);
       res.json(addon);
     } catch (error: any) {
@@ -1258,7 +1316,11 @@ export async function registerRoutes(
 
   app.patch("/api/admin/venue/addons/:id", requireAuth, async (req, res) => {
     try {
-      const addon = await storage.updateFacilityAddon(parseInt(req.params.id), req.body);
+      const existing = await storage.getFacilityAddon(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const { organizationId: _ignore, ...patch } = req.body || {};
+      const addon = await storage.updateFacilityAddon(parseInt(req.params.id), patch);
       if (!addon) return res.status(404).json({ message: "Not found" });
       res.json(addon);
     } catch (error: any) {
@@ -1268,8 +1330,417 @@ export async function registerRoutes(
 
   app.delete("/api/admin/venue/addons/:id", requireAuth, async (req, res) => {
     try {
+      const existing = await storage.getFacilityAddon(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteFacilityAddon(parseInt(req.params.id));
       res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // ========= Public Venue Booking APIs =========
+
+  function calcItemPriceCents(
+    item: { date: string; startTime: string; endTime: string; halfFull?: string | null },
+    facility: { pricePerHourCents: number | null; halfFieldPricePerHourCents: number | null },
+    rules: { dayOfWeek: number | null; startTime: string | null; endTime: string | null; pricePerHour: string; isDefault: boolean | null }[]
+  ): number {
+    const [sh, sm] = item.startTime.split(":").map(Number);
+    const [eh, em] = item.endTime.split(":").map(Number);
+    const minutes = (eh * 60 + em) - (sh * 60 + sm);
+    if (minutes <= 0) return 0;
+    const hours = minutes / 60;
+
+    const dayOfWeek = new Date(item.date + "T00:00:00").getDay();
+    let pricePerHourCents = 0;
+
+    const specific = rules.find(r =>
+      r.dayOfWeek != null && r.dayOfWeek === dayOfWeek &&
+      r.startTime && r.endTime &&
+      item.startTime >= r.startTime && item.endTime <= r.endTime
+    );
+
+    if (specific) {
+      pricePerHourCents = Math.round(parseFloat(specific.pricePerHour) * 100);
+    } else {
+      const def = rules.find(r => r.isDefault);
+      if (def) pricePerHourCents = Math.round(parseFloat(def.pricePerHour) * 100);
+      else pricePerHourCents = facility.pricePerHourCents || 0;
+    }
+
+    let baseCents = Math.round(pricePerHourCents * hours);
+
+    if (item.halfFull === "half") {
+      if (facility.halfFieldPricePerHourCents != null) {
+        baseCents = Math.round(facility.halfFieldPricePerHourCents * hours);
+      } else {
+        baseCents = Math.round(baseCents / 2);
+      }
+    }
+    return baseCents;
+  }
+
+  function calcAddonCents(addon: { price: string; unit: string }, qty: number, hours: number): number {
+    const priceCents = Math.round(parseFloat(addon.price) * 100);
+    if (addon.unit === "per_hour") return priceCents * qty * Math.max(1, hours);
+    return priceCents * qty;
+  }
+
+  async function resolveVenueOrg(req: Request) {
+    const slug = (req.query.slug as string) || "";
+    const hostHeader = (req.headers["x-forwarded-host"] as string) || (req.headers.host as string) || "";
+    const hostname = hostHeader.split(":")[0].toLowerCase();
+    let org: any = null;
+    if (slug) {
+      const [o] = await db.select().from(organizations).where(eq(organizations.slug, slug));
+      if (o) org = o;
+    }
+    if (!org && hostname) {
+      try {
+        const dom = await storage.getCustomDomainByHostname(hostname);
+        if (dom) {
+          const [o] = await db.select().from(organizations).where(eq(organizations.id, dom.organizationId));
+          if (o) org = o;
+        }
+      } catch {}
+    }
+    return org;
+  }
+
+  app.get("/api/public/venue/resolve", async (req, res) => {
+    try {
+      const org = await resolveVenueOrg(req);
+      if (!org) return res.status(404).json({ message: "Venue not found" });
+      let settings = await storage.getVenueSettings(org.id);
+      if (!settings) {
+        settings = await storage.upsertVenueSettings(org.id, {
+          siteTitle: `Book ${org.name}`,
+          introText: "",
+        });
+      }
+      res.json({
+        organization: { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl || null },
+        settings,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Tenant-binding helper: verify a facility actually belongs to the requested org
+  async function assertFacilityInOrg(facilityId: number, orgId: number): Promise<boolean> {
+    const f = await storage.getFacility(facilityId);
+    return !!f && f.organizationId === orgId;
+  }
+
+  app.get("/api/public/venue/:orgId/facilities", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const facs = await storage.getPublicFacilities(orgId);
+      res.json(facs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/venue/:orgId/availability", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      const facilityId = parseInt(req.query.facilityId as string);
+      const datesStr = (req.query.dates as string) || "";
+      const dates = datesStr.split(",").map(d => d.trim()).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+      if (!orgId || !facilityId || dates.length === 0) return res.status(400).json({ message: "orgId, facilityId and dates required" });
+      if (!(await assertFacilityInOrg(facilityId, orgId))) {
+        return res.status(404).json({ message: "Facility not found" });
+      }
+      const bookings = await storage.getFacilityBookingsForDates(facilityId, dates);
+      res.json(bookings.map(b => ({
+        date: b.bookingDate,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        halfFull: b.halfFull,
+        status: b.status,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const bookingItemSchema = z.object({
+    facilityId: z.number().int().positive(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    halfFull: z.enum(["half", "full"]).nullable().optional(),
+    addons: z.array(z.object({
+      addonId: z.number().int().positive(),
+      qty: z.number().int().positive().default(1),
+    })).default([]),
+  });
+
+  async function buildQuote(orgId: number, items: z.infer<typeof bookingItemSchema>[]) {
+    const settings = await storage.getVenueSettings(orgId);
+    const gstRate = settings ? parseFloat(settings.gstRatePercent) : 15;
+    const facs = await storage.getPublicFacilities(orgId);
+    const facMap = new Map(facs.map(f => [f.id, f]));
+    const allAddons = facs[0]?.addons ?? [];
+    const addonMap = new Map(allAddons.map(a => [a.id, a]));
+
+    // Tenant binding: every facilityId in the request must belong to this org's public catalog
+    for (const it of items) {
+      if (!facMap.has(it.facilityId)) throw new Error(`Facility ${it.facilityId} not available`);
+    }
+
+    const lineItems = items.map((item) => {
+      const facility = facMap.get(item.facilityId);
+      if (!facility) throw new Error(`Facility ${item.facilityId} not available`);
+      const baseCents = calcItemPriceCents(item, facility, facility.pricingRules);
+      const [sh, sm] = item.startTime.split(":").map(Number);
+      const [eh, em] = item.endTime.split(":").map(Number);
+      const hours = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+      const addonLines = item.addons.map(a => {
+        const addon = addonMap.get(a.addonId);
+        if (!addon) throw new Error(`Add-on ${a.addonId} not available`);
+        return {
+          addonId: addon.id,
+          name: addon.name,
+          unit: addon.unit,
+          qty: a.qty,
+          priceCents: calcAddonCents(addon, a.qty, hours),
+        };
+      });
+      const addonsCents = addonLines.reduce((s, a) => s + a.priceCents, 0);
+      return {
+        facilityId: item.facilityId,
+        facilityName: facility.name,
+        date: item.date,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        halfFull: item.halfFull || null,
+        hours,
+        baseCents,
+        addons: addonLines,
+        totalCents: baseCents + addonsCents,
+      };
+    });
+
+    const subtotalCents = lineItems.reduce((s, l) => s + l.totalCents, 0);
+    const gstCents = Math.round(subtotalCents * (gstRate / 100));
+    const totalCents = subtotalCents + gstCents;
+    return { lineItems, subtotalCents, gstCents, totalCents, gstRate };
+  }
+
+  app.post("/api/public/venue/:orgId/bookings/quote", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      const items = z.array(bookingItemSchema).min(1).parse(req.body.items);
+      const quote = await buildQuote(orgId, items);
+      res.json(quote);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  const checkoutSchema = z.object({
+    items: z.array(bookingItemSchema).min(1),
+    customer: z.object({
+      name: z.string().min(1),
+      email: z.string().email(),
+      phone: z.string().optional().default(""),
+      club: z.string().optional().default(""),
+      notes: z.string().optional().default(""),
+    }),
+  });
+
+  app.post("/api/public/venue/:orgId/bookings/checkout", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
+
+      const parsed = checkoutSchema.parse(req.body);
+      const quote = await buildQuote(orgId, parsed.items);
+
+      const groupId = `vbg_${crypto.randomBytes(8).toString("hex")}`;
+
+      const bookingsToCreate: any[] = quote.lineItems.map((line) => ({
+        organizationId: orgId,
+        facilityId: line.facilityId,
+        customerName: parsed.customer.name,
+        customerEmail: parsed.customer.email,
+        customerPhone: parsed.customer.phone || null,
+        customerClub: parsed.customer.club || null,
+        bookingDate: line.date,
+        startTime: line.startTime,
+        endTime: line.endTime,
+        halfFull: line.halfFull,
+        addonsJson: line.addons,
+        subtotalCents: line.totalCents,
+        gstCents: Math.round(line.totalCents * (quote.gstRate / 100)),
+        totalCents: line.totalCents + Math.round(line.totalCents * (quote.gstRate / 100)),
+        totalAmount: ((line.totalCents + Math.round(line.totalCents * (quote.gstRate / 100))) / 100).toFixed(2),
+        gstAmount: (Math.round(line.totalCents * (quote.gstRate / 100)) / 100).toFixed(2),
+        status: "pending" as const,
+        bookingGroupId: groupId,
+        notes: parsed.customer.notes || null,
+      }));
+
+      // Atomic availability reservation: serialize concurrent checkouts for the same facility
+      // using PostgreSQL transaction-scoped advisory locks, then re-check for conflicts inside
+      // the transaction before inserting the draft bookings.
+      const uniqueFacilityIds = Array.from(new Set(parsed.items.map(i => i.facilityId))).sort((a, b) => a - b);
+      const created = await db.transaction(async (tx) => {
+        for (const fid of uniqueFacilityIds) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${fid})`);
+        }
+        const datesByFacility = new Map<number, string[]>();
+        for (const it of parsed.items) {
+          if (!datesByFacility.has(it.facilityId)) datesByFacility.set(it.facilityId, []);
+          datesByFacility.get(it.facilityId)!.push(it.date);
+        }
+        for (const [fid, dates] of datesByFacility.entries()) {
+          const existing = await tx.select().from(facilityBookings)
+            .where(and(
+              eq(facilityBookings.facilityId, fid),
+              inArray(facilityBookings.bookingDate, Array.from(new Set(dates))),
+              inArray(facilityBookings.status, ["pending", "confirmed", "paid"]),
+            ));
+          for (const it of parsed.items) {
+            if (it.facilityId !== fid) continue;
+            const conflict = existing.find(e =>
+              e.bookingDate === it.date &&
+              e.startTime < it.endTime &&
+              e.endTime > it.startTime
+            );
+            if (conflict) {
+              throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}`);
+            }
+          }
+        }
+        return await tx.insert(facilityBookings).values(bookingsToCreate).returning();
+      });
+
+      // Stripe payment intent (created after slots are reserved)
+      const { stripe } = await import("./stripe");
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: quote.totalCents,
+        currency: "nzd",
+        receipt_email: parsed.customer.email,
+        description: `Facility booking — ${parsed.items.length} session${parsed.items.length > 1 ? "s" : ""}`,
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          facilityBookingGroupId: groupId,
+          organizationId: String(orgId),
+          customerEmail: parsed.customer.email,
+        },
+      });
+
+      // Stamp the PI on the just-created bookings
+      await db.update(facilityBookings)
+        .set({ stripePaymentIntentId: paymentIntent.id })
+        .where(eq(facilityBookings.bookingGroupId, groupId));
+
+      res.json({
+        bookingGroupId: groupId,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        quote,
+        bookingIds: created.map(b => b.id),
+      });
+    } catch (error: any) {
+      console.error("[Venue Checkout] Error:", error);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Cancel any still-pending bookings in a group (used when the customer navigates back
+  // from the payment step). Only updates rows whose status is still 'pending' so a
+  // concurrent payment success isn't clobbered. Requires the customer's email to prove
+  // ownership — group ids have ~64 bits of entropy but we still gate this to prevent
+  // abuse if a group id is leaked (e.g. via a shared link).
+  app.post("/api/public/venue/booking-group/:groupId/cancel-pending", async (req, res) => {
+    try {
+      const groupId = req.params.groupId;
+      const emailQ = ((req.body?.email as string) || "").trim().toLowerCase();
+      if (!emailQ) return res.status(400).json({ message: "email required" });
+      const bookings = await db.select().from(facilityBookings)
+        .where(eq(facilityBookings.bookingGroupId, groupId));
+      if (bookings.length === 0) return res.status(404).json({ message: "Booking group not found" });
+      if ((bookings[0].customerEmail || "").toLowerCase() !== emailQ) {
+        return res.status(404).json({ message: "Booking group not found" });
+      }
+      const cancelled = await storage.cancelPendingFacilityBookingsByGroup(groupId);
+      res.json({ cancelled: cancelled.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Fetch a booking group for the success page. Requires ?email= matching the booking's
+  // customer email (case-insensitive) so anyone with the group id alone can't read PII.
+  app.get("/api/public/venue/booking-group/:groupId", async (req, res) => {
+    try {
+      const groupId = req.params.groupId;
+      const emailQ = ((req.query.email as string) || "").trim().toLowerCase();
+      if (!emailQ) return res.status(400).json({ message: "email required" });
+      const bookings = await db.select({
+        booking: facilityBookings,
+        facility: facilities,
+      }).from(facilityBookings)
+        .leftJoin(facilities, eq(facilityBookings.facilityId, facilities.id))
+        .where(eq(facilityBookings.bookingGroupId, groupId));
+      if (bookings.length === 0) return res.status(404).json({ message: "Booking group not found" });
+      if ((bookings[0].booking.customerEmail || "").toLowerCase() !== emailQ) {
+        return res.status(404).json({ message: "Booking group not found" });
+      }
+      res.json({
+        bookings: bookings.map(r => ({ ...r.booking, facilityName: r.facility?.name })),
+        status: bookings[0].booking.status,
+        customerName: bookings[0].booking.customerName,
+        customerEmail: bookings[0].booking.customerEmail,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ========= Admin venue settings =========
+
+  // Helper: ensure the current user is a member of the requested org
+  async function userHasOrg(userId: number, orgId: number): Promise<boolean> {
+    const userOrgs = await storage.getUserOrganizations(userId);
+    return userOrgs.some((o: any) => o.id === orgId);
+  }
+
+  app.get("/api/admin/venue/settings", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await userHasOrg(req.session.userId!, orgId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      let settings = await storage.getVenueSettings(orgId);
+      if (!settings) {
+        settings = await storage.upsertVenueSettings(orgId, { siteTitle: "Book a Facility" });
+      }
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/venue/settings", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await userHasOrg(req.session.userId!, orgId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const settings = await storage.upsertVenueSettings(orgId, req.body);
+      res.json(settings);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -3222,6 +3693,43 @@ export async function registerRoutes(
         const registrationId = parseInt(paymentIntent.metadata?.registrationId);
         if (registrationId) {
           await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
+        }
+        const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
+        if (facilityGroupId) {
+          try {
+            const updated = await storage.confirmFacilityBookingsByPaymentIntent(paymentIntent.id);
+            console.log(`[Stripe Webhook] Confirmed ${updated.length} facility bookings for group ${facilityGroupId}`);
+            if (updated.length > 0) {
+              const first = updated[0];
+              const totalCents = updated.reduce((s, b) => s + (b.totalCents || 0), 0);
+              const lines = await Promise.all(updated.map(async b => {
+                const f = await storage.getFacility(b.facilityId);
+                return `<li>${f?.name || 'Facility'} — ${b.bookingDate} ${b.startTime}–${b.endTime}${b.halfFull === 'half' ? ' (Half)' : ''}</li>`;
+              }));
+              try {
+                const { sendEmail } = await import("./email");
+                await sendEmail({
+                  to: first.customerEmail,
+                  from: "United Sports Centre <bookings@unitedsportscentre.com>",
+                  subject: `Booking confirmation — ${updated.length} session${updated.length > 1 ? 's' : ''}`,
+                  html: `<p>Hi ${first.customerName},</p>
+                    <p>Thanks for your booking! Your reservation is confirmed.</p>
+                    <ul>${lines.join('')}</ul>
+                    <p><strong>Total paid:</strong> NZ$${(totalCents / 100).toFixed(2)} (incl. GST)</p>
+                    <p>Reference: <code>${facilityGroupId}</code></p>
+                    <p>See you at the centre!</p>`,
+                });
+              } catch (e) { console.error("[Venue email] failed", e); }
+            }
+          } catch (e) {
+            console.error("[Stripe Webhook] Facility booking confirm failed:", e);
+          }
+        }
+      } else if (event.type === "payment_intent.payment_failed") {
+        const paymentIntent = event.data.object as any;
+        const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
+        if (facilityGroupId) {
+          try { await storage.cancelFacilityBookingsByGroup(facilityGroupId); } catch (e) { console.error(e); }
         }
       } else if (
         event.type === "charge.refunded" ||

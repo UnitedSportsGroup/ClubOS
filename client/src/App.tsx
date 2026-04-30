@@ -41,6 +41,8 @@ import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
 import VenuePayments from "@/pages/venue-payments";
 import VenueSettings from "@/pages/venue-settings";
+import VenueBookPage from "@/pages/venue-book";
+import VenueBookSuccess from "@/pages/venue-book-success";
 import LeagueDashboard from "@/pages/league-dashboard";
 import LeagueCompetitions from "@/pages/league-competitions";
 import LeagueCompetitionDetail from "@/pages/league-competition-detail";
@@ -247,12 +249,6 @@ function AdminLayout() {
 }
 
 function App() {
-  const [isCampSlug] = useRoute("/:slug");
-  const [isCampBook] = useRoute("/:slug/book");
-  const [isCampCheckout] = useRoute("/:slug/checkout");
-  const [isCampSuccess] = useRoute("/:slug/success");
-  const [isCampFeedback] = useRoute("/:slug/feedback");
-  const [isCampCancel] = useRoute("/:slug/cancel");
   const [isAdminLogin] = useRoute("/admin/login");
   const [isAdminEditPage] = useRoute("/admin/camps/:id/edit-page");
   const [isAdminDeep] = useRoute("/admin/**");
@@ -276,6 +272,8 @@ function App() {
             </Route>
             <Route path="/terms" component={TermsPage} />
             <Route path="/privacy" component={PrivacyPage} />
+            <Route path="/book" component={VenueBookPage} />
+            <Route path="/book/success" component={VenueBookSuccess} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/feedback" component={AttributionSurvey} />
