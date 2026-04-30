@@ -124,7 +124,7 @@ export default function GroupCalendar() {
 
   // Load this workspace's calendar categories. The server lazily seeds the historical
   // built-in defaults on first request, so existing workspaces look identical.
-  const { data: categories = [] } = useQuery<CalendarCategory[]>({
+  const { data: categories = [], isLoading: categoriesLoading, isError: categoriesError } = useQuery<CalendarCategory[]>({
     queryKey: ["/api/admin/calendar-categories", orgId],
     queryFn: async () => {
       const r = await fetch(`/api/admin/calendar-categories?organizationId=${orgId}`, { credentials: "include" });
@@ -134,10 +134,15 @@ export default function GroupCalendar() {
     enabled: !!orgId,
   });
 
-  // The "active set" we render in the UI; falls back to the bare default while loading.
+  // The "active set" we render in the UI. Only fall back to the placeholder once
+  // we have actually finished a successful load and got nothing back; while loading
+  // we keep the sidebar empty so we don't mislead the user that "General" is their
+  // only calendar.
   const calendarTypes = categories.length > 0
     ? categories.map(c => ({ id: c.slug, label: c.label, color: c.color, isSystem: c.isSystem, _id: c.id }))
-    : DEFAULT_CALENDAR_TYPES.map(c => ({ ...c, isSystem: true, _id: -1 }));
+    : (categoriesLoading || !orgId)
+      ? []
+      : DEFAULT_CALENDAR_TYPES.map(c => ({ ...c, isSystem: true, _id: -1 }));
 
   // Initialise / reconcile visibleCalendars when categories load. Newly added categories
   // are visible by default; deleted ones are dropped from the set automatically.
@@ -154,7 +159,11 @@ export default function GroupCalendar() {
     });
   }, [categories]);
 
-  const visibleSet = visibleCalendars ?? new Set<string>(calendarTypes.map(c => c.id));
+  // CRITICAL: until categories have actually loaded for this workspace, do NOT filter
+  // events at all (treat as "show all"). Otherwise events whose slug isn't yet in the
+  // visible set get hidden and look like they've been deleted. `null` means "no filter".
+  const visibleSet: Set<string> | null = visibleCalendars
+    ?? (categories.length > 0 ? new Set<string>(categories.map(c => c.slug)) : null);
 
   const [formTitle, setFormTitle] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -200,7 +209,9 @@ export default function GroupCalendar() {
     },
   });
 
-  const filteredEvents = events.filter(e => visibleSet.has(e.calendarType));
+  // If visibleSet is null we haven't finished loading categories yet — render every event
+  // rather than risk hiding events whose category we don't know about.
+  const filteredEvents = visibleSet === null ? events : events.filter(e => visibleSet.has(e.calendarType));
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -550,12 +561,20 @@ export default function GroupCalendar() {
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-white/30 font-semibold mb-2">Calendars</div>
+          {categoriesLoading && (
+            <div className="text-xs text-white/30 px-2 py-1.5" data-testid="text-calendars-loading">Loading…</div>
+          )}
+          {categoriesError && (
+            <div className="text-xs text-red-400/80 px-2 py-1.5" data-testid="text-calendars-error">Couldn't load calendars. Showing all events.</div>
+          )}
           <div className="space-y-1">
-            {calendarTypes.map(cal => (
+            {calendarTypes.map(cal => {
+              const isVisible = visibleSet === null ? true : visibleSet.has(cal.id);
+              return (
               <div key={cal.id} className="group flex items-center gap-2 w-full px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors" data-testid={`row-calendar-${cal.id}`}>
                 <button onClick={() => toggleCalendar(cal.id)} className="flex items-center gap-2 flex-1 text-left" data-testid={`toggle-calendar-${cal.id}`}>
-                  <div className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: visibleSet.has(cal.id) ? cal.color : "transparent", border: `2px solid ${cal.color}` }}>
-                    {visibleSet.has(cal.id) && <span className="text-white text-[8px]">✓</span>}
+                  <div className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: isVisible ? cal.color : "transparent", border: `2px solid ${cal.color}` }}>
+                    {isVisible && <span className="text-white text-[8px]">✓</span>}
                   </div>
                   <span className="text-xs text-white/60 truncate">{cal.label}</span>
                 </button>
@@ -582,7 +601,8 @@ export default function GroupCalendar() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {orgId && (
               <button
                 onClick={openCreateCategory}
