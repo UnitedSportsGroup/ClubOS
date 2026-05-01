@@ -345,6 +345,10 @@ export const facilityBookings = pgTable("facility_bookings", {
   paidAt: timestamp("paid_at"),
   bookingGroupId: text("booking_group_id"),
   notes: text("notes"),
+  color: text("color"),
+  additionalFacilityIds: integer("additional_facility_ids").array(),
+  recurrenceRule: text("recurrence_rule"),
+  recurrenceEndDate: date("recurrence_end_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

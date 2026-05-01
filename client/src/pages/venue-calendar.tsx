@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,6 +19,40 @@ const statusColors: Record<string, string> = {
   paid: "bg-blue-500/20 border-blue-500/30 text-blue-400",
   pending: "bg-yellow-500/20 border-yellow-500/30 text-yellow-400",
   cancelled: "bg-red-500/20 border-red-500/30 text-red-400",
+};
+
+// Color swatches for booking color tagging — picked to be visually distinct against dark UI.
+const COLOR_SWATCHES = [
+  { label: "Blue",   hex: "#3b82f6" },
+  { label: "Green",  hex: "#10b981" },
+  { label: "Amber",  hex: "#f59e0b" },
+  { label: "Red",    hex: "#ef4444" },
+  { label: "Purple", hex: "#8b5cf6" },
+  { label: "Pink",   hex: "#ec4899" },
+  { label: "Teal",   hex: "#14b8a6" },
+  { label: "Slate",  hex: "#64748b" },
+];
+
+const WEEKDAY_BUTTONS = [
+  { n: 1, label: "M" }, { n: 2, label: "T" }, { n: 3, label: "W" },
+  { n: 4, label: "T" }, { n: 5, label: "F" }, { n: 6, label: "S" }, { n: 0, label: "S" },
+];
+
+type RepeatFreq = "none" | "daily" | "weekly" | "weekdays" | "custom";
+
+const emptyForm = {
+  customerName: "",
+  customerEmail: "",
+  facilityId: "",
+  additionalFacilityIds: [] as string[],
+  bookingDate: "",
+  startTime: "",
+  endTime: "",
+  totalAmount: "0",
+  color: "" as string,
+  repeatFreq: "none" as RepeatFreq,
+  repeatByDay: [] as number[],
+  repeatUntil: "",
 };
 
 function getWeekDates(date: Date): Date[] {
@@ -47,7 +81,7 @@ export default function VenueCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<"Day" | "Week" | "Month" | "Year" | "List" | "Planner">("Week");
   const [showNewBooking, setShowNewBooking] = useState(false);
-  const [newBooking, setNewBooking] = useState({ customerName: "", customerEmail: "", facilityId: "", bookingDate: "", startTime: "", endTime: "", totalAmount: "0" });
+  const [newBooking, setNewBooking] = useState({ ...emptyForm });
 
   const weekDates = getWeekDates(currentDate);
 
@@ -64,12 +98,22 @@ export default function VenueCalendar() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/admin/venue/bookings", data),
-    onSuccess: () => {
+    mutationFn: async (data: any) => {
+      const r = await apiRequest("POST", "/api/admin/venue/bookings", data);
+      return await r.json();
+    },
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/bookings"] });
       setShowNewBooking(false);
-      setNewBooking({ customerName: "", customerEmail: "", facilityId: "", bookingDate: "", startTime: "", endTime: "", totalAmount: "0" });
-      toast({ title: "Booking created" });
+      setNewBooking({ ...emptyForm });
+      const count = result?.count;
+      toast({
+        title: count && count > 1 ? `${count} bookings created` : "Booking created",
+        description: count && count > 1 ? "All occurrences are linked and can be cancelled together." : undefined,
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Couldn't create booking", description: e?.message || String(e), variant: "destructive" });
     },
   });
 
@@ -170,11 +214,23 @@ export default function VenueCalendar() {
                 const slotBookings = getBookingsForSlot(dayIdx, hour);
                 return (
                   <div key={dayIdx} className={`border-r border-b border-white/5 p-0.5 ${todayIdx === dayIdx ? "bg-blue-500/[0.03]" : ""}`}>
-                    {slotBookings.map(b => (
-                      <div key={b.id} className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate ${statusColors[b.status]}`} data-testid={`calendar-booking-${b.id}`}>
-                        {b.facility?.name || "Booking"}
-                      </div>
-                    ))}
+                    {slotBookings.map(b => {
+                      // If the booking has a custom color, render with that; otherwise fall
+                      // back to the status-based color scheme for backwards compatibility.
+                      const inline = b.color
+                        ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
+                        : undefined;
+                      return (
+                        <div
+                          key={b.id}
+                          style={inline}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
+                          data-testid={`calendar-booking-${b.id}`}
+                        >
+                          {b.facility?.name || "Booking"}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -184,11 +240,11 @@ export default function VenueCalendar() {
       </div>
 
       {showNewBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowNewBooking(false)}>
-          <div className="bg-[#0f1423] border border-white/10 rounded-2xl p-6 w-[450px] max-w-[95vw] space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowNewBooking(false)}>
+          <div className="bg-[#0f1423] border border-white/10 rounded-2xl p-6 w-[520px] max-w-[95vw] max-h-[90vh] overflow-y-auto space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">New Booking</h3>
-              <button onClick={() => setShowNewBooking(false)} className="text-white/30 hover:text-white/60"><X className="w-5 h-5" /></button>
+              <button onClick={() => setShowNewBooking(false)} className="text-white/30 hover:text-white/60" data-testid="button-close-modal"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-3">
               <div>
@@ -199,13 +255,63 @@ export default function VenueCalendar() {
                 <label className="text-xs text-white/40 mb-1 block">Email</label>
                 <Input value={newBooking.customerEmail} onChange={e => setNewBooking({ ...newBooking, customerEmail: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-email" />
               </div>
+
+              {/* Facility (primary + optional additional) */}
               <div>
                 <label className="text-xs text-white/40 mb-1 block">Facility</label>
                 <Select value={newBooking.facilityId} onValueChange={v => setNewBooking({ ...newBooking, facilityId: v })}>
                   <SelectTrigger className="bg-white/5 border-white/10 text-white" data-testid="select-booking-facility"><SelectValue placeholder="Select facility" /></SelectTrigger>
-                  <SelectContent>{facs.map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {facs
+                      .filter(f => !newBooking.additionalFacilityIds.includes(String(f.id)))
+                      .map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
+                  </SelectContent>
                 </Select>
+
+                {newBooking.additionalFacilityIds.map((extraId, idx) => (
+                  <div key={idx} className="flex items-center gap-2 mt-2">
+                    <Select
+                      value={extraId}
+                      onValueChange={v => {
+                        const next = [...newBooking.additionalFacilityIds];
+                        next[idx] = v;
+                        setNewBooking({ ...newBooking, additionalFacilityIds: next });
+                      }}
+                    >
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white flex-1" data-testid={`select-additional-facility-${idx}`}>
+                        <SelectValue placeholder="Select facility" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {facs
+                          .filter(f => String(f.id) !== newBooking.facilityId && (String(f.id) === extraId || !newBooking.additionalFacilityIds.includes(String(f.id))))
+                          .map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      type="button"
+                      onClick={() => setNewBooking({
+                        ...newBooking,
+                        additionalFacilityIds: newBooking.additionalFacilityIds.filter((_, i) => i !== idx),
+                      })}
+                      className="text-white/30 hover:text-red-400 p-2"
+                      data-testid={`button-remove-additional-facility-${idx}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setNewBooking({ ...newBooking, additionalFacilityIds: [...newBooking.additionalFacilityIds, ""] })}
+                  className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                  data-testid="button-add-additional-facility"
+                >
+                  <Plus className="w-3 h-3" /> Add another facility
+                </button>
               </div>
+
+              {/* Date / Start / End */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Date</label>
@@ -220,21 +326,137 @@ export default function VenueCalendar() {
                   <Input type="time" value={newBooking.endTime} onChange={e => setNewBooking({ ...newBooking, endTime: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-end" />
                 </div>
               </div>
+
+              {/* Repeat */}
+              <div>
+                <label className="text-xs text-white/40 mb-1 block">Repeat</label>
+                <Select
+                  value={newBooking.repeatFreq}
+                  onValueChange={(v: RepeatFreq) => setNewBooking({ ...newBooking, repeatFreq: v, repeatByDay: [] })}
+                >
+                  <SelectTrigger className="bg-white/5 border-white/10 text-white" data-testid="select-repeat-freq">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Does not repeat</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly (same day each week)</SelectItem>
+                    <SelectItem value="weekdays">Every weekday (Mon–Fri)</SelectItem>
+                    <SelectItem value="custom">Custom — pick days</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {newBooking.repeatFreq === "custom" && (
+                  <div className="mt-2 flex items-center gap-1.5" data-testid="weekday-picker">
+                    {WEEKDAY_BUTTONS.map(d => {
+                      const active = newBooking.repeatByDay.includes(d.n);
+                      return (
+                        <button
+                          key={d.n}
+                          type="button"
+                          onClick={() => setNewBooking({
+                            ...newBooking,
+                            repeatByDay: active
+                              ? newBooking.repeatByDay.filter(x => x !== d.n)
+                              : [...newBooking.repeatByDay, d.n],
+                          })}
+                          className={`w-8 h-8 rounded-full text-xs font-medium border transition-colors ${active ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"}`}
+                          data-testid={`button-weekday-${d.n}`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {newBooking.repeatFreq !== "none" && (
+                  <div className="mt-2">
+                    <label className="text-xs text-white/40 mb-1 block">Repeat until</label>
+                    <Input
+                      type="date"
+                      value={newBooking.repeatUntil}
+                      onChange={e => setNewBooking({ ...newBooking, repeatUntil: e.target.value })}
+                      className="bg-white/5 border-white/10 text-white"
+                      data-testid="input-repeat-until"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Color */}
+              <div>
+                <label className="text-xs text-white/40 mb-1 block">Color</label>
+                <div className="flex items-center gap-2 flex-wrap" data-testid="color-picker">
+                  <button
+                    type="button"
+                    onClick={() => setNewBooking({ ...newBooking, color: "" })}
+                    className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] text-white/50 ${newBooking.color === "" ? "border-white" : "border-white/20"}`}
+                    title="No color (use status color)"
+                    data-testid="button-color-none"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                  {COLOR_SWATCHES.map(s => (
+                    <button
+                      key={s.hex}
+                      type="button"
+                      onClick={() => setNewBooking({ ...newBooking, color: s.hex })}
+                      style={{ backgroundColor: s.hex }}
+                      className={`w-7 h-7 rounded-full border-2 transition-all ${newBooking.color === s.hex ? "border-white scale-110" : "border-transparent hover:scale-105"}`}
+                      title={s.label}
+                      data-testid={`button-color-${s.label.toLowerCase()}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs text-white/40 mb-1 block">Amount (inc GST)</label>
                 <Input type="number" step="0.01" value={newBooking.totalAmount} onChange={e => setNewBooking({ ...newBooking, totalAmount: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-amount" />
               </div>
             </div>
-            <div className="flex justify-end gap-2">
+
+            <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setShowNewBooking(false)} className="text-white/50">Cancel</Button>
               <Button
-                onClick={() => createMutation.mutate({
-                  ...newBooking,
-                  organizationId: orgId,
-                  facilityId: parseInt(newBooking.facilityId),
-                  gstAmount: String(Number(newBooking.totalAmount) * 3 / 23),
-                })}
-                disabled={!newBooking.customerName || !newBooking.facilityId || !newBooking.bookingDate || createMutation.isPending}
+                onClick={() => {
+                  // Filter out any blank "Add another facility" rows the user didn't fill in
+                  const cleanedAdditional = newBooking.additionalFacilityIds
+                    .filter(s => s && s !== newBooking.facilityId)
+                    .map(s => parseInt(s));
+                  const repeatPayload = newBooking.repeatFreq === "none"
+                    ? undefined
+                    : {
+                        freq: newBooking.repeatFreq,
+                        byDay: newBooking.repeatFreq === "custom" ? newBooking.repeatByDay : undefined,
+                        until: newBooking.repeatUntil,
+                      };
+                  createMutation.mutate({
+                    customerName: newBooking.customerName,
+                    customerEmail: newBooking.customerEmail,
+                    bookingDate: newBooking.bookingDate,
+                    startTime: newBooking.startTime,
+                    endTime: newBooking.endTime,
+                    totalAmount: newBooking.totalAmount,
+                    organizationId: orgId,
+                    facilityId: parseInt(newBooking.facilityId),
+                    additionalFacilityIds: cleanedAdditional,
+                    color: newBooking.color || undefined,
+                    repeat: repeatPayload,
+                    gstAmount: String(Number(newBooking.totalAmount) * 3 / 23),
+                  });
+                }}
+                disabled={
+                  !newBooking.customerName ||
+                  !newBooking.facilityId ||
+                  !newBooking.bookingDate ||
+                  !newBooking.startTime ||
+                  !newBooking.endTime ||
+                  (newBooking.repeatFreq !== "none" && !newBooking.repeatUntil) ||
+                  (newBooking.repeatFreq === "custom" && newBooking.repeatByDay.length === 0) ||
+                  createMutation.isPending
+                }
                 className="bg-blue-600 hover:bg-blue-700 text-white"
                 data-testid="button-create-booking"
               >

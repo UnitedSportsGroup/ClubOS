@@ -1429,15 +1429,163 @@ export async function registerRoutes(
       const orgId = parseInt(req.body?.organizationId);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
       if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
-      // Cross-resource check: facility must belong to the same org as the booking
+
       const facId = parseInt(req.body?.facilityId);
       if (!facId) return res.status(400).json({ message: "facilityId required" });
+
+      // Validate primary facility belongs to org
       const fac = await storage.getFacility(facId);
       if (!fac || fac.organizationId !== orgId) {
         return res.status(400).json({ message: "Facility does not belong to this organization" });
       }
-      const booking = await storage.createFacilityBooking(req.body);
-      res.json(booking);
+
+      // Validate any additional facilities also belong to the same org
+      const rawAdditional = Array.isArray(req.body?.additionalFacilityIds) ? req.body.additionalFacilityIds : [];
+      const additionalFacilityIds: number[] = Array.from(new Set(
+        rawAdditional.map((x: any) => parseInt(x)).filter((n: number) => !isNaN(n) && n !== facId)
+      ));
+      for (const extraId of additionalFacilityIds) {
+        const extraFac = await storage.getFacility(extraId);
+        if (!extraFac || extraFac.organizationId !== orgId) {
+          return res.status(400).json({ message: `Facility ${extraId} does not belong to this organization` });
+        }
+      }
+      const allFacilityIds = [facId, ...additionalFacilityIds];
+
+      // Recurrence expansion. We accept a small "repeat" config and expand into
+      // individual rows so the existing calendar (which reads single-day rows)
+      // works without changes. All occurrences share a bookingGroupId so they
+      // can later be cancelled / edited as a series.
+      const repeat = req.body?.repeat as { freq?: string; byDay?: number[]; until?: string } | undefined;
+      const baseDate = req.body?.bookingDate as string;
+      if (!baseDate || !/^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
+        return res.status(400).json({ message: "bookingDate required (YYYY-MM-DD)" });
+      }
+
+      // Hard cap on total rows produced (occurrences × facilities). Protects against
+      // pathological combinations even though per-occurrence is also capped below.
+      const MAX_TOTAL_ROWS = 365;
+      const MAX_OCCURRENCES = 365;
+
+      const occurrences: string[] = [];
+      const freq = repeat?.freq || "none";
+      if (freq === "none") {
+        occurrences.push(baseDate);
+      } else {
+        const until = repeat?.until;
+        if (!until || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+          return res.status(400).json({ message: "Repeat 'until' date is required (YYYY-MM-DD) when repeating" });
+        }
+        if (until < baseDate) {
+          return res.status(400).json({ message: "Repeat end date must be on or after the start date" });
+        }
+
+        // Pure date-string arithmetic to avoid timezone / DST off-by-one. We construct
+        // the date in UTC and only use UTC getters so the local server TZ is irrelevant.
+        const startParts = baseDate.split("-").map(Number);
+        const startDayOfWeek = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2])).getUTCDay();
+
+        const allowedDays = (() => {
+          if (freq === "daily") return [0, 1, 2, 3, 4, 5, 6];
+          if (freq === "weekly") return [startDayOfWeek];
+          if (freq === "weekdays") return [1, 2, 3, 4, 5];
+          if (freq === "custom" && Array.isArray(repeat?.byDay) && repeat.byDay.length > 0) {
+            return repeat.byDay.map(n => parseInt(String(n))).filter(n => n >= 0 && n <= 6);
+          }
+          return [startDayOfWeek];
+        })();
+        if (allowedDays.length === 0) {
+          return res.status(400).json({ message: "Custom repeat requires at least one weekday" });
+        }
+
+        const cursorUtc = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+        const untilParts = until.split("-").map(Number);
+        const untilUtc = new Date(Date.UTC(untilParts[0], untilParts[1] - 1, untilParts[2]));
+        while (cursorUtc.getTime() <= untilUtc.getTime() && occurrences.length < MAX_OCCURRENCES) {
+          if (allowedDays.includes(cursorUtc.getUTCDay())) {
+            const y = cursorUtc.getUTCFullYear();
+            const m = String(cursorUtc.getUTCMonth() + 1).padStart(2, "0");
+            const d = String(cursorUtc.getUTCDate()).padStart(2, "0");
+            occurrences.push(`${y}-${m}-${d}`);
+          }
+          cursorUtc.setUTCDate(cursorUtc.getUTCDate() + 1);
+        }
+        if (occurrences.length === 0) {
+          return res.status(400).json({ message: "Repeat schedule produced zero bookings — check your weekday selection and end date" });
+        }
+      }
+
+      const totalRows = occurrences.length * allFacilityIds.length;
+      if (totalRows > MAX_TOTAL_ROWS) {
+        return res.status(400).json({ message: `That would create ${totalRows} bookings — please narrow the date range or fewer facilities (max ${MAX_TOTAL_ROWS}).` });
+      }
+
+      // Generate a group id if there will be more than one row created (multi-facility OR recurrence)
+      const willGroup = occurrences.length > 1 || allFacilityIds.length > 1;
+      const bookingGroupId = willGroup ? `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : null;
+
+      // STRICT ALLOW-LIST. We do NOT spread req.body — sensitive fields like status,
+      //   paidAt, stripe_*, totalCents, gstCents are server-managed and must never
+      //   come from client input. Manual admin bookings always start as "confirmed"
+      //   and unpaid.
+      const allowedClient = {
+        customerName: typeof req.body?.customerName === "string" ? req.body.customerName.trim() : "",
+        customerEmail: typeof req.body?.customerEmail === "string" ? req.body.customerEmail.trim() : "",
+        customerPhone: typeof req.body?.customerPhone === "string" ? req.body.customerPhone : null,
+        customerClub: typeof req.body?.customerClub === "string" ? req.body.customerClub : null,
+        startTime: typeof req.body?.startTime === "string" ? req.body.startTime : "",
+        endTime: typeof req.body?.endTime === "string" ? req.body.endTime : "",
+        notes: typeof req.body?.notes === "string" ? req.body.notes : null,
+        color: typeof req.body?.color === "string" && /^#[0-9a-fA-F]{6}$/.test(req.body.color) ? req.body.color : null,
+        totalAmount: req.body?.totalAmount != null ? String(req.body.totalAmount) : "0",
+        gstAmount: req.body?.gstAmount != null ? String(req.body.gstAmount) : null,
+      };
+      if (!allowedClient.customerName) return res.status(400).json({ message: "customerName required" });
+      if (!allowedClient.customerEmail) return res.status(400).json({ message: "customerEmail required" });
+      if (!allowedClient.startTime || !allowedClient.endTime) return res.status(400).json({ message: "startTime and endTime required" });
+
+      const recurrenceRule = freq !== "none"
+        ? `FREQ=${freq.toUpperCase()}` +
+          (freq === "custom" ? `;BYDAY=${(repeat?.byDay || []).join(",")}` : "")
+        : null;
+      const recurrenceEndDate = freq !== "none" ? (repeat?.until || null) : null;
+
+      // Build all rows: one per (occurrence × facility). Server-managed fields are
+      //   set explicitly here; status is always "confirmed" for admin-created bookings.
+      const rows: any[] = [];
+      for (const date of occurrences) {
+        for (const fid of allFacilityIds) {
+          rows.push({
+            ...allowedClient,
+            organizationId: orgId,
+            facilityId: fid,
+            bookingDate: date,
+            status: "confirmed" as const,
+            bookingGroupId,
+            // Only the primary row of each occurrence carries the additional-facilities
+            //   metadata so the UI can show the group at a glance; all rows still
+            //   have their own facilityId.
+            additionalFacilityIds: fid === facId && additionalFacilityIds.length > 0 ? additionalFacilityIds : null,
+            recurrenceRule,
+            recurrenceEndDate,
+          });
+        }
+      }
+
+      const created = [];
+      for (const row of rows) {
+        created.push(await storage.createFacilityBooking(row));
+      }
+
+      // Response: single booking shape if just one, else summary so the client can show "X bookings created"
+      if (created.length === 1) {
+        return res.json(created[0]);
+      }
+      return res.json({
+        count: created.length,
+        bookingGroupId,
+        bookings: created,
+      });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -1456,6 +1604,19 @@ export async function registerRoutes(
         if (!newFac || newFac.organizationId !== existing.organizationId) {
           return res.status(400).json({ message: "Facility does not belong to this organization" });
         }
+      }
+      // Same cross-org check for additionalFacilityIds — keeps the multi-facility model honest.
+      if (Array.isArray(patch.additionalFacilityIds)) {
+        const cleaned: number[] = Array.from(new Set(
+          patch.additionalFacilityIds.map((x: any) => parseInt(x)).filter((n: number) => !isNaN(n))
+        ));
+        for (const extraId of cleaned) {
+          const extraFac = await storage.getFacility(extraId);
+          if (!extraFac || extraFac.organizationId !== existing.organizationId) {
+            return res.status(400).json({ message: `Facility ${extraId} does not belong to this organization` });
+          }
+        }
+        patch.additionalFacilityIds = cleaned.length > 0 ? cleaned : null;
       }
       const booking = await storage.updateFacilityBooking(parseInt(req.params.id), patch);
       if (!booking) return res.status(404).json({ message: "Not found" });
