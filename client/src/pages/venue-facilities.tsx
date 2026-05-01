@@ -421,9 +421,9 @@ export default function VenueFacilities() {
 
       <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-3"}>
         {filtered.map(f => (
-          <div key={f.id} className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid={`facility-card-${f.id}`}>
-            <div className="relative">
-              <div className="h-28 bg-gradient-to-br from-white/[0.03] to-white/[0.01] flex items-center justify-center relative">
+          <div key={f.id} className={`rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden ${viewMode === "list" ? "flex" : ""}`} data-testid={`facility-card-${f.id}`}>
+            <div className={`relative ${viewMode === "list" ? "w-48 flex-shrink-0" : ""}`}>
+              <div className={`${viewMode === "list" ? "h-full" : "aspect-video"} bg-gradient-to-br from-white/[0.03] to-white/[0.01] flex items-center justify-center relative`}>
                 {(f.imageUrls && f.imageUrls[0]) || f.imageUrl ? (
                   <>
                     <img src={(f.imageUrls && f.imageUrls[0]) || f.imageUrl!} alt={f.name} className="w-full h-full object-cover" />

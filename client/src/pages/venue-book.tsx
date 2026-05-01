@@ -45,7 +45,6 @@ function FacilityCarousel({
   const touchStartX = useRef<number | null>(null);
   if (images.length === 0) return null;
 
-  const heightCls = size === "hero" ? "h-56 sm:h-72" : "h-32";
   const clamped = Math.min(idx, images.length - 1);
   const go = (n: number) => setIdx(((n % images.length) + images.length) % images.length);
   const prev = (e?: React.MouseEvent | React.KeyboardEvent) => { e?.preventDefault?.(); e?.stopPropagation?.(); go(clamped - 1); };
@@ -53,7 +52,7 @@ function FacilityCarousel({
 
   return (
     <div
-      className={`relative ${heightCls} rounded-xl overflow-hidden bg-white/[0.03] -mx-1 mb-3`}
+      className={`relative rounded-xl overflow-hidden bg-white/[0.03] -mx-1 mb-3 ${size === "hero" ? "aspect-video max-h-72" : "aspect-video"}`}
       onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
       onTouchEnd={e => {
         if (touchStartX.current === null) return;
@@ -562,8 +561,8 @@ function AddItemsStep({
       )}
       {!facilities ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Skeleton className="h-32 rounded-2xl" />
-          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="aspect-video rounded-2xl" />
+          <Skeleton className="aspect-video rounded-2xl" />
         </div>
       ) : facilities.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.06] p-12 text-center text-white/50">
@@ -595,7 +594,6 @@ function AddItemsStep({
                       images={imgs}
                       alt={f.name}
                       brand={brand}
-                      size="card"
                       testIdPrefix={`facility-${f.id}-card`}
                     />
                   )}
