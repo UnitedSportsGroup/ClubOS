@@ -137,9 +137,9 @@ export class ObjectStorageService {
     buffer: Buffer,
     contentType: string,
     extension: string,
+    objectId: string = randomUUID(),
   ): Promise<{ file: File; objectPath: string }> {
     const privateObjectDir = this.getPrivateObjectDir();
-    const objectId = randomUUID();
     const safeExt = extension.replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
     const fullPath = `${privateObjectDir}/uploads/${objectId}.${safeExt}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);

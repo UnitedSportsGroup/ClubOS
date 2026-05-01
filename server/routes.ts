@@ -1212,13 +1212,20 @@ export async function registerRoutes(
 
   // === Facility images: optimized multipart upload ===
   // Every image — large or small, JPG/PNG/HEIC/WebP/etc — is normalized server-side via sharp
-  // before being stored. Pipeline: auto-rotate (EXIF) → cap to 2400px wide → re-encode to WebP
-  // (quality 82) → strip EXIF/colour-profile metadata. This produces consistent, small,
-  // responsive-friendly assets and prevents anyone from storing oversized originals.
+  // before being stored. For each upload we produce TWO optimized variants stored side-by-side
+  // with the same UUID stem and different extensions:
+  //   • <uuid>.webp  — universal modern fallback (quality 82, ~96% browser support)
+  //   • <uuid>.avif  — newest gen, ~20-30% smaller than WebP at equal quality
+  // The customer site uses a <picture> element so each browser picks the best one it supports.
+  // Only the .webp path is stored in facility.imageUrls; the .avif sibling path is derived by
+  // swapping the extension. Pipeline (per variant): auto-rotate (EXIF) → cap to 2400px on the
+  // longest side → re-encode → strip EXIF/colour-profile metadata.
   const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file (covers DSLR JPGs and HEIC)
   const MAX_FILES_PER_REQUEST = 10;
   const MAX_DIMENSION_PX = 2400;
   const WEBP_QUALITY = 82;
+  const AVIF_QUALITY = 55;   // AVIF achieves equivalent perceptual quality at lower numbers than WebP/JPEG
+  const AVIF_EFFORT = 3;     // 0-9; 3 keeps single-photo encode under ~3s on this hardware while still giving real savings on photographic content
   const SHARP_PIXEL_CAP = 50_000_000; // 50 MP — rejects pixel-bombs well below sharp's 268 MP default
   const ALLOWED_RASTER_FORMATS = new Set([
     "jpeg", "jpg", "png", "webp", "gif", "tiff", "heif", "heic", "avif",
@@ -1291,7 +1298,9 @@ export async function registerRoutes(
             throw new Error(`"${file.originalname}" couldn't be read as an image (${e.message})`);
           }
 
-          const optimized = await sharp(file.buffer, {
+          // Build a base sharp pipeline once; clone it for each output format so we
+          // only pay the decode + rotate + resize cost a single time per upload.
+          const base = sharp(file.buffer, {
             failOn: "error",
             animated: false,
             limitInputPixels: SHARP_PIXEL_CAP,
@@ -1302,24 +1311,52 @@ export async function registerRoutes(
               height: MAX_DIMENSION_PX,
               fit: "inside",
               withoutEnlargement: true,
-            })
-            .webp({ quality: WEBP_QUALITY, effort: 4 })
-            .toBuffer();
+            });
 
-          const { file: gcsFile, objectPath } = await svc.uploadBufferToUploads(
-            optimized,
-            "image/webp",
-            "webp",
-          );
-          await setObjectAclPolicy(gcsFile, {
-            owner: String(req.session.userId),
-            visibility: "public",
-          });
-          uploadedFiles.push({ gcsFile, objectPath });
+          const [webpBuf, avifBuf] = await Promise.all([
+            base.clone().webp({ quality: WEBP_QUALITY, effort: 4 }).toBuffer(),
+            base.clone().avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT }).toBuffer(),
+          ]);
+
+          // Use one shared UUID so the two variants live at matching paths
+          //   /objects/uploads/<uuid>.webp   and   /objects/uploads/<uuid>.avif
+          // The frontend swaps the extension to find the AVIF sibling.
+          const sharedId = crypto.randomUUID();
+
+          // Upload + ACL each variant via a helper that records the file in
+          // `uploadedFiles` IMMEDIATELY after upload — before ACL runs — so that
+          // any later failure (sibling upload, sibling ACL, our own ACL) still
+          // rolls this object back via the catch-block cleanup below. This is
+          // the fix for the "successful sibling left orphaned" race that would
+          // otherwise occur if we only tracked after both legs fully completed.
+          const uploadAndAcl = async (buf: Buffer, contentType: string, ext: string) => {
+            const u = await svc.uploadBufferToUploads(buf, contentType, ext, sharedId);
+            uploadedFiles.push({ gcsFile: u.file, objectPath: u.objectPath });
+            await setObjectAclPolicy(u.file, {
+              owner: String(req.session.userId),
+              visibility: "public",
+            });
+            return u;
+          };
+
+          // allSettled lets us see BOTH outcomes; if either failed, throw and
+          // let the catch-block clean up every object that was registered.
+          const results = await Promise.allSettled([
+            uploadAndAcl(webpBuf, "image/webp", "webp"),
+            uploadAndAcl(avifBuf, "image/avif", "avif"),
+          ]);
+          const failed = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
+          if (failed) {
+            throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
+          }
         }
 
+        // Persist only the .webp paths; the .avif siblings are derived in the UI.
+        const newWebpPaths = uploadedFiles
+          .filter(u => u.objectPath.endsWith(".webp"))
+          .map(u => u.objectPath);
         const updated = await storage.updateFacility(facility.id, {
-          imageUrls: [...(facility.imageUrls || []), ...uploadedFiles.map(u => u.objectPath)],
+          imageUrls: [...(facility.imageUrls || []), ...newWebpPaths],
         } as any);
         res.json(updated);
       } catch (error: any) {

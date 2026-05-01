@@ -21,6 +21,13 @@ function facilityImages(f: { imageUrls: string[] | null; imageUrl: string | null
   return f.imageUrl ? [f.imageUrl] : [];
 }
 
+// Every facility image uploaded after the AVIF rollout is stored as TWO files with the
+// same UUID stem: <uuid>.webp and <uuid>.avif. Given the .webp path, derive the .avif
+// sibling. Returns null for legacy non-webp images so we just render the original src.
+function avifSiblingFor(webpUrl: string): string | null {
+  return /\.webp(\?|$)/i.test(webpUrl) ? webpUrl.replace(/\.webp(\?|$)/i, ".avif$1") : null;
+}
+
 function FacilityCarousel({
   images,
   alt,
@@ -56,13 +63,18 @@ function FacilityCarousel({
       }}
       data-testid={`${testIdPrefix}-carousel`}
     >
-      <img
-        src={images[clamped]}
-        alt={alt}
-        className="w-full h-full object-cover transition-opacity"
-        draggable={false}
-        data-testid={`${testIdPrefix}-image-${clamped}`}
-      />
+      <picture className="block w-full h-full">
+        {avifSiblingFor(images[clamped]) && (
+          <source srcSet={avifSiblingFor(images[clamped])!} type="image/avif" />
+        )}
+        <img
+          src={images[clamped]}
+          alt={alt}
+          className="w-full h-full object-cover transition-opacity"
+          draggable={false}
+          data-testid={`${testIdPrefix}-image-${clamped}`}
+        />
+      </picture>
       {images.length > 1 && (
         <>
           <button
