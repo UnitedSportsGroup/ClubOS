@@ -9,6 +9,12 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomDomain } from "@shared/schema";
+import {
+  DetectionInlineBadge,
+  AutoConfigureButton,
+  GoDaddyConnectionCard,
+  GoDaddyVerifiedRecord,
+} from "@/components/GoDaddyDomainHelper";
 
 export default function AdminDomainSettings() {
   const { currentOrg } = useWorkspace();
@@ -26,6 +32,12 @@ export default function AdminDomainSettings() {
     },
     enabled: !!orgId,
   });
+
+  const { data: deployInfo } = useQuery<{ cnameTarget: string | null }>({
+    queryKey: ["/api/admin/deployment-info"],
+  });
+  const cnameTarget = deployInfo?.cnameTarget
+    || (typeof window !== "undefined" && window.location.hostname.endsWith(".replit.app") ? window.location.hostname : null);
 
   const addMutation = useMutation({
     mutationFn: async () => {
@@ -98,8 +110,11 @@ export default function AdminDomainSettings() {
                 onKeyDown={e => { if (e.key === "Enter") addMutation.mutate(); }}
                 data-testid="input-domain"
               />
+              <div className="mt-1.5">
+                <DetectionInlineBadge domain={newDomain} />
+              </div>
               <p className="text-xs text-white/30 mt-1.5">
-                Enter a domain or subdomain. You'll need to add a CNAME record pointing to your ClubOS app.
+                Enter a domain or subdomain. We'll auto-detect if it's on GoDaddy and offer one-click DNS setup.
               </p>
             </div>
             <div className="flex gap-2">
@@ -123,6 +138,8 @@ export default function AdminDomainSettings() {
           </CardContent>
         </Card>
       )}
+
+      <GoDaddyConnectionCard />
 
       <Card className="premium-card border-white/[0.06]">
         <CardHeader className="pb-3">
@@ -162,15 +179,17 @@ export default function AdminDomainSettings() {
                           <Copy className="w-3 h-3" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {statusBadge(domain)}
                         {domain.isPrimary && (
                           <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/20 text-[10px]">Primary</Badge>
                         )}
+                        <GoDaddyVerifiedRecord domainId={domain.id} fullDomain={domain.domain} cnameTarget={cnameTarget} />
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <AutoConfigureButton domainId={domain.id} fullDomain={domain.domain} cnameTarget={cnameTarget} />
                     <Button
                       variant="ghost"
                       size="icon"

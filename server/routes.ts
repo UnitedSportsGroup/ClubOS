@@ -13,6 +13,8 @@ import crypto from "crypto";
 import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from "./replit_integrations/object_storage";
 import multer from "multer";
 import sharp from "sharp";
+import { detectDnsProvider, getCnameHost, getApexDomain } from "./dns/detectProvider";
+import { isGoDaddyConfigured, checkConnection as checkGoDaddyConnection, setCnameRecord as setGoDaddyCname, ownsDomain as goDaddyOwnsDomain, getRecords as getGoDaddyRecords } from "./dns/godaddyClient";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -3033,6 +3035,111 @@ export async function registerRoutes(
       if (!userOrgs.some((o: any) => o.id === domains[0].organizationId)) return res.status(403).json({ message: "Forbidden" });
       await storage.deleteCustomDomain(id);
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ====== Native DNS provider integration (GoDaddy) ======
+  // Detects which DNS provider hosts a domain (by nameserver lookup) and, when GoDaddy
+  // credentials are present and the domain is in the connected GoDaddy account, lets the
+  // admin configure the CNAME with one click instead of pasting it in manually.
+
+  app.get("/api/admin/dns/detect", requireAuth, async (req, res) => {
+    try {
+      const host = String(req.query.domain || "").trim().toLowerCase();
+      if (!host) return res.status(400).json({ message: "domain query param required" });
+      const detection = await detectDnsProvider(host);
+      const cnameHost = getCnameHost(host);
+      let canAutoConfigure = false;
+      let ownershipError: string | undefined;
+      if (detection.provider === "godaddy" && isGoDaddyConfigured()) {
+        try {
+          canAutoConfigure = await goDaddyOwnsDomain(detection.apexDomain);
+          if (!canAutoConfigure) ownershipError = "Detected on GoDaddy, but this domain isn't in the connected GoDaddy account.";
+        } catch (e: any) {
+          ownershipError = e?.message || "Couldn't verify ownership in GoDaddy account.";
+        }
+      }
+      res.json({
+        ...detection,
+        cnameHost,
+        godaddy: {
+          configured: isGoDaddyConfigured(),
+          canAutoConfigure,
+          ownershipError,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/dns/godaddy/status", requireAuth, async (_req, res) => {
+    try {
+      const status = await checkGoDaddyConnection();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/domains/:id/auto-configure", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
+      if (!domains.length) return res.status(404).json({ message: "Domain not found" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === domains[0].organizationId)) return res.status(403).json({ message: "Forbidden" });
+
+      const slug = process.env.REPL_SLUG || "";
+      const owner = process.env.REPL_OWNER || "";
+      const cnameTarget = (req.body?.cnameTarget as string)?.trim()
+        || (slug && owner ? `${slug}-${owner}.replit.app` : "");
+      if (!cnameTarget) {
+        return res.status(400).json({ message: "Couldn't determine the CNAME target. Add it in Replit Deployments first." });
+      }
+      if (!isGoDaddyConfigured()) {
+        return res.status(400).json({ message: "GoDaddy API credentials are not set up. An admin needs to add them in environment secrets." });
+      }
+
+      const fullHost = domains[0].domain;
+      const { apex } = getApexDomain(fullHost);
+      const cnameHost = getCnameHost(fullHost);
+      if (cnameHost === "@") {
+        return res.status(400).json({ message: "Root-domain CNAMEs aren't allowed. Use a subdomain like book.yourdomain.com." });
+      }
+
+      const owns = await goDaddyOwnsDomain(apex).catch(() => false);
+      if (!owns) {
+        return res.status(400).json({ message: `${apex} isn't in the connected GoDaddy account.` });
+      }
+
+      await setGoDaddyCname(apex, cnameHost, cnameTarget);
+      res.json({ success: true, apex, cnameHost, cnameTarget });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/domains/:id/dns-status", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
+      if (!domains.length) return res.status(404).json({ message: "Domain not found" });
+      const userOrgs = await storage.getUserOrganizations(req.session.userId!);
+      if (!userOrgs.some((o: any) => o.id === domains[0].organizationId)) return res.status(403).json({ message: "Forbidden" });
+      const fullHost = domains[0].domain;
+      const { apex } = getApexDomain(fullHost);
+      const cnameHost = getCnameHost(fullHost);
+      let configuredTarget: string | null = null;
+      try {
+        if (isGoDaddyConfigured()) {
+          const recs = await getGoDaddyRecords(apex, "CNAME", cnameHost);
+          configuredTarget = recs?.[0]?.data?.replace(/\.$/, "") || null;
+        }
+      } catch {}
+      res.json({ configuredTarget, cnameHost, apex });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

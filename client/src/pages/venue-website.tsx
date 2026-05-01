@@ -13,6 +13,12 @@ import {
   Palette, Shield, Puzzle, Settings, ArrowRight, Eye, Info,
 } from "lucide-react";
 import type { CustomDomain, VenueSettings } from "@shared/schema";
+import {
+  DetectionInlineBadge,
+  AutoConfigureButton,
+  GoDaddyConnectionCard,
+  GoDaddyVerifiedRecord,
+} from "@/components/GoDaddyDomainHelper";
 
 export default function VenueWebsitePage() {
   const { currentOrg } = useWorkspace();
@@ -218,25 +224,31 @@ export default function VenueWebsitePage() {
             Show your booking site on your own domain (for example <span className="font-mono text-white/70">book.unitedsportscentre.co.nz</span>) instead of the default Replit URL.
           </p>
 
+          {/* GoDaddy connection status */}
+          <GoDaddyConnectionCard />
+
           {/* Add domain input */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              placeholder="book.yourdomain.co.nz"
-              value={newDomain}
-              onChange={e => setNewDomain(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && newDomain.trim()) addDomain.mutate(); }}
-              className="premium-input text-white/90 text-sm rounded-xl flex-1"
-              data-testid="input-new-domain"
-            />
-            <Button
-              onClick={() => addDomain.mutate()}
-              disabled={!newDomain.trim() || !orgId || addDomain.isPending}
-              className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2"
-              data-testid="button-add-domain"
-            >
-              <Plus className="w-4 h-4" />
-              {addDomain.isPending ? "Adding..." : "Add domain"}
-            </Button>
+          <div className="space-y-1.5">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder="book.yourdomain.co.nz"
+                value={newDomain}
+                onChange={e => setNewDomain(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && newDomain.trim()) addDomain.mutate(); }}
+                className="premium-input text-white/90 text-sm rounded-xl flex-1"
+                data-testid="input-new-domain"
+              />
+              <Button
+                onClick={() => addDomain.mutate()}
+                disabled={!newDomain.trim() || !orgId || addDomain.isPending}
+                className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2"
+                data-testid="button-add-domain"
+              >
+                <Plus className="w-4 h-4" />
+                {addDomain.isPending ? "Adding..." : "Add domain"}
+              </Button>
+            </div>
+            <DetectionInlineBadge domain={newDomain} />
           </div>
 
           {/* Connected domains list */}
@@ -277,10 +289,14 @@ export default function VenueWebsitePage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-mono text-white/80 truncate" data-testid={`text-domain-${d.id}`}>{d.domain}</span>
                       </div>
-                      <div className="mt-0.5">{statusBadge(d)}</div>
+                      <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        {statusBadge(d)}
+                        <GoDaddyVerifiedRecord domainId={d.id} fullDomain={d.domain} cnameTarget={cnameTarget} />
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <AutoConfigureButton domainId={d.id} fullDomain={d.domain} cnameTarget={cnameTarget} />
                     <Button
                       variant="ghost"
                       size="icon"
