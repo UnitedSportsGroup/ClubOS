@@ -161,6 +161,14 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
+  // Anything under /api/* that wasn't matched by an explicit route is a real 404.
+  // Without this, the SPA fallback below would happily return the index.html (200, text/html)
+  // for any unknown API URL — causing stale clients to try `JSON.parse("<!DOCTYPE html>...")`
+  // and produce confusing "Unexpected token '<'" errors instead of a clear 404 message.
+  app.use("/api", (_req: Request, res: Response) => {
+    res.status(404).json({ message: "API route not found" });
+  });
+
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
