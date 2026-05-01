@@ -25,7 +25,7 @@ const FACILITY_TYPES = [
 
 const typeLabels: Record<string, string> = Object.fromEntries(FACILITY_TYPES.map(t => [t.value, t.label]));
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB per image
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB per image (server resizes + re-encodes to WebP)
 
 function FacilityImageManager({
   facilityId,
@@ -51,7 +51,7 @@ function FacilityImageManager({
         continue;
       }
       if (f.size > MAX_IMAGE_BYTES) {
-        toast({ title: "Image too large", description: `"${f.name}" is over 10 MB.`, variant: "destructive" });
+        toast({ title: "Image too large", description: `"${f.name}" is over 25 MB.`, variant: "destructive" });
         continue;
       }
       valid.push(f);
@@ -60,25 +60,23 @@ function FacilityImageManager({
 
     setUploading(true);
     try {
-      const uploadURLs: string[] = [];
-      for (const file of valid) {
-        const r = await fetch(`/api/admin/venue/facilities/${facilityId}/images/upload-url`, { method: "POST" });
-        if (!r.ok) throw new Error("Couldn't get an upload URL");
-        const { uploadURL } = await r.json();
-        const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-        if (!put.ok) throw new Error(`Upload failed for ${file.name}`);
-        uploadURLs.push(uploadURL);
-      }
-      const finRes = await fetch(`/api/admin/venue/facilities/${facilityId}/images/finalize`, {
+      // One multipart request — the server runs every file through sharp:
+      // auto-rotate → cap to 2400px → re-encode as WebP @ q82 → strip EXIF.
+      const fd = new FormData();
+      for (const file of valid) fd.append("files", file, file.name);
+
+      const res = await fetch(`/api/admin/venue/facilities/${facilityId}/images/upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadURLs }),
+        body: fd,
       });
-      if (!finRes.ok) throw new Error("Couldn't save the uploaded images");
-      const updated = await finRes.json();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || "Upload failed");
+      }
+      const updated = await res.json();
       onChange(updated.imageUrls || []);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities"] });
-      toast({ title: `Uploaded ${valid.length} image${valid.length === 1 ? "" : "s"}` });
+      toast({ title: `Optimised & uploaded ${valid.length} image${valid.length === 1 ? "" : "s"}` });
     } catch (err: any) {
       toast({ title: "Upload failed", description: err?.message, variant: "destructive" });
     } finally {
@@ -145,7 +143,7 @@ function FacilityImageManager({
               <span className="text-white/80 font-medium">Click to choose photos</span>
               <span className="text-white/40"> or drag &amp; drop here</span>
             </div>
-            <div className="text-[10px] text-white/30">PNG, JPG, WebP — up to 10 MB each, multiple at once</div>
+            <div className="text-[10px] text-white/30">Any size — auto-resized & converted to WebP for fast page loads</div>
           </div>
         )}
       </div>

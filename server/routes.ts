@@ -10,7 +10,9 @@ import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, crea
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
 import crypto from "crypto";
-import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage";
+import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from "./replit_integrations/object_storage";
+import multer from "multer";
+import sharp from "sharp";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1208,77 +1210,130 @@ export async function registerRoutes(
     }
   });
 
-  // === Facility images: presigned upload + finalize (sets public ACL, normalizes path, persists) ===
-  app.post("/api/admin/venue/facilities/:id/images/upload-url", requireAuth, async (req, res) => {
-    try {
-      const facility = await storage.getFacility(parseInt(req.params.id));
-      if (!facility) return res.status(404).json({ message: "Facility not found" });
-      if (!(await checkUserOrg(req.session.userId!, facility.organizationId))) return res.status(403).json({ message: "Forbidden" });
-      const svc = new ObjectStorageService();
-      const uploadURL = await svc.getObjectEntityUploadURL();
-      res.json({ uploadURL });
-    } catch (error: any) {
-      console.error("[facility-images] upload-url error:", error);
-      res.status(500).json({ message: error.message || "Failed to create upload URL" });
-    }
+  // === Facility images: optimized multipart upload ===
+  // Every image — large or small, JPG/PNG/HEIC/WebP/etc — is normalized server-side via sharp
+  // before being stored. Pipeline: auto-rotate (EXIF) → cap to 2400px wide → re-encode to WebP
+  // (quality 82) → strip EXIF/colour-profile metadata. This produces consistent, small,
+  // responsive-friendly assets and prevents anyone from storing oversized originals.
+  const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file (covers DSLR JPGs and HEIC)
+  const MAX_FILES_PER_REQUEST = 10;
+  const MAX_DIMENSION_PX = 2400;
+  const WEBP_QUALITY = 82;
+  const SHARP_PIXEL_CAP = 50_000_000; // 50 MP — rejects pixel-bombs well below sharp's 268 MP default
+  const ALLOWED_RASTER_FORMATS = new Set([
+    "jpeg", "jpg", "png", "webp", "gif", "tiff", "heif", "heic", "avif",
+  ]);
+
+  const facilityImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: MAX_FILES_PER_REQUEST },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+        return cb(new Error(`"${file.originalname}" is not a supported image type`));
+      }
+      cb(null, true);
+    },
   });
 
-  // After client finishes PUT to the presigned URL(s), it sends the upload URL(s) here so we can:
-  // 1) verify each URL is a presigned PUT into our own private uploads prefix
-  // 2) normalize them to /objects/uploads/<uuid>
-  // 3) mark them public (so the customer-facing /book page can render them)
-  // 4) append to facility.imageUrls
-  app.post("/api/admin/venue/facilities/:id/images/finalize", requireAuth, async (req, res) => {
-    try {
-      const facility = await storage.getFacility(parseInt(req.params.id));
-      if (!facility) return res.status(404).json({ message: "Facility not found" });
-      if (!(await checkUserOrg(req.session.userId!, facility.organizationId))) return res.status(403).json({ message: "Forbidden" });
-
-      const schema = z.object({ uploadURLs: z.array(z.string().url()).min(1).max(20) });
-      const { uploadURLs } = schema.parse(req.body);
-
-      // Strict allow-list: only signed URLs into our own private uploads prefix.
-      // Path looks like /<bucket>/<privateDir>/uploads/<uuid> with a valid UUID.
-      let privateDir = process.env.PRIVATE_OBJECT_DIR || "";
-      if (!privateDir) return res.status(500).json({ message: "Server storage not configured" });
-      if (!privateDir.endsWith("/")) privateDir = `${privateDir}/`;
-      const expectedPathPrefix = `${privateDir}uploads/`;
-      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-      for (const raw of uploadURLs) {
-        let url: URL;
-        try { url = new URL(raw); } catch { return res.status(400).json({ message: "Invalid upload URL" }); }
-        if (url.protocol !== "https:" || url.host !== "storage.googleapis.com") {
-          return res.status(400).json({ message: "Upload URL must point to Google Storage" });
-        }
-        if (!url.pathname.startsWith(expectedPathPrefix)) {
-          return res.status(400).json({ message: "Upload URL outside allowed uploads prefix" });
-        }
-        const objectId = url.pathname.slice(expectedPathPrefix.length);
-        if (!uuidRe.test(objectId)) {
-          return res.status(400).json({ message: "Upload URL has invalid object id" });
-        }
+  app.post(
+    "/api/admin/venue/facilities/:id/images/upload",
+    requireAuth,
+    // 1) Authorize BEFORE parsing the body so unauthorized callers can't make us buffer files.
+    async (req, res, next) => {
+      try {
+        const facility = await storage.getFacility(parseInt(req.params.id));
+        if (!facility) return res.status(404).json({ message: "Facility not found" });
+        if (!(await checkUserOrg(req.session.userId!, facility.organizationId)))
+          return res.status(403).json({ message: "Forbidden" });
+        (req as any)._facility = facility;
+        next();
+      } catch (e: any) {
+        res.status(500).json({ message: e.message });
       }
+    },
+    // 2) Now parse the multipart body.
+    (req, res, next) => {
+      facilityImageUpload.array("files", MAX_FILES_PER_REQUEST)(req, res, (err: any) => {
+        if (err) {
+          const message =
+            err?.code === "LIMIT_FILE_SIZE"
+              ? `One of the files is over ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB`
+              : err?.code === "LIMIT_FILE_COUNT"
+                ? `Too many files in one upload (max ${MAX_FILES_PER_REQUEST})`
+                : err?.message || "Upload rejected";
+          return res.status(400).json({ message });
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      const facility = (req as any)._facility;
+      const files = (req.files as Express.Multer.File[] | undefined) || [];
+      if (files.length === 0) return res.status(400).json({ message: "No files uploaded" });
 
       const svc = new ObjectStorageService();
-      const normalizedNew: string[] = [];
-      for (const raw of uploadURLs) {
-        const path = await svc.trySetObjectEntityAclPolicy(raw, {
-          owner: String(req.session.userId),
-          visibility: "public",
-        });
-        normalizedNew.push(path);
-      }
+      const uploadedFiles: { gcsFile: any; objectPath: string }[] = [];
 
-      const updated = await storage.updateFacility(facility.id, {
-        imageUrls: [...(facility.imageUrls || []), ...normalizedNew],
-      } as any);
-      res.json(updated);
-    } catch (error: any) {
-      console.error("[facility-images] finalize error:", error);
-      res.status(400).json({ message: error.message || "Failed to finalize uploads" });
-    }
-  });
+      try {
+        for (const file of files) {
+          // Probe with sharp: validates real image content + dimensions.
+          let meta: sharp.Metadata;
+          try {
+            meta = await sharp(file.buffer, {
+              failOn: "error",
+              animated: false,
+              limitInputPixels: SHARP_PIXEL_CAP,
+            }).metadata();
+            if (!meta.format || !ALLOWED_RASTER_FORMATS.has(meta.format)) {
+              throw new Error(`Unsupported format: ${meta.format || "unknown"}`);
+            }
+          } catch (e: any) {
+            throw new Error(`"${file.originalname}" couldn't be read as an image (${e.message})`);
+          }
+
+          const optimized = await sharp(file.buffer, {
+            failOn: "error",
+            animated: false,
+            limitInputPixels: SHARP_PIXEL_CAP,
+          })
+            .rotate()
+            .resize({
+              width: MAX_DIMENSION_PX,
+              height: MAX_DIMENSION_PX,
+              fit: "inside",
+              withoutEnlargement: true,
+            })
+            .webp({ quality: WEBP_QUALITY, effort: 4 })
+            .toBuffer();
+
+          const { file: gcsFile, objectPath } = await svc.uploadBufferToUploads(
+            optimized,
+            "image/webp",
+            "webp",
+          );
+          await setObjectAclPolicy(gcsFile, {
+            owner: String(req.session.userId),
+            visibility: "public",
+          });
+          uploadedFiles.push({ gcsFile, objectPath });
+        }
+
+        const updated = await storage.updateFacility(facility.id, {
+          imageUrls: [...(facility.imageUrls || []), ...uploadedFiles.map(u => u.objectPath)],
+        } as any);
+        res.json(updated);
+      } catch (error: any) {
+        // Best-effort cleanup so a partial failure doesn't leave orphaned public objects.
+        await Promise.allSettled(
+          uploadedFiles.map(u => u.gcsFile.delete({ ignoreNotFound: true })),
+        );
+        console.error("[facility-images] upload error:", error);
+        const status = /couldn't be read|Unsupported format|over \d+ MB/i.test(error.message || "")
+          ? 400 : 500;
+        res.status(status).json({ message: error.message || "Upload failed" });
+      }
+    },
+  );
 
   app.get("/api/admin/venue/facilities/:id/pricing", requireAuth, async (req, res) => {
     try {

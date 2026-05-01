@@ -130,6 +130,30 @@ export class ObjectStorageService {
     }
   }
 
+  // Uploads an in-memory buffer directly to the private uploads prefix and returns
+  // the normalized "/objects/uploads/<id>" path. The caller is responsible for
+  // setting the ACL afterwards (e.g. via setObjectAclPolicy).
+  async uploadBufferToUploads(
+    buffer: Buffer,
+    contentType: string,
+    extension: string,
+  ): Promise<{ file: File; objectPath: string }> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const objectId = randomUUID();
+    const safeExt = extension.replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
+    const fullPath = `${privateObjectDir}/uploads/${objectId}.${safeExt}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    await file.save(buffer, {
+      contentType,
+      resumable: false,
+      metadata: { contentType, cacheControl: "public, max-age=86400" },
+    });
+    const objectPath = `/objects/uploads/${objectId}.${safeExt}`;
+    return { file, objectPath };
+  }
+
   // Gets the upload URL for an object entity.
   async getObjectEntityUploadURL(): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
