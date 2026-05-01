@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -14,6 +14,93 @@ import {
 } from "lucide-react";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
+
+function facilityImages(f: { imageUrls: string[] | null; imageUrl: string | null }): string[] {
+  const arr = (f.imageUrls || []).filter(Boolean);
+  if (arr.length > 0) return arr;
+  return f.imageUrl ? [f.imageUrl] : [];
+}
+
+function FacilityCarousel({
+  images,
+  alt,
+  brand,
+  size = "card",
+  testIdPrefix,
+}: {
+  images: string[];
+  alt: string;
+  brand: string;
+  size?: "card" | "hero";
+  testIdPrefix: string;
+}) {
+  const [idx, setIdx] = useState(0);
+  const touchStartX = useRef<number | null>(null);
+  if (images.length === 0) return null;
+
+  const heightCls = size === "hero" ? "h-56 sm:h-72" : "h-32";
+  const clamped = Math.min(idx, images.length - 1);
+  const go = (n: number) => setIdx(((n % images.length) + images.length) % images.length);
+  const prev = (e?: React.MouseEvent | React.KeyboardEvent) => { e?.preventDefault?.(); e?.stopPropagation?.(); go(clamped - 1); };
+  const next = (e?: React.MouseEvent | React.KeyboardEvent) => { e?.preventDefault?.(); e?.stopPropagation?.(); go(clamped + 1); };
+
+  return (
+    <div
+      className={`relative ${heightCls} rounded-xl overflow-hidden bg-white/[0.03] -mx-1 mb-3`}
+      onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
+      onTouchEnd={e => {
+        if (touchStartX.current === null) return;
+        const dx = e.changedTouches[0].clientX - touchStartX.current;
+        if (Math.abs(dx) > 30) (dx < 0 ? next() : prev());
+        touchStartX.current = null;
+      }}
+      data-testid={`${testIdPrefix}-carousel`}
+    >
+      <img
+        src={images[clamped]}
+        alt={alt}
+        className="w-full h-full object-cover transition-opacity"
+        draggable={false}
+        data-testid={`${testIdPrefix}-image-${clamped}`}
+      />
+      {images.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={prev}
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center backdrop-blur-sm transition"
+            aria-label="Previous photo"
+            data-testid={`${testIdPrefix}-prev`}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={next}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center backdrop-blur-sm transition"
+            aria-label="Next photo"
+            data-testid={`${testIdPrefix}-next`}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/45 backdrop-blur-sm px-2 py-1 rounded-full">
+            {images.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={e => { e.preventDefault(); e.stopPropagation(); go(i); }}
+                aria-label={`Go to photo ${i + 1}`}
+                className="w-1.5 h-1.5 rounded-full transition"
+                style={{ background: i === clamped ? brand : "rgba(255,255,255,0.4)" }}
+                data-testid={`${testIdPrefix}-dot-${i}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 type FacilityType = "field" | "mini_pitch" | "meeting_room" | "changing_room" | "futsal" | "court" | "other";
 
@@ -45,6 +132,7 @@ interface PublicFacility {
   type: FacilityType;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[] | null;
   halfFull: boolean | null;
   floodlights: boolean | null;
   bufferMinutes: number | null;
@@ -473,37 +561,53 @@ function AddItemsStep({
         <>
           <h2 className="text-lg font-semibold mb-3">Choose a facility</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-            {facilities.map(f => (
-              <button
-                key={f.id}
-                onClick={() => setSelectedFacility(f)}
-                data-testid={`button-facility-${f.id}`}
-                className="text-left rounded-2xl border p-4 transition hover-elevate active-elevate-2"
-                style={{
-                  borderColor: selectedFacility?.id === f.id ? brand : "rgba(255,255,255,0.08)",
-                  background: selectedFacility?.id === f.id ? `${brand}15` : "rgba(255,255,255,0.02)",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div>
-                    <div className="font-semibold">{f.name}</div>
-                    <div className="text-[11px] text-white/40 mt-0.5">{FACILITY_TYPE_LABELS[f.type]}</div>
+            {facilities.map(f => {
+              const imgs = facilityImages(f);
+              const selected = selectedFacility?.id === f.id;
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => setSelectedFacility(f)}
+                  data-testid={`button-facility-${f.id}`}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedFacility(f); } }}
+                  className="text-left rounded-2xl border p-4 transition cursor-pointer hover-elevate active-elevate-2"
+                  style={{
+                    borderColor: selected ? brand : "rgba(255,255,255,0.08)",
+                    background: selected ? `${brand}15` : "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  {imgs.length > 0 && (
+                    <FacilityCarousel
+                      images={imgs}
+                      alt={f.name}
+                      brand={brand}
+                      size="card"
+                      testIdPrefix={`facility-${f.id}-card`}
+                    />
+                  )}
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                      <div className="font-semibold">{f.name}</div>
+                      <div className="text-[11px] text-white/40 mt-0.5">{FACILITY_TYPE_LABELS[f.type]}</div>
+                    </div>
+                    <div className="flex gap-1">
+                      {f.floodlights && <Lightbulb className="w-3.5 h-3.5 text-yellow-400/70" />}
+                      {f.halfFull && <Users className="w-3.5 h-3.5 text-blue-400/70" />}
+                    </div>
                   </div>
-                  <div className="flex gap-1">
-                    {f.floodlights && <Lightbulb className="w-3.5 h-3.5 text-yellow-400/70" />}
-                    {f.halfFull && <Users className="w-3.5 h-3.5 text-blue-400/70" />}
+                  {f.description && <p className="text-xs text-white/50 line-clamp-2">{f.description}</p>}
+                  <div className="text-xs text-white/60 mt-2">
+                    From {f.pricingRules.length > 0
+                      ? `$${parseFloat(f.pricingRules[0].pricePerHour).toFixed(2)}/hr`
+                      : f.pricePerHourCents
+                        ? `$${(f.pricePerHourCents / 100).toFixed(2)}/hr`
+                        : "—"}
                   </div>
                 </div>
-                {f.description && <p className="text-xs text-white/50 line-clamp-2">{f.description}</p>}
-                <div className="text-xs text-white/60 mt-2">
-                  From {f.pricingRules.length > 0
-                    ? `$${parseFloat(f.pricingRules[0].pricePerHour).toFixed(2)}/hr`
-                    : f.pricePerHourCents
-                      ? `$${(f.pricePerHourCents / 100).toFixed(2)}/hr`
-                      : "—"}
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
 
           {selectedFacility && (
@@ -583,8 +687,19 @@ function ConfigureFacility({
     if (items.length > 0) onAdd(items);
   };
 
+  const heroImages = facilityImages(facility);
+
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
+      {heroImages.length > 0 && (
+        <FacilityCarousel
+          images={heroImages}
+          alt={facility.name}
+          brand={brand}
+          size="hero"
+          testIdPrefix={`facility-${facility.id}-hero`}
+        />
+      )}
       <h3 className="font-semibold mb-4 flex items-center gap-2">
         Configure: {facility.name}
       </h3>

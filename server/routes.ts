@@ -10,6 +10,7 @@ import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, crea
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
 import crypto from "crypto";
+import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1132,6 +1133,26 @@ export async function registerRoutes(
     return userOrgs.some((o: any) => o.id === orgId);
   }
 
+  // === Public file serving (object storage) ===
+  // Uploaded facility images live in object storage; this route streams them by path.
+  app.get(/^\/objects\/.+/, async (req, res) => {
+    try {
+      const svc = new ObjectStorageService();
+      const file = await svc.getObjectEntityFile(req.path);
+      // Enforce ACL: anonymous reads only allowed for objects explicitly marked public.
+      const userId = (req.session as any)?.userId
+        ? String((req.session as any).userId)
+        : undefined;
+      const allowed = await svc.canAccessObjectEntity({ userId, objectFile: file });
+      if (!allowed) return res.status(userId ? 403 : 401).end();
+      await svc.downloadObject(file, res, 86400);
+    } catch (error: any) {
+      if (error instanceof ObjectNotFoundError) return res.status(404).end();
+      console.error("[objects] serve error:", error);
+      res.status(500).end();
+    }
+  });
+
   app.get("/api/admin/venue/facilities", requireAuth, async (req, res) => {
     try {
       const orgId = parseInt(req.query.orgId as string);
@@ -1184,6 +1205,78 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  // === Facility images: presigned upload + finalize (sets public ACL, normalizes path, persists) ===
+  app.post("/api/admin/venue/facilities/:id/images/upload-url", requireAuth, async (req, res) => {
+    try {
+      const facility = await storage.getFacility(parseInt(req.params.id));
+      if (!facility) return res.status(404).json({ message: "Facility not found" });
+      if (!(await checkUserOrg(req.session.userId!, facility.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const svc = new ObjectStorageService();
+      const uploadURL = await svc.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error: any) {
+      console.error("[facility-images] upload-url error:", error);
+      res.status(500).json({ message: error.message || "Failed to create upload URL" });
+    }
+  });
+
+  // After client finishes PUT to the presigned URL(s), it sends the upload URL(s) here so we can:
+  // 1) verify each URL is a presigned PUT into our own private uploads prefix
+  // 2) normalize them to /objects/uploads/<uuid>
+  // 3) mark them public (so the customer-facing /book page can render them)
+  // 4) append to facility.imageUrls
+  app.post("/api/admin/venue/facilities/:id/images/finalize", requireAuth, async (req, res) => {
+    try {
+      const facility = await storage.getFacility(parseInt(req.params.id));
+      if (!facility) return res.status(404).json({ message: "Facility not found" });
+      if (!(await checkUserOrg(req.session.userId!, facility.organizationId))) return res.status(403).json({ message: "Forbidden" });
+
+      const schema = z.object({ uploadURLs: z.array(z.string().url()).min(1).max(20) });
+      const { uploadURLs } = schema.parse(req.body);
+
+      // Strict allow-list: only signed URLs into our own private uploads prefix.
+      // Path looks like /<bucket>/<privateDir>/uploads/<uuid> with a valid UUID.
+      let privateDir = process.env.PRIVATE_OBJECT_DIR || "";
+      if (!privateDir) return res.status(500).json({ message: "Server storage not configured" });
+      if (!privateDir.endsWith("/")) privateDir = `${privateDir}/`;
+      const expectedPathPrefix = `${privateDir}uploads/`;
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      for (const raw of uploadURLs) {
+        let url: URL;
+        try { url = new URL(raw); } catch { return res.status(400).json({ message: "Invalid upload URL" }); }
+        if (url.protocol !== "https:" || url.host !== "storage.googleapis.com") {
+          return res.status(400).json({ message: "Upload URL must point to Google Storage" });
+        }
+        if (!url.pathname.startsWith(expectedPathPrefix)) {
+          return res.status(400).json({ message: "Upload URL outside allowed uploads prefix" });
+        }
+        const objectId = url.pathname.slice(expectedPathPrefix.length);
+        if (!uuidRe.test(objectId)) {
+          return res.status(400).json({ message: "Upload URL has invalid object id" });
+        }
+      }
+
+      const svc = new ObjectStorageService();
+      const normalizedNew: string[] = [];
+      for (const raw of uploadURLs) {
+        const path = await svc.trySetObjectEntityAclPolicy(raw, {
+          owner: String(req.session.userId),
+          visibility: "public",
+        });
+        normalizedNew.push(path);
+      }
+
+      const updated = await storage.updateFacility(facility.id, {
+        imageUrls: [...(facility.imageUrls || []), ...normalizedNew],
+      } as any);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("[facility-images] finalize error:", error);
+      res.status(400).json({ message: error.message || "Failed to finalize uploads" });
     }
   });
 

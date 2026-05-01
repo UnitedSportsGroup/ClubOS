@@ -298,6 +298,7 @@ export const facilities = pgTable("facilities", {
   type: facilityTypeEnum("type").notNull().default("field"),
   description: text("description"),
   imageUrl: text("image_url"),
+  imageUrls: text("image_urls").array().notNull().default(sql`ARRAY[]::text[]`),
   halfFull: boolean("half_full").default(false),
   floodlights: boolean("floodlights").default(false),
   bufferMinutes: integer("buffer_minutes").default(0),
