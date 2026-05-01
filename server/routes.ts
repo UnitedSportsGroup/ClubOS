@@ -14,7 +14,7 @@ import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from ".
 import multer from "multer";
 import sharp from "sharp";
 import { detectDnsProvider, getCnameHost, getApexDomain } from "./dns/detectProvider";
-import { isGoDaddyConfigured, checkConnection as checkGoDaddyConnection, setCnameRecord as setGoDaddyCname, ownsDomain as goDaddyOwnsDomain, getRecords as getGoDaddyRecords } from "./dns/godaddyClient";
+import { isGoDaddyConfigured, checkConnection as checkGoDaddyConnection, setCnameRecord as setGoDaddyCname, ownsDomain as goDaddyOwnsDomain, getRecords as getGoDaddyRecords, setForwarding as setGoDaddyForwarding, getForwarding as getGoDaddyForwarding } from "./dns/godaddyClient";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -3106,13 +3106,47 @@ export async function registerRoutes(
       const fullHost = domains[0].domain;
       const { apex } = getApexDomain(fullHost);
       const cnameHost = getCnameHost(fullHost);
-      if (cnameHost === "@") {
-        return res.status(400).json({ message: "Root-domain CNAMEs aren't allowed. Use a subdomain like book.yourdomain.com." });
-      }
 
       const owns = await goDaddyOwnsDomain(apex).catch(() => false);
       if (!owns) {
         return res.status(400).json({ message: `${apex} isn't in the connected GoDaddy account.` });
+      }
+
+      // Apex domains can't have a CNAME (DNS spec). The standard workaround is to put the
+      // CNAME on www.<apex> and set up a 301 redirect from <apex> → https://www.<apex>.
+      if (cnameHost === "@") {
+        const wwwTargetUrl = `https://www.${apex}`;
+        // Step 1: CNAME the www subdomain to the deployment
+        await setGoDaddyCname(apex, "www", cnameTarget);
+        // Step 2: Forward the apex to the www version. If forwarding fails (some account types
+        //   don't allow it via API), surface a clear error instead of a partial success.
+        try {
+          await setGoDaddyForwarding(apex, apex, wwwTargetUrl);
+        } catch (fwdErr: any) {
+          // Return 200 (not 500) so the client can show the partial-success state cleanly.
+          // The CNAME *did* get applied, so this isn't a hard failure — the user just needs
+          // to add the forward manually (some GoDaddy account types restrict the API).
+          return res.status(200).json({
+            success: false,
+            partialSuccess: true,
+            apex,
+            cnameHost: "www",
+            cnameTarget,
+            attachedHost: `www.${apex}`,
+            forwardingError: fwdErr?.message || String(fwdErr),
+            instructionsUrl: `https://dcc.godaddy.com/control/portfolio/${encodeURIComponent(apex)}/settings?subtab=forwarding`,
+            note: `CNAME on www.${apex} was set successfully, but apex forwarding couldn't be set via API. In GoDaddy go to My Products → ${apex} → Domain Settings → Forwarding, and add a permanent (301) redirect from ${apex} to ${wwwTargetUrl}.`,
+          });
+        }
+        return res.json({
+          success: true,
+          apex,
+          cnameHost: "www",
+          cnameTarget,
+          apexForwarding: { from: apex, to: wwwTargetUrl },
+          attachedHost: `www.${apex}`,
+          note: "CNAME placed on www subdomain; apex set to forward to www (301 redirect).",
+        });
       }
 
       await setGoDaddyCname(apex, cnameHost, cnameTarget);
@@ -3133,13 +3167,26 @@ export async function registerRoutes(
       const { apex } = getApexDomain(fullHost);
       const cnameHost = getCnameHost(fullHost);
       let configuredTarget: string | null = null;
+      let apexForwardingTo: string | null = null;
+      // For apex domains, the CNAME lives on `www`, and the apex itself uses HTTP forwarding.
+      const effectiveCnameHost = cnameHost === "@" ? "www" : cnameHost;
       try {
         if (isGoDaddyConfigured()) {
-          const recs = await getGoDaddyRecords(apex, "CNAME", cnameHost);
+          const recs = await getGoDaddyRecords(apex, "CNAME", effectiveCnameHost);
           configuredTarget = recs?.[0]?.data?.replace(/\.$/, "") || null;
+          if (cnameHost === "@") {
+            const fwd = await getGoDaddyForwarding(apex, apex);
+            apexForwardingTo = fwd?.url || null;
+          }
         }
       } catch {}
-      res.json({ configuredTarget, cnameHost, apex });
+      res.json({
+        configuredTarget,
+        cnameHost: effectiveCnameHost,
+        apex,
+        isApex: cnameHost === "@",
+        apexForwardingTo,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

@@ -81,10 +81,15 @@ export function DetectionInlineBadge({ domain, enabled = true }: { domain: strin
   }
   if (data.provider === "godaddy") {
     if (data.godaddy.canAutoConfigure) {
+      const isApex = data.cnameHost === "@";
       return (
         <div className="flex items-center gap-1.5 text-xs text-emerald-400" data-testid="detection-godaddy-ready">
           <SiGodaddy className="w-3 h-3" />
-          <span>Detected: GoDaddy. We can configure DNS for you in one click after adding.</span>
+          <span>
+            {isApex
+              ? `Detected: GoDaddy (root domain). One-click setup will CNAME www.${data.apexDomain} and forward ${data.apexDomain} → www.`
+              : "Detected: GoDaddy. We can configure DNS for you in one click after adding."}
+          </span>
         </div>
       );
     }
@@ -128,14 +133,32 @@ export function AutoConfigureButton({
 
   const mutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/admin/domains/${domainId}/auto-configure`, { cnameTarget });
+      const r = await apiRequest("POST", `/api/admin/domains/${domainId}/auto-configure`, { cnameTarget });
+      return await r.json();
     },
-    onSuccess: () => {
-      toast({
-        title: "DNS configured in GoDaddy",
-        description: "The CNAME record is in place. It usually goes live within a few minutes.",
-      });
+    onSuccess: (result: any) => {
+      // Server may return success=false with partialSuccess=true (e.g. CNAME set but apex
+      //   forwarding rejected by GoDaddy). Surface that distinctly so the user knows what's
+      //   left to do manually.
+      if (result?.partialSuccess) {
+        toast({
+          title: "Partly done — manual step needed",
+          description: result.note || "CNAME is set, but apex forwarding needs to be added manually in GoDaddy.",
+          variant: "destructive",
+        });
+      } else if (result?.apexForwarding) {
+        toast({
+          title: "DNS configured in GoDaddy",
+          description: `CNAME set on www.${result.apex}, and ${result.apex} now forwards (301) to ${result.apexForwarding.to}. Both usually go live within a few minutes.`,
+        });
+      } else {
+        toast({
+          title: "DNS configured in GoDaddy",
+          description: "The CNAME record is in place. It usually goes live within a few minutes.",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/admin/domains"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/domains", domainId, "dns-status"] });
       onConfigured?.();
     },
     onError: (e: any) => {
@@ -251,7 +274,7 @@ export function GoDaddyConnectionCard() {
 
 export function GoDaddyVerifiedRecord({ domainId, fullDomain, cnameTarget }: { domainId: number; fullDomain: string; cnameTarget: string | null }) {
   const { data: detection } = useDomainDetection(fullDomain);
-  const { data } = useQuery<{ configuredTarget: string | null; cnameHost: string; apex: string }>({
+  const { data } = useQuery<{ configuredTarget: string | null; cnameHost: string; apex: string; isApex?: boolean; apexForwardingTo?: string | null }>({
     queryKey: ["/api/admin/domains", domainId, "dns-status"],
     queryFn: async () => {
       const r = await fetch(`/api/admin/domains/${domainId}/dns-status`);
@@ -263,6 +286,30 @@ export function GoDaddyVerifiedRecord({ domainId, fullDomain, cnameTarget }: { d
   });
   if (!data?.configuredTarget) return null;
   const matches = !!cnameTarget && data.configuredTarget.toLowerCase() === cnameTarget.toLowerCase();
+  if (data.isApex) {
+    const expectedFwd = `https://www.${data.apex}`;
+    const fwdMatches = data.apexForwardingTo?.toLowerCase() === expectedFwd.toLowerCase();
+    return (
+      <div className="flex flex-wrap gap-1.5" data-testid={`badge-godaddy-record-${domainId}`}>
+        <Badge
+          className={matches
+            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20 text-[10px] gap-1"
+            : "bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] gap-1"}
+        >
+          <CheckCircle2 className="w-3 h-3" />
+          {matches ? `CNAME www → ${cnameTarget}` : "www CNAME mismatch"}
+        </Badge>
+        <Badge
+          className={fwdMatches
+            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20 text-[10px] gap-1"
+            : "bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] gap-1"}
+        >
+          <CheckCircle2 className="w-3 h-3" />
+          {fwdMatches ? `Forward ${data.apex} → www` : data.apexForwardingTo ? "Forward set to wrong URL" : "Apex forward missing"}
+        </Badge>
+      </div>
+    );
+  }
   return (
     <Badge
       className={

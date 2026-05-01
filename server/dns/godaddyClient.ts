@@ -96,6 +96,43 @@ export async function setCnameRecord(apex: string, name: string, target: string,
   );
 }
 
+// --- Domain Forwarding (used for apex → www redirects) ---
+// GoDaddy's /forwards endpoint sets up an HTTP 301/302 redirect at the registrar level.
+// This is how we work around the DNS rule that forbids CNAME records at the apex.
+
+export interface GoDaddyForwarding {
+  type: "REDIRECT_PERMANENT" | "REDIRECT_TEMPORARY";
+  url: string;
+  masking?: boolean;
+  title?: string;
+}
+
+export async function setForwarding(apex: string, fqdn: string, targetUrl: string): Promise<void> {
+  await request<void>(
+    `/domains/${encodeURIComponent(apex)}/forwards/${encodeURIComponent(fqdn)}`,
+    "PUT",
+    {
+      type: "REDIRECT_PERMANENT",
+      url: targetUrl,
+      masking: false,
+    },
+  );
+}
+
+export async function getForwarding(apex: string, fqdn: string): Promise<GoDaddyForwarding | null> {
+  try {
+    const all = await request<GoDaddyForwarding[] | GoDaddyForwarding>(
+      `/domains/${encodeURIComponent(apex)}/forwards/${encodeURIComponent(fqdn)}`,
+      "GET",
+    );
+    if (Array.isArray(all)) return all[0] || null;
+    return all || null;
+  } catch (err: any) {
+    if (typeof err?.message === "string" && (err.message.includes("not found") || err.message.includes("404"))) return null;
+    return null;
+  }
+}
+
 export async function ownsDomain(apex: string): Promise<boolean> {
   try {
     await request<{ domain: string }>(`/domains/${encodeURIComponent(apex)}`, "GET");
