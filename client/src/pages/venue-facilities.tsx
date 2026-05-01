@@ -9,10 +9,24 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { Facility } from "@shared/schema";
+import type { Facility, FacilityPricingRule } from "@shared/schema";
 import { FacilityCarousel } from "@/components/FacilityCarousel";
 
 type FacilityWithRules = Facility & { pricingRulesCount: number };
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_PILLS = [
+  { n: 1, short: "M" }, { n: 2, short: "T" }, { n: 3, short: "W" },
+  { n: 4, short: "T" }, { n: 5, short: "F" }, { n: 6, short: "S" }, { n: 0, short: "S" },
+];
+
+function describeDays(days: number[]): string {
+  const sorted = [...days].sort();
+  if (sorted.length === 7) return "Every day";
+  if (sorted.length === 5 && [1, 2, 3, 4, 5].every(d => sorted.includes(d))) return "Mon–Fri (weekdays)";
+  if (sorted.length === 2 && sorted.includes(0) && sorted.includes(6)) return "Sat & Sun (weekends)";
+  return sorted.map(d => DAY_NAMES[d]).join(", ");
+}
 
 const FACILITY_TYPES = [
   { value: "field", label: "Field" },
@@ -203,6 +217,232 @@ function FacilityImageManager({
   );
 }
 
+function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; baseRate: string }) {
+  const { toast } = useToast();
+  const [adding, setAdding] = useState(false);
+  const [newRule, setNewRule] = useState({
+    name: "",
+    days: [] as number[],
+    startTime: "07:00",
+    endTime: "15:00",
+    pricePerHour: "",
+  });
+
+  const { data: rules = [], isLoading } = useQuery<FacilityPricingRule[]>({
+    queryKey: ["/api/admin/venue/facilities", facilityId, "pricing"],
+    queryFn: () => fetch(`/api/admin/venue/facilities/${facilityId}/pricing`).then(r => r.json()),
+  });
+
+  // Group rules by signature so a single "Mon-Fri 7-15 @ $180" entry shows as one card
+  // even though it's stored as 5 separate rows in the DB (one per day).
+  const groups = (() => {
+    const map = new Map<string, { signature: string; ids: number[]; days: number[]; rule: FacilityPricingRule }>();
+    for (const r of rules) {
+      const sig = `${r.name}|${r.startTime || ""}|${r.endTime || ""}|${r.pricePerHour}|${r.isDefault ? 1 : 0}`;
+      if (!map.has(sig)) {
+        map.set(sig, { signature: sig, ids: [], days: [], rule: r });
+      }
+      const g = map.get(sig)!;
+      g.ids.push(r.id);
+      if (r.dayOfWeek != null) g.days.push(r.dayOfWeek);
+    }
+    return Array.from(map.values());
+  })();
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      // Create one rule row per selected day of week. They share name/time/price so they
+      // group back into a single visual entry on next render.
+      for (const day of newRule.days) {
+        await apiRequest("POST", `/api/admin/venue/facilities/${facilityId}/pricing`, {
+          name: newRule.name,
+          dayOfWeek: day,
+          startTime: newRule.startTime,
+          endTime: newRule.endTime,
+          pricePerHour: newRule.pricePerHour,
+          isDefault: false,
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities", facilityId, "pricing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities"] });
+      setAdding(false);
+      setNewRule({ name: "", days: [], startTime: "07:00", endTime: "15:00", pricePerHour: "" });
+      toast({ title: "Pricing rule added" });
+    },
+    onError: (e: any) => toast({ title: "Couldn't add rule", description: e?.message || String(e), variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      // A grouped rule = N rows; delete them all together.
+      for (const id of ids) {
+        await apiRequest("DELETE", `/api/admin/venue/pricing/${id}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities", facilityId, "pricing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities"] });
+      toast({ title: "Pricing rule removed" });
+    },
+  });
+
+  const setPreset = (preset: "weekdays" | "weekends" | "all") => {
+    if (preset === "weekdays") setNewRule({ ...newRule, days: [1, 2, 3, 4, 5] });
+    else if (preset === "weekends") setNewRule({ ...newRule, days: [0, 6] });
+    else setNewRule({ ...newRule, days: [0, 1, 2, 3, 4, 5, 6] });
+  };
+
+  const toggleDay = (d: number) => {
+    setNewRule({
+      ...newRule,
+      days: newRule.days.includes(d)
+        ? newRule.days.filter(x => x !== d)
+        : [...newRule.days, d],
+    });
+  };
+
+  return (
+    <div className="space-y-2" data-testid="pricing-rules-editor">
+      <p className="text-[11px] text-white/40">
+        Override the base rate{baseRate ? ` of $${baseRate}/hr` : ""} for specific days &amp; times. The first matching rule wins; if none match, the base rate is used.
+      </p>
+
+      {isLoading ? (
+        <div className="text-xs text-white/30">Loading...</div>
+      ) : groups.length === 0 ? (
+        <div className="text-xs text-white/30 italic">No variable pricing yet — base rate applies all the time.</div>
+      ) : (
+        <div className="space-y-1.5">
+          {groups.map(g => (
+            <div key={g.signature} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2.5" data-testid={`pricing-rule-${g.rule.id}`}>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-white truncate">{g.rule.name}</div>
+                <div className="text-[10px] text-white/40 mt-0.5">
+                  {describeDays(g.days)} · {g.rule.startTime} – {g.rule.endTime} · <span className="text-green-400 font-medium">${parseFloat(g.rule.pricePerHour).toFixed(2)}/hr</span>
+                </div>
+              </div>
+              <button
+                onClick={() => { if (confirm(`Delete pricing rule "${g.rule.name}"?`)) deleteMutation.mutate(g.ids); }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
+                disabled={deleteMutation.isPending}
+                data-testid={`button-delete-pricing-${g.rule.id}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!adding ? (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 mt-1"
+          data-testid="button-add-pricing-rule"
+        >
+          <Plus className="w-3 h-3" /> Add pricing rule
+        </button>
+      ) : (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-3" data-testid="pricing-rule-form">
+          <div>
+            <label className="text-[10px] text-white/40 mb-1 block">Rule name</label>
+            <Input
+              value={newRule.name}
+              onChange={e => setNewRule({ ...newRule, name: e.target.value })}
+              placeholder="e.g. Weekday peak"
+              className="bg-white/5 border-white/10 text-white text-xs h-8"
+              data-testid="input-rule-name"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] text-white/40 mb-1 block">Days</label>
+            <div className="flex items-center gap-1.5 mb-2">
+              {DAY_PILLS.map(d => {
+                const active = newRule.days.includes(d.n);
+                return (
+                  <button
+                    key={d.n}
+                    type="button"
+                    onClick={() => toggleDay(d.n)}
+                    className={`w-7 h-7 rounded-full text-[11px] font-medium border transition-colors ${active ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"}`}
+                    data-testid={`button-rule-day-${d.n}`}
+                  >
+                    {d.short}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => setPreset("weekdays")} className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/50 hover:bg-white/5" data-testid="button-preset-weekdays">Weekdays</button>
+              <button type="button" onClick={() => setPreset("weekends")} className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/50 hover:bg-white/5" data-testid="button-preset-weekends">Weekends</button>
+              <button type="button" onClick={() => setPreset("all")} className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/50 hover:bg-white/5" data-testid="button-preset-all">Every day</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] text-white/40 mb-1 block">Start</label>
+              <Input
+                type="time"
+                value={newRule.startTime}
+                onChange={e => setNewRule({ ...newRule, startTime: e.target.value })}
+                className="bg-white/5 border-white/10 text-white text-xs h-8"
+                data-testid="input-rule-start"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-white/40 mb-1 block">End</label>
+              <Input
+                type="time"
+                value={newRule.endTime}
+                onChange={e => setNewRule({ ...newRule, endTime: e.target.value })}
+                className="bg-white/5 border-white/10 text-white text-xs h-8"
+                data-testid="input-rule-end"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-white/40 mb-1 block">Price / hr</label>
+              <Input
+                type="number"
+                step="0.01"
+                value={newRule.pricePerHour}
+                onChange={e => setNewRule({ ...newRule, pricePerHour: e.target.value })}
+                placeholder="180.00"
+                className="bg-white/5 border-white/10 text-white text-xs h-8"
+                data-testid="input-rule-price"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)} className="text-white/50 h-7 text-xs">Cancel</Button>
+            <Button
+              size="sm"
+              onClick={() => createMutation.mutate()}
+              disabled={
+                !newRule.name ||
+                newRule.days.length === 0 ||
+                !newRule.startTime ||
+                !newRule.endTime ||
+                !newRule.pricePerHour ||
+                createMutation.isPending
+              }
+              className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-xs"
+              data-testid="button-save-pricing-rule"
+            >
+              {createMutation.isPending ? "Adding..." : "Add rule"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRules; orgId: number; onClose: () => void }) {
   const { toast } = useToast();
   const [form, setForm] = useState({
@@ -346,6 +586,18 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
                     className="bg-white/5 border-white/10 text-white"
                     data-testid="input-half-price-per-hour"
                   />
+                </div>
+              )}
+            </div>
+
+            {/* Variable pricing rules — peak/off-peak, weekday/weekend, etc. */}
+            <div className="border-t border-white/[0.06] pt-3 space-y-2">
+              <div className="text-[11px] uppercase tracking-wider text-white/30">Variable pricing</div>
+              {facility ? (
+                <PricingRulesEditor facilityId={facility.id} baseRate={form.pricePerHour} />
+              ) : (
+                <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-3 text-center text-[11px] text-white/40">
+                  Save the facility first, then you can add peak/off-peak pricing rules.
                 </div>
               )}
             </div>
