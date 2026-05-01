@@ -199,35 +199,40 @@ export default function AdminDomainSettings() {
 
       <Card className="premium-card border-white/[0.06]">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-white/80">DNS Configuration</CardTitle>
+          <CardTitle className="text-sm font-medium text-white/80">How to connect a domain</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-white/50">
-            To connect a custom domain, add a CNAME record in your domain's DNS settings:
-          </p>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 font-mono text-sm">
-            <div className="grid grid-cols-3 gap-4 text-white/40 text-xs mb-2">
-              <span>Type</span>
-              <span>Name</span>
-              <span>Value</span>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-white/70">
-              <span>CNAME</span>
-              <span>join</span>
-              <span className="break-all">your-app.replit.app</span>
-            </div>
-          </div>
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+          <ol className="space-y-2.5 text-sm text-white/50 list-none">
+            <li className="flex gap-2.5">
+              <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+              <span>
+                Add a <span className="font-medium text-white/70">subdomain</span> above (e.g. <span className="font-mono text-white/70">join.yourdomain.co.nz</span>).
+                Don't use a bare root domain — CNAME records don't work on roots.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+              <span>
+                In your Replit project, go to <span className="font-medium text-white/70">Deployments → Settings → Custom Domains</span> and add the same domain.
+                Replit will show you the CNAME target and handle the SSL certificate.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+              <span>
+                In your DNS provider (GoDaddy, Cloudflare, etc.) add a <span className="font-medium text-white/70">CNAME record</span>:
+                Name = the subdomain part (e.g. <span className="font-mono text-white/70">join</span>),
+                Value = the target from step 2.
+              </span>
+            </li>
+          </ol>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
             <div className="flex gap-2">
               <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm text-amber-300/80 font-medium">Domain verification</p>
-                <p className="text-xs text-amber-300/50 mt-1">
-                  After adding your CNAME record, it may take up to 24-48 hours for DNS changes to propagate. 
-                  Once your domain is pointing to our servers, it will be automatically verified.
-                  Custom domain routing will be fully functional once deployed with your own infrastructure.
-                </p>
-              </div>
+              <p className="text-xs text-amber-300/60">
+                DNS changes can take a few minutes to 24 hours to propagate.
+                The status above will update automatically once the domain is verified.
+              </p>
             </div>
           </div>
         </CardContent>

@@ -63,13 +63,14 @@ export default function VenueWebsitePage() {
     onError: (e: any) => toast({ title: "Couldn't remove domain", description: e?.message, variant: "destructive" }),
   });
 
-  // Default Replit URL the booking site is currently served on. The actual published
-  // domain (e.g. cufc.replit.app) is what customers should CNAME to.
   const replitOrigin = window.location.origin;
   const previewUrl = `${replitOrigin}/book?slug=${orgSlug || ""}`;
-  const cnameTarget = window.location.hostname.endsWith(".replit.app")
-    ? window.location.hostname
-    : "your-app.replit.app";
+
+  const { data: deployInfo } = useQuery<{ cnameTarget: string | null }>({
+    queryKey: ["/api/admin/deployment-info"],
+  });
+  const cnameTarget = deployInfo?.cnameTarget
+    || (window.location.hostname.endsWith(".replit.app") ? window.location.hostname : null);
 
   const statusBadge = (d: CustomDomain) => {
     if (d.verified) {
@@ -312,65 +313,105 @@ export default function VenueWebsitePage() {
           <div className="border-t border-white/[0.06] pt-4 space-y-3">
             <div className="text-xs font-semibold text-white/60">How to connect your domain</div>
 
-            <ol className="space-y-3 text-sm text-white/60">
-              <li className="flex gap-3">
-                <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                <div className="flex-1">
-                  <div className="text-white/80">Add your domain above</div>
-                  <div className="text-xs text-white/40 mt-0.5">Type the full domain (e.g. <span className="font-mono">book.yourdomain.co.nz</span>) and click "Add domain".</div>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                <div className="flex-1">
-                  <div className="text-white/80">Add a CNAME record at your DNS provider</div>
-                  <div className="text-xs text-white/40 mt-0.5">In your domain registrar (GoDaddy, Cloudflare, Namecheap, etc.), add this record:</div>
-                  <div className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 font-mono text-xs">
-                    <div className="grid grid-cols-3 gap-3 text-white/30 mb-1.5">
-                      <span>Type</span>
-                      <span>Name / Host</span>
-                      <span>Value / Target</span>
+            {(() => {
+              const firstDomain = domains?.[0]?.domain;
+              const COMPOUND_TLDS = /\.(co|net|org|ac|govt|gen)\.(nz|uk|au|za|in|jp|kr)$|\.com\.(au|br|cn|mx|sg|tw)$/i;
+              const isRootDomain = firstDomain && (
+                firstDomain.split(".").length <= 2
+                || (firstDomain.split(".").length === 3 && COMPOUND_TLDS.test(firstDomain))
+              );
+              const hostPart = firstDomain ? firstDomain.split(".")[0] : "book";
+              return (
+                <>
+                  {isRootDomain && (
+                    <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex gap-2" data-testid="callout-root-domain-warning">
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-red-300/80 leading-relaxed">
+                        <span className="font-medium">Root domains can't use CNAME records.</span>{" "}
+                        You've added <span className="font-mono font-medium">{firstDomain}</span> which is a root domain.
+                        Most DNS providers (GoDaddy, Namecheap) don't allow CNAME records on the root.
+                        You should use a subdomain instead — for example{" "}
+                        <span className="font-mono font-medium">book.{firstDomain}</span>.
+                        Remove the current entry above, then add the subdomain version.
+                      </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-3 text-white/80">
-                      <span>CNAME</span>
-                      <span>book</span>
-                      <span className="break-all flex items-center gap-1.5" data-testid="text-cname-target">
-                        {cnameTarget}
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(cnameTarget); toast({ title: "Copied" }); }}
-                          className="text-white/30 hover:text-white/60"
-                          aria-label="Copy CNAME target"
-                          data-testid="button-copy-cname"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </span>
+                  )}
+
+                  <ol className="space-y-3 text-sm text-white/60">
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                      <div className="flex-1">
+                        <div className="text-white/80">Add your domain above</div>
+                        <div className="text-xs text-white/40 mt-0.5">
+                          Use a <span className="font-medium text-white/60">subdomain</span> like{" "}
+                          <span className="font-mono">book.yourdomain.co.nz</span> — not the bare root domain.
+                        </div>
+                      </div>
+                    </li>
+
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                      <div className="flex-1">
+                        <div className="text-white/80">Add the domain in Replit Deployments</div>
+                        <div className="text-xs text-white/40 mt-0.5">
+                          In your Replit project, go to the
+                          <span className="font-medium text-white/60"> Deployments</span> tab (near the top of the sidebar), then
+                          <span className="font-medium text-white/60"> Settings → Custom Domains</span> and add the same domain.
+                          Replit will show you the <span className="font-medium text-white/60">CNAME target</span> to use
+                          and will automatically issue an SSL certificate.
+                        </div>
+                      </div>
+                    </li>
+
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                      <div className="flex-1">
+                        <div className="text-white/80">Add a CNAME record in your DNS provider</div>
+                        <div className="text-xs text-white/40 mt-0.5">
+                          In GoDaddy (or your registrar), go to <span className="font-medium text-white/60">DNS Management</span> and add this record:
+                        </div>
+                        <div className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 font-mono text-xs">
+                          <div className="grid grid-cols-3 gap-3 text-white/30 mb-1.5">
+                            <span>Type</span>
+                            <span>Name / Host</span>
+                            <span>Value / Target</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 text-white/80">
+                            <span>CNAME</span>
+                            <span data-testid="text-cname-host">{hostPart}</span>
+                            <span className="break-all flex items-center gap-1.5" data-testid="text-cname-target">
+                              {cnameTarget || <span className="text-white/40 italic">shown in Replit Deployments</span>}
+                              {cnameTarget && (
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(cnameTarget); toast({ title: "Copied" }); }}
+                                  className="text-white/30 hover:text-white/60"
+                                  aria-label="Copy CNAME target"
+                                  data-testid="button-copy-cname"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-white/30 mt-1.5">
+                          The "Name" is just the part before the first dot in your domain.
+                          The "Value / Target" is the address Replit gives you when you add the domain in step 2.
+                        </div>
+                      </div>
+                    </li>
+                  </ol>
+
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2" data-testid="callout-dns-info">
+                    <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-300/70 leading-relaxed">
+                      DNS changes can take a few minutes to 24 hours to propagate. Once propagated,
+                      the status above will switch from <span className="font-medium">Awaiting DNS</span> to <span className="font-medium">Live</span> automatically.
                     </div>
                   </div>
-                </div>
-              </li>
-
-              <li className="flex gap-3">
-                <span className="w-5 h-5 rounded-full bg-white/[0.06] text-white/70 text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
-                <div className="flex-1">
-                  <div className="text-white/80">Attach the domain in Replit Deployments</div>
-                  <div className="text-xs text-white/40 mt-0.5">
-                    The final step happens on Replit's hosting side — open your project's
-                    <span className="font-medium text-white/60"> Deployments → Settings → Domains</span> tab and add the same domain there.
-                    Replit will automatically issue an SSL certificate so the site loads on HTTPS.
-                  </div>
-                </div>
-              </li>
-            </ol>
-
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2" data-testid="callout-dns-info">
-              <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-300/70 leading-relaxed">
-                DNS changes can take anywhere from a few minutes to 24 hours to propagate worldwide.
-                Once propagated, the status above will switch from <span className="font-medium">Awaiting DNS</span> to <span className="font-medium">Live</span> automatically.
-              </div>
-            </div>
+                </>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>

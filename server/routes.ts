@@ -2968,6 +2968,13 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/deployment-info", requireAuth, (_req, res) => {
+    const slug = process.env.REPL_SLUG || "";
+    const owner = process.env.REPL_OWNER || "";
+    const cnameTarget = slug && owner ? `${slug}-${owner}.replit.app` : null;
+    res.json({ cnameTarget });
+  });
+
   app.get("/api/admin/domains", requireAuth, async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
