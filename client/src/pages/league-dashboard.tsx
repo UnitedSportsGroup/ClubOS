@@ -23,7 +23,7 @@ export default function LeagueDashboard() {
   const openReg = competitions.filter(c => c.registrationStatus === "open");
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1100px]">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white" data-testid="text-league-dashboard-title">Dashboard</h1>
         <p className="text-sm text-white/40 mt-1">Overview of your league management</p>

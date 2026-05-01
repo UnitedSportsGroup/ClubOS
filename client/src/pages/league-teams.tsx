@@ -136,7 +136,7 @@ export default function LeagueTeams() {
   const compMap = Object.fromEntries(competitions.map(c => [c.id, c.name]));
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1100px]">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white" data-testid="text-teams-title">Teams</h1>

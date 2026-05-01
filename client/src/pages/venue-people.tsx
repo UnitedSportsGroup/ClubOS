@@ -21,7 +21,7 @@ export default function VenuePeople() {
   const staff = allUsers.filter(u => u.role !== "admin" && u.role !== "super_admin").length;
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1100px]">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-3">

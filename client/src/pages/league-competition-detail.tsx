@@ -626,7 +626,7 @@ export default function LeagueCompetitionDetail({ params }: { params: { id: stri
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1100px]">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => setLocation("/admin/competitions")} className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all" data-testid="button-back-comps">
           <ArrowLeft className="w-4 h-4" />
