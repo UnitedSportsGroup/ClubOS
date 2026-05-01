@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { Facility } from "@shared/schema";
+import { FacilityCarousel } from "@/components/FacilityCarousel";
 
 type FacilityWithRules = Facility & { pricingRulesCount: number };
 
@@ -388,7 +389,7 @@ export default function VenueFacilities() {
   const filtered = typeFilter === "all" ? facs : facs.filter(f => f.type === typeFilter);
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1100px]">
+    <div className="p-4 sm:p-6 space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-3">
@@ -419,25 +420,36 @@ export default function VenueFacilities() {
         </div>
       </div>
 
-      <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-3"}>
-        {filtered.map(f => (
+      <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4" : "space-y-3"}>
+        {filtered.map(f => {
+          const allImages = (f.imageUrls && f.imageUrls.length > 0) ? f.imageUrls : (f.imageUrl ? [f.imageUrl] : []);
+          return (
           <div key={f.id} className={`rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden ${viewMode === "list" ? "flex" : ""}`} data-testid={`facility-card-${f.id}`}>
             <div className={`relative ${viewMode === "list" ? "w-48 flex-shrink-0" : ""}`}>
-              <div className={`${viewMode === "list" ? "h-full" : "aspect-video"} bg-gradient-to-br from-white/[0.03] to-white/[0.01] flex items-center justify-center relative`}>
-                {(f.imageUrls && f.imageUrls[0]) || f.imageUrl ? (
-                  <>
-                    <img src={(f.imageUrls && f.imageUrls[0]) || f.imageUrl!} alt={f.name} className="w-full h-full object-cover" />
-                    {f.imageUrls && f.imageUrls.length > 1 && (
+              {allImages.length > 0 ? (
+                viewMode === "list" ? (
+                  <div className="h-full w-full relative">
+                    <img src={allImages[0]} alt={f.name} className="w-full h-full object-cover" />
+                    {allImages.length > 1 && (
                       <span className="absolute bottom-1.5 right-1.5 bg-black/70 backdrop-blur text-white/80 text-[10px] px-1.5 py-0.5 rounded font-medium" data-testid={`badge-photo-count-${f.id}`}>
-                        +{f.imageUrls.length - 1}
+                        +{allImages.length - 1}
                       </span>
                     )}
-                  </>
+                  </div>
                 ) : (
+                  <FacilityCarousel
+                    images={allImages}
+                    alt={f.name}
+                    brand="#3b82f6"
+                    testIdPrefix={`admin-facility-${f.id}`}
+                  />
+                )
+              ) : (
+                <div className={`${viewMode === "list" ? "h-full" : "aspect-video"} bg-gradient-to-br from-white/[0.03] to-white/[0.01] flex items-center justify-center`}>
                   <Shield className="w-10 h-10 text-white/10" />
-                )}
-              </div>
-              <span className="absolute top-2 right-2 text-[9px] font-semibold uppercase tracking-wider bg-green-500/20 text-green-400 border border-green-500/20 rounded px-2 py-0.5">
+                </div>
+              )}
+              <span className="absolute top-2 right-2 z-10 text-[9px] font-semibold uppercase tracking-wider bg-green-500/20 text-green-400 border border-green-500/20 rounded px-2 py-0.5">
                 {f.active ? "Active" : "Inactive"}
               </span>
             </div>
@@ -471,7 +483,8 @@ export default function VenueFacilities() {
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {filtered.length === 0 && (

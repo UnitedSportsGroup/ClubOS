@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -10,8 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Calendar as CalendarIcon, Clock, MapPin, Plus, Trash2, ArrowLeft, ArrowRight,
-  CheckCircle2, Lightbulb, Users, ShoppingCart, Loader2, Lock, ChevronLeft, ChevronRight,
+  CheckCircle2, Lightbulb, Users, ShoppingCart, Loader2, Lock,
 } from "lucide-react";
+import { FacilityCarousel } from "@/components/FacilityCarousel";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -19,98 +20,6 @@ function facilityImages(f: { imageUrls: string[] | null; imageUrl: string | null
   const arr = (f.imageUrls || []).filter(Boolean);
   if (arr.length > 0) return arr;
   return f.imageUrl ? [f.imageUrl] : [];
-}
-
-// Every facility image uploaded after the AVIF rollout is stored as TWO files with the
-// same UUID stem: <uuid>.webp and <uuid>.avif. Given the .webp path, derive the .avif
-// sibling. Returns null for legacy non-webp images so we just render the original src.
-function avifSiblingFor(webpUrl: string): string | null {
-  return /\.webp(\?|$)/i.test(webpUrl) ? webpUrl.replace(/\.webp(\?|$)/i, ".avif$1") : null;
-}
-
-function FacilityCarousel({
-  images,
-  alt,
-  brand,
-  size = "card",
-  testIdPrefix,
-}: {
-  images: string[];
-  alt: string;
-  brand: string;
-  size?: "card" | "hero";
-  testIdPrefix: string;
-}) {
-  const [idx, setIdx] = useState(0);
-  const touchStartX = useRef<number | null>(null);
-  if (images.length === 0) return null;
-
-  const clamped = Math.min(idx, images.length - 1);
-  const go = (n: number) => setIdx(((n % images.length) + images.length) % images.length);
-  const prev = (e?: React.MouseEvent | React.KeyboardEvent) => { e?.preventDefault?.(); e?.stopPropagation?.(); go(clamped - 1); };
-  const next = (e?: React.MouseEvent | React.KeyboardEvent) => { e?.preventDefault?.(); e?.stopPropagation?.(); go(clamped + 1); };
-
-  return (
-    <div
-      className={`relative rounded-xl overflow-hidden bg-white/[0.03] -mx-1 mb-3 ${size === "hero" ? "aspect-video max-h-72" : "aspect-video"}`}
-      onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
-      onTouchEnd={e => {
-        if (touchStartX.current === null) return;
-        const dx = e.changedTouches[0].clientX - touchStartX.current;
-        if (Math.abs(dx) > 30) (dx < 0 ? next() : prev());
-        touchStartX.current = null;
-      }}
-      data-testid={`${testIdPrefix}-carousel`}
-    >
-      <picture className="block w-full h-full">
-        {avifSiblingFor(images[clamped]) && (
-          <source srcSet={avifSiblingFor(images[clamped])!} type="image/avif" />
-        )}
-        <img
-          src={images[clamped]}
-          alt={alt}
-          className="w-full h-full object-cover transition-opacity"
-          draggable={false}
-          data-testid={`${testIdPrefix}-image-${clamped}`}
-        />
-      </picture>
-      {images.length > 1 && (
-        <>
-          <button
-            type="button"
-            onClick={prev}
-            className="absolute left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center backdrop-blur-sm transition"
-            aria-label="Previous photo"
-            data-testid={`${testIdPrefix}-prev`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={next}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center backdrop-blur-sm transition"
-            aria-label="Next photo"
-            data-testid={`${testIdPrefix}-next`}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/45 backdrop-blur-sm px-2 py-1 rounded-full">
-            {images.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={e => { e.preventDefault(); e.stopPropagation(); go(i); }}
-                aria-label={`Go to photo ${i + 1}`}
-                className="w-1.5 h-1.5 rounded-full transition"
-                style={{ background: i === clamped ? brand : "rgba(255,255,255,0.4)" }}
-                data-testid={`${testIdPrefix}-dot-${i}`}
-              />
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 type FacilityType = "field" | "mini_pitch" | "meeting_room" | "changing_room" | "futsal" | "court" | "other";
@@ -595,6 +504,7 @@ function AddItemsStep({
                       alt={f.name}
                       brand={brand}
                       testIdPrefix={`facility-${f.id}-card`}
+                      className="rounded-xl -mx-1 mb-3"
                     />
                   )}
                   <div className="flex items-start justify-between gap-3 mb-2">
@@ -708,6 +618,7 @@ function ConfigureFacility({
           brand={brand}
           size="hero"
           testIdPrefix={`facility-${facility.id}-hero`}
+          className="rounded-xl -mx-1 mb-3"
         />
       )}
       <h3 className="font-semibold mb-4 flex items-center gap-2">
