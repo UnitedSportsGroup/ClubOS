@@ -41,6 +41,7 @@ import VenueAddons from "@/pages/venue-addons";
 import VenuePeople from "@/pages/venue-people";
 import VenuePayments from "@/pages/venue-payments";
 import VenueSettings from "@/pages/venue-settings";
+import VenueWebsite from "@/pages/venue-website";
 import VenueBookPage from "@/pages/venue-book";
 import VenueBookSuccess from "@/pages/venue-book-success";
 import LeagueDashboard from "@/pages/league-dashboard";
@@ -178,6 +179,7 @@ function AdminRouter() {
         <Route path="/admin/people" component={VenuePeople} />
         <Route path="/admin/payments" component={VenuePayments} />
         <Route path="/admin/venue-settings" component={VenueSettings} />
+        <Route path="/admin/website" component={VenueWebsite} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>

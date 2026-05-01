@@ -70,6 +70,7 @@ const campsNav = [
 const venueNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Bookings Calendar", url: "/admin/calendar", icon: Calendar },
+  { title: "Website", url: "/admin/website", icon: Globe },
   { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
   { title: "Facilities", url: "/admin/facilities", icon: Shield },
   { title: "Add-ons", url: "/admin/addons", icon: Puzzle },
