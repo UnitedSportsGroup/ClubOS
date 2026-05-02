@@ -74,6 +74,38 @@ function formatDateRange(dates: Date[]) {
   return `${start.toLocaleDateString("en-NZ", opts)} - ${end.toLocaleDateString("en-NZ", opts)} ${end.getFullYear()}`;
 }
 
+function ymd(d: Date): string {
+  // Local-time YYYY-MM-DD (avoid UTC shift that toISOString causes around midnight).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getMonthGrid(date: Date): Date[] {
+  // 6×7 grid starting on the Monday of the week containing the 1st of the month.
+  const first = new Date(date.getFullYear(), date.getMonth(), 1);
+  const day = first.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  const start = new Date(first);
+  start.setDate(first.getDate() + offset);
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+}
+
+function getMonthDays(year: number, month: number): Date[] {
+  const days: Date[] = [];
+  const d = new Date(year, month, 1);
+  while (d.getMonth() === month) {
+    days.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
 export default function VenueCalendar() {
   const { currentOrg } = useWorkspace();
   const orgId = currentOrg?.id;
@@ -117,8 +149,9 @@ export default function VenueCalendar() {
     },
   });
 
-  const weekDateStrs = weekDates.map(d => d.toISOString().split("T")[0]);
-  const weekBookings = bookings.filter(b => weekDateStrs.includes(b.bookingDate) && b.status !== "cancelled");
+  const weekDateStrs = weekDates.map(d => ymd(d));
+  const activeBookings = bookings.filter(b => b.status !== "cancelled");
+  const weekBookings = activeBookings.filter(b => weekDateStrs.includes(b.bookingDate));
 
   const getBookingsForSlot = (dayIdx: number, hour: number) => {
     const dateStr = weekDateStrs[dayIdx];
@@ -129,20 +162,41 @@ export default function VenueCalendar() {
     });
   };
 
-  const prev = () => {
+  // Navigation step depends on the active view so that prev/next "feels right".
+  // For Month/Year, build the target date from year+month explicitly (with day=1) to
+  // avoid JS Date.setMonth overflow when the current day-of-month doesn't exist in
+  // the target month (e.g. Jan 31 + 1 month would otherwise jump to Mar 3).
+  const stepDate = (delta: number): Date => {
     const d = new Date(currentDate);
-    d.setDate(d.getDate() - 7);
-    setCurrentDate(d);
+    if (view === "Day" || view === "Planner") {
+      d.setDate(d.getDate() + delta);
+      return d;
+    }
+    if (view === "Month") return new Date(d.getFullYear(), d.getMonth() + delta, 1);
+    if (view === "Year") return new Date(d.getFullYear() + delta, 0, 1);
+    d.setDate(d.getDate() + delta * 7); // Week, List
+    return d;
   };
 
-  const next = () => {
-    const d = new Date(currentDate);
-    d.setDate(d.getDate() + 7);
-    setCurrentDate(d);
-  };
+  const prev = () => setCurrentDate(stepDate(-1));
+  const next = () => setCurrentDate(stepDate(1));
 
   const today = new Date();
-  const todayIdx = weekDates.findIndex(d => d.toISOString().split("T")[0] === today.toISOString().split("T")[0]);
+  const todayStr = ymd(today);
+  const todayIdx = weekDates.findIndex(d => ymd(d) === todayStr);
+
+  // Title shown above the grid — adapts per view.
+  const headerTitle = (() => {
+    if (view === "Day" || view === "Planner") {
+      return currentDate.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    }
+    if (view === "Month") {
+      return currentDate.toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
+    }
+    if (view === "Year") return String(currentDate.getFullYear());
+    if (view === "List") return "Upcoming bookings";
+    return formatDateRange(weekDates);
+  })();
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -185,7 +239,7 @@ export default function VenueCalendar() {
             Today
           </button>
         </div>
-        <h2 className="text-lg font-semibold text-white" data-testid="text-date-range">{formatDateRange(weekDates)}</h2>
+        <h2 className="text-lg font-semibold text-white" data-testid="text-date-range">{headerTitle}</h2>
         <div className="flex items-center gap-4 text-[10px]">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Confirmed</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Paid</span>
@@ -194,40 +248,305 @@ export default function VenueCalendar() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
-          <div className="border-b border-r border-white/5 h-10" />
-          {DAYS.map((day, i) => (
-            <div key={day} className={`border-b border-r border-white/5 h-10 flex items-center justify-center ${todayIdx === i ? "bg-blue-500/10" : ""}`}>
-              <span className="text-xs font-medium text-white/50">{day}</span>
-              <span className={`text-xs font-semibold ml-2 ${todayIdx === i ? "text-blue-400" : "text-white/30"}`}>{weekDates[i].getDate()}</span>
-            </div>
-          ))}
-        </div>
-        <div className="max-h-[600px] overflow-y-auto">
-          {HOURS.map(hour => (
-            <div key={hour} className="grid grid-cols-[60px_repeat(7,1fr)] min-h-[50px]">
-              <div className="border-r border-b border-white/5 flex items-start justify-end pr-2 pt-1">
-                <span className="text-[10px] text-white/20">{String(hour).padStart(2, "0")}:00</span>
+      {view === "Week" && (
+        <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="calendar-week">
+          <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+            <div className="border-b border-r border-white/5 h-10" />
+            {DAYS.map((day, i) => (
+              <div key={day} className={`border-b border-r border-white/5 h-10 flex items-center justify-center ${todayIdx === i ? "bg-blue-500/10" : ""}`}>
+                <span className="text-xs font-medium text-white/50">{day}</span>
+                <span className={`text-xs font-semibold ml-2 ${todayIdx === i ? "text-blue-400" : "text-white/30"}`}>{weekDates[i].getDate()}</span>
               </div>
-              {Array.from({ length: 7 }, (_, dayIdx) => {
-                const slotBookings = getBookingsForSlot(dayIdx, hour);
+            ))}
+          </div>
+          <div className="max-h-[600px] overflow-y-auto">
+            {HOURS.map(hour => (
+              <div key={hour} className="grid grid-cols-[60px_repeat(7,1fr)] min-h-[50px]">
+                <div className="border-r border-b border-white/5 flex items-start justify-end pr-2 pt-1">
+                  <span className="text-[10px] text-white/20">{String(hour).padStart(2, "0")}:00</span>
+                </div>
+                {Array.from({ length: 7 }, (_, dayIdx) => {
+                  const slotBookings = getBookingsForSlot(dayIdx, hour);
+                  return (
+                    <div key={dayIdx} className={`border-r border-b border-white/5 p-0.5 ${todayIdx === dayIdx ? "bg-blue-500/[0.03]" : ""}`}>
+                      {slotBookings.map(b => {
+                        // If the booking has a custom color, render with that; otherwise fall
+                        // back to the status-based color scheme for backwards compatibility.
+                        const inline = b.color
+                          ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
+                          : undefined;
+                        return (
+                          <div
+                            key={b.id}
+                            style={inline}
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
+                            data-testid={`calendar-booking-${b.id}`}
+                          >
+                            {b.facility?.name || "Booking"}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === "Day" && (() => {
+        const dayStr = ymd(currentDate);
+        const isToday = dayStr === todayStr;
+        const dayBookings = activeBookings
+          .filter(b => b.bookingDate === dayStr)
+          .sort((a, b) => a.startTime.localeCompare(b.startTime));
+        return (
+          <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="calendar-day">
+            <div className="grid grid-cols-[60px_1fr]">
+              <div className="border-b border-r border-white/5 h-10" />
+              <div className={`border-b border-r border-white/5 h-10 flex items-center justify-center ${isToday ? "bg-blue-500/10" : ""}`}>
+                <span className="text-xs font-medium text-white/50">{currentDate.toLocaleDateString("en-NZ", { weekday: "long" })}</span>
+                <span className={`text-xs font-semibold ml-2 ${isToday ? "text-blue-400" : "text-white/30"}`}>{currentDate.getDate()}</span>
+              </div>
+            </div>
+            <div className="max-h-[600px] overflow-y-auto">
+              {HOURS.map(hour => {
+                const hourBookings = dayBookings.filter(b => parseInt(b.startTime.split(":")[0]) === hour);
                 return (
-                  <div key={dayIdx} className={`border-r border-b border-white/5 p-0.5 ${todayIdx === dayIdx ? "bg-blue-500/[0.03]" : ""}`}>
-                    {slotBookings.map(b => {
-                      // If the booking has a custom color, render with that; otherwise fall
-                      // back to the status-based color scheme for backwards compatibility.
+                  <div key={hour} className="grid grid-cols-[60px_1fr] min-h-[50px]">
+                    <div className="border-r border-b border-white/5 flex items-start justify-end pr-2 pt-1">
+                      <span className="text-[10px] text-white/20">{String(hour).padStart(2, "0")}:00</span>
+                    </div>
+                    <div className={`border-r border-b border-white/5 p-1 ${isToday ? "bg-blue-500/[0.03]" : ""}`}>
+                      {hourBookings.map(b => {
+                        const inline = b.color
+                          ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
+                          : undefined;
+                        return (
+                          <div
+                            key={b.id}
+                            style={inline}
+                            className={`rounded px-2 py-1 text-xs font-medium border mb-0.5 ${b.color ? "" : statusColors[b.status]}`}
+                            data-testid={`calendar-booking-${b.id}`}
+                          >
+                            <span className="opacity-70 mr-2">{b.startTime}–{b.endTime}</span>
+                            {b.facility?.name || "Booking"}
+                            {b.customerName && <span className="opacity-60 ml-2">· {b.customerName}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === "Month" && (() => {
+        const cells = getMonthGrid(currentDate);
+        const monthIdx = currentDate.getMonth();
+        const byDate = new Map<string, BookingWithFacility[]>();
+        for (const b of activeBookings) {
+          const arr = byDate.get(b.bookingDate) || [];
+          arr.push(b);
+          byDate.set(b.bookingDate, arr);
+        }
+        return (
+          <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="calendar-month">
+            <div className="grid grid-cols-7">
+              {DAYS.map(d => (
+                <div key={d} className="border-b border-r border-white/5 h-9 flex items-center justify-center text-xs font-medium text-white/50">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {cells.map((d, i) => {
+                const dStr = ymd(d);
+                const inMonth = d.getMonth() === monthIdx;
+                const isToday = dStr === todayStr;
+                const dayB = (byDate.get(dStr) || []).sort((a, b) => a.startTime.localeCompare(b.startTime));
+                return (
+                  <button
+                    key={i}
+                    onClick={() => { setCurrentDate(new Date(d)); setView("Day"); }}
+                    className={`border-r border-b border-white/5 min-h-[90px] p-1.5 text-left transition-colors hover:bg-white/[0.04] ${isToday ? "bg-blue-500/[0.06]" : ""} ${inMonth ? "" : "opacity-40"}`}
+                    data-testid={`day-cell-${dStr}`}
+                  >
+                    <div className={`text-xs font-semibold mb-1 ${isToday ? "text-blue-400" : "text-white/60"}`}>{d.getDate()}</div>
+                    <div className="space-y-0.5">
+                      {dayB.slice(0, 3).map(b => {
+                        const inline = b.color ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color } : undefined;
+                        return (
+                          <div
+                            key={b.id}
+                            style={inline}
+                            className={`rounded px-1 py-0.5 text-[9px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
+                            data-testid={`calendar-booking-${b.id}`}
+                          >
+                            {b.facility?.name || "Booking"}
+                          </div>
+                        );
+                      })}
+                      {dayB.length > 3 && (
+                        <div className="text-[9px] text-white/40 px-1">+{dayB.length - 3} more</div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === "Year" && (() => {
+        const year = currentDate.getFullYear();
+        const bookedDates = new Set(activeBookings.map(b => b.bookingDate));
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" data-testid="calendar-year">
+            {Array.from({ length: 12 }, (_, m) => {
+              const monthDays = getMonthDays(year, m);
+              // Pad the start so day 1 lines up with its weekday column (Mon-first).
+              const firstDow = monthDays[0].getDay();
+              const padStart = firstDow === 0 ? 6 : firstDow - 1;
+              return (
+                <div key={m} className="rounded-xl border border-blue-500/10 bg-white/[0.02] p-3" data-testid={`year-month-${m}`}>
+                  <div className="text-xs font-semibold text-white/70 mb-2">
+                    {new Date(year, m, 1).toLocaleDateString("en-NZ", { month: "long" })}
+                  </div>
+                  <div className="grid grid-cols-7 gap-y-0.5 text-center">
+                    {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+                      <div key={i} className="text-[9px] text-white/30 mb-0.5">{d}</div>
+                    ))}
+                    {Array.from({ length: padStart }).map((_, i) => <div key={`p${i}`} />)}
+                    {monthDays.map(d => {
+                      const dStr = ymd(d);
+                      const isToday = dStr === todayStr;
+                      const hasBooking = bookedDates.has(dStr);
+                      return (
+                        <button
+                          key={dStr}
+                          onClick={() => { setCurrentDate(new Date(d)); setView("Day"); }}
+                          className={`relative w-7 h-7 rounded-md text-[10px] font-medium transition-colors ${isToday ? "bg-blue-500/30 text-blue-100" : "text-white/50 hover:bg-white/10"}`}
+                          data-testid={`year-day-${dStr}`}
+                        >
+                          {d.getDate()}
+                          {hasBooking && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {view === "List" && (() => {
+        const upcoming = activeBookings
+          .filter(b => b.bookingDate >= todayStr)
+          .sort((a, b) => a.bookingDate.localeCompare(b.bookingDate) || a.startTime.localeCompare(b.startTime));
+        const past = activeBookings
+          .filter(b => b.bookingDate < todayStr)
+          .sort((a, b) => b.bookingDate.localeCompare(a.bookingDate) || b.startTime.localeCompare(a.startTime));
+        const renderRow = (b: BookingWithFacility) => {
+          const dot = b.color || "#3b82f6";
+          return (
+            <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 hover:bg-white/[0.03]" data-testid={`list-booking-${b.id}`}>
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot }} />
+              <div className="w-32 text-xs text-white/60 flex-shrink-0">
+                {new Date(b.bookingDate + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })}
+              </div>
+              <div className="w-24 text-xs text-white/40 flex-shrink-0">{b.startTime}–{b.endTime}</div>
+              <div className="flex-1 text-xs text-white truncate">{b.facility?.name || "Booking"}</div>
+              <div className="text-xs text-white/40 truncate">{b.customerName}</div>
+              <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${statusColors[b.status]}`}>{b.status}</span>
+            </div>
+          );
+        };
+        return (
+          <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="calendar-list">
+            <div className="px-4 py-2 border-b border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+              Upcoming ({upcoming.length})
+            </div>
+            {upcoming.length === 0 ? (
+              <div className="px-4 py-8 text-center text-xs text-white/30">No upcoming bookings.</div>
+            ) : upcoming.map(renderRow)}
+            {past.length > 0 && (
+              <>
+                <div className="px-4 py-2 border-b border-t border-white/10 text-[11px] uppercase tracking-wider text-white/40">
+                  Past ({past.length})
+                </div>
+                {past.slice(0, 50).map(renderRow)}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {view === "Planner" && (() => {
+        // Facilities × hours grid for a single day.
+        const dayStr = ymd(currentDate);
+        const isToday = dayStr === todayStr;
+        const dayBookings = activeBookings.filter(b => b.bookingDate === dayStr);
+        return (
+          <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="calendar-planner">
+            <div className="grid" style={{ gridTemplateColumns: `160px repeat(${HOURS.length}, minmax(48px, 1fr))` }}>
+              <div className={`border-b border-r border-white/5 h-10 flex items-center px-3 ${isToday ? "bg-blue-500/10" : ""}`}>
+                <span className="text-xs font-medium text-white/60">Facility</span>
+              </div>
+              {HOURS.map(h => (
+                <div key={h} className={`border-b border-r border-white/5 h-10 flex items-center justify-center ${isToday ? "bg-blue-500/10" : ""}`}>
+                  <span className="text-[10px] text-white/40">{String(h).padStart(2, "0")}</span>
+                </div>
+              ))}
+            </div>
+            <div className="max-h-[600px] overflow-y-auto">
+              {facs.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-white/30">No facilities yet.</div>
+              ) : facs.map(f => {
+                const fb = dayBookings.filter(b => b.facilityId === f.id);
+                return (
+                  <div key={f.id} className="grid relative" style={{ gridTemplateColumns: `160px repeat(${HOURS.length}, minmax(48px, 1fr))` }}>
+                    <div className="border-r border-b border-white/5 px-3 py-2 text-xs text-white/70 truncate">{f.name}</div>
+                    {HOURS.map(h => (
+                      <div key={h} className="border-r border-b border-white/5 min-h-[44px]" />
+                    ))}
+                    {fb.map(b => {
+                      const startH = parseInt(b.startTime.split(":")[0]) + parseInt(b.startTime.split(":")[1]) / 60;
+                      const endH = parseInt(b.endTime.split(":")[0]) + parseInt(b.endTime.split(":")[1]) / 60;
+                      // Clip the booking to the visible HOURS window so a booking that
+                      // starts at 05:30 (before the window) or ends at 23:30 (after) is
+                      // still rendered, just clipped — instead of being silently hidden.
+                      const windowStart = HOURS[0];
+                      const windowEnd = HOURS[HOURS.length - 1] + 1;
+                      const visStart = Math.max(startH, windowStart);
+                      const visEnd = Math.min(endH, windowEnd);
+                      if (visEnd <= visStart) return null;
+                      const startCol = visStart - windowStart;
+                      const span = Math.max(0.25, visEnd - visStart);
                       const inline = b.color
                         ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
                         : undefined;
                       return (
                         <div
                           key={b.id}
-                          style={inline}
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
-                          data-testid={`calendar-booking-${b.id}`}
+                          style={{
+                            position: "absolute",
+                            left: `calc(160px + ${startCol} * ((100% - 160px) / ${HOURS.length}))`,
+                            width: `calc(${span} * ((100% - 160px) / ${HOURS.length}))`,
+                            top: 4,
+                            bottom: 4,
+                            ...inline,
+                          }}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate flex items-center ${b.color ? "" : statusColors[b.status]}`}
+                          data-testid={`planner-booking-${b.id}`}
                         >
-                          {b.facility?.name || "Booking"}
+                          <span className="opacity-70 mr-1.5">{b.startTime}</span>
+                          {b.customerName || b.facility?.name || "Booking"}
                         </div>
                       );
                     })}
@@ -235,9 +554,9 @@ export default function VenueCalendar() {
                 );
               })}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        );
+      })()}
 
       {showNewBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowNewBooking(false)}>
