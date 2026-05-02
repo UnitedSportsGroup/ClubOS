@@ -1,10 +1,11 @@
 # fly.toml — ClubOS deployment config for Fly.io
-# Region: Auckland (akl) for lowest latency to NZ users
+# Region: Sydney (syd) — Auckland (akl) is unavailable for this account's
+# machine class. syd is the next-closest, ~25-30ms latency to NZ.
 # App: long-running Express server with periodic abandoned-booking sweeper,
 # so we keep at least one machine always running (no scale-to-zero).
 
 app = "clubos"
-primary_region = "akl"
+primary_region = "syd"
 
 [build]
   dockerfile = "Dockerfile"

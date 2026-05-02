@@ -27,12 +27,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 async function findReferencedObjectPaths(): Promise<Set<string>> {
-  // List every (table, column) pair where the column type is text-like.
+  // List every (table, column) pair where the column type can plausibly hold
+  // a path string. Includes ARRAY (e.g. facilities.image_urls is text[]) and
+  // USER-DEFINED (custom domain types that often resolve to text under the
+  // hood). Casting any of these to ::text and regex-matching is safe.
   const colRes = await pool.query(`
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND data_type IN ('text', 'character varying', 'character', 'jsonb', 'json')
+      AND data_type IN ('text', 'character varying', 'character', 'jsonb', 'json', 'ARRAY', 'USER-DEFINED')
     ORDER BY table_name, column_name
   `);
 
@@ -42,8 +45,6 @@ async function findReferencedObjectPaths(): Promise<Set<string>> {
     // Skip the ACL table itself — paths there are by definition already known.
     if (table === "object_acls") continue;
     try {
-      // For text columns: pattern match on /objects/<...>
-      // For json/jsonb: cast to text and match.
       const q = `
         SELECT DISTINCT (regexp_matches("${col}"::text, '/objects/[a-zA-Z0-9._/\\-]+', 'g'))[1] AS p
         FROM "${table}"
@@ -54,7 +55,7 @@ async function findReferencedObjectPaths(): Promise<Set<string>> {
         if (row.p && typeof row.p === "string") paths.add(row.p);
       }
     } catch {
-      // Ignore tables/columns that can't be regex-cast (e.g. weird types)
+      // Ignore tables/columns that can't be regex-cast (e.g. binary types)
     }
   }
   return paths;

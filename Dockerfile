@@ -8,6 +8,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
+# Vite reads VITE_* env vars at build time and inlines them into the client
+# bundle. Fly secrets are runtime-only, so these must be passed via
+# `fly deploy --build-arg VITE_FOO=...` and re-exported as ENV before build.
+ARG VITE_STRIPE_PUBLISHABLE_KEY
+ARG VITE_META_PIXEL_ID
+ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
+ENV VITE_META_PIXEL_ID=$VITE_META_PIXEL_ID
+
 COPY . .
 RUN npm run build
 
