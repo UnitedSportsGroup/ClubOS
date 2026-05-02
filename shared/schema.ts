@@ -973,3 +973,14 @@ export const printEmails = pgTable("print_emails", {
 export const insertPrintEmailSchema = createInsertSchema(printEmails).omit({ id: true, createdAt: true });
 export type InsertPrintEmail = z.infer<typeof insertPrintEmailSchema>;
 export type PrintEmail = typeof printEmails.$inferSelect;
+
+export const objectAcls = pgTable("object_acls", {
+  objectPath: text("object_path").primaryKey(),
+  ownerUserId: integer("owner_user_id"),
+  visibility: text("visibility").notNull().default("private"),
+  aclRulesJson: text("acl_rules_json"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type ObjectAclRow = typeof objectAcls.$inferSelect;
+export type InsertObjectAcl = typeof objectAcls.$inferInsert;

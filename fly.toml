@@ -1,0 +1,36 @@
+# fly.toml — ClubOS deployment config for Fly.io
+# Region: Auckland (akl) for lowest latency to NZ users
+# App: long-running Express server with periodic abandoned-booking sweeper,
+# so we keep at least one machine always running (no scale-to-zero).
+
+app = "clubos"
+primary_region = "akl"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The setInterval sweeper at server/index.ts:148 needs a continuously
+  # running machine. Disable auto-stop and keep a minimum of 1 instance.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/login"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

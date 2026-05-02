@@ -1,6 +1,19 @@
-import { Storage, File } from "@google-cloud/storage";
+// Supabase Storage-backed implementation. Replaces the Replit sidecar
+// (was @google-cloud/storage talking to localhost:1106). Same exported
+// interface as before so routes.ts keeps working without changes.
+//
+// Files live in a single private bucket (env: SUPABASE_STORAGE_BUCKET,
+// default "clubos-uploads"). Public URL paths look like
+// "/objects/uploads/<uuid>.<ext>" — the same scheme rows already store in
+// the database.
+//
+// ACL info (owner + visibility) is stored in the public.object_acls
+// Postgres table — see objectAcl.ts.
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Response } from "express";
 import { randomUUID } from "crypto";
+import { Readable } from "stream";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -9,26 +22,21 @@ import {
   setObjectAclPolicy,
 } from "./objectAcl";
 
-const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "clubos-uploads";
 
-// The object storage client is used to interact with the object storage service.
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
-      },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error(
+    "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in env to use object storage"
+  );
+}
+
+export const objectStorageClient: SupabaseClient = createClient(
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } }
+);
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -38,90 +46,78 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
-// The object storage service is used to interact with the object storage service.
+// Thin handle for a stored object. `name` mirrors GCS File.name (the
+// bucket-relative path, e.g. "uploads/abc.jpg") so existing call sites in
+// objectAcl.ts and routes.ts can pass it around unchanged.
+export class StoredFile {
+  public readonly name: string;
+  constructor(public readonly storagePath: string) {
+    this.name = storagePath;
+  }
+}
+
+interface FileMetadata {
+  contentType?: string;
+  size?: number;
+  cacheControl?: string;
+}
+
+async function fetchMetadata(storagePath: string): Promise<FileMetadata | null> {
+  const slash = storagePath.lastIndexOf("/");
+  const dir = slash >= 0 ? storagePath.slice(0, slash) : "";
+  const name = slash >= 0 ? storagePath.slice(slash + 1) : storagePath;
+  const { data, error } = await objectStorageClient.storage
+    .from(BUCKET)
+    .list(dir, { limit: 1000, search: name });
+  if (error) return null;
+  const match = data?.find((f) => f.name === name);
+  if (!match) return null;
+  return {
+    contentType: (match.metadata as any)?.mimetype as string | undefined,
+    size: (match.metadata as any)?.size as number | undefined,
+    cacheControl: (match.metadata as any)?.cacheControl as string | undefined,
+  };
+}
+
+async function fetchBuffer(storagePath: string): Promise<Buffer | null> {
+  const { data, error } = await objectStorageClient.storage
+    .from(BUCKET)
+    .download(storagePath);
+  if (error || !data) return null;
+  return Buffer.from(await data.arrayBuffer());
+}
+
 export class ObjectStorageService {
-  constructor() {}
-
-  // Gets the public object search paths.
-  getPublicObjectSearchPaths(): Array<string> {
-    const pathsStr = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
-    const paths = Array.from(
-      new Set(
-        pathsStr
-          .split(",")
-          .map((path) => path.trim())
-          .filter((path) => path.length > 0)
-      )
-    );
-    if (paths.length === 0) {
-      throw new Error(
-        "PUBLIC_OBJECT_SEARCH_PATHS not set. Create a bucket in 'Object Storage' " +
-          "tool and set PUBLIC_OBJECT_SEARCH_PATHS env var (comma-separated paths)."
-      );
-    }
-    return paths;
+  // Public objects search isn't used in any current call site, but kept for
+  // interface compatibility. Returns the file if it exists at any prefix.
+  async searchPublicObject(filePath: string): Promise<StoredFile | null> {
+    const meta = await fetchMetadata(filePath);
+    return meta ? new StoredFile(filePath) : null;
   }
 
-  // Gets the private object directory.
-  getPrivateObjectDir(): string {
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
-    if (!dir) {
-      throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
-      );
-    }
-    return dir;
-  }
-
-  // Search for a public object from the search paths.
-  async searchPublicObject(filePath: string): Promise<File | null> {
-    for (const searchPath of this.getPublicObjectSearchPaths()) {
-      const fullPath = `${searchPath}/${filePath}`;
-
-      // Full path format: /<bucket_name>/<object_name>
-      const { bucketName, objectName } = parseObjectPath(fullPath);
-      const bucket = objectStorageClient.bucket(bucketName);
-      const file = bucket.file(objectName);
-
-      // Check if file exists
-      const [exists] = await file.exists();
-      if (exists) {
-        return file;
-      }
-    }
-
-    return null;
-  }
-
-  // Downloads an object to the response.
-  async downloadObject(file: File, res: Response, cacheTtlSec: number = 3600) {
+  // Stream a stored object to the HTTP response. Sets caching headers based
+  // on the ACL visibility (public ACLs get a public Cache-Control).
+  async downloadObject(file: StoredFile, res: Response, cacheTtlSec = 3600) {
     try {
-      // Get file metadata
-      const [metadata] = await file.getMetadata();
-      // Get the ACL policy for the object.
-      const aclPolicy = await getObjectAclPolicy(file);
-      const isPublic = aclPolicy?.visibility === "public";
-      // Set appropriate headers
+      const meta = await fetchMetadata(file.storagePath);
+      if (!meta) {
+        if (!res.headersSent) res.status(404).json({ error: "Object not found" });
+        return;
+      }
+      const acl = await getObjectAclPolicy(file);
+      const isPublic = acl?.visibility === "public";
       res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
-        "Content-Length": metadata.size,
-        "Cache-Control": `${
-          isPublic ? "public" : "private"
-        }, max-age=${cacheTtlSec}`,
+        "Content-Type": meta.contentType || "application/octet-stream",
+        ...(meta.size != null ? { "Content-Length": String(meta.size) } : {}),
+        "Cache-Control": `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
       });
 
-      // Stream the file to the response
-      const stream = file.createReadStream();
-
-      stream.on("error", (err) => {
-        console.error("Stream error:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Error streaming file" });
-        }
-      });
-
-      stream.pipe(res);
+      const buf = await fetchBuffer(file.storagePath);
+      if (!buf) {
+        if (!res.headersSent) res.status(500).json({ error: "Error downloading file" });
+        return;
+      }
+      Readable.from(buf).pipe(res);
     } catch (error) {
       console.error("Error downloading file:", error);
       if (!res.headersSent) {
@@ -130,129 +126,93 @@ export class ObjectStorageService {
     }
   }
 
-  // Uploads an in-memory buffer directly to the private uploads prefix and returns
-  // the normalized "/objects/uploads/<id>" path. The caller is responsible for
-  // setting the ACL afterwards (e.g. via setObjectAclPolicy).
+  // Upload a buffer directly to the "uploads/" prefix in the bucket. Returns
+  // the StoredFile handle plus the public-facing "/objects/uploads/<id>.<ext>"
+  // path that should be persisted in the DB.
   async uploadBufferToUploads(
     buffer: Buffer,
     contentType: string,
     extension: string,
     objectId: string = randomUUID(),
-  ): Promise<{ file: File; objectPath: string }> {
-    const privateObjectDir = this.getPrivateObjectDir();
+  ): Promise<{ file: StoredFile; objectPath: string }> {
     const safeExt = extension.replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
-    const fullPath = `${privateObjectDir}/uploads/${objectId}.${safeExt}`;
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-    await file.save(buffer, {
-      contentType,
-      resumable: false,
-      metadata: { contentType, cacheControl: "public, max-age=86400" },
-    });
+    const storagePath = `uploads/${objectId}.${safeExt}`;
     const objectPath = `/objects/uploads/${objectId}.${safeExt}`;
-    return { file, objectPath };
-  }
 
-  // Gets the upload URL for an object entity.
-  async getObjectEntityUploadURL(): Promise<string> {
-    const privateObjectDir = this.getPrivateObjectDir();
-    if (!privateObjectDir) {
-      throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
-      );
+    const { error } = await objectStorageClient.storage
+      .from(BUCKET)
+      .upload(storagePath, buffer, {
+        contentType,
+        cacheControl: "public, max-age=86400",
+        upsert: true,
+      });
+    if (error) {
+      throw new Error(`Supabase upload failed: ${error.message}`);
     }
 
-    const objectId = randomUUID();
-    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-
-    // Sign URL for PUT method with TTL
-    return signObjectURL({
-      bucketName,
-      objectName,
-      method: "PUT",
-      ttlSec: 900,
-    });
+    return { file: new StoredFile(storagePath), objectPath };
   }
 
-  // Gets the object entity file from the object path.
-  async getObjectEntityFile(objectPath: string): Promise<File> {
+  // No-op now — uploads are server-mediated via uploadBufferToUploads.
+  // Kept for interface compatibility; returns a server-relative path that the
+  // client can POST to instead of a presigned URL.
+  async getObjectEntityUploadURL(): Promise<string> {
+    throw new Error(
+      "Direct presigned client uploads are not supported in the Supabase backend. " +
+        "Use the server-side multipart upload endpoint instead."
+    );
+  }
+
+  // Map a stored "/objects/<path>" URL back to a StoredFile handle. Throws
+  // ObjectNotFoundError if the file doesn't exist in the bucket.
+  async getObjectEntityFile(objectPath: string): Promise<StoredFile> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
     }
-
-    const parts = objectPath.slice(1).split("/");
-    if (parts.length < 2) {
+    const storagePath = objectPath.slice("/objects/".length);
+    if (!storagePath) {
       throw new ObjectNotFoundError();
     }
-
-    const entityId = parts.slice(1).join("/");
-    let entityDir = this.getPrivateObjectDir();
-    if (!entityDir.endsWith("/")) {
-      entityDir = `${entityDir}/`;
-    }
-    const objectEntityPath = `${entityDir}${entityId}`;
-    const { bucketName, objectName } = parseObjectPath(objectEntityPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const objectFile = bucket.file(objectName);
-    const [exists] = await objectFile.exists();
-    if (!exists) {
+    const meta = await fetchMetadata(storagePath);
+    if (!meta) {
       throw new ObjectNotFoundError();
     }
-    return objectFile;
+    return new StoredFile(storagePath);
   }
 
-  normalizeObjectEntityPath(
-    rawPath: string,
-  ): string {
-    if (!rawPath.startsWith("https://storage.googleapis.com/")) {
-      return rawPath;
+  // Strip absolute storage URLs back to a server-relative "/objects/..." path.
+  // Mirrors the original GCS-flavoured normaliser, but tolerant of Supabase URLs.
+  normalizeObjectEntityPath(rawPath: string): string {
+    if (rawPath.startsWith("/")) return rawPath;
+    try {
+      const u = new URL(rawPath);
+      // Supabase storage URL: /storage/v1/object/{public,sign}/<bucket>/<path>
+      const match = u.pathname.match(/\/storage\/v1\/object\/(?:public|sign)\/[^/]+\/(.+)$/);
+      if (match) return `/objects/${match[1]}`;
+    } catch {
+      // not a URL — fall through
     }
-  
-    // Extract the path from the URL by removing query parameters and domain
-    const url = new URL(rawPath);
-    const rawObjectPath = url.pathname;
-  
-    let objectEntityDir = this.getPrivateObjectDir();
-    if (!objectEntityDir.endsWith("/")) {
-      objectEntityDir = `${objectEntityDir}/`;
-    }
-  
-    if (!rawObjectPath.startsWith(objectEntityDir)) {
-      return rawObjectPath;
-    }
-  
-    // Extract the entity ID from the path
-    const entityId = rawObjectPath.slice(objectEntityDir.length);
-    return `/objects/${entityId}`;
+    return rawPath;
   }
 
-  // Tries to set the ACL policy for the object entity and return the normalized path.
   async trySetObjectEntityAclPolicy(
     rawPath: string,
-    aclPolicy: ObjectAclPolicy
+    aclPolicy: ObjectAclPolicy,
   ): Promise<string> {
     const normalizedPath = this.normalizeObjectEntityPath(rawPath);
-    if (!normalizedPath.startsWith("/")) {
-      return normalizedPath;
-    }
-
+    if (!normalizedPath.startsWith("/")) return normalizedPath;
     const objectFile = await this.getObjectEntityFile(normalizedPath);
     await setObjectAclPolicy(objectFile, aclPolicy);
     return normalizedPath;
   }
 
-  // Checks if the user can access the object entity.
   async canAccessObjectEntity({
     userId,
     objectFile,
     requestedPermission,
   }: {
     userId?: string;
-    objectFile: File;
+    objectFile: StoredFile;
     requestedPermission?: ObjectPermission;
   }): Promise<boolean> {
     return canAccessObject({
@@ -262,63 +222,3 @@ export class ObjectStorageService {
     });
   }
 }
-
-function parseObjectPath(path: string): {
-  bucketName: string;
-  objectName: string;
-} {
-  if (!path.startsWith("/")) {
-    path = `/${path}`;
-  }
-  const pathParts = path.split("/");
-  if (pathParts.length < 3) {
-    throw new Error("Invalid path: must contain at least a bucket name");
-  }
-
-  const bucketName = pathParts[1];
-  const objectName = pathParts.slice(2).join("/");
-
-  return {
-    bucketName,
-    objectName,
-  };
-}
-
-async function signObjectURL({
-  bucketName,
-  objectName,
-  method,
-  ttlSec,
-}: {
-  bucketName: string;
-  objectName: string;
-  method: "GET" | "PUT" | "DELETE" | "HEAD";
-  ttlSec: number;
-}): Promise<string> {
-  const request = {
-    bucket_name: bucketName,
-    object_name: objectName,
-    method,
-    expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
-  };
-  const response = await fetch(
-    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
-    );
-  }
-
-  const { signed_url: signedURL } = await response.json();
-  return signedURL;
-}
-
