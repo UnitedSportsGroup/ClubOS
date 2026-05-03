@@ -53,12 +53,14 @@ import {
   printLandingPages, type InsertPrintLandingPage, type PrintLandingPage,
   printEmails, type InsertPrintEmail, type PrintEmail,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
+  clubs,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
   type InsertTournamentTeam, type TournamentTeam,
   type InsertTournamentPlayer, type TournamentPlayer,
   type InsertTournamentStaff, type TournamentStaff,
   type InsertTournamentGame, type TournamentGame,
+  type InsertClub, type Club,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -168,6 +170,13 @@ export interface IStorage {
   deleteLeagueCoupon(id: number): Promise<void>;
 
   getLeagueStandings(competitionId: number, divisionId?: number): Promise<{ teamId: number; teamName: string; divisionId: number | null; divisionName: string; mp: number; w: number; l: number; d: number; gf: number; ga: number; gd: number; pts: number }[]>;
+
+  getClubs(orgId: number): Promise<Club[]>;
+  getClub(id: number): Promise<Club | undefined>;
+  createClub(data: InsertClub): Promise<Club>;
+  updateClub(id: number, data: Partial<InsertClub>): Promise<Club | undefined>;
+  deleteClub(id: number): Promise<void>;
+  getClubTeams(clubId: number): Promise<TournamentTeam[]>;
 
   getTournaments(orgId: number): Promise<Tournament[]>;
   getTournament(id: number): Promise<Tournament | undefined>;
@@ -1445,6 +1454,33 @@ export class DatabaseStorage implements IStorage {
         pts: s.w * 3 + s.d,
       };
     }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+  }
+
+  async getClubs(orgId: number): Promise<Club[]> {
+    return db.select().from(clubs).where(eq(clubs.organizationId, orgId)).orderBy(asc(clubs.name));
+  }
+
+  async getClub(id: number): Promise<Club | undefined> {
+    const [c] = await db.select().from(clubs).where(eq(clubs.id, id));
+    return c;
+  }
+
+  async createClub(data: InsertClub): Promise<Club> {
+    const [c] = await db.insert(clubs).values(data).returning();
+    return c;
+  }
+
+  async updateClub(id: number, data: Partial<InsertClub>): Promise<Club | undefined> {
+    const [c] = await db.update(clubs).set(data).where(eq(clubs.id, id)).returning();
+    return c;
+  }
+
+  async deleteClub(id: number): Promise<void> {
+    await db.delete(clubs).where(eq(clubs.id, id));
+  }
+
+  async getClubTeams(clubId: number): Promise<TournamentTeam[]> {
+    return db.select().from(tournamentTeams).where(eq(tournamentTeams.clubId, clubId));
   }
 
   async getTournaments(orgId: number): Promise<Tournament[]> {

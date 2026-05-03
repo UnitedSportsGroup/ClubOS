@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { TournamentTeam, TournamentPlayer, TournamentStaff } from "@shared/schema";
+import type { TournamentTeam, TournamentPlayer, TournamentStaff, Club, Tournament } from "@shared/schema";
 
 // Swap a /objects/uploads/<id>.webp URL for its .avif sibling. <picture>
 // renders the AVIF source preferentially when supported.
@@ -444,9 +444,32 @@ export default function TournamentTeamDetail() {
     enabled: !!teamId,
   });
 
+  // Tournament gives us orgId, which lets us list clubs for the picker.
+  const { data: tournament } = useQuery<Tournament>({
+    queryKey: ["/api/admin/tournament/tournaments", tournamentId],
+    queryFn: () => fetch(`/api/admin/tournament/tournaments/${tournamentId}`).then(r => r.json()),
+    enabled: !!tournamentId,
+  });
+
+  const { data: clubs = [] } = useQuery<Club[]>({
+    queryKey: ["/api/admin/clubs", { orgId: tournament?.organizationId }],
+    queryFn: () => fetch(`/api/admin/clubs?orgId=${tournament!.organizationId}`).then(r => r.json()),
+    enabled: !!tournament?.organizationId,
+  });
+
+  const linkClubMut = useMutation({
+    mutationFn: (clubId: number | null) =>
+      apiRequest("PATCH", `/api/admin/tournament/teams/${teamId}`, { clubId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", teamId] });
+    },
+  });
+
   if (isLoading || !team) {
     return <div className="p-6"><div className="h-32 rounded-2xl bg-white/[0.02] animate-pulse" /></div>;
   }
+
+  const linkedClub = clubs.find(c => c.id === team.clubId);
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: "players", label: "Players", icon: Users },
@@ -464,13 +487,39 @@ export default function TournamentTeamDetail() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex items-center gap-3 flex-1">
-          <TeamLogo team={team} size={48} />
+          <TeamLogo team={{ ...team, logoUrl: team.logoUrl || linkedClub?.logoUrl || null }} size={48} />
           <div className="flex-1">
             <h1 className="text-xl font-bold text-white" data-testid="text-team-name">{team.name}</h1>
-            <p className="text-xs text-white/30">{team.clubName || "No club"} · {team.contactName || "No contact"}</p>
+            <p className="text-xs text-white/30">
+              {linkedClub?.name || team.clubName || "No club linked"} · {team.contactName || linkedClub?.contactName || "No contact"}
+            </p>
           </div>
           <TeamLogoUploader team={team} />
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <div className="text-xs text-white/40 uppercase tracking-wide">Club affiliation</div>
+          <p className="text-xs text-white/50 mt-1">
+            Link this team to a club to inherit its logo by default. Override with a team-specific logo above.
+          </p>
+        </div>
+        <select
+          value={team.clubId ?? ""}
+          onChange={e => {
+            const v = e.target.value;
+            linkClubMut.mutate(v === "" ? null : parseInt(v));
+          }}
+          disabled={linkClubMut.isPending}
+          className="bg-white/[0.02] border border-white/10 text-white text-sm rounded-md px-3 py-2 min-w-[240px]"
+          data-testid="select-team-club"
+        >
+          <option value="">— No club linked —</option>
+          {clubs.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
       <div className="flex gap-1 bg-white/[0.02] rounded-xl p-1 border border-white/5">

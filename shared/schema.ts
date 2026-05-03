@@ -505,12 +505,39 @@ export const tournamentGroups = pgTable("tournament_groups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// A real-world football club that participates in tournaments. Scoped to an
+// organization so each org (CIC, MFL, etc.) maintains its own club roster.
+// One club row → many tournament_team rows (the same club enters U10, U12,
+// U14 etc. as separate teams; each team can override the club logo/colors
+// for variants like "CU Blue" vs "CU White").
+export const clubs = pgTable("clubs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color"),
+  secondaryColor: text("secondary_color"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  website: text("website"),
+  notes: text("notes"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const tournamentTeams = pgTable("tournament_teams", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   tournamentId: integer("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
   groupId: integer("group_id").references(() => tournamentGroups.id, { onDelete: "set null" }),
+  // Link to the parent club. Nullable for backwards-compat (existing rows
+  // pre-clubs feature) and for one-off entries that don't fit a club.
+  clubId: integer("club_id").references(() => clubs.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   clubName: text("club_name"),
+  // logoUrl on a team overrides the club logo when set; resolvers fall back
+  // to the linked club's logoUrl when this is null.
   logoUrl: text("logo_url"),
   contactName: text("contact_name"),
   contactEmail: text("contact_email"),
@@ -640,6 +667,7 @@ export const insertVenueSettingsSchema = createInsertSchema(venueSettings).omit(
 
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({ id: true, createdAt: true });
 export const insertTournamentGroupSchema = createInsertSchema(tournamentGroups).omit({ id: true, createdAt: true });
+export const insertClubSchema = createInsertSchema(clubs).omit({ id: true, createdAt: true });
 export const insertTournamentTeamSchema = createInsertSchema(tournamentTeams).omit({ id: true, createdAt: true });
 export const insertTournamentPlayerSchema = createInsertSchema(tournamentPlayers).omit({ id: true, createdAt: true });
 export const insertTournamentStaffSchema = createInsertSchema(tournamentStaff).omit({ id: true, createdAt: true });
@@ -741,6 +769,8 @@ export type InsertTournament = z.infer<typeof insertTournamentSchema>;
 export type Tournament = typeof tournaments.$inferSelect;
 export type InsertTournamentGroup = z.infer<typeof insertTournamentGroupSchema>;
 export type TournamentGroup = typeof tournamentGroups.$inferSelect;
+export type InsertClub = z.infer<typeof insertClubSchema>;
+export type Club = typeof clubs.$inferSelect;
 export type InsertTournamentTeam = z.infer<typeof insertTournamentTeamSchema>;
 export type TournamentTeam = typeof tournamentTeams.$inferSelect;
 export type InsertTournamentPlayer = z.infer<typeof insertTournamentPlayerSchema>;

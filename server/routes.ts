@@ -2305,6 +2305,122 @@ export async function registerRoutes(
     }
   });
 
+  // ============ CLUBS (tournament CRM — org-scoped club registry) ============
+
+  app.get("/api/admin/clubs", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const list = await storage.getClubs(orgId);
+      res.json(list);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/clubs/:id", requireAuth, async (req, res) => {
+    try {
+      const club = await storage.getClub(parseInt(req.params.id));
+      if (!club) return res.status(404).json({ message: "Club not found" });
+      res.json(club);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/clubs/:id/teams", requireAuth, async (req, res) => {
+    try {
+      const teams = await storage.getClubTeams(parseInt(req.params.id));
+      res.json(teams);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/clubs", requireAuth, async (req, res) => {
+    try {
+      const club = await storage.createClub(req.body);
+      res.status(201).json(club);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/clubs/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateClub(parseInt(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Club not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/clubs/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteClub(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Club logo upload — same image pipeline as team logos (sharp validate,
+  // resize 512px square-fit, webp + avif, public ACL, write logoUrl).
+  const clubLogoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+        return cb(new Error(`"${file.originalname}" is not a supported image type`));
+      }
+      cb(null, true);
+    },
+  });
+
+  app.post(
+    "/api/admin/clubs/:id/logo",
+    requireAuth,
+    clubLogoUpload.single("file"),
+    async (req, res) => {
+      const id = parseInt(req.params.id);
+      const club = await storage.getClub(id);
+      if (!club) return res.status(404).json({ message: "Club not found" });
+      const file = req.file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+
+      const svc = new ObjectStorageService();
+      const uploaded: { gcsFile: any; objectPath: string }[] = [];
+      try {
+        const meta = await sharp(file.buffer, { failOn: "error", animated: false, limitInputPixels: 50_000_000 }).metadata();
+        if (!meta.format || !["jpeg","jpg","png","webp","gif","tiff","heif","heic","avif"].includes(meta.format)) {
+          throw new Error(`Unsupported format: ${meta.format || "unknown"}`);
+        }
+        const base = sharp(file.buffer, { failOn: "error", animated: false, limitInputPixels: 50_000_000 })
+          .rotate()
+          .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true });
+        const [webpBuf, avifBuf] = await Promise.all([
+          base.clone().webp({ quality: 90, effort: 4 }).toBuffer(),
+          base.clone().avif({ quality: 60, effort: 3 }).toBuffer(),
+        ]);
+        const sharedId = crypto.randomUUID();
+        const upload = async (buf: Buffer, contentType: string, ext: string) => {
+          const u = await svc.uploadBufferToUploads(buf, contentType, ext, sharedId);
+          uploaded.push({ gcsFile: u.file, objectPath: u.objectPath });
+          await setObjectAclPolicy(u.file, { owner: String(req.session.userId), visibility: "public" });
+          return u;
+        };
+        const results = await Promise.allSettled([
+          upload(webpBuf, "image/webp", "webp"),
+          upload(avifBuf, "image/avif", "avif"),
+        ]);
+        const failed = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
+        if (failed) throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
+        const webpPath = uploaded.find(u => u.objectPath.endsWith(".webp"))!.objectPath;
+        const updated = await storage.updateClub(id, { logoUrl: webpPath } as any);
+        res.json(updated);
+      } catch (error: any) {
+        await Promise.allSettled(uploaded.map(u => u.gcsFile.delete({ ignoreNotFound: true })));
+        res.status(400).json({ message: error.message || "Logo upload failed" });
+      }
+    }
+  );
+
+  app.delete("/api/admin/clubs/:id/logo", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateClub(parseInt(req.params.id), { logoUrl: null } as any);
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
   // ============ TOURNAMENT ROUTES ============
 
   app.get("/api/admin/tournament/tournaments", requireAuth, async (req, res) => {
@@ -4017,6 +4133,23 @@ export async function registerRoutes(
     }
   });
 
+  // Build a teamId → clubLogoUrl map for a tournament so the public games
+  // and teams endpoints can cascade team.logoUrl → club.logoUrl when a team
+  // doesn't have its own logo override.
+  async function clubLogoMapForTournament(tournamentId: number): Promise<Map<number, string | null>> {
+    const teams = await storage.getTournamentTeams(tournamentId);
+    const clubIds = [...new Set(teams.map(t => t.clubId).filter((id): id is number => !!id))];
+    if (clubIds.length === 0) return new Map();
+    const allClubs = await Promise.all(clubIds.map(id => storage.getClub(id)));
+    const clubMap = new Map<number, string | null>();
+    for (const c of allClubs) if (c) clubMap.set(c.id, c.logoUrl ?? null);
+    const teamToClubLogo = new Map<number, string | null>();
+    for (const t of teams) {
+      if (t.clubId) teamToClubLogo.set(t.id, clubMap.get(t.clubId) ?? null);
+    }
+    return teamToClubLogo;
+  }
+
   app.get("/api/public/tournament/tournaments/:id/teams", async (req, res) => {
     try {
       const t = await storage.getTournament(parseInt(req.params.id));
@@ -4024,11 +4157,12 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Tournament not found" });
       }
       const teams = await storage.getTournamentTeams(t.id);
+      const clubLogo = await clubLogoMapForTournament(t.id);
       res.json(teams.map(tm => ({
         id: tm.id,
         name: tm.name,
         clubName: tm.clubName,
-        logoUrl: tm.logoUrl,
+        logoUrl: tm.logoUrl || clubLogo.get(tm.id) || null,
         primaryColor: tm.primaryColor,
         secondaryColor: tm.secondaryColor,
         groupId: tm.groupId,
@@ -4048,6 +4182,9 @@ export async function registerRoutes(
       const games = await storage.getTournamentGames(t.id);
       const category = req.query.stage as string | undefined;
       const filtered = category ? games.filter(g => g.stage === category) : games;
+      const clubLogo = await clubLogoMapForTournament(t.id);
+      const resolveLogo = (team: { id: number; logoUrl: string | null } | undefined) =>
+        team ? (team.logoUrl || clubLogo.get(team.id) || null) : null;
       res.json(filtered.map(g => ({
         id: g.id,
         gameNumber: g.gameNumber,
@@ -4062,8 +4199,8 @@ export async function registerRoutes(
         awayTeamId: g.awayTeamId,
         homeTeamName: g.homeTeam?.name || g.homeTeamPlaceholder || "TBD",
         awayTeamName: g.awayTeam?.name || g.awayTeamPlaceholder || "TBD",
-        homeTeamLogo: g.homeTeam?.logoUrl || null,
-        awayTeamLogo: g.awayTeam?.logoUrl || null,
+        homeTeamLogo: resolveLogo(g.homeTeam),
+        awayTeamLogo: resolveLogo(g.awayTeam),
         homeScore: g.homeScore,
         awayScore: g.awayScore,
         homePenalties: g.homePenalties,

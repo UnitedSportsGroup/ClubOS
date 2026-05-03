@@ -52,6 +52,8 @@ import LeagueSettings from "@/pages/league-settings";
 import GymnasticsDashboard from "@/pages/gymnastics-dashboard";
 import TournamentDashboard from "@/pages/tournament-dashboard";
 import TournamentList from "@/pages/tournament-list";
+import ClubsList from "@/pages/clubs-list";
+import ClubDetail from "@/pages/club-detail";
 import TournamentDetail from "@/pages/tournament-detail";
 import TournamentTeamDetail from "@/pages/tournament-team-detail";
 import PrintsDashboard from "@/pages/prints-dashboard";
@@ -148,6 +150,8 @@ function AdminRouter() {
         <Route path="/admin/tournaments/:tournamentId/teams/:teamId" component={TournamentTeamDetail} />
         <Route path="/admin/tournaments/:id" component={TournamentDetail} />
         <Route path="/admin/tournaments" component={TournamentList} />
+        <Route path="/admin/clubs/:id" component={ClubDetail} />
+        <Route path="/admin/clubs" component={ClubsList} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>

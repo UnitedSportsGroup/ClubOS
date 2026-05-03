@@ -102,6 +102,7 @@ const leagueSecondary = [
 const tournamentNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Tournaments", url: "/admin/tournaments", icon: Award },
+  { title: "Clubs", url: "/admin/clubs", icon: Shield },
 ];
 
 const tournamentSecondary = [
