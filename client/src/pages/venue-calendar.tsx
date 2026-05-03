@@ -112,6 +112,10 @@ export default function VenueCalendar() {
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<"Day" | "Week" | "Month" | "Year" | "List" | "Planner">("Week");
+  // Facility filter — "all" shows everything, otherwise the string is a
+  // facility id. Applies across every view (Day, Week, Month, Year, List,
+  // Planner) by narrowing `activeBookings` below before any other slicing.
+  const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [newBooking, setNewBooking] = useState({ ...emptyForm });
 
@@ -150,7 +154,11 @@ export default function VenueCalendar() {
   });
 
   const weekDateStrs = weekDates.map(d => ymd(d));
-  const activeBookings = bookings.filter(b => b.status !== "cancelled");
+  const facilityFilterId = facilityFilter === "all" ? null : Number(facilityFilter);
+  const activeBookings = bookings.filter(b =>
+    b.status !== "cancelled" &&
+    (facilityFilterId === null || b.facilityId === facilityFilterId)
+  );
   const weekBookings = activeBookings.filter(b => weekDateStrs.includes(b.bookingDate));
 
   const getBookingsForSlot = (dayIdx: number, hour: number) => {
@@ -227,7 +235,7 @@ export default function VenueCalendar() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <button onClick={prev} className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-white/40 hover:text-white/60 hover:bg-white/5" data-testid="button-prev-week">
             <ChevronLeft className="w-4 h-4" />
@@ -238,6 +246,24 @@ export default function VenueCalendar() {
           <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1.5 rounded-lg border border-white/10 text-xs text-white/50 hover:text-white/70 hover:bg-white/5" data-testid="button-today">
             Today
           </button>
+          {facs.length > 0 && (
+            <Select value={facilityFilter} onValueChange={setFacilityFilter}>
+              <SelectTrigger className="h-8 w-[180px] bg-white/5 border-white/10 text-white/70 text-xs" data-testid="select-facility-filter">
+                <SelectValue placeholder="All facilities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All facilities</SelectItem>
+                {facs
+                  .slice()
+                  .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.name.localeCompare(b.name))
+                  .map(f => (
+                    <SelectItem key={f.id} value={String(f.id)} data-testid={`select-facility-${f.id}`}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <h2 className="text-lg font-semibold text-white" data-testid="text-date-range">{headerTitle}</h2>
         <div className="flex items-center gap-4 text-[10px]">
