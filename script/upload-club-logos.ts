@@ -22,8 +22,11 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..", "..", "..");
 const LOGOS_DIR = resolve(ROOT, "outputs", "logos");
 const API_BASE = process.env.CLUBOS_API_BASE || "https://app.usg.co.nz";
