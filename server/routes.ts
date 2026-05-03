@@ -1996,12 +1996,16 @@ export async function registerRoutes(
               if (e.bookingDate !== it.date) return false;
               if (!(e.startTime < it.endTime && e.endTime > it.startTime)) return false;
               // Half-field conflict matrix:
-              // - any FULL existing booking conflicts with anything
-              // - any FULL new booking conflicts with anything existing
-              // - two HALF bookings only conflict if they're on the same position
+              // - any FULL booking conflicts with anything overlapping
+              // - two HALF bookings only coexist if both have a known half_position
+              //   AND they're on opposite sides. A null half_position (legacy /
+              //   migrated bookings from before front-back tracking existed)
+              //   is treated as "blocks both halves" — safer than risking a
+              //   double-book until the booking is manually classified.
               const eIsHalf = e.halfFull === "half";
               const nIsHalf = it.halfFull === "half";
               if (!eIsHalf || !nIsHalf) return true;
+              if (!e.halfPosition || !it.halfPosition) return true;
               return e.halfPosition === it.halfPosition;
             });
             if (conflict) {

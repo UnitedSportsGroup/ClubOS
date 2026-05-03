@@ -597,6 +597,8 @@ function ConfigureFacility({
   const wantPos: "front" | "back" | null = wantHalf ? halfPosition : null;
   const halfBlocks = (existingHalf: string | null, existingPos: "front" | "back" | null | string | undefined) => {
     if (existingHalf !== "half" || !wantHalf) return true;
+    // Legacy/migrated bookings without a known half position block both halves.
+    if (!existingPos || !wantPos) return true;
     return existingPos === wantPos;
   };
   const cartConflicts = (d: string, s: string, e: string) =>
