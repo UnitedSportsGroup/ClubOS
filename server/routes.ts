@@ -9,6 +9,7 @@ import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
+import { buildCICSchedule } from "./tournament-schedule";
 import crypto from "crypto";
 import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from "./replit_integrations/object_storage";
 import multer from "multer";
@@ -2590,6 +2591,42 @@ export async function registerRoutes(
       if (!tournament) return res.status(404).json({ message: "Not found" });
       const groups = await storage.getTournamentGroups(tournamentId);
       const allTeams = await storage.getTournamentTeams(tournamentId);
+
+      // Wipe any existing schedule first so re-runs don't pile up duplicates.
+      // Score data on existing games is intentionally lost — generators are
+      // for setting up an empty bracket, not editing a live tournament.
+      const existing = await storage.getTournamentGames(tournamentId);
+      for (const g of existing) {
+        await storage.deleteTournamentGame(g.id);
+      }
+
+      // CIC 16-team / 4-pool format. Pulls in the canonical 48-game schedule
+      // (pool play + Cup/Plate brackets + 1st/3rd/5th/7th/9th/11th/13th/15th
+      // placement matches) with times and field allocation per the master sheet.
+      if (groups.length === 4 && allTeams.length >= 12 && tournament.startDate) {
+        // Postgres `date` columns come back from node-pg as JS Dates parsed
+        // in local time. Using toISOString() converts to UTC and silently
+        // shifts the date back by a day in NZST (UTC+12/+13). Use local
+        // accessors so the user-intended date is preserved.
+        const sd = tournament.startDate;
+        const startDate = typeof sd === "string"
+          ? sd.slice(0, 10)
+          : `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`;
+        const inserts = buildCICSchedule({
+          tournamentId,
+          startDate,
+          groups,
+          teams: allTeams,
+        });
+        const created = [];
+        for (const ins of inserts) {
+          created.push(await storage.createTournamentGame(ins));
+        }
+        return res.json(created);
+      }
+
+      // Fallback for non-CIC layouts (2 pools, etc.) — simple round-robin
+      // pool play + flat knockout bracket. Doesn't allocate times/fields.
       let gameNumber = 1;
       const games = [];
       for (const group of groups) {
@@ -2612,52 +2649,24 @@ export async function registerRoutes(
           }
         }
       }
-      const numGroups = groups.length;
-      if (numGroups >= 2) {
-        const knockoutPairs: { homePlace: string; awayPlace: string; stage: string; stageDetail: string }[] = [];
-        if (numGroups === 4) {
-          knockoutPairs.push(
-            { homePlace: "A1", awayPlace: "B2", stage: "knockout", stageDetail: "QF 1 CUP" },
-            { homePlace: "B1", awayPlace: "A2", stage: "knockout", stageDetail: "QF 2 CUP" },
-            { homePlace: "C1", awayPlace: "D2", stage: "knockout", stageDetail: "QF 3 CUP" },
-            { homePlace: "D1", awayPlace: "C2", stage: "knockout", stageDetail: "QF 4 CUP" },
-            { homePlace: "A3", awayPlace: "B4", stage: "knockout", stageDetail: "QF 1 PLATE" },
-            { homePlace: "B3", awayPlace: "A4", stage: "knockout", stageDetail: "QF 2 PLATE" },
-            { homePlace: "C3", awayPlace: "D4", stage: "knockout", stageDetail: "QF 3 PLATE" },
-            { homePlace: "D3", awayPlace: "C4", stage: "knockout", stageDetail: "QF 4 PLATE" },
-          );
-          knockoutPairs.push(
-            { homePlace: "W QF1 CUP", awayPlace: "W QF4 CUP", stage: "knockout", stageDetail: "SF 1 CUP" },
-            { homePlace: "W QF2 CUP", awayPlace: "W QF3 CUP", stage: "knockout", stageDetail: "SF 2 CUP" },
-            { homePlace: "W QF1 PLATE", awayPlace: "W QF4 PLATE", stage: "knockout", stageDetail: "SF 1 PLATE" },
-            { homePlace: "W QF2 PLATE", awayPlace: "W QF3 PLATE", stage: "knockout", stageDetail: "SF 2 PLATE" },
-          );
-          knockoutPairs.push(
-            { homePlace: "L SF1 CUP", awayPlace: "L SF2 CUP", stage: "knockout", stageDetail: "3rd Place" },
-            { homePlace: "W SF1 CUP", awayPlace: "W SF2 CUP", stage: "final", stageDetail: "CUP FINAL" },
-            { homePlace: "L SF1 PLATE", awayPlace: "L SF2 PLATE", stage: "knockout", stageDetail: "PLATE 3rd" },
-            { homePlace: "W SF1 PLATE", awayPlace: "W SF2 PLATE", stage: "final", stageDetail: "PLATE FINAL" },
-          );
-        } else if (numGroups === 2) {
-          knockoutPairs.push(
-            { homePlace: "A1", awayPlace: "B2", stage: "knockout", stageDetail: "SF 1" },
-            { homePlace: "B1", awayPlace: "A2", stage: "knockout", stageDetail: "SF 2" },
-            { homePlace: "L SF1", awayPlace: "L SF2", stage: "knockout", stageDetail: "3rd Place" },
-            { homePlace: "W SF1", awayPlace: "W SF2", stage: "final", stageDetail: "FINAL" },
-          );
-        }
-        for (const pair of knockoutPairs) {
+      if (groups.length === 2) {
+        const pairs = [
+          { home: "A1", away: "B2", stage: "knockout", detail: "SF 1" },
+          { home: "B1", away: "A2", stage: "knockout", detail: "SF 2" },
+          { home: "L SF1", away: "L SF2", stage: "knockout", detail: "3rd Place" },
+          { home: "W SF1", away: "W SF2", stage: "final", detail: "FINAL" },
+        ];
+        for (const p of pairs) {
           const g = await storage.createTournamentGame({
             tournamentId,
             groupId: null,
             homeTeamId: null,
             awayTeamId: null,
-            homeTeamPlaceholder: pair.homePlace,
-            awayTeamPlaceholder: pair.awayPlace,
+            homeTeamPlaceholder: p.home,
+            awayTeamPlaceholder: p.away,
             gameNumber: gameNumber++,
-            roundNumber: null,
-            stage: pair.stage,
-            stageDetail: pair.stageDetail,
+            stage: p.stage,
+            stageDetail: p.detail,
             gameDate: tournament.endDate || tournament.startDate || null,
             status: "scheduled",
           });
