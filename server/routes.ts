@@ -1711,18 +1711,32 @@ export async function registerRoutes(
       item.startTime >= r.startTime && item.endTime <= r.endTime
     );
 
+    let halfPricePerHourCents: number | null = null;
+
     if (specific) {
       pricePerHourCents = Math.round(parseFloat(specific.pricePerHour) * 100);
+      if (specific.halfFieldPricePerHour != null) {
+        halfPricePerHourCents = Math.round(parseFloat(specific.halfFieldPricePerHour) * 100);
+      }
     } else {
       const def = rules.find(r => r.isDefault);
-      if (def) pricePerHourCents = Math.round(parseFloat(def.pricePerHour) * 100);
-      else pricePerHourCents = facility.pricePerHourCents || 0;
+      if (def) {
+        pricePerHourCents = Math.round(parseFloat(def.pricePerHour) * 100);
+        if (def.halfFieldPricePerHour != null) {
+          halfPricePerHourCents = Math.round(parseFloat(def.halfFieldPricePerHour) * 100);
+        }
+      } else {
+        pricePerHourCents = facility.pricePerHourCents || 0;
+      }
     }
 
     let baseCents = Math.round(pricePerHourCents * hours);
 
     if (item.halfFull === "half") {
-      if (facility.halfFieldPricePerHourCents != null) {
+      // Resolution order: rule half price → facility half price → 50% of full.
+      if (halfPricePerHourCents != null) {
+        baseCents = Math.round(halfPricePerHourCents * hours);
+      } else if (facility.halfFieldPricePerHourCents != null) {
         baseCents = Math.round(facility.halfFieldPricePerHourCents * hours);
       } else {
         baseCents = Math.round(baseCents / 2);
@@ -1876,9 +1890,13 @@ export async function registerRoutes(
       };
     });
 
-    const subtotalCents = lineItems.reduce((s, l) => s + l.totalCents, 0);
-    const gstCents = Math.round(subtotalCents * (gstRate / 100));
-    const totalCents = subtotalCents + gstCents;
+    // Prices are stored GST-inclusive. The customer-facing total is the sum of
+    // line items as-is; GST is the portion of that total (15/115 ≈ 13.04%), and
+    // the ex-GST subtotal is the remainder. This matches NZ retail convention:
+    // "Total $X.XX (includes 15% GST $Y.YY)".
+    const totalCents = lineItems.reduce((s, l) => s + l.totalCents, 0);
+    const gstCents = totalCents - Math.round(totalCents / (1 + gstRate / 100));
+    const subtotalCents = totalCents - gstCents;
     return { lineItems, subtotalCents, gstCents, totalCents, gstRate };
   }
 
@@ -1915,27 +1933,34 @@ export async function registerRoutes(
 
       const groupId = `vbg_${crypto.randomBytes(8).toString("hex")}`;
 
-      const bookingsToCreate: any[] = quote.lineItems.map((line) => ({
-        organizationId: orgId,
-        facilityId: line.facilityId,
-        customerName: parsed.customer.name,
-        customerEmail: parsed.customer.email,
-        customerPhone: parsed.customer.phone || null,
-        customerClub: parsed.customer.club || null,
-        bookingDate: line.date,
-        startTime: line.startTime,
-        endTime: line.endTime,
-        halfFull: line.halfFull,
-        addonsJson: line.addons,
-        subtotalCents: line.totalCents,
-        gstCents: Math.round(line.totalCents * (quote.gstRate / 100)),
-        totalCents: line.totalCents + Math.round(line.totalCents * (quote.gstRate / 100)),
-        totalAmount: ((line.totalCents + Math.round(line.totalCents * (quote.gstRate / 100))) / 100).toFixed(2),
-        gstAmount: (Math.round(line.totalCents * (quote.gstRate / 100)) / 100).toFixed(2),
-        status: "pending" as const,
-        bookingGroupId: groupId,
-        notes: parsed.customer.notes || null,
-      }));
+      // line.totalCents is GST-inclusive. Per-line GST is the inc-GST portion
+      // (15/115 of the total), and the ex-GST subtotal is the remainder.
+      const bookingsToCreate: any[] = quote.lineItems.map((line) => {
+        const lineTotalCents = line.totalCents;
+        const lineGstCents = lineTotalCents - Math.round(lineTotalCents / (1 + quote.gstRate / 100));
+        const lineSubtotalCents = lineTotalCents - lineGstCents;
+        return {
+          organizationId: orgId,
+          facilityId: line.facilityId,
+          customerName: parsed.customer.name,
+          customerEmail: parsed.customer.email,
+          customerPhone: parsed.customer.phone || null,
+          customerClub: parsed.customer.club || null,
+          bookingDate: line.date,
+          startTime: line.startTime,
+          endTime: line.endTime,
+          halfFull: line.halfFull,
+          addonsJson: line.addons,
+          subtotalCents: lineSubtotalCents,
+          gstCents: lineGstCents,
+          totalCents: lineTotalCents,
+          totalAmount: (lineTotalCents / 100).toFixed(2),
+          gstAmount: (lineGstCents / 100).toFixed(2),
+          status: "pending" as const,
+          bookingGroupId: groupId,
+          notes: parsed.customer.notes || null,
+        };
+      });
 
       // Atomic availability reservation: serialize concurrent checkouts for the same facility
       // using PostgreSQL transaction-scoped advisory locks, then re-check for conflicts inside

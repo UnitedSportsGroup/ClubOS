@@ -59,7 +59,7 @@ function AddonModal({ addon, orgId, onClose }: { addon?: FacilityAddon; orgId: n
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-white/40 mb-1 block">Price (ex GST)</label>
+              <label className="text-xs text-white/40 mb-1 block">Price (inc GST)</label>
               <Input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-addon-price" />
             </div>
             <div>
@@ -145,7 +145,7 @@ export default function VenueAddons() {
                 <h3 className="text-sm font-semibold text-white">{a.name}</h3>
                 {a.description && <p className="text-xs text-white/30 mt-0.5">{a.description}</p>}
                 <div className="flex items-center gap-3 mt-1 text-xs text-white/25">
-                  <span>{formatCurrency(Number(a.price))} ex GST</span>
+                  <span>{formatCurrency(Number(a.price))} inc GST</span>
                   <span>{UNITS.find(u => u.value === a.unit)?.label || a.unit}</span>
                   {a.appliesToAll && <span>All resources</span>}
                   <span className={a.active ? "text-green-400" : "text-red-400"}>{a.active ? "Active" : "Inactive"}</span>

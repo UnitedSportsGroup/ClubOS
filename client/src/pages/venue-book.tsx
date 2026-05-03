@@ -990,10 +990,11 @@ function CartSummary({
           <div className="border-t border-white/[0.06] pt-3 space-y-1.5 text-xs">
             {loadingQuote ? <Skeleton className="h-4 w-32" /> : quote && (
               <>
-                <div className="flex justify-between text-white/60"><span>Subtotal</span><span>{fmtMoney(quote.subtotalCents)}</span></div>
-                <div className="flex justify-between text-white/60"><span>GST ({quote.gstRate}%)</span><span>{fmtMoney(quote.gstCents)}</span></div>
-                <div className="flex justify-between text-white font-semibold pt-1 border-t border-white/[0.06] text-sm">
+                <div className="flex justify-between text-white font-semibold text-sm">
                   <span>Total</span><span data-testid="text-cart-total">{fmtMoney(quote.totalCents)}</span>
+                </div>
+                <div className="flex justify-between text-white/40 text-[11px]">
+                  <span>Includes {quote.gstRate}% GST</span><span>{fmtMoney(quote.gstCents)}</span>
                 </div>
               </>
             )}

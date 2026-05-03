@@ -318,6 +318,7 @@ export const facilityPricingRules = pgTable("facility_pricing_rules", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   pricePerHour: decimal("price_per_hour", { precision: 10, scale: 2 }).notNull(),
+  halfFieldPricePerHour: decimal("half_field_price_per_hour", { precision: 10, scale: 2 }),
   isDefault: boolean("is_default").default(false),
 });
 

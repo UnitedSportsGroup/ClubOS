@@ -217,7 +217,7 @@ function FacilityImageManager({
   );
 }
 
-function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; baseRate: string }) {
+function PricingRulesEditor({ facilityId, baseRate, halfFull }: { facilityId: number; baseRate: string; halfFull: boolean }) {
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
   const [editingSig, setEditingSig] = useState<string | null>(null);
@@ -228,13 +228,14 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
     startTime: "07:00",
     endTime: "15:00",
     pricePerHour: "",
+    halfFieldPricePerHour: "",
   });
 
   const resetForm = () => {
     setAdding(false);
     setEditingSig(null);
     setEditingIds([]);
-    setNewRule({ name: "", days: [], startTime: "07:00", endTime: "15:00", pricePerHour: "" });
+    setNewRule({ name: "", days: [], startTime: "07:00", endTime: "15:00", pricePerHour: "", halfFieldPricePerHour: "" });
   };
 
   const { data: rules = [], isLoading } = useQuery<FacilityPricingRule[]>({
@@ -247,7 +248,7 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
   const groups = (() => {
     const map = new Map<string, { signature: string; ids: number[]; days: number[]; rule: FacilityPricingRule }>();
     for (const r of rules) {
-      const sig = `${r.name}|${r.startTime || ""}|${r.endTime || ""}|${r.pricePerHour}|${r.isDefault ? 1 : 0}`;
+      const sig = `${r.name}|${r.startTime || ""}|${r.endTime || ""}|${r.pricePerHour}|${r.halfFieldPricePerHour || ""}|${r.isDefault ? 1 : 0}`;
       if (!map.has(sig)) {
         map.set(sig, { signature: sig, ids: [], days: [], rule: r });
       }
@@ -274,6 +275,7 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
           startTime: newRule.startTime,
           endTime: newRule.endTime,
           pricePerHour: newRule.pricePerHour,
+          halfFieldPricePerHour: halfFull && newRule.halfFieldPricePerHour ? newRule.halfFieldPricePerHour : null,
           isDefault: false,
         });
       }
@@ -335,6 +337,9 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
                 <div className="text-xs font-medium text-white truncate">{g.rule.name}</div>
                 <div className="text-[10px] text-white/40 mt-0.5">
                   {describeDays(g.days)} · {g.rule.startTime} – {g.rule.endTime} · <span className="text-green-400 font-medium">${parseFloat(g.rule.pricePerHour).toFixed(2)}/hr</span>
+                  {halfFull && g.rule.halfFieldPricePerHour != null && (
+                    <span className="text-white/30"> · half <span className="text-green-400/70 font-medium">${parseFloat(g.rule.halfFieldPricePerHour).toFixed(2)}/hr</span></span>
+                  )}
                 </div>
               </div>
               <button
@@ -347,6 +352,7 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
                     startTime: g.rule.startTime || "07:00",
                     endTime: g.rule.endTime || "15:00",
                     pricePerHour: g.rule.pricePerHour,
+                    halfFieldPricePerHour: g.rule.halfFieldPricePerHour || "",
                   });
                   setAdding(true);
                 }}
@@ -415,7 +421,7 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className={halfFull ? "grid grid-cols-4 gap-2" : "grid grid-cols-3 gap-2"}>
             <div>
               <label className="text-[10px] text-white/40 mb-1 block">Start</label>
               <Input
@@ -437,7 +443,7 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
               />
             </div>
             <div>
-              <label className="text-[10px] text-white/40 mb-1 block">Price / hr</label>
+              <label className="text-[10px] text-white/40 mb-1 block">{halfFull ? "Full / hr" : "Price / hr"} (inc GST)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -448,6 +454,20 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
                 data-testid="input-rule-price"
               />
             </div>
+            {halfFull && (
+              <div>
+                <label className="text-[10px] text-white/40 mb-1 block">Half / hr (inc GST)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={newRule.halfFieldPricePerHour}
+                  onChange={e => setNewRule({ ...newRule, halfFieldPricePerHour: e.target.value })}
+                  placeholder="optional"
+                  className="bg-white/5 border-white/10 text-white text-xs h-8"
+                  data-testid="input-rule-half-price"
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
@@ -595,7 +615,7 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-white/40 mb-1 block">Price / hour (NZD)</label>
+                <label className="text-xs text-white/40 mb-1 block">Price / hour (NZD inc GST)</label>
                 <Input
                   type="number"
                   step="0.01"
@@ -608,7 +628,7 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
               </div>
               {form.halfFull && (
                 <div>
-                  <label className="text-xs text-white/40 mb-1 block">Half-field / hour (NZD)</label>
+                  <label className="text-xs text-white/40 mb-1 block">Half-field / hour (NZD inc GST)</label>
                   <Input
                     type="number"
                     step="0.01"
@@ -626,7 +646,7 @@ function FacilityModal({ facility, orgId, onClose }: { facility?: FacilityWithRu
             <div className="border-t border-white/[0.06] pt-3 space-y-2">
               <div className="text-[11px] uppercase tracking-wider text-white/30">Variable pricing</div>
               {facility ? (
-                <PricingRulesEditor facilityId={facility.id} baseRate={form.pricePerHour} />
+                <PricingRulesEditor facilityId={facility.id} baseRate={form.pricePerHour} halfFull={form.halfFull} />
               ) : (
                 <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-3 text-center text-[11px] text-white/40">
                   Save the facility first, then you can add peak/off-peak pricing rules.
