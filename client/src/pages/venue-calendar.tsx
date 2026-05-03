@@ -358,6 +358,9 @@ export default function VenueCalendar() {
                           >
                             <span className="opacity-70 mr-2">{b.startTime}–{b.endTime}</span>
                             {b.facility?.name || "Booking"}
+                            {b.halfFull === "half" && (
+                              <span className="opacity-70 ml-1">· {b.halfPosition ? `${b.halfPosition} half` : "half"}</span>
+                            )}
                             {b.customerName && <span className="opacity-60 ml-2">· {b.customerName}</span>}
                           </div>
                         );
@@ -487,7 +490,12 @@ export default function VenueCalendar() {
                 {new Date(b.bookingDate + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })}
               </div>
               <div className="w-24 text-xs text-white/40 flex-shrink-0">{b.startTime}–{b.endTime}</div>
-              <div className="flex-1 text-xs text-white truncate">{b.facility?.name || "Booking"}</div>
+              <div className="flex-1 text-xs text-white truncate">
+                {b.facility?.name || "Booking"}
+                {b.halfFull === "half" && (
+                  <span className="text-white/50 ml-1">· {b.halfPosition ? `${b.halfPosition} half` : "half"}</span>
+                )}
+              </div>
               <div className="text-xs text-white/40 truncate">{b.customerName}</div>
               <span className={`text-[10px] px-2 py-0.5 rounded font-medium border ${statusColors[b.status]}`}>{b.status}</span>
             </div>

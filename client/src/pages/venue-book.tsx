@@ -91,6 +91,7 @@ interface AvailabilitySlot {
   startTime: string;
   endTime: string;
   halfFull: string | null;
+  halfPosition: "front" | "back" | null;
   status: string;
 }
 
@@ -101,6 +102,7 @@ interface CartItem {
   startTime: string;
   endTime: string;
   halfFull: "half" | "full" | null;
+  halfPosition: "front" | "back" | null;
   addons: { addonId: number; qty: number }[];
 }
 
@@ -111,6 +113,7 @@ interface QuoteLine {
   startTime: string;
   endTime: string;
   halfFull: string | null;
+  halfPosition: "front" | "back" | null;
   hours: number;
   baseCents: number;
   addons: { addonId: number; name: string; unit: string; qty: number; priceCents: number }[];
@@ -264,6 +267,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
               startTime: c.startTime,
               endTime: c.endTime,
               halfFull: c.halfFull,
+              halfPosition: c.halfPosition,
               addons: c.addons,
             })),
           }),
@@ -297,6 +301,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
             startTime: c.startTime,
             endTime: c.endTime,
             halfFull: c.halfFull,
+            halfPosition: c.halfPosition,
             addons: c.addons,
           })),
         }),
@@ -562,6 +567,7 @@ function ConfigureFacility({
   const [startTime, setStartTime] = useState(slots[Math.floor(slots.length / 2)] || "17:00");
   const [duration, setDuration] = useState(60); // minutes
   const [halfFull, setHalfFull] = useState<"half" | "full">(facility.halfFull ? "half" : "full");
+  const [halfPosition, setHalfPosition] = useState<"front" | "back">("front");
   const [selectedAddons, setSelectedAddons] = useState<Record<number, number>>({});
   const [multiDay, setMultiDay] = useState(false);
   const [extraDates, setExtraDates] = useState<string[]>([]);
@@ -585,11 +591,30 @@ function ConfigureFacility({
     })();
   }, [facility.id, facility.organizationId, allDates.join(",")]);
 
+  // Half-field conflict matrix: full vs anything = conflict; two halves only conflict
+  // if they're on the same side (front × front, back × back).
+  const wantHalf = facility.halfFull && halfFull === "half";
+  const wantPos: "front" | "back" | null = wantHalf ? halfPosition : null;
+  const halfBlocks = (existingHalf: string | null, existingPos: "front" | "back" | null | string | undefined) => {
+    if (existingHalf !== "half" || !wantHalf) return true;
+    return existingPos === wantPos;
+  };
   const cartConflicts = (d: string, s: string, e: string) =>
-    cart.some(c => c.facility.id === facility.id && c.date === d && c.startTime < e && c.endTime > s);
+    cart.some(c =>
+      c.facility.id === facility.id &&
+      c.date === d &&
+      c.startTime < e &&
+      c.endTime > s &&
+      halfBlocks(c.halfFull, c.halfPosition)
+    );
 
   const isSlotConflicted = (d: string, s: string, e: string) =>
-    busy.some(b => b.date === d && b.startTime < e && b.endTime > s) || cartConflicts(d, s, e);
+    busy.some(b =>
+      b.date === d &&
+      b.startTime < e &&
+      b.endTime > s &&
+      halfBlocks(b.halfFull, b.halfPosition)
+    ) || cartConflicts(d, s, e);
 
   const conflictDates = allDates.filter(d => isSlotConflicted(d, startTime, endTime));
   const validDates = allDates.filter(d => !isSlotConflicted(d, startTime, endTime));
@@ -602,6 +627,7 @@ function ConfigureFacility({
       startTime,
       endTime,
       halfFull: facility.halfFull ? halfFull : null,
+      halfPosition: facility.halfFull && halfFull === "half" ? halfPosition : null,
       addons: Object.entries(selectedAddons).filter(([, q]) => q > 0).map(([id, q]) => ({ addonId: parseInt(id), qty: q })),
     }));
     if (items.length > 0) onAdd(items);
@@ -693,6 +719,29 @@ function ConfigureFacility({
               </button>
             ))}
           </div>
+          {halfFull === "half" && (
+            <div className="mt-3">
+              <Label className="text-xs text-white/60 mb-1.5 block">Which half?</Label>
+              <div className="flex gap-2">
+                {(["front", "back"] as const).map(pos => (
+                  <button
+                    key={pos}
+                    onClick={() => setHalfPosition(pos)}
+                    data-testid={`button-half-${pos}`}
+                    className="flex-1 px-3 py-2 rounded-lg text-sm border transition capitalize"
+                    style={{
+                      borderColor: halfPosition === pos ? brand : "rgba(255,255,255,0.1)",
+                      background: halfPosition === pos ? `${brand}25` : "transparent",
+                      color: halfPosition === pos ? "white" : "rgba(255,255,255,0.7)",
+                    }}
+                  >
+                    {pos} half
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-white/40 mt-1.5">Booking one half leaves the other half free for someone else.</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -810,7 +859,7 @@ function ReviewStep({
         {cart.map(c => (
           <div key={c.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 flex items-start justify-between gap-4" data-testid={`cart-item-${c.id}`}>
             <div className="min-w-0">
-              <div className="font-medium">{c.facility.name} {c.halfFull && <span className="text-xs text-white/40">({c.halfFull})</span>}</div>
+              <div className="font-medium">{c.facility.name} {c.halfFull && <span className="text-xs text-white/40">({c.halfFull === "half" && c.halfPosition ? `${c.halfPosition} half` : c.halfFull})</span>}</div>
               <div className="text-xs text-white/60 mt-0.5">{fmtDateLong(c.date)} · {fmtTime(c.startTime)} – {fmtTime(c.endTime)}</div>
               {c.addons.length > 0 && (
                 <div className="text-[11px] text-white/40 mt-1">
@@ -975,7 +1024,7 @@ function CartSummary({
             {cart.map(c => (
               <div key={c.id} className="text-xs rounded-lg bg-white/[0.03] p-2.5 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-white/90 truncate">{c.facility.name}{c.halfFull === "half" ? " (Half)" : ""}</div>
+                  <div className="text-white/90 truncate">{c.facility.name}{c.halfFull === "half" ? ` (${c.halfPosition ? `${c.halfPosition} half` : "half"})` : ""}</div>
                   <div className="text-white/40 mt-0.5">{fmtDateLong(c.date)}</div>
                   <div className="text-white/40">{fmtTime(c.startTime)}–{fmtTime(c.endTime)}</div>
                 </div>

@@ -334,6 +334,9 @@ export const facilityBookings = pgTable("facility_bookings", {
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),
   halfFull: text("half_full"),
+  // For half-field bookings: 'front' or 'back'. NULL for full bookings or
+  // legacy half bookings created before this column existed.
+  halfPosition: text("half_position"),
   addonsJson: jsonb("addons_json"),
   subtotalCents: integer("subtotal_cents").default(0),
   gstCents: integer("gst_cents").default(0),

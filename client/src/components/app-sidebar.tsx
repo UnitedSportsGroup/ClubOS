@@ -41,6 +41,7 @@ import {
   FolderKanban,
   FileText,
   Send,
+  ExternalLink,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -307,6 +308,21 @@ export function AppSidebar() {
           </div>
         </div>
         <WorkspaceSwitcher />
+        {isVenue && currentOrg?.slug && (
+          <a
+            href={`/book?slug=${currentOrg.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] font-medium text-blue-300 hover:bg-blue-500/10 hover:text-blue-200 transition-colors"
+            data-testid="link-preview-public-site"
+          >
+            <span className="flex items-center gap-2">
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>View public site</span>
+            </span>
+            <span className="text-[9px] text-blue-300/40 uppercase tracking-wider">opens new tab</span>
+          </a>
+        )}
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>

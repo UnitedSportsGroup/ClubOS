@@ -1825,6 +1825,7 @@ export async function registerRoutes(
         startTime: b.startTime,
         endTime: b.endTime,
         halfFull: b.halfFull,
+        halfPosition: b.halfPosition,
         status: b.status,
       })));
     } catch (error: any) {
@@ -1838,11 +1839,16 @@ export async function registerRoutes(
     startTime: z.string().regex(/^\d{2}:\d{2}$/),
     endTime: z.string().regex(/^\d{2}:\d{2}$/),
     halfFull: z.enum(["half", "full"]).nullable().optional(),
+    // For half bookings: which half. Required when halfFull === 'half'; ignored otherwise.
+    halfPosition: z.enum(["front", "back"]).nullable().optional(),
     addons: z.array(z.object({
       addonId: z.number().int().positive(),
       qty: z.number().int().positive().default(1),
     })).default([]),
-  });
+  }).refine(
+    (v) => v.halfFull !== "half" || (v.halfPosition === "front" || v.halfPosition === "back"),
+    { message: "halfPosition (front or back) is required for half bookings", path: ["halfPosition"] }
+  );
 
   async function buildQuote(orgId: number, items: z.infer<typeof bookingItemSchema>[]) {
     const settings = await storage.getVenueSettings(orgId);
@@ -1883,6 +1889,7 @@ export async function registerRoutes(
         startTime: item.startTime,
         endTime: item.endTime,
         halfFull: item.halfFull || null,
+        halfPosition: item.halfFull === "half" ? (item.halfPosition || null) : null,
         hours,
         baseCents,
         addons: addonLines,
@@ -1950,6 +1957,7 @@ export async function registerRoutes(
           startTime: line.startTime,
           endTime: line.endTime,
           halfFull: line.halfFull,
+          halfPosition: line.halfFull === "half" ? line.halfPosition : null,
           addonsJson: line.addons,
           subtotalCents: lineSubtotalCents,
           gstCents: lineGstCents,
@@ -1984,13 +1992,21 @@ export async function registerRoutes(
             ));
           for (const it of parsed.items) {
             if (it.facilityId !== fid) continue;
-            const conflict = existing.find(e =>
-              e.bookingDate === it.date &&
-              e.startTime < it.endTime &&
-              e.endTime > it.startTime
-            );
+            const conflict = existing.find(e => {
+              if (e.bookingDate !== it.date) return false;
+              if (!(e.startTime < it.endTime && e.endTime > it.startTime)) return false;
+              // Half-field conflict matrix:
+              // - any FULL existing booking conflicts with anything
+              // - any FULL new booking conflicts with anything existing
+              // - two HALF bookings only conflict if they're on the same position
+              const eIsHalf = e.halfFull === "half";
+              const nIsHalf = it.halfFull === "half";
+              if (!eIsHalf || !nIsHalf) return true;
+              return e.halfPosition === it.halfPosition;
+            });
             if (conflict) {
-              throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}`);
+              const half = it.halfFull === "half" ? ` ${it.halfPosition} half` : "";
+              throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}${half}`);
             }
           }
         }
