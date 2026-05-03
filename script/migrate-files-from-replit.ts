@@ -61,6 +61,54 @@ async function findReferencedObjectPaths(): Promise<Set<string>> {
   return paths;
 }
 
+// The Replit upload pipeline produces both a .webp and an .avif version of
+// every image upload. The DB only stores the .webp URL but the carousel
+// component renders <picture><source srcSet=".avif" /><img src=".webp" /></picture>,
+// and browsers that support AVIF (most modern ones) preferentially load the
+// .avif source. If we only migrate the .webp, those browsers will hit a 404
+// on the .avif source and (per HTML spec) not fall back to the <img>.
+//
+// This helper, after a successful .webp migration, also probes Replit for the
+// .avif sibling and migrates it if it exists.
+async function maybeUploadAvifSibling(objectPath: string): Promise<void> {
+  if (!/\.webp$/i.test(objectPath)) return;
+  const avifPath = objectPath.replace(/\.webp$/i, ".avif");
+  const storagePath = avifPath.replace(/^\/objects\//, "");
+
+  // Skip if already in Supabase
+  const slash = storagePath.lastIndexOf("/");
+  const dir = slash >= 0 ? storagePath.slice(0, slash) : "";
+  const name = slash >= 0 ? storagePath.slice(slash + 1) : storagePath;
+  const { data: existing } = await supabase.storage
+    .from(BUCKET)
+    .list(dir, { limit: 1000, search: name });
+  if (existing?.some((f) => f.name === name)) return;
+
+  const url = `${REPLIT_BASE}${avifPath}`;
+  const res = await fetch(url);
+  if (!res.ok) return; // No AVIF sibling — that's fine, not every image has one
+  const buf = Buffer.from(await res.arrayBuffer());
+  await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buf, {
+      contentType: "image/avif",
+      cacheControl: "public, max-age=86400",
+      upsert: true,
+    });
+
+  // The /objects/:path serving route checks object_acls for visibility.
+  // Without a public ACL row for the .avif path, the route returns 401 even
+  // though the .webp sibling is public. Add a matching public row.
+  await pool.query(
+    `INSERT INTO public.object_acls (object_path, owner_user_id, visibility)
+     VALUES ($1, NULL, 'public')
+     ON CONFLICT (object_path) DO UPDATE SET visibility='public', updated_at = now()`,
+    [avifPath]
+  );
+
+  console.log(`     ↳ avif sibling: ${avifPath}`);
+}
+
 async function uploadOneFile(objectPath: string): Promise<{ ok: boolean; reason?: string }> {
   const storagePath = objectPath.replace(/^\/objects\//, "");
   if (!storagePath) return { ok: false, reason: "empty storage path" };
@@ -101,12 +149,50 @@ async function uploadOneFile(objectPath: string): Promise<{ ok: boolean; reason?
     [objectPath]
   );
 
+  // Also pull the AVIF sibling for any .webp we just migrated.
+  await maybeUploadAvifSibling(objectPath);
+
   return { ok: true };
+}
+
+// Standalone pass: scan paths already in Supabase Storage and pull missing
+// .avif siblings. Used for files migrated before the AVIF-aware logic
+// existed. Idempotent — safely skips siblings already present.
+async function backfillAvifSiblings() {
+  const paths = await findReferencedObjectPaths();
+  let added = 0;
+  let skipped = 0;
+  for (const p of paths) {
+    if (!/\.webp$/i.test(p)) continue;
+    const before = await supabase.storage
+      .from(BUCKET)
+      .list(
+        p.replace(/^\/objects\//, "").replace(/\/[^/]*$/, ""),
+        { limit: 1000, search: p.split("/").pop()!.replace(/\.webp$/i, ".avif") }
+      );
+    const avifName = p.split("/").pop()!.replace(/\.webp$/i, ".avif");
+    if (before.data?.some((f) => f.name === avifName)) {
+      skipped++;
+      continue;
+    }
+    await maybeUploadAvifSibling(p);
+    added++;
+  }
+  console.log(`\nAVIF backfill: added ${added}, skipped ${skipped}`);
 }
 
 async function main() {
   console.log(`→ Source:  ${REPLIT_BASE}`);
   console.log(`→ Target:  ${SUPABASE_URL!} bucket=${BUCKET}\n`);
+
+  // --backfill-avif mode: only scan and pull missing .avif siblings, no
+  // other migration work. Useful after a previous run that didn't grab them.
+  if (process.argv.includes("--backfill-avif")) {
+    await backfillAvifSiblings();
+    await pool.end();
+    return;
+  }
+
   console.log("→ Scanning DB for /objects/... references…");
   const paths = await findReferencedObjectPaths();
   console.log(`  Found ${paths.size} unique object paths referenced in DB`);
