@@ -220,6 +220,8 @@ function FacilityImageManager({
 function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; baseRate: string }) {
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
+  const [editingSig, setEditingSig] = useState<string | null>(null);
+  const [editingIds, setEditingIds] = useState<number[]>([]);
   const [newRule, setNewRule] = useState({
     name: "",
     days: [] as number[],
@@ -227,6 +229,13 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
     endTime: "15:00",
     pricePerHour: "",
   });
+
+  const resetForm = () => {
+    setAdding(false);
+    setEditingSig(null);
+    setEditingIds([]);
+    setNewRule({ name: "", days: [], startTime: "07:00", endTime: "15:00", pricePerHour: "" });
+  };
 
   const { data: rules = [], isLoading } = useQuery<FacilityPricingRule[]>({
     queryKey: ["/api/admin/venue/facilities", facilityId, "pricing"],
@@ -249,10 +258,15 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
     return Array.from(map.values());
   })();
 
-  const createMutation = useMutation({
+  const saveMutation = useMutation({
     mutationFn: async () => {
-      // Create one rule row per selected day of week. They share name/time/price so they
-      // group back into a single visual entry on next render.
+      // On edit, wipe the previous rows for this group first — a "rule" is virtual
+      // (N rows sharing name/time/price), so swap-by-replace keeps the data model simple.
+      if (editingIds.length > 0) {
+        for (const id of editingIds) {
+          await apiRequest("DELETE", `/api/admin/venue/pricing/${id}`);
+        }
+      }
       for (const day of newRule.days) {
         await apiRequest("POST", `/api/admin/venue/facilities/${facilityId}/pricing`, {
           name: newRule.name,
@@ -265,13 +279,13 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
       }
     },
     onSuccess: () => {
+      const wasEdit = editingIds.length > 0;
       queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities", facilityId, "pricing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/facilities"] });
-      setAdding(false);
-      setNewRule({ name: "", days: [], startTime: "07:00", endTime: "15:00", pricePerHour: "" });
-      toast({ title: "Pricing rule added" });
+      resetForm();
+      toast({ title: wasEdit ? "Pricing rule updated" : "Pricing rule added" });
     },
-    onError: (e: any) => toast({ title: "Couldn't add rule", description: e?.message || String(e), variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Couldn't save rule", description: e?.message || String(e), variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -323,6 +337,24 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
                   {describeDays(g.days)} · {g.rule.startTime} – {g.rule.endTime} · <span className="text-green-400 font-medium">${parseFloat(g.rule.pricePerHour).toFixed(2)}/hr</span>
                 </div>
               </div>
+              <button
+                onClick={() => {
+                  setEditingSig(g.signature);
+                  setEditingIds(g.ids);
+                  setNewRule({
+                    name: g.rule.name,
+                    days: [...g.days],
+                    startTime: g.rule.startTime || "07:00",
+                    endTime: g.rule.endTime || "15:00",
+                    pricePerHour: g.rule.pricePerHour,
+                  });
+                  setAdding(true);
+                }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-blue-400 hover:bg-blue-500/10 flex-shrink-0"
+                data-testid={`button-edit-pricing-${g.rule.id}`}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => { if (confirm(`Delete pricing rule "${g.rule.name}"?`)) deleteMutation.mutate(g.ids); }}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
@@ -419,22 +451,22 @@ function PricingRulesEditor({ facilityId, baseRate }: { facilityId: number; base
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="ghost" size="sm" onClick={() => setAdding(false)} className="text-white/50 h-7 text-xs">Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={resetForm} className="text-white/50 h-7 text-xs">Cancel</Button>
             <Button
               size="sm"
-              onClick={() => createMutation.mutate()}
+              onClick={() => saveMutation.mutate()}
               disabled={
                 !newRule.name ||
                 newRule.days.length === 0 ||
                 !newRule.startTime ||
                 !newRule.endTime ||
                 !newRule.pricePerHour ||
-                createMutation.isPending
+                saveMutation.isPending
               }
               className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-xs"
               data-testid="button-save-pricing-rule"
             >
-              {createMutation.isPending ? "Adding..." : "Add rule"}
+              {saveMutation.isPending ? (editingSig ? "Saving..." : "Adding...") : (editingSig ? "Save changes" : "Add rule")}
             </Button>
           </div>
         </div>
