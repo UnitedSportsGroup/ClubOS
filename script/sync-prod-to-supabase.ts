@@ -130,16 +130,29 @@ async function truncateAllTargetTables() {
 
 async function resetSequences() {
   // After bulk INSERT with explicit IDs, sequences are stale. Reset each
-  // sequence to the max(id)+1 of its owning table.
+  // sequence to max(col)+1.
+  //
+  // Walk the pg_depend graph instead of information_schema.columns —
+  // information_schema's column_default is 'nextval...' for SERIAL but is
+  // 'GENERATED ALWAYS AS IDENTITY' for identity columns, so the old query
+  // silently skipped every identity-backed table (most of the schema).
+  // pg_depend captures both forms uniformly.
   const r = await target.query(`
-    SELECT pg_get_serial_sequence(quote_ident(table_name), column_name) AS seq,
-           table_name AS t, column_name AS c
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND column_default LIKE 'nextval%'
+    SELECT
+      tab.relname AS t,
+      attr.attname AS c,
+      seq_n.nspname || '.' || seq.relname AS seq
+    FROM pg_class seq
+    JOIN pg_namespace seq_n ON seq_n.oid = seq.relnamespace
+    JOIN pg_depend dep ON dep.objid = seq.oid AND dep.classid = 'pg_class'::regclass
+    JOIN pg_class tab ON tab.oid = dep.refobjid
+    JOIN pg_namespace n ON n.oid = tab.relnamespace
+    JOIN pg_attribute attr ON attr.attrelid = tab.oid AND attr.attnum = dep.refobjsubid
+    WHERE seq.relkind = 'S'
+      AND n.nspname = 'public'
+      AND tab.relkind = 'r'
   `);
   for (const row of r.rows) {
-    if (!row.seq) continue;
     try {
       await target.query(
         `SELECT setval($1, COALESCE((SELECT MAX("${row.c}") FROM "${row.t}"), 0) + 1, false)`,
