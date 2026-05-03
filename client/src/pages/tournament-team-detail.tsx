@@ -1,12 +1,135 @@
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText } from "lucide-react";
+import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { TournamentTeam, TournamentPlayer, TournamentStaff } from "@shared/schema";
+
+// Swap a /objects/uploads/<id>.webp URL for its .avif sibling. <picture>
+// renders the AVIF source preferentially when supported.
+function avifSiblingFor(webpUrl: string): string | null {
+  return /\.webp(\?|$)/i.test(webpUrl) ? webpUrl.replace(/\.webp(\?|$)/i, ".avif$1") : null;
+}
+
+function TeamLogo({ team, size = 40 }: { team: TournamentTeam; size?: number }) {
+  if (team.logoUrl) {
+    const avif = avifSiblingFor(team.logoUrl);
+    return (
+      <picture>
+        {avif && <source srcSet={avif} type="image/avif" />}
+        <img
+          src={team.logoUrl}
+          alt={`${team.name} logo`}
+          width={size}
+          height={size}
+          className="rounded-xl object-cover bg-white/[0.03]"
+          style={{ width: size, height: size }}
+        />
+      </picture>
+    );
+  }
+  return (
+    <div
+      className="rounded-xl flex items-center justify-center font-bold text-white/70"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.45,
+        background: team.primaryColor ? `${team.primaryColor}30` : "rgba(255,255,255,0.05)",
+      }}
+    >
+      {team.name.charAt(0)}
+    </div>
+  );
+}
+
+function TeamLogoUploader({ team }: { team: TournamentTeam }) {
+  const { toast } = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/admin/tournament/teams/${team.id}/logo`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || `Upload failed (${res.status})`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", team.id] });
+      toast({ title: "Logo updated" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await apiRequest("DELETE", `/api/admin/tournament/teams/${team.id}/logo`);
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", team.id] });
+      toast({ title: "Logo removed" });
+    } catch (e: any) {
+      toast({ title: "Couldn't remove logo", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) upload(f);
+          e.target.value = "";
+        }}
+        data-testid="input-team-logo"
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        className="text-xs"
+        data-testid="button-upload-team-logo"
+      >
+        {busy ? <span>Uploading…</span> : (
+          <>
+            <Upload className="w-3 h-3 mr-1" />
+            {team.logoUrl ? "Replace logo" : "Upload logo"}
+          </>
+        )}
+      </Button>
+      {team.logoUrl && !busy && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={remove}
+          className="text-xs text-white/30 hover:text-red-400"
+          data-testid="button-remove-team-logo"
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      )}
+    </div>
+  );
+}
 
 type Tab = "players" | "staff";
 
@@ -341,13 +464,12 @@ export default function TournamentTeamDetail() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex items-center gap-3 flex-1">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold text-white/70" style={{ background: team.primaryColor ? `${team.primaryColor}30` : "rgba(255,255,255,0.05)" }}>
-            {team.name.charAt(0)}
-          </div>
-          <div>
+          <TeamLogo team={team} size={48} />
+          <div className="flex-1">
             <h1 className="text-xl font-bold text-white" data-testid="text-team-name">{team.name}</h1>
             <p className="text-xs text-white/30">{team.clubName || "No club"} · {team.contactName || "No contact"}</p>
           </div>
+          <TeamLogoUploader team={team} />
         </div>
       </div>
 

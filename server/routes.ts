@@ -2430,6 +2430,102 @@ export async function registerRoutes(
     }
   });
 
+  // Team logo upload — single image, resized to a 512px square-fit, written
+  // to Supabase Storage with both .webp and .avif siblings (the .avif is
+  // picked up automatically by client-side <picture> tags). Logo URL stored
+  // on tournament_teams.logoUrl. Mirrors the facility-image upload flow but
+  // simpler since there's only one logo per team (not an array).
+  const teamLogoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB cap — logos are small
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith("image/") || file.mimetype === "image/svg+xml") {
+        return cb(new Error(`"${file.originalname}" is not a supported image type`));
+      }
+      cb(null, true);
+    },
+  });
+
+  app.post(
+    "/api/admin/tournament/teams/:id/logo",
+    requireAuth,
+    teamLogoUpload.single("file"),
+    async (req, res) => {
+      const teamId = parseInt(req.params.id);
+      const team = await storage.getTournamentTeam(teamId);
+      if (!team) return res.status(404).json({ message: "Team not found" });
+      const file = req.file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+
+      const svc = new ObjectStorageService();
+      const uploaded: { gcsFile: any; objectPath: string }[] = [];
+      try {
+        // Probe with sharp first to validate it's a real image.
+        const meta = await sharp(file.buffer, {
+          failOn: "error",
+          animated: false,
+          limitInputPixels: 50_000_000,
+        }).metadata();
+        if (!meta.format || !["jpeg","jpg","png","webp","gif","tiff","heif","heic","avif"].includes(meta.format)) {
+          throw new Error(`Unsupported format: ${meta.format || "unknown"}`);
+        }
+
+        // Logos: cap dimension at 512 (plenty for retina), preserve aspect.
+        const base = sharp(file.buffer, {
+          failOn: "error",
+          animated: false,
+          limitInputPixels: 50_000_000,
+        })
+          .rotate()
+          .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true });
+
+        const [webpBuf, avifBuf] = await Promise.all([
+          base.clone().webp({ quality: 90, effort: 4 }).toBuffer(),
+          base.clone().avif({ quality: 60, effort: 3 }).toBuffer(),
+        ]);
+
+        const sharedId = crypto.randomUUID();
+        const upload = async (buf: Buffer, contentType: string, ext: string) => {
+          const u = await svc.uploadBufferToUploads(buf, contentType, ext, sharedId);
+          uploaded.push({ gcsFile: u.file, objectPath: u.objectPath });
+          await setObjectAclPolicy(u.file, {
+            owner: String(req.session.userId),
+            visibility: "public",
+          });
+          return u;
+        };
+        const results = await Promise.allSettled([
+          upload(webpBuf, "image/webp", "webp"),
+          upload(avifBuf, "image/avif", "avif"),
+        ]);
+        const failed = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
+        if (failed) throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
+
+        const webpPath = uploaded.find(u => u.objectPath.endsWith(".webp"))!.objectPath;
+        const updated = await storage.updateTournamentTeam(teamId, { logoUrl: webpPath } as any);
+        res.json(updated);
+      } catch (error: any) {
+        await Promise.allSettled(uploaded.map(u => u.gcsFile.delete({ ignoreNotFound: true })));
+        res.status(400).json({ message: error.message || "Logo upload failed" });
+      }
+    }
+  );
+
+  app.delete("/api/admin/tournament/teams/:id/logo", requireAuth, async (req, res) => {
+    try {
+      const teamId = parseInt(req.params.id);
+      const team = await storage.getTournamentTeam(teamId);
+      if (!team) return res.status(404).json({ message: "Team not found" });
+      // We deliberately don't delete the storage object — different teams
+      // may share a logo (e.g. CUFC entering multiple age groups). Clearing
+      // logoUrl just unbinds it from this team.
+      const updated = await storage.updateTournamentTeam(teamId, { logoUrl: null } as any);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.delete("/api/admin/tournament/teams/:id", requireAuth, async (req, res) => {
     try {
       await storage.deleteTournamentTeam(parseInt(req.params.id));
