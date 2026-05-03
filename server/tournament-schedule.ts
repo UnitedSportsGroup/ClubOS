@@ -16,7 +16,7 @@ import type { TournamentTeam, TournamentGroup, InsertTournamentGame } from "@sha
 
 export interface ScheduleInputs {
   tournamentId: number;
-  startDate: string; // ISO date "2026-07-04"
+  startDate: string | null; // ISO date "2026-07-04". When null, gameDate is left null on every game so admins can set dates later.
   groups: TournamentGroup[];
   teams: TournamentTeam[];
   fields?: [string, string]; // defaults to ["J3", "J4"]
@@ -114,7 +114,8 @@ function addMinutes(time: string, minutes: number): string {
   return `${hh}:${mm}`;
 }
 
-function addDaysToISODate(iso: string, days: number): string {
+function addDaysToISODate(iso: string | null, days: number): string | null {
+  if (!iso) return null;
   const d = new Date(iso + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
@@ -227,12 +228,10 @@ export function buildCICSchedule(inputs: ScheduleInputs): InsertTournamentGame[]
     });
   }
 
-  // Sort final output by game date + start time + field for predictable storage.
-  games.sort((a, b) => {
-    if (a.gameDate !== b.gameDate) return String(a.gameDate).localeCompare(String(b.gameDate));
-    if (a.startTime !== b.startTime) return String(a.startTime).localeCompare(String(b.startTime));
-    return String(a.field).localeCompare(String(b.field));
-  });
+  // Sort final output by game number for predictable storage. (When dates
+  // and times are present they correlate with game number anyway, but this
+  // also works cleanly when startDate is null and gameDate is unset.)
+  games.sort((a, b) => (a.gameNumber ?? 0) - (b.gameNumber ?? 0));
 
   return games;
 }

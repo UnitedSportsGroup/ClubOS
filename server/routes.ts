@@ -2603,15 +2603,20 @@ export async function registerRoutes(
       // CIC 16-team / 4-pool format. Pulls in the canonical 48-game schedule
       // (pool play + Cup/Plate brackets + 1st/3rd/5th/7th/9th/11th/13th/15th
       // placement matches) with times and field allocation per the master sheet.
-      if (groups.length === 4 && allTeams.length >= 12 && tournament.startDate) {
+      // Works without a start date — gameDate is left null per game so admins
+      // can fill dates in later, but the full bracket structure + times +
+      // fields still get generated.
+      if (groups.length === 4 && allTeams.length >= 12) {
         // Postgres `date` columns come back from node-pg as JS Dates parsed
         // in local time. Using toISOString() converts to UTC and silently
         // shifts the date back by a day in NZST (UTC+12/+13). Use local
         // accessors so the user-intended date is preserved.
         const sd = tournament.startDate;
-        const startDate = typeof sd === "string"
-          ? sd.slice(0, 10)
-          : `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`;
+        const startDate: string | null = !sd
+          ? null
+          : typeof sd === "string"
+            ? sd.slice(0, 10)
+            : `${(sd as Date).getFullYear()}-${String((sd as Date).getMonth() + 1).padStart(2, "0")}-${String((sd as Date).getDate()).padStart(2, "0")}`;
         const inserts = buildCICSchedule({
           tournamentId,
           startDate,
