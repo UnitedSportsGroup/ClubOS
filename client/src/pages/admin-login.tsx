@@ -32,8 +32,7 @@ export default function AdminLogin() {
           <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center shadow-lg mx-auto mb-4 overflow-hidden">
             <img src="/logos/united-sports-group.png" alt="United Sports Group" className="w-10 h-10 object-contain" />
           </div>
-          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-login-title">USG Admin</h1>
-          <p className="text-[13px] text-blue-400/35 mt-1">Operations console for the United Sports Group</p>
+          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-login-title">United Sports Group</h1>
         </div>
 
         <div className="rounded-2xl glass-card p-6 space-y-4">
