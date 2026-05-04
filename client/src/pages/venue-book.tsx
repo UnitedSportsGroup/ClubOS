@@ -490,41 +490,59 @@ function AddItemsStep({
             {facilities.map(f => {
               const selected = selectedFacility?.id === f.id;
               const subtitle = f.halfFull ? "Half or Full Field" : FACILITY_TYPE_LABELS[f.type];
+              const imgs = facilityImages(f);
               return (
-                <button
+                <div
                   key={f.id}
                   onClick={() => setSelectedFacility(selected ? null : f)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedFacility(selected ? null : f); } }}
                   data-testid={`button-facility-${f.id}`}
-                  className="group text-left rounded-2xl border p-4 transition-all duration-200 ease-out flex items-center gap-3"
+                  className="group cursor-pointer rounded-2xl border overflow-hidden transition-all duration-200 ease-out hover:bg-white/[0.04]"
                   style={{
                     borderColor: selected ? brand : "rgba(255,255,255,0.08)",
-                    background: selected ? `${brand}15` : "rgba(255,255,255,0.02)",
+                    background: selected ? `${brand}10` : "rgba(255,255,255,0.02)",
                   }}
                 >
-                  <div
-                    className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors"
-                    style={{
-                      background: selected ? `${brand}30` : "rgba(255,255,255,0.04)",
-                      color: selected ? brand : "rgba(255,255,255,0.5)",
-                    }}
-                  >
-                    <Shield className="w-5 h-5" />
+                  {imgs.length > 0 && (
+                    <FacilityCarousel
+                      images={imgs}
+                      alt={f.name}
+                      brand={brand}
+                      testIdPrefix={`facility-${f.id}-card`}
+                      className="w-full"
+                    />
+                  )}
+                  <div className="flex items-center gap-3 p-4">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors"
+                      style={{
+                        background: selected ? `${brand}30` : "rgba(255,255,255,0.04)",
+                        color: selected ? brand : "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm truncate flex items-center gap-1.5">
+                        {f.name}
+                        {f.floodlights && <Lightbulb className="w-3 h-3 text-yellow-400/70 flex-shrink-0" />}
+                      </div>
+                      <div className="text-[11px] text-white/40 mt-0.5 truncate">{subtitle}</div>
+                    </div>
+                    <div
+                      className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200"
+                      style={{
+                        background: selected ? brand : "rgba(255,255,255,0.04)",
+                        color: selected ? "white" : "rgba(255,255,255,0.4)",
+                        transform: selected ? "rotate(45deg)" : "rotate(0)",
+                      }}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate">{f.name}</div>
-                    <div className="text-[11px] text-white/40 mt-0.5 truncate">{subtitle}</div>
-                  </div>
-                  <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all"
-                    style={{
-                      background: selected ? brand : "rgba(255,255,255,0.04)",
-                      color: selected ? "white" : "rgba(255,255,255,0.4)",
-                      transform: selected ? "rotate(45deg)" : "rotate(0)",
-                    }}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </div>
-                </button>
+                </div>
               );
             })}
           </div>
