@@ -4,14 +4,6 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { Dumbbell, GraduationCap, Users, DollarSign, Plus, FileEdit, Globe } from "lucide-react";
 import type { Program } from "@shared/schema";
 
-interface AdminStats {
-  totalParents: number;
-  activeCamps: number;
-  totalRegistrations: number;
-  paidRegistrations: number;
-  totalRevenueCents: number;
-}
-
 export default function GymnasticsDashboard() {
   const { currentOrg } = useWorkspace();
   const [, setLocation] = useLocation();
@@ -23,22 +15,15 @@ export default function GymnasticsDashboard() {
     enabled: !!orgId,
   });
 
-  // The /api/admin/stats endpoint aggregates across programs by registration —
-  // which means org filtering happens implicitly via what programs exist for
-  // this workspace. Good enough for v1; a per-org stats endpoint can come
-  // when we have non-trivial cross-org data.
-  const { data: stats } = useQuery<AdminStats>({ queryKey: ["/api/admin/stats"] });
-
   const activePrograms = programs.filter(p => p.isActive).length;
-  const totalRevenue = stats?.totalRevenueCents
-    ? `$${(stats.totalRevenueCents / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : "$0.00";
 
+  // Registrations + revenue stay at 0 until we have a per-org stats endpoint.
+  // The shared /api/admin/stats was org-blind and bled CUFC numbers in here.
   const cards = [
     { label: "Programs", value: programs.length, icon: GraduationCap, accent: "blue" },
     { label: "Active Now", value: activePrograms, icon: Dumbbell, accent: "green" },
-    { label: "Registrations", value: stats?.totalRegistrations ?? 0, icon: Users, accent: "amber" },
-    { label: "Revenue", value: totalRevenue, icon: DollarSign, accent: "purple" },
+    { label: "Registrations", value: 0, icon: Users, accent: "amber" },
+    { label: "Revenue", value: "$0.00", icon: DollarSign, accent: "purple" },
   ];
 
   const accentClass = (accent: string) => {
