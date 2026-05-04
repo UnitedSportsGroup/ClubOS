@@ -157,7 +157,7 @@ export default function GymnasticsPrograms() {
 
   const { data: programs = [], isLoading } = useQuery<Program[]>({
     queryKey: ["/api/admin/programs", { orgId }],
-    queryFn: () => fetch(`/api/admin/programs?orgId=${orgId}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/admin/programs?orgId=${orgId}`, { credentials: "include" }).then(r => r.json()),
     enabled: !!orgId,
   });
 

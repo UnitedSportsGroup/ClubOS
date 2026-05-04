@@ -180,7 +180,7 @@ export default function GymnasticsTerms() {
 
   const { data: terms = [], isLoading } = useQuery<Term[]>({
     queryKey: ["/api/admin/terms", { orgId }],
-    queryFn: () => fetch(`/api/admin/terms?orgId=${orgId}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/admin/terms?orgId=${orgId}`, { credentials: "include" }).then(r => r.json()),
     enabled: !!orgId,
   });
 
