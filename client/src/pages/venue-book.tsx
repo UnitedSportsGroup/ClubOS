@@ -184,6 +184,66 @@ function genTimeSlots(opening: string, closing: string, slotMin: number): string
   return out;
 }
 
+// Compute the per-hour rate (inc GST) for a given facility, date, slot, and
+// half/full mode. Mirrors the server-side resolution at routes.ts:1700-1735
+// so the customer sees the same number on the slot button as they'll be
+// charged at checkout.
+function pricePerHourForSlot(
+  facility: PublicFacility,
+  date: string,
+  slot: string,
+  halfFull: "half" | "full",
+): number {
+  const dayOfWeek = new Date(date + "T00:00:00").getDay();
+  const rule = facility.pricingRules.find(r =>
+    r.dayOfWeek != null && r.dayOfWeek === dayOfWeek &&
+    r.startTime && r.endTime &&
+    slot >= r.startTime && slot < r.endTime
+  );
+  if (rule) {
+    if (halfFull === "half" && rule.halfFieldPricePerHour != null) {
+      return parseFloat(rule.halfFieldPricePerHour);
+    }
+    const fullRate = parseFloat(rule.pricePerHour);
+    if (halfFull === "half") {
+      return facility.halfFieldPricePerHourCents != null
+        ? facility.halfFieldPricePerHourCents / 100
+        : fullRate / 2;
+    }
+    return fullRate;
+  }
+  // Fallback to facility base rate.
+  if (halfFull === "half") {
+    return facility.halfFieldPricePerHourCents != null
+      ? facility.halfFieldPricePerHourCents / 100
+      : (facility.pricePerHourCents ?? 0) / 200;
+  }
+  return (facility.pricePerHourCents ?? 0) / 100;
+}
+
+// "From $X" — the lowest hourly rate you can get on this facility at any
+// time, in the cheapest mode (half if available, full otherwise). Used as
+// a hint on the facility cards so customers know what they're walking into.
+function cheapestRateForFacility(facility: PublicFacility): number | null {
+  const cheapHalf = facility.halfFull;
+  const candidates: number[] = [];
+  for (const r of facility.pricingRules) {
+    if (cheapHalf && r.halfFieldPricePerHour != null) {
+      candidates.push(parseFloat(r.halfFieldPricePerHour));
+    } else {
+      candidates.push(parseFloat(r.pricePerHour));
+    }
+  }
+  if (cheapHalf && facility.halfFieldPricePerHourCents != null) {
+    candidates.push(facility.halfFieldPricePerHourCents / 100);
+  }
+  if (facility.pricePerHourCents) {
+    candidates.push(facility.pricePerHourCents / 100);
+  }
+  if (candidates.length === 0) return null;
+  return Math.min(...candidates);
+}
+
 // ============ MAIN PAGE ============
 export default function VenueBookPage() {
   const slug = getOrgSlug();
@@ -529,7 +589,18 @@ function AddItemsStep({
                         {f.name}
                         {f.floodlights && <Lightbulb className="w-3 h-3 text-yellow-400/70 flex-shrink-0" />}
                       </div>
-                      <div className="text-[11px] text-white/40 mt-0.5 truncate">{subtitle}</div>
+                      <div className="text-[11px] text-white/40 mt-0.5 truncate flex items-center gap-1.5">
+                        <span>{subtitle}</span>
+                        {(() => {
+                          const rate = cheapestRateForFacility(f);
+                          return rate != null && rate > 0 ? (
+                            <>
+                              <span className="text-white/20">·</span>
+                              <span className="text-white/60">from ${rate.toFixed(2)}/hr</span>
+                            </>
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
                     <div
                       className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200"
@@ -766,6 +837,7 @@ function ConfigureFacility({
             onSelect={handleSlotClick}
             isBusy={(s, e) => allDates.some(d => isSlotConflicted(d, s, e))}
             brand={brand}
+            priceFor={(s) => pricePerHourForSlot(facility, date, s, halfFull)}
           />
           {startTime && endTime && (
             <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -848,7 +920,7 @@ function ConfigureFacility({
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-medium truncate">{addon.name}</div>
-                      <div className="text-[11px] text-white/40">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "per team / game"} inc GST</div>
+                      <div className="text-[11px] text-white/40">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "per room"} inc GST</div>
                     </div>
                   </div>
                   {useStepper ? (
@@ -1023,8 +1095,10 @@ function CalendarPicker({
 
 // Time slot grid — tap once to set start, tap again to set end. Slots between
 // start and (selected) end are highlighted as the range. Busy slots are dimmed.
+// Each slot also shows its per-hour rate so customers can compare peak/off-peak
+// at a glance, like flights/hotels showing per-day prices.
 function TimeSlotGrid({
-  slots, startTime, endTime, onSelect, isBusy, brand,
+  slots, startTime, endTime, onSelect, isBusy, brand, priceFor,
 }: {
   slots: string[];
   startTime: string | null;
@@ -1032,29 +1106,28 @@ function TimeSlotGrid({
   onSelect: (slot: string) => void;
   isBusy: (s: string, e: string) => boolean;
   brand: string;
+  priceFor: (slot: string) => number;
 }) {
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3" data-testid="time-slot-grid">
-      <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-1 max-h-[300px] overflow-y-auto">
+      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-1 max-h-[320px] overflow-y-auto">
         {slots.map((s, i) => {
           const next = slots[i + 1] || s;
           const slotBusy = isBusy(s, next);
           const isStart = s === startTime;
-          // The booking covers [startTime, endTime). End label is a boundary marker,
-          // not a booked slot — only highlight slots that are actually within the
-          // booking duration: start, and any slot between start and end (exclusive).
           const inBooking = !!(startTime && (
             (endTime && s >= startTime && s < endTime) ||
             (!endTime && isStart)
           ));
           const isEndMarker = s === endTime;
+          const rate = priceFor(s);
           return (
             <button
               key={s}
               onClick={() => onSelect(s)}
               disabled={slotBusy && !inBooking && !isEndMarker}
               data-testid={`slot-${s}`}
-              className={`h-9 rounded-md text-xs font-medium transition-all duration-150 border ${
+              className={`h-12 rounded-md text-xs font-medium transition-all duration-150 border flex flex-col items-center justify-center gap-0 ${
                 slotBusy && !inBooking && !isEndMarker
                   ? "text-white/15 line-through cursor-not-allowed border-transparent bg-white/[0.02]"
                   : inBooking
@@ -1074,7 +1147,12 @@ function TimeSlotGrid({
                   : undefined
               }
             >
-              {s}
+              <span className="leading-tight">{s}</span>
+              {rate > 0 && (
+                <span className={`text-[9px] leading-tight ${slotBusy && !inBooking && !isEndMarker ? "text-white/10" : "text-white/40"}`}>
+                  ${rate.toFixed(0)}
+                </span>
+              )}
             </button>
           );
         })}
