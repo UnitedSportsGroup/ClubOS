@@ -405,21 +405,30 @@ export default function VenueCalendar() {
                   >
                     <div className={`text-xs font-semibold mb-1 ${isToday ? "text-blue-400" : "text-white/60"}`}>{d.getDate()}</div>
                     <div className="space-y-0.5">
-                      {dayB.slice(0, 3).map(b => {
+                      {dayB.slice(0, 6).map(b => {
                         const inline = b.color ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color } : undefined;
+                        // Calendar.online-style label: time + customer + half marker.
+                        // Customer name is what the operator actually scans for.
+                        const halfTag = b.halfFull === "half"
+                          ? ` (${b.halfPosition ? b.halfPosition[0].toUpperCase() : "½"})`
+                          : "";
+                        const label = b.customerName
+                          ? `${b.startTime} ${b.customerName}${halfTag}`
+                          : `${b.startTime} ${b.facility?.name || "Booking"}${halfTag}`;
                         return (
                           <div
                             key={b.id}
                             style={inline}
+                            title={`${b.startTime}–${b.endTime} · ${b.facility?.name || ""} · ${b.customerName || ""}`}
                             className={`rounded px-1 py-0.5 text-[9px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
                             data-testid={`calendar-booking-${b.id}`}
                           >
-                            {b.facility?.name || "Booking"}
+                            {label}
                           </div>
                         );
                       })}
-                      {dayB.length > 3 && (
-                        <div className="text-[9px] text-white/40 px-1">+{dayB.length - 3} more</div>
+                      {dayB.length > 6 && (
+                        <div className="text-[9px] text-white/40 px-1">+{dayB.length - 6} more</div>
                       )}
                     </div>
                   </button>
