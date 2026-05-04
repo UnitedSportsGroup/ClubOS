@@ -60,7 +60,7 @@ async function ensurePools(pool: Pool, t: Tournament): Promise<Group[]> {
     [t.id]
   );
   const haveNames = new Set(existing.rows.map(g => g.name));
-  const wanted = ["Pool A", "Pool B", "Pool C", "Pool D"];
+  const wanted = ["Group A", "Group B", "Group C", "Group D"];
   const groups = [...existing.rows];
   for (let i = 0; i < wanted.length; i++) {
     if (!haveNames.has(wanted[i])) {

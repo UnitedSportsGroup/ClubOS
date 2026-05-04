@@ -190,7 +190,7 @@ export function buildCICSchedule(inputs: ScheduleInputs): InsertTournamentGame[]
           gameNumber: gameNumber++,
           roundNumber: round.round,
           stage: "group",
-          stageDetail: `POOL ${poolLetter}`,
+          stageDetail: `GROUP ${poolLetter}`,
           gameDate,
           startTime,
           endTime,
