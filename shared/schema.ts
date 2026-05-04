@@ -564,6 +564,11 @@ export const tournamentPlayers = pgTable("tournament_players", {
   dateOfBirth: date("date_of_birth"),
   idDocumentType: text("id_document_type"),
   idDocumentUrl: text("id_document_url"),
+  // Age-eligibility verification — admins flip ageVerified once they've
+  // eyeballed the document and confirmed the player meets the age cutoff.
+  ageVerified: boolean("age_verified").notNull().default(false),
+  verifiedByUserId: integer("verified_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  verifiedAt: timestamp("verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -575,6 +580,19 @@ export const tournamentStaff = pgTable("tournament_staff", {
   lastName: text("last_name").notNull(),
   email: text("email"),
   phone: text("phone"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// One row per goal scored. Top-scorer rankings + match goal lists both
+// derive from this table — single source of truth for "who scored what".
+export const tournamentGoals = pgTable("tournament_goals", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  gameId: integer("game_id").notNull().references(() => tournamentGames.id, { onDelete: "cascade" }),
+  playerId: integer("player_id").notNull().references(() => tournamentPlayers.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").notNull().references(() => tournamentTeams.id, { onDelete: "cascade" }),
+  minute: integer("minute"),
+  isOwnGoal: boolean("is_own_goal").notNull().default(false),
+  isPenalty: boolean("is_penalty").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -674,6 +692,7 @@ export const insertTournamentGroupSchema = createInsertSchema(tournamentGroups).
 export const insertClubSchema = createInsertSchema(clubs).omit({ id: true, createdAt: true });
 export const insertTournamentTeamSchema = createInsertSchema(tournamentTeams).omit({ id: true, createdAt: true });
 export const insertTournamentPlayerSchema = createInsertSchema(tournamentPlayers).omit({ id: true, createdAt: true });
+export const insertTournamentGoalSchema = createInsertSchema(tournamentGoals).omit({ id: true, createdAt: true });
 export const insertTournamentStaffSchema = createInsertSchema(tournamentStaff).omit({ id: true, createdAt: true });
 export const insertTournamentGameSchema = createInsertSchema(tournamentGames).omit({ id: true, createdAt: true });
 
@@ -779,6 +798,8 @@ export type InsertTournamentTeam = z.infer<typeof insertTournamentTeamSchema>;
 export type TournamentTeam = typeof tournamentTeams.$inferSelect;
 export type InsertTournamentPlayer = z.infer<typeof insertTournamentPlayerSchema>;
 export type TournamentPlayer = typeof tournamentPlayers.$inferSelect;
+export type InsertTournamentGoal = z.infer<typeof insertTournamentGoalSchema>;
+export type TournamentGoal = typeof tournamentGoals.$inferSelect;
 export type InsertTournamentStaff = z.infer<typeof insertTournamentStaffSchema>;
 export type TournamentStaff = typeof tournamentStaff.$inferSelect;
 export type InsertTournamentGame = z.infer<typeof insertTournamentGameSchema>;

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText, Upload, Image as ImageIcon, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { TournamentTeam, TournamentPlayer, TournamentStaff, Club, Tournament } from "@shared/schema";
@@ -133,6 +133,124 @@ function TeamLogoUploader({ team }: { team: TournamentTeam }) {
 
 type Tab = "players" | "staff";
 
+function AgeDocCell({ player }: { player: TournamentPlayer }) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const upload = async (file: File, docType: "passport" | "birth_certificate" | "other") => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("documentType", docType);
+      const r = await fetch(`/api/admin/tournament/players/${player.id}/age-document`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || `Upload failed (${r.status})`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", player.teamId, "players"] });
+      toast({ title: "Document uploaded — needs verification" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/tournament/players/${player.id}/verify-age`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", player.teamId, "players"] });
+      toast({ title: "Age verified" });
+    },
+    onError: (e: any) => toast({ title: "Couldn't verify", description: e.message, variant: "destructive" }),
+  });
+  const unverifyMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/tournament/players/${player.id}/unverify-age`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/teams", player.teamId, "players"] });
+      toast({ title: "Verification removed" });
+    },
+  });
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          // Quick prompt for doc type. Could be a fancier modal — kept inline for speed.
+          const t = window.prompt("Document type? Type: passport / birth_certificate / other", "passport");
+          if (!t) { e.target.value = ""; return; }
+          const docType = (t.toLowerCase().includes("birth") ? "birth_certificate"
+            : t.toLowerCase().includes("pass") ? "passport"
+            : "other") as "passport" | "birth_certificate" | "other";
+          upload(f, docType);
+          e.target.value = "";
+        }}
+      />
+      {player.idDocumentUrl ? (
+        <>
+          <a
+            href={player.idDocumentUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-blue-400/70 hover:text-blue-400"
+            title={player.idDocumentType || "Document"}
+          >
+            <FileText className="w-3 h-3" />
+            {player.idDocumentType?.replace("_", " ") || "doc"}
+          </a>
+          {player.ageVerified ? (
+            <button
+              onClick={() => unverifyMut.mutate()}
+              disabled={unverifyMut.isPending}
+              className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 px-1.5 py-0.5 rounded bg-green-500/10"
+              title="Verified — click to unverify"
+            >
+              <ShieldCheck className="w-3 h-3" /> Verified
+            </button>
+          ) : (
+            <button
+              onClick={() => verifyMut.mutate()}
+              disabled={verifyMut.isPending}
+              className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 px-1.5 py-0.5 rounded bg-yellow-500/10"
+              title="Document on file — click to verify age"
+            >
+              <ShieldAlert className="w-3 h-3" /> Verify
+            </button>
+          )}
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            className="text-[10px] text-white/30 hover:text-white/60 px-1.5 py-0.5"
+            title="Replace document"
+          >
+            <Upload className="w-3 h-3" />
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 px-1.5 py-0.5 rounded border border-dashed border-white/10"
+        >
+          {busy ? "Uploading…" : <><Upload className="w-3 h-3" /> Upload</>}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function PlayersTab({ teamId }: { teamId: number }) {
   const { toast } = useToast();
   const [showModal, setShowModal] = useState(false);
@@ -203,13 +321,7 @@ function PlayersTab({ teamId }: { teamId: number }) {
                     {p.dateOfBirth ? new Date(p.dateOfBirth + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                   </td>
                   <td className="px-5 py-2.5 hidden sm:table-cell">
-                    {p.idDocumentUrl ? (
-                      <a href={p.idDocumentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-blue-400/70 hover:text-blue-400">
-                        <FileText className="w-3 h-3" />{p.idDocumentType || "Document"}
-                      </a>
-                    ) : (
-                      <span className="text-xs text-white/15">No document</span>
-                    )}
+                    <AgeDocCell player={p} />
                   </td>
                   <td className="px-3 py-2.5">
                     <button

@@ -2807,6 +2807,125 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Goals (one row per goal scored — feeds top scorers + match goal lists) ───
+
+  app.get("/api/admin/tournament/games/:id/goals", requireAuth, async (req, res) => {
+    try {
+      const list = await storage.getTournamentGoalsByGame(parseInt(req.params.id));
+      res.json(list);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/goals", requireAuth, async (req, res) => {
+    try {
+      const goal = await storage.createTournamentGoal(req.body);
+      res.status(201).json(goal);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/tournament/goals/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTournamentGoal(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // ─── Player age verification ───
+  // Admin uploads a passport / birth certificate scan, then flips the
+  // ageVerified flag once they've eyeballed it. Documents go to private
+  // Supabase Storage (no public ACL) — only authenticated admins should
+  // be able to retrieve them.
+
+  const ageDocUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB cap (pdf scans can be big)
+    fileFilter: (_req, file, cb) => {
+      const ok = file.mimetype.startsWith("image/") || file.mimetype === "application/pdf";
+      if (!ok) return cb(new Error(`"${file.originalname}" is not a supported document type (image or PDF)`));
+      cb(null, true);
+    },
+  });
+
+  app.post(
+    "/api/admin/tournament/players/:id/age-document",
+    requireAuth,
+    ageDocUpload.single("file"),
+    async (req, res) => {
+      const id = parseInt(req.params.id);
+      const player = await storage.getTournamentPlayer(id);
+      if (!player) return res.status(404).json({ message: "Player not found" });
+      const file = req.file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+
+      const docType = (req.body?.documentType as string) || "unknown";
+      const svc = new ObjectStorageService();
+      try {
+        const ext = file.mimetype === "application/pdf" ? "pdf"
+          : file.mimetype === "image/jpeg" ? "jpg"
+          : file.mimetype === "image/png" ? "png"
+          : file.mimetype === "image/webp" ? "webp"
+          : "bin";
+        const sharedId = crypto.randomUUID();
+        const u = await svc.uploadBufferToUploads(file.buffer, file.mimetype, ext, sharedId);
+        // Private ACL — age verification docs are sensitive personal info.
+        await setObjectAclPolicy(u.file, {
+          owner: String(req.session.userId),
+          visibility: "private",
+        });
+        const updated = await storage.updateTournamentPlayer(id, {
+          idDocumentUrl: u.objectPath,
+          idDocumentType: docType,
+          // Uploading a new doc resets verification — admin must re-confirm.
+          ageVerified: false,
+          verifiedByUserId: null,
+          verifiedAt: null,
+        } as any);
+        res.json(updated);
+      } catch (error: any) {
+        res.status(400).json({ message: error.message || "Document upload failed" });
+      }
+    }
+  );
+
+  app.post("/api/admin/tournament/players/:id/verify-age", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const player = await storage.getTournamentPlayer(id);
+      if (!player) return res.status(404).json({ message: "Player not found" });
+      if (!player.idDocumentUrl) {
+        return res.status(400).json({ message: "Cannot verify — no age document uploaded yet" });
+      }
+      const updated = await storage.updateTournamentPlayer(id, {
+        ageVerified: true,
+        verifiedByUserId: req.session.userId,
+        verifiedAt: new Date(),
+      } as any);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/tournament/players/:id/unverify-age", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateTournamentPlayer(id, {
+        ageVerified: false,
+        verifiedByUserId: null,
+        verifiedAt: null,
+      } as any);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/tournament/tournaments/:id/standings", requireAuth, async (req, res) => {
     try {
       const standings = await storage.getTournamentGroupStandings(parseInt(req.params.id));
@@ -4273,6 +4392,22 @@ export async function registerRoutes(
       }
       const standings = await storage.getTournamentGroupStandings(t.id);
       res.json(standings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Top scorers — feeds the Golden Boot tab in the CIC Youth app. Resolves
+  // logos via team override → club fallback so unbranded teams still get
+  // a crest if their parent club uploaded one.
+  app.get("/api/public/tournament/tournaments/:id/top-scorers", async (req, res) => {
+    try {
+      const t = await storage.getTournament(parseInt(req.params.id));
+      if (!t || (t.status !== "active" && t.status !== "completed")) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const scorers = await storage.getTournamentTopScorers(t.id);
+      res.json(scorers);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

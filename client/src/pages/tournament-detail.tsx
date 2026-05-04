@@ -3,11 +3,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Award, Users, Calendar, LayoutGrid, Settings2, Plus, Trash2, GripVertical, X, Shield, Clock, MapPin, Pencil, Check, ChevronDown } from "lucide-react";
+import { ArrowLeft, Award, Users, Calendar, LayoutGrid, Settings2, Plus, Trash2, GripVertical, X, Shield, Clock, MapPin, Pencil, Check, ChevronDown, Goal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Tournament, TournamentGroup, TournamentTeam, TournamentGame } from "@shared/schema";
+import type { Tournament, TournamentGroup, TournamentTeam, TournamentGame, TournamentPlayer, TournamentGoal } from "@shared/schema";
 
 type Tab = "format" | "schedule" | "groups" | "teams";
 
@@ -69,9 +69,196 @@ function FormatTab({ tournament }: { tournament: Tournament }) {
 
 type GameWithRelations = TournamentGame & { homeTeam?: TournamentTeam; awayTeam?: TournamentTeam; group?: TournamentGroup };
 
+// Per-game goal log + entry. Lets the admin record goals as a match
+// progresses; these aggregate up into the public top-scorers feed.
+function GameGoalsModal({ game, onClose }: { game: GameWithRelations; onClose: () => void }) {
+  const { toast } = useToast();
+  const [pickerSide, setPickerSide] = useState<"home" | "away" | null>(null);
+  const [pickedPlayerId, setPickedPlayerId] = useState<string>("");
+  const [minute, setMinute] = useState<string>("");
+  const [isOwnGoal, setIsOwnGoal] = useState(false);
+  const [isPenalty, setIsPenalty] = useState(false);
+
+  const { data: goals = [] } = useQuery<TournamentGoal[]>({
+    queryKey: ["/api/admin/tournament/games", game.id, "goals"],
+    queryFn: () => fetch(`/api/admin/tournament/games/${game.id}/goals`).then(r => r.json()),
+  });
+  const { data: homePlayers = [] } = useQuery<TournamentPlayer[]>({
+    queryKey: ["/api/admin/tournament/teams", game.homeTeamId, "players"],
+    queryFn: () => fetch(`/api/admin/tournament/teams/${game.homeTeamId}/players`).then(r => r.json()),
+    enabled: !!game.homeTeamId,
+  });
+  const { data: awayPlayers = [] } = useQuery<TournamentPlayer[]>({
+    queryKey: ["/api/admin/tournament/teams", game.awayTeamId, "players"],
+    queryFn: () => fetch(`/api/admin/tournament/teams/${game.awayTeamId}/players`).then(r => r.json()),
+    enabled: !!game.awayTeamId,
+  });
+
+  const addGoalMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/admin/tournament/goals", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/games", game.id, "goals"] });
+      setPickerSide(null);
+      setPickedPlayerId("");
+      setMinute("");
+      setIsOwnGoal(false);
+      setIsPenalty(false);
+    },
+    onError: (e: any) => toast({ title: "Couldn't add goal", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteGoalMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/tournament/goals/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tournament/games", game.id, "goals"] });
+    },
+  });
+
+  const playerById = useMemo(() => {
+    const m = new Map<number, TournamentPlayer & { side: "home" | "away" }>();
+    for (const p of homePlayers) m.set(p.id, { ...p, side: "home" });
+    for (const p of awayPlayers) m.set(p.id, { ...p, side: "away" });
+    return m;
+  }, [homePlayers, awayPlayers]);
+
+  const submit = () => {
+    if (!pickedPlayerId || !pickerSide) return;
+    const p = playerById.get(parseInt(pickedPlayerId));
+    if (!p) return;
+    addGoalMut.mutate({
+      gameId: game.id,
+      playerId: p.id,
+      // Own goals: the goal counts AGAINST the scorer's team, so the team
+      // logged on the goal row is the OPPOSITE side from where the player plays.
+      teamId: isOwnGoal
+        ? (pickerSide === "home" ? game.awayTeamId : game.homeTeamId)
+        : (pickerSide === "home" ? game.homeTeamId : game.awayTeamId),
+      minute: minute ? parseInt(minute) : null,
+      isOwnGoal,
+      isPenalty,
+    });
+  };
+
+  const homeName = game.homeTeam?.name || game.homeTeamPlaceholder || "Home";
+  const awayName = game.awayTeam?.name || game.awayTeamPlaceholder || "Away";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0a0e1a] border border-blue-500/15 rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-white/5">
+          <div>
+            <div className="text-xs text-white/40 uppercase tracking-wide">Game {game.gameNumber} · {game.stageDetail}</div>
+            <h2 className="text-lg font-semibold text-white">{homeName} v {awayName}</h2>
+          </div>
+          <button onClick={onClose} className="text-white/40 hover:text-white/70"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <div className="text-xs text-white/40 uppercase tracking-wide mb-2">Goals ({goals.length})</div>
+            {goals.length === 0 ? (
+              <p className="text-xs text-white/30">No goals recorded yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {goals.map(g => {
+                  const p = playerById.get(g.playerId);
+                  const teamName = g.teamId === game.homeTeamId ? homeName : awayName;
+                  return (
+                    <div key={g.id} className="flex items-center justify-between rounded-md bg-white/[0.02] border border-white/5 px-3 py-1.5">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-white/30 text-xs w-8">{g.minute ? `${g.minute}'` : "—"}</span>
+                        <span className="text-white">{p ? `${p.firstName} ${p.lastName}` : `Player ${g.playerId}`}</span>
+                        <span className="text-white/30 text-xs">({teamName})</span>
+                        {g.isPenalty && <span className="text-[10px] px-1 rounded bg-yellow-500/15 text-yellow-400">PEN</span>}
+                        {g.isOwnGoal && <span className="text-[10px] px-1 rounded bg-red-500/15 text-red-400">OG</span>}
+                      </div>
+                      <button
+                        onClick={() => deleteGoalMut.mutate(g.id)}
+                        className="w-6 h-6 flex items-center justify-center rounded text-white/15 hover:text-red-400 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-white/5 pt-4 space-y-3">
+            <div className="text-xs text-white/40 uppercase tracking-wide">Add a goal</div>
+            <div className="flex gap-2">
+              <Button
+                size="sm" variant={pickerSide === "home" ? "default" : "outline"}
+                onClick={() => { setPickerSide("home"); setPickedPlayerId(""); }}
+                className="flex-1 text-xs"
+              >
+                {homeName}
+              </Button>
+              <Button
+                size="sm" variant={pickerSide === "away" ? "default" : "outline"}
+                onClick={() => { setPickerSide("away"); setPickedPlayerId(""); }}
+                className="flex-1 text-xs"
+              >
+                {awayName}
+              </Button>
+            </div>
+
+            {pickerSide && (
+              <>
+                <select
+                  value={pickedPlayerId}
+                  onChange={e => setPickedPlayerId(e.target.value)}
+                  className="w-full bg-white/[0.02] border border-white/10 text-white text-sm rounded-md px-3 py-2"
+                >
+                  <option value="">Pick scorer…</option>
+                  {(pickerSide === "home" ? homePlayers : awayPlayers).map(p => (
+                    <option key={p.id} value={p.id}>
+                      #{p.shirtNumber ?? "—"} {p.firstName} {p.lastName}
+                    </option>
+                  ))}
+                </select>
+                {((pickerSide === "home" ? homePlayers : awayPlayers).length === 0) && (
+                  <p className="text-[11px] text-yellow-400/70">
+                    No roster yet for {pickerSide === "home" ? homeName : awayName}. Add players first via the team's Players tab.
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number" min="0" max="120" placeholder="Min"
+                    value={minute} onChange={e => setMinute(e.target.value)}
+                    className="w-20 text-sm"
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-white/60">
+                    <input type="checkbox" checked={isPenalty} onChange={e => setIsPenalty(e.target.checked)} /> Penalty
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-white/60">
+                    <input type="checkbox" checked={isOwnGoal} onChange={e => setIsOwnGoal(e.target.checked)} /> Own goal
+                  </label>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={submit}
+                  disabled={!pickedPlayerId || addGoalMut.isPending}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {addGoalMut.isPending ? "Saving…" : "Add goal"}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScheduleTab({ tournament }: { tournament: Tournament }) {
   const { toast } = useToast();
   const tournamentId = tournament.id;
+  const [goalsModalGame, setGoalsModalGame] = useState<GameWithRelations | null>(null);
   const [editingGameId, setEditingGameId] = useState<number | null>(null);
   const [editTime, setEditTime] = useState("");
   const [editField, setEditField] = useState("");
@@ -289,6 +476,16 @@ function ScheduleTab({ tournament }: { tournament: Tournament }) {
                         <Pencil className="w-3 h-3" />
                       </button>
                     )}
+                    {(game.homeTeamId || game.awayTeamId) && (
+                      <button
+                        onClick={() => setGoalsModalGame(game)}
+                        className="w-6 h-6 flex items-center justify-center rounded-md text-white/15 hover:text-yellow-400 hover:bg-yellow-500/10"
+                        title="Record goals"
+                        data-testid={`button-goals-${game.id}`}
+                      >
+                        <Goal className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {game.status !== "final" && game.homeScore !== null && game.awayScore !== null && (
                       <button
                         onClick={() => updateGameMut.mutate({ id: game.id, data: { status: "final" } })}
@@ -387,6 +584,8 @@ function ScheduleTab({ tournament }: { tournament: Tournament }) {
           </button>
         </div>
       )}
+
+      {goalsModalGame && <GameGoalsModal game={goalsModalGame} onClose={() => setGoalsModalGame(null)} />}
     </div>
   );
 }

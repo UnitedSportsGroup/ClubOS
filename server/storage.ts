@@ -52,7 +52,7 @@ import {
   printContacts, type InsertPrintContact, type PrintContact,
   printLandingPages, type InsertPrintLandingPage, type PrintLandingPage,
   printEmails, type InsertPrintEmail, type PrintEmail,
-  tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames,
+  tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames, tournamentGoals,
   clubs,
   type InsertTournament, type Tournament,
   type InsertTournamentGroup, type TournamentGroup,
@@ -60,6 +60,7 @@ import {
   type InsertTournamentPlayer, type TournamentPlayer,
   type InsertTournamentStaff, type TournamentStaff,
   type InsertTournamentGame, type TournamentGame,
+  type InsertTournamentGoal, type TournamentGoal,
   type InsertClub, type Club,
 } from "@shared/schema";
 
@@ -196,9 +197,19 @@ export interface IStorage {
   deleteTournamentTeam(id: number): Promise<void>;
 
   getTournamentPlayers(teamId: number): Promise<TournamentPlayer[]>;
+  getTournamentPlayer(id: number): Promise<TournamentPlayer | undefined>;
   createTournamentPlayer(data: InsertTournamentPlayer): Promise<TournamentPlayer>;
   updateTournamentPlayer(id: number, data: Partial<InsertTournamentPlayer>): Promise<TournamentPlayer | undefined>;
   deleteTournamentPlayer(id: number): Promise<void>;
+
+  getTournamentGoalsByGame(gameId: number): Promise<TournamentGoal[]>;
+  createTournamentGoal(data: InsertTournamentGoal): Promise<TournamentGoal>;
+  deleteTournamentGoal(id: number): Promise<void>;
+  getTournamentTopScorers(tournamentId: number): Promise<{
+    playerId: number; playerName: string; shirtNumber: number | null;
+    teamId: number; teamName: string; teamLogoUrl: string | null;
+    goals: number;
+  }[]>;
 
   getTournamentStaff(teamId: number): Promise<TournamentStaff[]>;
   createTournamentStaff(data: InsertTournamentStaff): Promise<TournamentStaff>;
@@ -1555,6 +1566,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(tournamentPlayers).where(eq(tournamentPlayers.teamId, teamId)).orderBy(asc(tournamentPlayers.shirtNumber));
   }
 
+  async getTournamentPlayer(id: number): Promise<TournamentPlayer | undefined> {
+    const [p] = await db.select().from(tournamentPlayers).where(eq(tournamentPlayers.id, id));
+    return p;
+  }
+
   async createTournamentPlayer(data: InsertTournamentPlayer): Promise<TournamentPlayer> {
     const [p] = await db.insert(tournamentPlayers).values(data).returning();
     return p;
@@ -1567,6 +1583,58 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTournamentPlayer(id: number): Promise<void> {
     await db.delete(tournamentPlayers).where(eq(tournamentPlayers.id, id));
+  }
+
+  async getTournamentGoalsByGame(gameId: number): Promise<TournamentGoal[]> {
+    return db.select().from(tournamentGoals).where(eq(tournamentGoals.gameId, gameId)).orderBy(asc(tournamentGoals.minute));
+  }
+
+  async createTournamentGoal(data: InsertTournamentGoal): Promise<TournamentGoal> {
+    const [g] = await db.insert(tournamentGoals).values(data).returning();
+    return g;
+  }
+
+  async deleteTournamentGoal(id: number): Promise<void> {
+    await db.delete(tournamentGoals).where(eq(tournamentGoals.id, id));
+  }
+
+  async getTournamentTopScorers(tournamentId: number): Promise<{
+    playerId: number; playerName: string; shirtNumber: number | null;
+    teamId: number; teamName: string; teamLogoUrl: string | null;
+    goals: number;
+  }[]> {
+    // Aggregate goals per player for one tournament. Own goals don't count
+    // toward the scorer's tally — that's the convention for "golden boot"
+    // listings everywhere. Joins through games to filter by tournament.
+    const rows = await db.execute(sql`
+      SELECT
+        p.id          AS player_id,
+        (p.first_name || ' ' || p.last_name) AS player_name,
+        p.shirt_number AS shirt_number,
+        t.id          AS team_id,
+        t.name        AS team_name,
+        COALESCE(t.logo_url, c.logo_url) AS team_logo_url,
+        COUNT(*)::int AS goals
+      FROM tournament_goals g
+      JOIN tournament_games games ON games.id = g.game_id
+      JOIN tournament_players p   ON p.id = g.player_id
+      JOIN tournament_teams t     ON t.id = g.team_id
+      LEFT JOIN clubs c           ON c.id = t.club_id
+      WHERE games.tournament_id = ${tournamentId}
+        AND g.is_own_goal = FALSE
+      GROUP BY p.id, p.first_name, p.last_name, p.shirt_number,
+               t.id, t.name, t.logo_url, c.logo_url
+      ORDER BY goals DESC, p.last_name ASC, p.first_name ASC
+    `);
+    return (rows as any).rows.map((r: any) => ({
+      playerId: r.player_id,
+      playerName: r.player_name,
+      shirtNumber: r.shirt_number,
+      teamId: r.team_id,
+      teamName: r.team_name,
+      teamLogoUrl: r.team_logo_url,
+      goals: r.goals,
+    }));
   }
 
   async getTournamentStaff(teamId: number): Promise<TournamentStaff[]> {
