@@ -274,7 +274,15 @@ function App() {
         ) : (
           <Switch>
             <Route path="/">
-              <Redirect to="/fundamentals-camp" />
+              {(() => {
+                // Admin hostnames go to the login screen; parent-facing
+                // hostnames (join.cufc.co.nz et al) go to the holiday camp
+                // booking page they used to live at.
+                const host = typeof window !== "undefined" ? window.location.hostname : "";
+                const isAdminHost =
+                  host.startsWith("app.") || host === "clubos.fly.dev" || host === "localhost";
+                return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
+              })()}
             </Route>
             <Route path="/terms" component={TermsPage} />
             <Route path="/privacy" component={PrivacyPage} />
