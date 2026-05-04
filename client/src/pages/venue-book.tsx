@@ -911,16 +911,31 @@ function ConfigureFacility({
           <div className="space-y-2">
             {facility.addons.map(addon => {
               const qty = selectedAddons[addon.id] || 0;
+              const on = qty > 0;
               const useStepper = addon.unit === "per_booking";
               return (
-                <div key={addon.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 transition-colors hover:bg-white/[0.04]">
+                <div
+                  key={addon.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border p-3 transition-all duration-200"
+                  style={{
+                    borderColor: on ? brand : "rgba(255,255,255,0.08)",
+                    background: on ? `${brand}10` : "rgba(255,255,255,0.02)",
+                  }}
+                >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-white/[0.04] flex items-center justify-center flex-shrink-0 text-yellow-300/70">
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200"
+                      style={{
+                        background: on ? `${brand}25` : "rgba(255,255,255,0.04)",
+                        color: on ? "#fbbf24" : "rgba(251,191,36,0.4)",
+                        boxShadow: on ? `0 0 16px ${brand}40` : undefined,
+                      }}
+                    >
                       <Lightbulb className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{addon.name}</div>
-                      <div className="text-[11px] text-white/40">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "per room"} inc GST</div>
+                      <div className="text-sm font-semibold truncate">{addon.name}</div>
+                      <div className="text-[11px] text-white/50">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "per room"} inc GST</div>
                     </div>
                   </div>
                   {useStepper ? (
@@ -929,25 +944,50 @@ function ConfigureFacility({
                         onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: Math.max(0, (prev[addon.id] || 0) - 1) }))}
                         disabled={qty === 0}
                         data-testid={`button-addon-${addon.id}-minus`}
-                        className="w-7 h-7 rounded-md bg-white/[0.06] hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition"
+                        className="w-8 h-8 rounded-md bg-white/[0.08] hover:bg-white/[0.12] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <div className="w-8 text-center text-sm font-medium tabular-nums" data-testid={`addon-${addon.id}-qty`}>{qty}</div>
+                      <div
+                        className="w-10 text-center text-sm font-semibold tabular-nums"
+                        style={{ color: on ? "white" : "rgba(255,255,255,0.6)" }}
+                        data-testid={`addon-${addon.id}-qty`}
+                      >
+                        {qty}
+                      </div>
                       <button
                         onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: (prev[addon.id] || 0) + 1 }))}
                         data-testid={`button-addon-${addon.id}-plus`}
-                        className="w-7 h-7 rounded-md bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center transition"
+                        className="w-8 h-8 rounded-md flex items-center justify-center transition text-white"
+                        style={{ background: on ? brand : "rgba(255,255,255,0.08)" }}
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ) : (
-                    <Switch
-                      checked={qty > 0}
-                      onCheckedChange={(on) => setSelectedAddons(prev => ({ ...prev, [addon.id]: on ? 1 : 0 }))}
-                      data-testid={`switch-addon-${addon.id}`}
-                    />
+                    <button
+                      onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: on ? 0 : 1 }))}
+                      data-testid={`button-addon-${addon.id}-toggle`}
+                      className="flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-xs font-semibold transition-all duration-200 flex-shrink-0 border"
+                      style={{
+                        background: on ? brand : "rgba(255,255,255,0.06)",
+                        borderColor: on ? brand : "rgba(255,255,255,0.12)",
+                        color: on ? "white" : "rgba(255,255,255,0.7)",
+                        boxShadow: on ? `0 4px 12px ${brand}50` : undefined,
+                      }}
+                    >
+                      {on ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Added
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          Add
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
               );
