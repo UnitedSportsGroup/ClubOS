@@ -670,23 +670,41 @@ function ConfigureFacility({
     setEndTime(null);
   };
 
+  const heroImages = facilityImages(facility);
+
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 sm:p-6 transition-all duration-300 ease-out">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="font-semibold flex items-center gap-2 text-white">
-          <MapPin className="w-4 h-4 text-white/40" />
-          Configure: {facility.name}
-        </h3>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
-            data-testid="button-close-configure"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden transition-all duration-300 ease-out">
+      {heroImages.length > 0 && (
+        <FacilityCarousel
+          images={heroImages}
+          alt={facility.name}
+          brand={brand}
+          size="hero"
+          testIdPrefix={`facility-${facility.id}-hero`}
+          className="w-full"
+        />
+      )}
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-semibold flex items-center gap-2 text-white">
+              <MapPin className="w-4 h-4 text-white/40" />
+              Configure: {facility.name}
+            </h3>
+            {facility.description && (
+              <p className="text-xs text-white/50 mt-1">{facility.description}</p>
+            )}
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition flex-shrink-0"
+              data-testid="button-close-configure"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         {/* Calendar grid */}
@@ -883,6 +901,7 @@ function ConfigureFacility({
             ? `Add ${validDates.length} bookings to cart`
             : "Add to cart"}
       </Button>
+      </div>
     </div>
   );
 }
@@ -959,18 +978,20 @@ function CalendarPicker({
                 }
               }}
               data-testid={`day-${dStr}`}
-              className={`aspect-square rounded-md text-xs font-medium transition-all ${
+              className={`aspect-square rounded-full text-xs font-medium transition-all duration-150 border ${
                 disabled
-                  ? "text-white/15 cursor-not-allowed"
-                  : selected
-                    ? "text-white shadow-lg"
-                    : isToday
-                      ? "text-blue-300 bg-blue-500/[0.08] hover:bg-blue-500/15"
-                      : "text-white/70 hover:bg-white/[0.06]"
+                  ? "text-white/15 cursor-not-allowed border-transparent"
+                  : isPrimary
+                    ? "text-white border-transparent"
+                    : isExtra
+                      ? "text-white border-transparent"
+                      : isToday
+                        ? "text-blue-300 border-transparent hover:bg-blue-500/[0.08]"
+                        : "text-white/70 border-transparent hover:bg-white/[0.06]"
               }`}
               style={selected ? {
-                background: isPrimary ? brand : `${brand}80`,
-                boxShadow: isPrimary ? `0 0 0 1px ${brand}, 0 4px 12px ${brand}40` : undefined,
+                borderColor: brand,
+                background: isPrimary ? `${brand}25` : `${brand}10`,
               } : undefined}
             >
               {d.getDate()}
@@ -996,34 +1017,44 @@ function TimeSlotGrid({
 }) {
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3" data-testid="time-slot-grid">
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[280px] overflow-y-auto">
+      <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-1 max-h-[300px] overflow-y-auto">
         {slots.map((s, i) => {
-          // Each slot is a candidate START. The slot's own duration is settings.slotMinutes,
-          // so the busy check needs the slot's "next" label as the end.
-          const next = slots[i + 1] || s; // for last slot use itself
+          const next = slots[i + 1] || s;
           const slotBusy = isBusy(s, next);
           const isStart = s === startTime;
-          const isEnd = s === endTime;
-          // Range highlight: any slot label strictly between start and end.
-          const inRange = !!(startTime && endTime && s > startTime && s < endTime);
-          const highlighted = isStart || isEnd || inRange;
+          // The booking covers [startTime, endTime). End label is a boundary marker,
+          // not a booked slot — only highlight slots that are actually within the
+          // booking duration: start, and any slot between start and end (exclusive).
+          const inBooking = !!(startTime && (
+            (endTime && s >= startTime && s < endTime) ||
+            (!endTime && isStart)
+          ));
+          const isEndMarker = s === endTime;
           return (
             <button
               key={s}
               onClick={() => onSelect(s)}
-              disabled={slotBusy && !highlighted}
+              disabled={slotBusy && !inBooking && !isEndMarker}
               data-testid={`slot-${s}`}
-              className={`h-9 rounded-md text-xs font-medium transition-all ${
-                slotBusy && !highlighted
-                  ? "text-white/20 line-through cursor-not-allowed bg-white/[0.02]"
-                  : highlighted
-                    ? "text-white"
-                    : "text-white/70 bg-white/[0.04] hover:bg-white/[0.08] hover:text-white"
+              className={`h-9 rounded-md text-xs font-medium transition-all duration-150 border ${
+                slotBusy && !inBooking && !isEndMarker
+                  ? "text-white/15 line-through cursor-not-allowed border-transparent bg-white/[0.02]"
+                  : inBooking
+                    ? "text-white border-transparent"
+                    : isEndMarker
+                      ? "text-white border-transparent"
+                      : "text-white/70 border-white/[0.08] bg-transparent hover:bg-white/[0.05] hover:border-white/15 hover:text-white"
               }`}
-              style={highlighted ? {
-                background: isStart || isEnd ? brand : `${brand}40`,
-                boxShadow: (isStart || isEnd) ? `0 0 0 1px ${brand}` : undefined,
-              } : undefined}
+              style={
+                inBooking || isEndMarker
+                  ? {
+                      borderColor: brand,
+                      background: isStart || isEndMarker
+                        ? `${brand}30`
+                        : `${brand}15`,
+                    }
+                  : undefined
+              }
             >
               {s}
             </button>
