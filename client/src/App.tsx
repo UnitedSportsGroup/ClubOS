@@ -282,13 +282,17 @@ function App() {
           <Switch>
             <Route path="/">
               {(() => {
-                // Admin hostnames go to the login screen; parent-facing
-                // hostnames (join.cufc.co.nz et al) go to the holiday camp
-                // booking page they used to live at.
+                // Hostname-based routing for the public root:
+                //  - app.* / clubos.fly.dev / localhost → admin login
+                //  - book.* (e.g. book.unitedsportscentre.com) → venue booking flow
+                //  - everything else (parent-facing hosts like join.cufc.co.nz) →
+                //    the legacy holiday-camp booking page they used to live at.
                 const host = typeof window !== "undefined" ? window.location.hostname : "";
                 const isAdminHost =
                   host.startsWith("app.") || host === "clubos.fly.dev" || host === "localhost";
-                return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
+                const isVenueHost = host.startsWith("book.");
+                const target = isAdminHost ? "/admin/login" : isVenueHost ? "/book" : "/fundamentals-camp";
+                return <Redirect to={target} />;
               })()}
             </Route>
             <Route path="/terms" component={TermsPage} />
