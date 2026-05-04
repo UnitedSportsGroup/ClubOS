@@ -113,6 +113,7 @@ const tournamentSecondary = [
 
 const gymnasticsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { title: "Programs", url: "/admin/programs", icon: GraduationCap },
 ];
 
 const gymnasticsSecondary = [

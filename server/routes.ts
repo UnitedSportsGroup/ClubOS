@@ -157,6 +157,48 @@ export async function registerRoutes(
     }
   });
 
+  // Generic programs endpoint — same underlying table as camps/academy but
+  // returns whatever the workspace needs. Used by United Gymnastics (and
+  // future workspaces) where the program isn't a 'holiday_camp' or
+  // 'academy' but uses the same programs/registrations infrastructure.
+  app.get("/api/admin/programs", requireAuth, async (req, res) => {
+    try {
+      const orgId = req.query.orgId ? parseInt(req.query.orgId as string) : null;
+      const type = req.query.type as string | undefined;
+      const all = await storage.getPrograms();
+      const filtered = all.filter(p => {
+        if (orgId && p.organizationId !== orgId) return false;
+        if (type && p.type !== type) return false;
+        return true;
+      });
+      res.json(filtered);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/programs", requireAuth, async (req, res) => {
+    try {
+      // Caller must supply organizationId + type explicitly. Defaults are
+      // sensible for new gymnastics programs but won't help if the wrong
+      // org is on the request — fail loudly.
+      const data = { ...req.body };
+      if (!data.organizationId) return res.status(400).json({ message: "organizationId required" });
+      if (!data.type) data.type = "open_training";
+      const program = await storage.createProgram(data);
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "create",
+        entity: "program",
+        entityId: program.id,
+        details: `Created ${data.type} program: ${program.name}`,
+      });
+      res.status(201).json(program);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/registration-counts", requireAuth, async (_req, res) => {
     try {
       const counts = await storage.getCampRegistrationCounts();

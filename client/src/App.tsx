@@ -50,6 +50,7 @@ import LeagueCompetitionDetail from "@/pages/league-competition-detail";
 import LeagueTeams from "@/pages/league-teams";
 import LeagueSettings from "@/pages/league-settings";
 import GymnasticsDashboard from "@/pages/gymnastics-dashboard";
+import GymnasticsPrograms from "@/pages/gymnastics-programs";
 import TournamentDashboard from "@/pages/tournament-dashboard";
 import TournamentList from "@/pages/tournament-list";
 import ClubsList from "@/pages/clubs-list";
@@ -137,6 +138,12 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={GymnasticsDashboard} />
+        <Route path="/admin/programs" component={GymnasticsPrograms} />
+        {/* Reuse the camps detail + landing-page editor — they take a
+            program id and don't care what type the program is. */}
+        <Route path="/admin/camps/:id/edit-page" component={AdminEditPage} />
+        <Route path="/admin/camps/:id" component={AdminCampDetail} />
+        <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />
       </Switch>
