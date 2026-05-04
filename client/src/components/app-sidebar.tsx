@@ -147,6 +147,31 @@ const printsSecondary = [
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
+function PreviewPublicSiteLink({ orgId, orgSlug }: { orgId: number; orgSlug: string }) {
+  const { data: domains } = useQuery<Array<{ domain: string; verified: boolean; isPrimary: boolean; status: string }>>({
+    queryKey: ["/api/admin/domains", { organizationId: orgId }],
+  });
+  const primary = domains?.find(d => d.isPrimary && d.verified)
+    ?? domains?.find(d => d.verified)
+    ?? null;
+  const href = primary ? `https://${primary.domain}/` : `/book?slug=${orgSlug}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center justify-between gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] font-medium text-blue-300 hover:bg-blue-500/10 hover:text-blue-200 transition-colors"
+      data-testid="link-preview-public-site"
+    >
+      <span className="flex items-center gap-2 min-w-0">
+        <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="truncate">{primary ? primary.domain : "View public site"}</span>
+      </span>
+      <span className="text-[9px] text-blue-300/40 uppercase tracking-wider flex-shrink-0">open</span>
+    </a>
+  );
+}
+
 function WorkspaceSwitcher() {
   const { currentOrg, setCurrentOrg, organizations, setOrganizations } = useWorkspace();
   const [open, setOpen] = useState(false);
@@ -310,19 +335,7 @@ export function AppSidebar() {
         </div>
         <WorkspaceSwitcher />
         {isVenue && currentOrg?.slug && (
-          <a
-            href={`/book?slug=${currentOrg.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] font-medium text-blue-300 hover:bg-blue-500/10 hover:text-blue-200 transition-colors"
-            data-testid="link-preview-public-site"
-          >
-            <span className="flex items-center gap-2">
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>View public site</span>
-            </span>
-            <span className="text-[9px] text-blue-300/40 uppercase tracking-wider">opens new tab</span>
-          </a>
+          <PreviewPublicSiteLink orgId={currentOrg.id} orgSlug={currentOrg.slug} />
         )}
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
