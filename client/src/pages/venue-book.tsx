@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Calendar as CalendarIcon, Clock, MapPin, Plus, Trash2, ArrowLeft, ArrowRight,
-  CheckCircle2, Lightbulb, Users, ShoppingCart, Loader2, Lock,
+  CheckCircle2, Lightbulb, Users, ShoppingCart, Loader2, Lock, X,
+  ChevronLeft, ChevronRight, Shield, Minus,
 } from "lucide-react";
 import { FacilityCarousel } from "@/components/FacilityCarousel";
 
@@ -487,62 +488,58 @@ function AddItemsStep({
           <h2 className="text-lg font-semibold mb-3">Choose a facility</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
             {facilities.map(f => {
-              const imgs = facilityImages(f);
               const selected = selectedFacility?.id === f.id;
+              const subtitle = f.halfFull ? "Half or Full Field" : FACILITY_TYPE_LABELS[f.type];
               return (
-                <div
+                <button
                   key={f.id}
-                  onClick={() => setSelectedFacility(f)}
+                  onClick={() => setSelectedFacility(selected ? null : f)}
                   data-testid={`button-facility-${f.id}`}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedFacility(f); } }}
-                  className="text-left rounded-2xl border p-4 transition cursor-pointer hover-elevate active-elevate-2"
+                  className="group text-left rounded-2xl border p-4 transition-all duration-200 ease-out flex items-center gap-3"
                   style={{
                     borderColor: selected ? brand : "rgba(255,255,255,0.08)",
                     background: selected ? `${brand}15` : "rgba(255,255,255,0.02)",
                   }}
                 >
-                  {imgs.length > 0 && (
-                    <FacilityCarousel
-                      images={imgs}
-                      alt={f.name}
-                      brand={brand}
-                      testIdPrefix={`facility-${f.id}-card`}
-                      className="rounded-xl -mx-1 mb-3"
-                    />
-                  )}
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <div className="font-semibold">{f.name}</div>
-                      <div className="text-[11px] text-white/40 mt-0.5">{FACILITY_TYPE_LABELS[f.type]}</div>
-                    </div>
-                    <div className="flex gap-1">
-                      {f.floodlights && <Lightbulb className="w-3.5 h-3.5 text-yellow-400/70" />}
-                      {f.halfFull && <Users className="w-3.5 h-3.5 text-blue-400/70" />}
-                    </div>
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors"
+                    style={{
+                      background: selected ? `${brand}30` : "rgba(255,255,255,0.04)",
+                      color: selected ? brand : "rgba(255,255,255,0.5)",
+                    }}
+                  >
+                    <Shield className="w-5 h-5" />
                   </div>
-                  {f.description && <p className="text-xs text-white/50 line-clamp-2">{f.description}</p>}
-                  <div className="text-xs text-white/60 mt-2">
-                    From {f.pricingRules.length > 0
-                      ? `$${parseFloat(f.pricingRules[0].pricePerHour).toFixed(2)}/hr`
-                      : f.pricePerHourCents
-                        ? `$${(f.pricePerHourCents / 100).toFixed(2)}/hr`
-                        : "—"}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm truncate">{f.name}</div>
+                    <div className="text-[11px] text-white/40 mt-0.5 truncate">{subtitle}</div>
                   </div>
-                </div>
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all"
+                    style={{
+                      background: selected ? brand : "rgba(255,255,255,0.04)",
+                      color: selected ? "white" : "rgba(255,255,255,0.4)",
+                      transform: selected ? "rotate(45deg)" : "rotate(0)",
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </div>
+                </button>
               );
             })}
           </div>
 
           {selectedFacility && (
-            <ConfigureFacility
-              facility={selectedFacility}
-              settings={settings}
-              brand={brand}
-              onAdd={(items) => setCart(prev => [...prev, ...items])}
-              cart={cart}
-            />
+            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+              <ConfigureFacility
+                facility={selectedFacility}
+                settings={settings}
+                brand={brand}
+                onAdd={(items) => setCart(prev => [...prev, ...items])}
+                cart={cart}
+                onClose={() => setSelectedFacility(null)}
+              />
+            </div>
           )}
         </>
       )}
@@ -551,21 +548,24 @@ function AddItemsStep({
 }
 
 function ConfigureFacility({
-  facility, settings, brand, onAdd, cart,
+  facility, settings, brand, onAdd, cart, onClose,
 }: {
   facility: PublicFacility;
   settings: VenueSettings;
   brand: string;
   onAdd: (items: CartItem[]) => void;
   cart: CartItem[];
+  onClose?: () => void;
 }) {
   const slots = useMemo(
     () => genTimeSlots(settings.openingTime, settings.closingTime, settings.slotMinutes),
     [settings.openingTime, settings.closingTime, settings.slotMinutes],
   );
   const [date, setDate] = useState(todayISO());
-  const [startTime, setStartTime] = useState(slots[Math.floor(slots.length / 2)] || "17:00");
-  const [duration, setDuration] = useState(60); // minutes
+  // Tap-to-pick time selection: first tap sets start, second tap sets end.
+  // Null start means "waiting for first tap"; null end means "waiting for end tap".
+  const [startTime, setStartTime] = useState<string | null>(null);
+  const [endTime, setEndTime] = useState<string | null>(null);
   const [halfFull, setHalfFull] = useState<"half" | "full">(facility.halfFull ? "half" : "full");
   const [halfPosition, setHalfPosition] = useState<"front" | "back">("front");
   const [selectedAddons, setSelectedAddons] = useState<Record<number, number>>({});
@@ -573,12 +573,12 @@ function ConfigureFacility({
   const [extraDates, setExtraDates] = useState<string[]>([]);
   const [busy, setBusy] = useState<AvailabilitySlot[]>([]);
 
-  // Compute end time
-  const endTime = useMemo(() => {
-    const [h, m] = startTime.split(":").map(Number);
-    const total = h * 60 + m + duration;
-    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  }, [startTime, duration]);
+  const durationMinutes = useMemo(() => {
+    if (!startTime || !endTime) return 0;
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    return (eh * 60 + em) - (sh * 60 + sm);
+  }, [startTime, endTime]);
 
   const allDates = useMemo(() => Array.from(new Set([date, ...extraDates])), [date, extraDates]);
 
@@ -618,10 +618,18 @@ function ConfigureFacility({
       halfBlocks(b.halfFull, b.halfPosition)
     ) || cartConflicts(d, s, e);
 
-  const conflictDates = allDates.filter(d => isSlotConflicted(d, startTime, endTime));
-  const validDates = allDates.filter(d => !isSlotConflicted(d, startTime, endTime));
+  const conflictDates = startTime && endTime
+    ? allDates.filter(d => isSlotConflicted(d, startTime, endTime))
+    : [];
+  const validDates = startTime && endTime
+    ? allDates.filter(d => !isSlotConflicted(d, startTime, endTime))
+    : [];
+
+  const canAdd = !!startTime && !!endTime && validDates.length > 0
+    && durationMinutes >= settings.minDurationMinutes;
 
   const handleAdd = () => {
+    if (!startTime || !endTime) return;
     const items: CartItem[] = validDates.map(d => ({
       id: `${facility.id}-${d}-${startTime}-${Math.random().toString(36).slice(2, 8)}`,
       facility,
@@ -632,73 +640,115 @@ function ConfigureFacility({
       halfPosition: facility.halfFull && halfFull === "half" ? halfPosition : null,
       addons: Object.entries(selectedAddons).filter(([, q]) => q > 0).map(([id, q]) => ({ addonId: parseInt(id), qty: q })),
     }));
-    if (items.length > 0) onAdd(items);
+    if (items.length > 0) {
+      onAdd(items);
+      // Reset time selection after adding so the customer can configure another slot.
+      setStartTime(null);
+      setEndTime(null);
+    }
   };
 
-  const heroImages = facilityImages(facility);
+  // Slot click handler — first click sets start, second click sets end (must be after start).
+  // Clicking the current start clears the selection.
+  const handleSlotClick = (slot: string) => {
+    if (slot === startTime && !endTime) { setStartTime(null); return; }
+    if (!startTime) { setStartTime(slot); setEndTime(null); return; }
+    if (!endTime) {
+      // End must be strictly after start (which is the slot label, e.g. "17:00")
+      if (slot > startTime) {
+        // Slot label is the start of a slot; end of that slot = slot + slotMinutes.
+        // Picking 18:00 as the "end slot" means booking ends at 18:00.
+        setEndTime(slot);
+      } else {
+        // User picked an earlier slot — treat as new start.
+        setStartTime(slot);
+      }
+      return;
+    }
+    // Both already set — start a new selection.
+    setStartTime(slot);
+    setEndTime(null);
+  };
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5">
-      {heroImages.length > 0 && (
-        <FacilityCarousel
-          images={heroImages}
-          alt={facility.name}
-          brand={brand}
-          size="hero"
-          testIdPrefix={`facility-${facility.id}-hero`}
-          className="rounded-xl -mx-1 mb-3"
-        />
-      )}
-      <h3 className="font-semibold mb-4 flex items-center gap-2">
-        Configure: {facility.name}
-      </h3>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-        <div>
-          <Label className="text-xs text-white/60 mb-1.5 block">Date</Label>
-          <Input
-            type="date"
-            value={date}
-            min={todayISO()}
-            max={addDays(todayISO(), settings.advanceBookingDays)}
-            onChange={e => setDate(e.target.value)}
-            data-testid="input-date"
-            className="bg-white/[0.04] border-white/10 text-white"
-          />
-        </div>
-        <div>
-          <Label className="text-xs text-white/60 mb-1.5 block">Start time</Label>
-          <select
-            value={startTime}
-            onChange={e => setStartTime(e.target.value)}
-            data-testid="select-start-time"
-            className="w-full h-10 rounded-md bg-white/[0.04] border border-white/10 px-3 text-sm"
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 sm:p-6 transition-all duration-300 ease-out">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="font-semibold flex items-center gap-2 text-white">
+          <MapPin className="w-4 h-4 text-white/40" />
+          Configure: {facility.name}
+        </h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
+            data-testid="button-close-configure"
           >
-            {slots.map(s => <option key={s} value={s}>{fmtTime(s)}</option>)}
-          </select>
-        </div>
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
-      <div className="mb-4">
-        <Label className="text-xs text-white/60 mb-1.5 block">Duration</Label>
-        <div className="flex flex-wrap gap-2">
-          {[settings.minDurationMinutes, 90, 120, 180].filter((v, i, a) => a.indexOf(v) === i).map(d => (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+        {/* Calendar grid */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label className="text-xs text-white/60">Date</Label>
             <button
-              key={d}
-              onClick={() => setDuration(d)}
-              data-testid={`button-duration-${d}`}
-              className="px-3 py-1.5 rounded-lg text-xs border transition"
-              style={{
-                borderColor: duration === d ? brand : "rgba(255,255,255,0.1)",
-                background: duration === d ? `${brand}25` : "transparent",
-                color: duration === d ? "white" : "rgba(255,255,255,0.7)",
-              }}
+              onClick={() => setMultiDay(v => !v)}
+              className={`text-[10px] flex items-center gap-1 px-2 py-0.5 rounded transition ${multiDay ? "text-blue-300 bg-blue-500/10" : "text-white/40 hover:text-white/60"}`}
+              data-testid="button-toggle-multiday"
             >
-              {d >= 60 ? `${d / 60} hr${d > 60 ? "s" : ""}` : `${d} min`}
+              <CalendarIcon className="w-3 h-3" />
+              Multi-day
             </button>
-          ))}
+          </div>
+          <CalendarPicker
+            date={date}
+            setDate={setDate}
+            extraDates={multiDay ? extraDates : []}
+            toggleExtraDate={multiDay ? (d) => setExtraDates(prev =>
+              prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort()
+            ) : undefined}
+            min={todayISO()}
+            max={addDays(todayISO(), settings.advanceBookingDays)}
+            brand={brand}
+          />
         </div>
-        <div className="text-[11px] text-white/40 mt-1.5">Ends at {fmtTime(endTime)}</div>
+
+        {/* Time slot grid */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label className="text-xs text-white/60">Time</Label>
+            <span className="text-[10px] text-white/40">
+              {!startTime ? "Tap your start time" : !endTime ? "Tap your end time" : "Time selected"}
+            </span>
+          </div>
+          <TimeSlotGrid
+            slots={slots}
+            startTime={startTime}
+            endTime={endTime}
+            onSelect={handleSlotClick}
+            isBusy={(s, e) => allDates.some(d => isSlotConflicted(d, s, e))}
+            brand={brand}
+          />
+          {startTime && endTime && (
+            <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wider text-white/40">Start</div>
+                <div className="text-sm font-semibold">{fmtTime(startTime)}</div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-white/30" />
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wider text-white/40">End</div>
+                <div className="text-sm font-semibold">{fmtTime(endTime)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-wider text-white/40">Duration</div>
+                <div className="text-sm font-semibold">{durationMinutes >= 60 ? `${durationMinutes / 60}hr` : `${durationMinutes}m`}</div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {facility.halfFull && (
@@ -749,23 +799,48 @@ function ConfigureFacility({
 
       {facility.addons.length > 0 && (
         <div className="mb-4">
-          <Label className="text-xs text-white/60 mb-1.5 block">Add-ons</Label>
+          <Label className="text-xs text-white/60 mb-2 block">Add-ons</Label>
           <div className="space-y-2">
             {facility.addons.map(addon => {
               const qty = selectedAddons[addon.id] || 0;
+              const useStepper = addon.unit === "per_booking";
               return (
-                <div key={addon.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                  <div className="min-w-0">
-                    <div className="text-sm">{addon.name}</div>
-                    <div className="text-[11px] text-white/40">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "/ booking"}</div>
+                <div key={addon.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 transition-colors hover:bg-white/[0.04]">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-white/[0.04] flex items-center justify-center flex-shrink-0 text-yellow-300/70">
+                      <Lightbulb className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{addon.name}</div>
+                      <div className="text-[11px] text-white/40">${parseFloat(addon.price).toFixed(2)} {addon.unit === "per_hour" ? "/ hour" : "per team / game"} inc GST</div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {useStepper ? (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: Math.max(0, (prev[addon.id] || 0) - 1) }))}
+                        disabled={qty === 0}
+                        data-testid={`button-addon-${addon.id}-minus`}
+                        className="w-7 h-7 rounded-md bg-white/[0.06] hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="w-8 text-center text-sm font-medium tabular-nums" data-testid={`addon-${addon.id}-qty`}>{qty}</div>
+                      <button
+                        onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: (prev[addon.id] || 0) + 1 }))}
+                        data-testid={`button-addon-${addon.id}-plus`}
+                        className="w-7 h-7 rounded-md bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
                     <Switch
                       checked={qty > 0}
                       onCheckedChange={(on) => setSelectedAddons(prev => ({ ...prev, [addon.id]: on ? 1 : 0 }))}
                       data-testid={`switch-addon-${addon.id}`}
                     />
-                  </div>
+                  )}
                 </div>
               );
             })}
@@ -773,47 +848,22 @@ function ConfigureFacility({
         </div>
       )}
 
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 mb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium flex items-center gap-2">
-              <CalendarIcon className="w-3.5 h-3.5 text-white/40" /> Multi-day booking
-            </div>
-            <div className="text-[11px] text-white/40 mt-0.5">Repeat the same time on additional dates</div>
+      {multiDay && extraDates.length > 0 && (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 mb-4">
+          <div className="text-[11px] text-white/40 mb-2">
+            Multi-day: same time on {extraDates.length + 1} dates
           </div>
-          <Switch checked={multiDay} onCheckedChange={setMultiDay} data-testid="switch-multiday" />
+          <div className="flex flex-wrap gap-1.5">
+            {[date, ...extraDates].map(d => (
+              <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.06] text-[11px]" data-testid={`chip-date-${d}`}>
+                {fmtDateLong(d)}
+              </span>
+            ))}
+          </div>
         </div>
-        {multiDay && (
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {extraDates.map(d => (
-                <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.06] text-[11px]">
-                  {fmtDateLong(d)}
-                  <button onClick={() => setExtraDates(prev => prev.filter(x => x !== d))} className="text-white/40 hover:text-white">
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <Input
-                type="date"
-                min={todayISO()}
-                max={addDays(todayISO(), settings.advanceBookingDays)}
-                onChange={e => {
-                  const v = e.target.value;
-                  if (v && v !== date && !extraDates.includes(v)) setExtraDates(prev => [...prev, v].sort());
-                  e.target.value = "";
-                }}
-                data-testid="input-extra-date"
-                className="bg-white/[0.04] border-white/10 text-white max-w-[200px]"
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
-      {conflictDates.length > 0 && (
+      {startTime && endTime && conflictDates.length > 0 && (
         <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs p-2.5 mb-3">
           {conflictDates.length} date{conflictDates.length > 1 ? "s" : ""} unavailable at that time and will be skipped.
         </div>
@@ -821,14 +871,165 @@ function ConfigureFacility({
 
       <Button
         onClick={handleAdd}
-        disabled={validDates.length === 0}
+        disabled={!canAdd}
         data-testid="button-add-to-cart"
-        className="w-full text-white border-0"
+        className="w-full h-11 text-white border-0 text-sm font-semibold transition-all duration-200 disabled:opacity-30"
         style={{ background: brand }}
       >
-        <Plus className="w-4 h-4 mr-1.5" />
-        Add {validDates.length > 1 ? `${validDates.length} bookings` : "to cart"}
+        <ShoppingCart className="w-4 h-4 mr-2" />
+        {!startTime || !endTime
+          ? "Select a time to continue"
+          : validDates.length > 1
+            ? `Add ${validDates.length} bookings to cart`
+            : "Add to cart"}
       </Button>
+    </div>
+  );
+}
+
+// Full-month grid date picker. Shows the month containing `date`, lets user
+// click a day to select it. In multi-day mode, additional clicks toggle dates
+// in/out of `extraDates`.
+function CalendarPicker({
+  date, setDate, extraDates, toggleExtraDate, min, max, brand,
+}: {
+  date: string;
+  setDate: (d: string) => void;
+  extraDates: string[];
+  toggleExtraDate?: (d: string) => void;
+  min: string;
+  max: string;
+  brand: string;
+}) {
+  const current = new Date(date + "T00:00:00");
+  const [viewMonth, setViewMonth] = useState({ year: current.getFullYear(), month: current.getMonth() });
+  const first = new Date(viewMonth.year, viewMonth.month, 1);
+  const startWeekday = (first.getDay() + 6) % 7; // Mon=0
+  const daysInMonth = new Date(viewMonth.year, viewMonth.month + 1, 0).getDate();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(viewMonth.year, viewMonth.month, d));
+
+  const monthLabel = first.toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayStr = todayISO();
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3" data-testid="calendar-picker">
+      <div className="flex items-center justify-between mb-2">
+        <button
+          onClick={() => setViewMonth(v => v.month === 0 ? { year: v.year - 1, month: 11 } : { year: v.year, month: v.month - 1 })}
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
+          data-testid="button-prev-month"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <div className="text-sm font-medium">{monthLabel}</div>
+        <button
+          onClick={() => setViewMonth(v => v.month === 11 ? { year: v.year + 1, month: 0 } : { year: v.year, month: v.month + 1 })}
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
+          data-testid="button-next-month"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => (
+          <div key={d} className="text-[10px] text-white/30 text-center py-1 uppercase tracking-wider">{d.slice(0, 3)}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((d, i) => {
+          if (!d) return <div key={`p${i}`} />;
+          const dStr = ymd(d);
+          const isPrimary = dStr === date;
+          const isExtra = extraDates.includes(dStr);
+          const isToday = dStr === todayStr;
+          const disabled = dStr < min || dStr > max;
+          const selected = isPrimary || isExtra;
+          return (
+            <button
+              key={dStr}
+              disabled={disabled}
+              onClick={() => {
+                if (toggleExtraDate && !isPrimary) {
+                  toggleExtraDate(dStr);
+                } else {
+                  setDate(dStr);
+                }
+              }}
+              data-testid={`day-${dStr}`}
+              className={`aspect-square rounded-md text-xs font-medium transition-all ${
+                disabled
+                  ? "text-white/15 cursor-not-allowed"
+                  : selected
+                    ? "text-white shadow-lg"
+                    : isToday
+                      ? "text-blue-300 bg-blue-500/[0.08] hover:bg-blue-500/15"
+                      : "text-white/70 hover:bg-white/[0.06]"
+              }`}
+              style={selected ? {
+                background: isPrimary ? brand : `${brand}80`,
+                boxShadow: isPrimary ? `0 0 0 1px ${brand}, 0 4px 12px ${brand}40` : undefined,
+              } : undefined}
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Time slot grid — tap once to set start, tap again to set end. Slots between
+// start and (selected) end are highlighted as the range. Busy slots are dimmed.
+function TimeSlotGrid({
+  slots, startTime, endTime, onSelect, isBusy, brand,
+}: {
+  slots: string[];
+  startTime: string | null;
+  endTime: string | null;
+  onSelect: (slot: string) => void;
+  isBusy: (s: string, e: string) => boolean;
+  brand: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3" data-testid="time-slot-grid">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[280px] overflow-y-auto">
+        {slots.map((s, i) => {
+          // Each slot is a candidate START. The slot's own duration is settings.slotMinutes,
+          // so the busy check needs the slot's "next" label as the end.
+          const next = slots[i + 1] || s; // for last slot use itself
+          const slotBusy = isBusy(s, next);
+          const isStart = s === startTime;
+          const isEnd = s === endTime;
+          // Range highlight: any slot label strictly between start and end.
+          const inRange = !!(startTime && endTime && s > startTime && s < endTime);
+          const highlighted = isStart || isEnd || inRange;
+          return (
+            <button
+              key={s}
+              onClick={() => onSelect(s)}
+              disabled={slotBusy && !highlighted}
+              data-testid={`slot-${s}`}
+              className={`h-9 rounded-md text-xs font-medium transition-all ${
+                slotBusy && !highlighted
+                  ? "text-white/20 line-through cursor-not-allowed bg-white/[0.02]"
+                  : highlighted
+                    ? "text-white"
+                    : "text-white/70 bg-white/[0.04] hover:bg-white/[0.08] hover:text-white"
+              }`}
+              style={highlighted ? {
+                background: isStart || isEnd ? brand : `${brand}40`,
+                boxShadow: (isStart || isEnd) ? `0 0 0 1px ${brand}` : undefined,
+              } : undefined}
+            >
+              {s}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
