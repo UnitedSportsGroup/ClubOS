@@ -956,10 +956,15 @@ function ConfigureFacility({
                         {qty}
                       </div>
                       <button
-                        onClick={() => setSelectedAddons(prev => ({ ...prev, [addon.id]: (prev[addon.id] || 0) + 1 }))}
+                        onClick={() => setSelectedAddons(prev => ({
+                          ...prev,
+                          [addon.id]: Math.min(addon.maxQty ?? 99, (prev[addon.id] || 0) + 1),
+                        }))}
+                        disabled={addon.maxQty != null && qty >= addon.maxQty}
                         data-testid={`button-addon-${addon.id}-plus`}
-                        className="w-8 h-8 rounded-md flex items-center justify-center transition text-white"
+                        className="w-8 h-8 rounded-md flex items-center justify-center transition text-white disabled:opacity-30 disabled:cursor-not-allowed"
                         style={{ background: on ? brand : "rgba(255,255,255,0.08)" }}
+                        title={addon.maxQty != null && qty >= addon.maxQty ? `Maximum ${addon.maxQty}` : undefined}
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>

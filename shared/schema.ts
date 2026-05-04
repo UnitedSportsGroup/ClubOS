@@ -383,6 +383,7 @@ export const facilityAddons = pgTable("facility_addons", {
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
   unit: text("unit").notNull().default("per_hour"),
+  maxQty: integer("max_qty"),
   appliesToAll: boolean("applies_to_all").default(true),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),

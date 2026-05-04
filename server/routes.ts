@@ -1787,7 +1787,10 @@ export async function registerRoutes(
     return baseCents;
   }
 
-  function calcAddonCents(addon: { price: string; unit: string }, qty: number, hours: number): number {
+  function calcAddonCents(addon: { name: string; price: string; unit: string; maxQty?: number | null }, qty: number, hours: number): number {
+    if (addon.maxQty != null && qty > addon.maxQty) {
+      throw new Error(`${addon.name}: maximum ${addon.maxQty} per booking`);
+    }
     const priceCents = Math.round(parseFloat(addon.price) * 100);
     if (addon.unit === "per_hour") return priceCents * qty * Math.max(1, hours);
     return priceCents * qty;
