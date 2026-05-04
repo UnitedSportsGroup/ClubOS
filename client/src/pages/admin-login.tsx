@@ -29,11 +29,11 @@ export default function AdminLogin() {
     <div className="min-h-screen flex items-center justify-center" style={{ background: '#02060E' }}>
       <div className="w-full max-w-sm mx-4 animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/25 mx-auto mb-4">
-            <span className="text-white font-bold text-lg">CU</span>
+          <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center shadow-lg mx-auto mb-4 overflow-hidden">
+            <img src="/logos/united-sports-group.png" alt="United Sports Group" className="w-10 h-10 object-contain" />
           </div>
-          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-login-title">ClubOS Admin</h1>
-          <p className="text-[13px] text-blue-400/35 mt-1">Sign in to manage holiday camps</p>
+          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="text-login-title">USG Admin</h1>
+          <p className="text-[13px] text-blue-400/35 mt-1">Operations console for the United Sports Group</p>
         </div>
 
         <div className="rounded-2xl glass-card p-6 space-y-4">
