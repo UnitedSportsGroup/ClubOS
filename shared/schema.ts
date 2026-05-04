@@ -108,6 +108,24 @@ export const programs = pgTable("programs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// School/program terms — org-scoped so each workspace can manage its own
+// calendar (NZ school terms for gymnastics, OFC season blocks for football,
+// etc.). One row per (org, year, termNumber) so an org can never have two
+// "Term 2 2026" rows.
+export const terms = pgTable("terms", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  termNumber: integer("term_number").notNull(),
+  name: text("name"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  uniqueOrgYearTerm: unique().on(t.organizationId, t.year, t.termNumber),
+}));
+
 export const programSessions = pgTable("program_sessions", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   programId: integer("program_id").notNull().references(() => programs.id),
@@ -1044,3 +1062,7 @@ export const objectAcls = pgTable("object_acls", {
 });
 export type ObjectAclRow = typeof objectAcls.$inferSelect;
 export type InsertObjectAcl = typeof objectAcls.$inferInsert;
+
+export const insertTermSchema = createInsertSchema(terms).omit({ id: true, createdAt: true });
+export type InsertTerm = z.infer<typeof insertTermSchema>;
+export type Term = typeof terms.$inferSelect;

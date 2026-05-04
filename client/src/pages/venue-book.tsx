@@ -105,6 +105,10 @@ interface CartItem {
   halfFull: "half" | "full" | null;
   halfPosition: "front" | "back" | null;
   addons: { addonId: number; qty: number }[];
+  // Tag carried from the configure panel so checkout knows which Stripe path
+  // to use. All items in a single recurring batch share the same group key.
+  paymentMode?: "upfront" | "weekly";
+  recurringGroupKey?: string;
 }
 
 interface QuoteLine {
@@ -351,7 +355,16 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
     setCheckingOut(true);
     setCheckoutErr(null);
     try {
-      const r = await fetch(`/api/public/venue/${organization.id}/bookings/checkout`, {
+      // If any cart item is flagged for weekly subscription, route the WHOLE
+      // cart to the subscription endpoint. The current UX only allows one
+      // recurring batch per cart, so this is safe; the server enforces that
+      // every item shares the same slot.
+      const isSubscription = cart.some(c => c.paymentMode === "weekly");
+      const endpoint = isSubscription
+        ? `/api/public/venue/${organization.id}/bookings/checkout-subscription`
+        : `/api/public/venue/${organization.id}/bookings/checkout`;
+
+      const r = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -745,6 +758,11 @@ function ConfigureFacility({
 
   const handleAdd = () => {
     if (!startTime || !endTime) return;
+    // Recurring items share a group key so checkout can detect the batch and
+    // route to the subscription endpoint when paymentMode is "weekly".
+    const recurringGroupKey = recurring && paymentMode === "weekly"
+      ? `rec_${facility.id}_${startTime}_${Math.random().toString(36).slice(2, 8)}`
+      : undefined;
     const items: CartItem[] = validDates.map(d => ({
       id: `${facility.id}-${d}-${startTime}-${Math.random().toString(36).slice(2, 8)}`,
       facility,
@@ -754,6 +772,8 @@ function ConfigureFacility({
       halfFull: facility.halfFull ? halfFull : null,
       halfPosition: facility.halfFull && halfFull === "half" ? halfPosition : null,
       addons: Object.entries(selectedAddons).filter(([, q]) => q > 0).map(([id, q]) => ({ addonId: parseInt(id), qty: q })),
+      paymentMode: recurring ? paymentMode : undefined,
+      recurringGroupKey,
     }));
     if (items.length > 0) {
       onAdd(items);
@@ -1097,28 +1117,21 @@ function ConfigureFacility({
               <Label className="text-[11px] text-white/60 mb-1.5 block">Payment</Label>
               <div className="grid grid-cols-2 gap-2">
                 {([
-                  { key: "upfront", title: "Pay upfront", sub: "All bookings paid in one go", disabled: false },
-                  { key: "weekly",  title: "Pay weekly",  sub: "Auto-charged each week", disabled: true },
+                  { key: "upfront", title: "Pay upfront", sub: "All bookings paid in one go" },
+                  { key: "weekly",  title: "Pay weekly",  sub: "Auto-charged each week" },
                 ] as const).map(opt => {
                   const active = paymentMode === opt.key;
                   return (
                     <button
                       key={opt.key}
-                      onClick={() => { if (!opt.disabled) setPaymentMode(opt.key); }}
-                      disabled={opt.disabled}
+                      onClick={() => setPaymentMode(opt.key)}
                       data-testid={`button-payment-mode-${opt.key}`}
-                      className="relative text-left p-3 rounded-lg border transition-all duration-200 disabled:cursor-not-allowed"
+                      className="text-left p-3 rounded-lg border transition-all duration-200"
                       style={{
                         borderColor: active ? brand : "rgba(255,255,255,0.1)",
                         background: active ? `${brand}15` : "rgba(255,255,255,0.02)",
-                        opacity: opt.disabled ? 0.5 : 1,
                       }}
                     >
-                      {opt.disabled && (
-                        <span className="absolute top-1.5 right-1.5 text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
-                          Soon
-                        </span>
-                      )}
                       <div className="text-xs font-semibold flex items-center gap-1.5" style={{ color: active ? "white" : "rgba(255,255,255,0.8)" }}>
                         {active && <CheckCircle2 className="w-3 h-3" style={{ color: brand }} />}
                         {opt.title}
@@ -1128,6 +1141,11 @@ function ConfigureFacility({
                   );
                 })}
               </div>
+              {paymentMode === "weekly" && (
+                <div className="mt-2 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-200/90 text-[10px] p-2 leading-snug">
+                  Your card will be charged automatically each week. Cancel anytime by emailing us — already-paid weeks aren't refunded, future weeks won't be charged.
+                </div>
+              )}
             </div>
           </div>
         )}

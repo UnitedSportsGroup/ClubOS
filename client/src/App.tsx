@@ -51,6 +51,7 @@ import LeagueTeams from "@/pages/league-teams";
 import LeagueSettings from "@/pages/league-settings";
 import GymnasticsDashboard from "@/pages/gymnastics-dashboard";
 import GymnasticsPrograms from "@/pages/gymnastics-programs";
+import GymnasticsTerms from "@/pages/gymnastics-terms";
 import TournamentDashboard from "@/pages/tournament-dashboard";
 import TournamentList from "@/pages/tournament-list";
 import ClubsList from "@/pages/clubs-list";
@@ -139,6 +140,7 @@ function AdminRouter() {
       <Switch>
         <Route path="/admin" component={GymnasticsDashboard} />
         <Route path="/admin/programs" component={GymnasticsPrograms} />
+        <Route path="/admin/terms" component={GymnasticsTerms} />
         {/* Reuse the camps detail + landing-page editor — they take a
             program id and don't care what type the program is. */}
         <Route path="/admin/camps/:id/edit-page" component={AdminEditPage} />

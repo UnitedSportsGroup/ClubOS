@@ -199,6 +199,55 @@ export async function registerRoutes(
     }
   });
 
+  // Terms — org-scoped school/program term calendar (NZ school terms etc.)
+  app.get("/api/admin/terms", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const list = await storage.getTerms(orgId);
+      res.json(list);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/terms", requireAuth, async (req, res) => {
+    try {
+      const data = { ...req.body };
+      if (!data.organizationId) return res.status(400).json({ message: "organizationId required" });
+      if (!data.year || !data.termNumber || !data.startDate || !data.endDate) {
+        return res.status(400).json({ message: "year, termNumber, startDate, endDate are required" });
+      }
+      const term = await storage.createTerm(data);
+      res.status(201).json(term);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "A term with that year + term number already exists for this organisation" });
+      }
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/terms/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const term = await storage.updateTerm(id, req.body);
+      if (!term) return res.status(404).json({ message: "Term not found" });
+      res.json(term);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/terms/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteTerm(parseInt(req.params.id));
+      res.status(204).end();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/registration-counts", requireAuth, async (_req, res) => {
     try {
       const counts = await storage.getCampRegistrationCounts();
@@ -2091,6 +2140,183 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("[Venue Checkout] Error:", error);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Subscription checkout — pay-weekly recurring bookings. Creates ALL the
+  // future booking rows upfront as 'pending' (so the slots are reserved), plus
+  // a Stripe Subscription that bills the customer weekly. As each weekly
+  // invoice succeeds the webhook advances the NEXT pending booking → 'paid'.
+  // If the customer cancels (or all retries fail), the webhook cancels any
+  // remaining pending bookings — already-paid bookings stay confirmed.
+  //
+  // Constraints (enforced):
+  //  - All items must share the same facility, time, half/full, half_position
+  //    and add-ons (it's a single recurring slot, not a multi-item cart).
+  //  - At least 2 dates, all in the future.
+  app.post("/api/public/venue/:orgId/bookings/checkout-subscription", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
+
+      const parsed = checkoutSchema.parse(req.body);
+      if (parsed.items.length < 2) {
+        return res.status(400).json({ message: "Subscription bookings need at least 2 dates" });
+      }
+
+      // All items must share the same shape — it's one recurring slot.
+      const first = parsed.items[0];
+      const sameSlot = parsed.items.every(it =>
+        it.facilityId === first.facilityId &&
+        it.startTime === first.startTime &&
+        it.endTime === first.endTime &&
+        (it.halfFull || null) === (first.halfFull || null) &&
+        (it.halfPosition || null) === (first.halfPosition || null) &&
+        JSON.stringify(it.addons) === JSON.stringify(first.addons)
+      );
+      if (!sameSlot) {
+        return res.status(400).json({ message: "All recurring bookings must be the same slot" });
+      }
+
+      const quote = await buildQuote(orgId, parsed.items);
+      const totalCents = quote.totalCents;
+      const weeklyCents = Math.round(totalCents / parsed.items.length);
+
+      const groupId = `vbg_${crypto.randomBytes(8).toString("hex")}`;
+      const sortedDates = [...parsed.items].sort((a, b) => a.date.localeCompare(b.date));
+      const lastDate = sortedDates[sortedDates.length - 1].date;
+
+      // Reserve all the slots first (same locking as one-shot checkout).
+      const bookingsToCreate = quote.lineItems.map((line, idx) => {
+        const lineTotalCents = line.totalCents;
+        const lineGstCents = lineTotalCents - Math.round(lineTotalCents / (1 + quote.gstRate / 100));
+        const lineSubtotalCents = lineTotalCents - lineGstCents;
+        return {
+          organizationId: orgId,
+          facilityId: line.facilityId,
+          customerName: parsed.customer.name,
+          customerEmail: parsed.customer.email,
+          customerPhone: parsed.customer.phone || null,
+          customerClub: parsed.customer.club || null,
+          bookingDate: line.date,
+          startTime: line.startTime,
+          endTime: line.endTime,
+          halfFull: line.halfFull,
+          halfPosition: line.halfFull === "half" ? line.halfPosition : null,
+          addonsJson: line.addons,
+          subtotalCents: lineSubtotalCents,
+          gstCents: lineGstCents,
+          totalCents: lineTotalCents,
+          totalAmount: (lineTotalCents / 100).toFixed(2),
+          gstAmount: (lineGstCents / 100).toFixed(2),
+          status: "pending" as const,
+          bookingGroupId: groupId,
+          notes: parsed.customer.notes
+            ? `${parsed.customer.notes}\n[Recurring weekly · ${idx + 1}/${parsed.items.length}]`
+            : `[Recurring weekly · ${idx + 1}/${parsed.items.length}]`,
+        };
+      });
+
+      const uniqueFacilityIds = Array.from(new Set(parsed.items.map(i => i.facilityId))).sort((a, b) => a - b);
+      await db.transaction(async (tx) => {
+        for (const fid of uniqueFacilityIds) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${fid})`);
+        }
+        const existing = await tx.select().from(facilityBookings)
+          .where(and(
+            eq(facilityBookings.facilityId, first.facilityId),
+            inArray(facilityBookings.bookingDate, parsed.items.map(i => i.date)),
+            inArray(facilityBookings.status, ["pending", "confirmed", "paid"]),
+          ));
+        for (const it of parsed.items) {
+          const conflict = existing.find(e => {
+            if (e.bookingDate !== it.date) return false;
+            if (!(e.startTime < it.endTime && e.endTime > it.startTime)) return false;
+            const eIsHalf = e.halfFull === "half";
+            const nIsHalf = it.halfFull === "half";
+            if (!eIsHalf || !nIsHalf) return true;
+            if (!e.halfPosition || !it.halfPosition) return true;
+            return e.halfPosition === it.halfPosition;
+          });
+          if (conflict) {
+            const half = it.halfFull === "half" ? ` ${it.halfPosition} half` : "";
+            throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}${half}`);
+          }
+        }
+        await tx.insert(facilityBookings).values(bookingsToCreate);
+      });
+
+      // Stripe: customer + subscription. Use price_data inline so we don't
+      // need to manage long-lived Price objects per booking.
+      const { stripe } = await import("./stripe");
+      const customer = await stripe.customers.create({
+        email: parsed.customer.email,
+        name: parsed.customer.name,
+        phone: parsed.customer.phone || undefined,
+        metadata: { facilityBookingGroupId: groupId, organizationId: String(orgId) },
+      });
+
+      // cancel_at = end of last booking day so Stripe auto-cancels after the
+      // final week is paid. Adds 1 day so the final invoice fires in time.
+      const cancelAt = Math.floor(new Date(lastDate + "T23:59:00Z").getTime() / 1000) + 86400;
+
+      const subscription = await stripe.subscriptions.create({
+        customer: customer.id,
+        items: [{
+          price_data: {
+            currency: "nzd",
+            product_data: { name: `Weekly facility booking — ${parsed.items.length} weeks` },
+            unit_amount: weeklyCents,
+            recurring: { interval: "week" },
+          },
+        }],
+        cancel_at: cancelAt,
+        payment_behavior: "default_incomplete",
+        payment_settings: {
+          save_default_payment_method: "on_subscription",
+          payment_method_types: ["card"],
+        },
+        expand: ["latest_invoice.payment_intent"],
+        metadata: {
+          facilityBookingGroupId: groupId,
+          organizationId: String(orgId),
+          customerEmail: parsed.customer.email,
+          totalWeeks: String(parsed.items.length),
+        },
+      });
+
+      const latestInvoice: any = subscription.latest_invoice;
+      const paymentIntent: any = latestInvoice?.payment_intent;
+      const clientSecret: string | undefined = paymentIntent?.client_secret;
+      if (!clientSecret) {
+        throw new Error("Stripe did not return a client secret for the subscription's first invoice");
+      }
+
+      // Stamp the subscription id on every booking + the first invoice's PI on
+      // the first chronological booking so the existing payment_intent.succeeded
+      // webhook can confirm it.
+      await db.update(facilityBookings)
+        .set({ stripeSubscriptionId: subscription.id })
+        .where(eq(facilityBookings.bookingGroupId, groupId));
+      await db.update(facilityBookings)
+        .set({ stripePaymentIntentId: paymentIntent.id })
+        .where(and(
+          eq(facilityBookings.bookingGroupId, groupId),
+          eq(facilityBookings.bookingDate, sortedDates[0].date),
+        ));
+
+      res.json({
+        bookingGroupId: groupId,
+        subscriptionId: subscription.id,
+        clientSecret,
+        weeklyAmountCents: weeklyCents,
+        totalWeeks: parsed.items.length,
+        quote,
+      });
+    } catch (error: any) {
+      console.error("[Venue Subscription Checkout] Error:", error);
       res.status(400).json({ message: error.message });
     }
   });
@@ -4825,6 +5051,61 @@ export async function registerRoutes(
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
         if (facilityGroupId) {
           try { await storage.cancelFacilityBookingsByGroup(facilityGroupId); } catch (e) { console.error(e); }
+        }
+      } else if (event.type === "invoice.paid") {
+        // Weekly subscription invoice succeeded. Advance the next pending
+        // booking for that subscription → 'paid'.
+        //
+        // De-dupe: the FIRST invoice (billing_reason="subscription_create")
+        // fires alongside payment_intent.succeeded, which already advances
+        // the first booking via stripePaymentIntentId. Skip first-invoice
+        // events here so we don't double-count and accidentally mark the
+        // SECOND week paid when only the first has been paid.
+        const invoice = event.data.object as any;
+        const subId: string | undefined = invoice.subscription;
+        const billingReason: string = invoice.billing_reason || "";
+        if (subId && billingReason !== "subscription_create") {
+          try {
+            const pending = await db.select().from(facilityBookings)
+              .where(and(
+                eq(facilityBookings.stripeSubscriptionId, subId),
+                eq(facilityBookings.status, "pending"),
+              ))
+              .orderBy(facilityBookings.bookingDate);
+            const next = pending[0];
+            if (next) {
+              await db.update(facilityBookings)
+                .set({ status: "paid", paidAt: new Date(), stripePaymentIntentId: invoice.payment_intent || next.stripePaymentIntentId })
+                .where(eq(facilityBookings.id, next.id));
+              console.log(`[Stripe Webhook] Subscription ${subId} cycle: marked booking ${next.id} (${next.bookingDate}) paid`);
+            } else {
+              console.log(`[Stripe Webhook] Subscription ${subId}: no pending bookings left to advance`);
+            }
+          } catch (e) {
+            console.error("[Stripe Webhook] invoice.paid handler failed:", e);
+          }
+        }
+      } else if (event.type === "invoice.payment_failed") {
+        // A weekly invoice failed. Stripe will retry per its schedule; we
+        // don't cancel the booking here — wait for subscription.deleted.
+        const invoice = event.data.object as any;
+        console.warn(`[Stripe Webhook] invoice.payment_failed for subscription ${invoice.subscription} (will retry)`);
+      } else if (event.type === "customer.subscription.deleted") {
+        // Subscription cancelled (either by customer, by Stripe after retries
+        // exhausted, or by our own cancel_at fence). Cancel any remaining
+        // pending bookings for this subscription. Already-paid bookings stay.
+        const sub = event.data.object as any;
+        try {
+          const updated = await db.update(facilityBookings)
+            .set({ status: "cancelled" })
+            .where(and(
+              eq(facilityBookings.stripeSubscriptionId, sub.id),
+              eq(facilityBookings.status, "pending"),
+            ))
+            .returning();
+          console.log(`[Stripe Webhook] Subscription ${sub.id} cancelled: ${updated.length} pending bookings cancelled`);
+        } catch (e) {
+          console.error("[Stripe Webhook] subscription.deleted handler failed:", e);
         }
       } else if (
         event.type === "charge.refunded" ||
