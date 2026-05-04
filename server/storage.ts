@@ -62,6 +62,8 @@ import {
   type InsertTournamentGame, type TournamentGame,
   type InsertTournamentGoal, type TournamentGoal,
   type InsertClub, type Club,
+  terms,
+  type InsertTerm, type Term,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -178,6 +180,11 @@ export interface IStorage {
   updateClub(id: number, data: Partial<InsertClub>): Promise<Club | undefined>;
   deleteClub(id: number): Promise<void>;
   getClubTeams(clubId: number): Promise<TournamentTeam[]>;
+
+  getTerms(orgId: number): Promise<Term[]>;
+  createTerm(data: InsertTerm): Promise<Term>;
+  updateTerm(id: number, data: Partial<InsertTerm>): Promise<Term | undefined>;
+  deleteTerm(id: number): Promise<void>;
 
   getTournaments(orgId: number): Promise<Tournament[]>;
   getTournament(id: number): Promise<Tournament | undefined>;
@@ -1492,6 +1499,24 @@ export class DatabaseStorage implements IStorage {
 
   async getClubTeams(clubId: number): Promise<TournamentTeam[]> {
     return db.select().from(tournamentTeams).where(eq(tournamentTeams.clubId, clubId));
+  }
+
+  async getTerms(orgId: number): Promise<Term[]> {
+    return db.select().from(terms).where(eq(terms.organizationId, orgId)).orderBy(desc(terms.year), asc(terms.termNumber));
+  }
+
+  async createTerm(data: InsertTerm): Promise<Term> {
+    const [t] = await db.insert(terms).values(data).returning();
+    return t;
+  }
+
+  async updateTerm(id: number, data: Partial<InsertTerm>): Promise<Term | undefined> {
+    const [t] = await db.update(terms).set(data).where(eq(terms.id, id)).returning();
+    return t;
+  }
+
+  async deleteTerm(id: number): Promise<void> {
+    await db.delete(terms).where(eq(terms.id, id));
   }
 
   async getTournaments(orgId: number): Promise<Tournament[]> {
