@@ -661,6 +661,32 @@ function ConfigureFacility({
   const [multiDay, setMultiDay] = useState(false);
   const [extraDates, setExtraDates] = useState<string[]>([]);
   const [busy, setBusy] = useState<AvailabilitySlot[]>([]);
+  // Recurring weekly: locks the same time on every weekday-of-`date` from
+  // `date` through `recurringUntil` inclusive. Mutually exclusive with
+  // Multi-day (which lets you cherry-pick dates manually).
+  const [recurring, setRecurring] = useState(false);
+  const [recurringUntil, setRecurringUntil] = useState(addDays(todayISO(), 84)); // 12 weeks default
+  const [paymentMode, setPaymentMode] = useState<"upfront" | "weekly">("upfront");
+
+  // Compute the recurring date list when recurring mode is on.
+  const recurringDates = useMemo(() => {
+    if (!recurring) return [] as string[];
+    const out: string[] = [];
+    const start = new Date(date + "T00:00:00");
+    const end = new Date(recurringUntil + "T00:00:00");
+    if (end < start) return [];
+    const cur = new Date(start);
+    cur.setDate(cur.getDate() + 7); // skip the start date itself (already in primary)
+    while (cur <= end) {
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+      out.push(iso);
+      cur.setDate(cur.getDate() + 7);
+    }
+    return out;
+  }, [recurring, date, recurringUntil]);
+
+  // Recurring overrides multi-day's extraDates source.
+  const effectiveExtraDates = recurring ? recurringDates : (multiDay ? extraDates : []);
 
   const durationMinutes = useMemo(() => {
     if (!startTime || !endTime) return 0;
@@ -669,7 +695,7 @@ function ConfigureFacility({
     return (eh * 60 + em) - (sh * 60 + sm);
   }, [startTime, endTime]);
 
-  const allDates = useMemo(() => Array.from(new Set([date, ...extraDates])), [date, extraDates]);
+  const allDates = useMemo(() => Array.from(new Set([date, ...effectiveExtraDates])), [date, effectiveExtraDates]);
 
   // Fetch availability whenever facility/dates change
   useEffect(() => {
@@ -1001,7 +1027,113 @@ function ConfigureFacility({
         </div>
       )}
 
-      {multiDay && extraDates.length > 0 && (
+      {/* Recurring weekly — lock in the same slot every week until a chosen end date.
+          When on, this overrides the manual Multi-day picker. */}
+      <div
+        className="rounded-xl border p-3 mb-3 transition-all duration-200"
+        style={{
+          borderColor: recurring ? brand : "rgba(255,255,255,0.08)",
+          background: recurring ? `${brand}10` : "rgba(255,255,255,0.02)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200"
+              style={{
+                background: recurring ? `${brand}25` : "rgba(255,255,255,0.04)",
+                color: recurring ? brand : "rgba(255,255,255,0.5)",
+              }}
+            >
+              <CalendarIcon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Recurring weekly</div>
+              <div className="text-[11px] text-white/50">
+                {recurring
+                  ? `Repeats every ${new Date(date + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "long" })} until your chosen date`
+                  : "Lock in the same time every week"}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const turnOn = !recurring;
+              setRecurring(turnOn);
+              if (turnOn) setMultiDay(false);
+            }}
+            data-testid="button-recurring-toggle"
+            className="flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-xs font-semibold transition-all duration-200 flex-shrink-0 border"
+            style={{
+              background: recurring ? brand : "rgba(255,255,255,0.06)",
+              borderColor: recurring ? brand : "rgba(255,255,255,0.12)",
+              color: recurring ? "white" : "rgba(255,255,255,0.7)",
+              boxShadow: recurring ? `0 4px 12px ${brand}50` : undefined,
+            }}
+          >
+            {recurring ? <><CheckCircle2 className="w-3.5 h-3.5" /> On</> : <><Plus className="w-3.5 h-3.5" /> Add</>}
+          </button>
+        </div>
+
+        {recurring && (
+          <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div>
+              <Label className="text-[11px] text-white/60 mb-1.5 block">Repeat until</Label>
+              <Input
+                type="date"
+                value={recurringUntil}
+                min={date}
+                max={addDays(todayISO(), settings.advanceBookingDays)}
+                onChange={e => setRecurringUntil(e.target.value)}
+                data-testid="input-recurring-until"
+                className="bg-white/[0.04] border-white/10 text-white"
+              />
+              <div className="text-[10px] text-white/40 mt-1">
+                {recurringDates.length + 1} weekly bookings: {fmtDateLong(date)} → {fmtDateLong(recurringUntil)}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-[11px] text-white/60 mb-1.5 block">Payment</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { key: "upfront", title: "Pay upfront", sub: "All bookings paid in one go", disabled: false },
+                  { key: "weekly",  title: "Pay weekly",  sub: "Auto-charged each week", disabled: true },
+                ] as const).map(opt => {
+                  const active = paymentMode === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => { if (!opt.disabled) setPaymentMode(opt.key); }}
+                      disabled={opt.disabled}
+                      data-testid={`button-payment-mode-${opt.key}`}
+                      className="relative text-left p-3 rounded-lg border transition-all duration-200 disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: active ? brand : "rgba(255,255,255,0.1)",
+                        background: active ? `${brand}15` : "rgba(255,255,255,0.02)",
+                        opacity: opt.disabled ? 0.5 : 1,
+                      }}
+                    >
+                      {opt.disabled && (
+                        <span className="absolute top-1.5 right-1.5 text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
+                          Soon
+                        </span>
+                      )}
+                      <div className="text-xs font-semibold flex items-center gap-1.5" style={{ color: active ? "white" : "rgba(255,255,255,0.8)" }}>
+                        {active && <CheckCircle2 className="w-3 h-3" style={{ color: brand }} />}
+                        {opt.title}
+                      </div>
+                      <div className="text-[10px] text-white/40 mt-0.5">{opt.sub}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {(multiDay && extraDates.length > 0) && (
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 mb-4">
           <div className="text-[11px] text-white/40 mb-2">
             Multi-day: same time on {extraDates.length + 1} dates

@@ -346,6 +346,10 @@ export const facilityBookings = pgTable("facility_bookings", {
   status: bookingStatusEnum("status").notNull().default("pending"),
   stripePaymentId: text("stripe_payment_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
+  // For "Pay weekly" recurring bookings — links the booking row to a
+  // Stripe Subscription so the webhook can advance the right booking
+  // when each weekly invoice succeeds.
+  stripeSubscriptionId: text("stripe_subscription_id"),
   paidAt: timestamp("paid_at"),
   bookingGroupId: text("booking_group_id"),
   notes: text("notes"),
