@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4181,13 +4181,20 @@ export async function registerRoutes(
   // Build a teamId → clubLogoUrl map for a tournament so the public games
   // and teams endpoints can cascade team.logoUrl → club.logoUrl when a team
   // doesn't have its own logo override.
+  //
+  // First version did Promise.all(clubIds.map(storage.getClub)) which fires
+  // N parallel DB queries — for 16+ clubs that maxes out the Supabase
+  // session-mode pool (15 connections) and the public games endpoint
+  // returns 500 'EMAXCONNSESSION'. Now: single IN-query.
   async function clubLogoMapForTournament(tournamentId: number): Promise<Map<number, string | null>> {
     const teams = await storage.getTournamentTeams(tournamentId);
     const clubIds = [...new Set(teams.map(t => t.clubId).filter((id): id is number => !!id))];
     if (clubIds.length === 0) return new Map();
-    const allClubs = await Promise.all(clubIds.map(id => storage.getClub(id)));
+    const rows = await db.select({ id: clubs.id, logoUrl: clubs.logoUrl })
+      .from(clubs)
+      .where(inArray(clubs.id, clubIds));
     const clubMap = new Map<number, string | null>();
-    for (const c of allClubs) if (c) clubMap.set(c.id, c.logoUrl ?? null);
+    for (const c of rows) clubMap.set(c.id, c.logoUrl ?? null);
     const teamToClubLogo = new Map<number, string | null>();
     for (const t of teams) {
       if (t.clubId) teamToClubLogo.set(t.id, clubMap.get(t.clubId) ?? null);
