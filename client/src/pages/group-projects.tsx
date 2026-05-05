@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, X, User, Calendar as CalendarIcon, Flag, Check, Inbox, LayoutGrid, Layers, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, X, User, Calendar as CalendarIcon, Flag, Check, Inbox, LayoutGrid, Layers, AlertCircle, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
 
 // Brand vocabulary — the slugs of every org so brand_tags filter chips read
 // naturally. Stays in sync with organizations.slug values.
@@ -83,6 +83,7 @@ export default function GroupProjectsPage() {
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [taskModal, setTaskModal] = useState<{ mode: "create" | "edit"; task?: ProjectTask; defaultGroupId?: number } | null>(null);
+  const [boardModal, setBoardModal] = useState<{ mode: "create" | "edit"; board?: ProjectBoard } | null>(null);
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -180,11 +181,38 @@ export default function GroupProjectsPage() {
     enabled: !!orgId,
   });
 
-  const createBoard = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/admin/projects/boards", { organizationId: orgId, name: "New board" }),
+  const saveBoard = useMutation({
+    mutationFn: async ({ id, payload }: { id?: number; payload: any }) => {
+      if (id) {
+        const r = await apiRequest("PATCH", `/api/admin/projects/boards/${id}`, payload);
+        return r.json();
+      }
+      const r = await apiRequest("POST", "/api/admin/projects/boards", { ...payload, organizationId: orgId });
+      return r.json();
+    },
+    onSuccess: (board: ProjectBoard, vars) => {
+      // Refetch so the new/edited board shows up immediately, and auto-select
+      // it so the customer sees their new board open straight away.
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/boards"] });
+      queryClient.refetchQueries({ queryKey: ["/api/admin/projects/boards", orgId] });
+      if (!vars.id && board?.id) {
+        setSelectedBoardId(board.id);
+        setView("board");
+      }
+      setBoardModal(null);
+      toast({ title: vars.id ? "Board updated" : "Board created" });
+    },
+    onError: (e: any) => toast({ title: "Couldn't save board", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteBoard = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/projects/boards/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/boards", orgId] });
-      toast({ title: "Board created" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/boards"] });
+      queryClient.refetchQueries({ queryKey: ["/api/admin/projects/boards", orgId] });
+      setSelectedBoardId(null);
+      setBoardModal(null);
+      toast({ title: "Board deleted" });
     },
   });
 
@@ -265,9 +293,10 @@ export default function GroupProjectsPage() {
         <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-white/30 font-semibold flex items-center justify-between">
           <span>Boards</span>
           <button
-            onClick={() => createBoard.mutate()}
+            onClick={() => setBoardModal({ mode: "create" })}
             data-testid="button-create-board"
-            className="w-5 h-5 rounded hover:bg-white/[0.06] flex items-center justify-center text-white/40 hover:text-white"
+            className="w-5 h-5 rounded hover:bg-white/[0.06] flex items-center justify-center text-white/40 hover:text-white transition"
+            title="New board"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -279,20 +308,40 @@ export default function GroupProjectsPage() {
               <Skeleton className="h-7 w-full" />
               <Skeleton className="h-7 w-full" />
             </div>
+          ) : boards.length === 0 ? (
+            <button
+              onClick={() => setBoardModal({ mode: "create" })}
+              data-testid="button-empty-create-board"
+              className="mx-3 mt-2 w-[calc(100%-1.5rem)] rounded-lg border border-dashed border-white/10 px-3 py-3 text-[11px] text-white/40 hover:text-white hover:border-white/20 transition"
+            >
+              + Create your first board
+            </button>
           ) : boards.map(b => {
             const active = view === "board" && board?.id === b.id;
             return (
-              <button
+              <div
                 key={b.id}
-                onClick={() => { setView("board"); setSelectedBoardId(b.id); }}
-                data-testid={`button-board-${b.id}`}
-                className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors border-l-2 ${
-                  active ? "bg-white/[0.04] text-white border-blue-500" : "text-white/60 hover:bg-white/[0.02] border-transparent"
+                className={`group relative flex items-center gap-2 transition-colors border-l-2 ${
+                  active ? "bg-white/[0.04] border-blue-500" : "hover:bg-white/[0.02] border-transparent"
                 }`}
               >
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: b.color || "#3b82f6" }} />
-                <span className="truncate">{b.name}</span>
-              </button>
+                <button
+                  onClick={() => { setView("board"); setSelectedBoardId(b.id); }}
+                  data-testid={`button-board-${b.id}`}
+                  className={`flex-1 flex items-center gap-2 pl-4 pr-2 py-2 text-sm text-left ${active ? "text-white" : "text-white/60"}`}
+                >
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: b.color || "#3b82f6" }} />
+                  <span className="truncate">{b.name}</span>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setBoardModal({ mode: "edit", board: b }); }}
+                  data-testid={`button-edit-board-${b.id}`}
+                  className="opacity-0 group-hover:opacity-100 mr-2 w-6 h-6 rounded text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition"
+                  title="Edit board"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -397,6 +446,16 @@ export default function GroupProjectsPage() {
         </div>
       </div>
 
+      {boardModal && (
+        <BoardModal
+          mode={boardModal.mode}
+          board={boardModal.board}
+          onClose={() => setBoardModal(null)}
+          onSave={(payload) => saveBoard.mutate({ id: boardModal.board?.id, payload })}
+          onDelete={boardModal.board ? () => deleteBoard.mutate(boardModal.board!.id) : undefined}
+          saving={saveBoard.isPending}
+        />
+      )}
       {taskModal && board && (
         <TaskModal
           mode={taskModal.mode}
@@ -1001,6 +1060,161 @@ function CalendarView({
             </>
           );
         })()}
+      </div>
+    </div>
+  );
+}
+
+// ── Board create/edit modal ──────────────────────────────────────────────────
+function BoardModal({
+  mode, board, onClose, onSave, onDelete, saving,
+}: {
+  mode: "create" | "edit";
+  board?: ProjectBoard;
+  onClose: () => void;
+  onSave: (payload: any) => void;
+  onDelete?: () => void;
+  saving?: boolean;
+}) {
+  const [name, setName] = useState(board?.name || "");
+  const [description, setDescription] = useState(board?.description || "");
+  const [color, setColor] = useState(board?.color || "#3b82f6");
+  const [brandTags, setBrandTags] = useState<string[]>(board?.brandTags || []);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const PRESET_COLORS = [
+    "#3b82f6", "#06b6d4", "#22c55e", "#84cc16", "#eab308",
+    "#f97316", "#ef4444", "#ec4899", "#a855f7", "#8b5cf6",
+    "#64748b", "#14b8a6",
+  ];
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onSave({
+      name: name.trim(),
+      description: description.trim() || null,
+      color,
+      brandTags,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-[#0a0e1a] border border-white/10 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2 duration-200"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full" style={{ background: color }} />
+            <h2 className="text-base font-semibold">{mode === "create" ? "New board" : "Edit board"}</h2>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg text-white/40 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" data-testid="button-close-board-modal">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <Label className="text-xs text-white/60 mb-1 block">Board name</Label>
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && name.trim()) submit(); }}
+              placeholder="e.g. CIC July Tournament Ops"
+              autoFocus
+              className="bg-white/[0.04] border-white/10 text-white"
+              data-testid="input-board-name"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs text-white/60 mb-1 block">Description <span className="text-white/30">(optional)</span></Label>
+            <Textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="What's this board for?"
+              className="bg-white/[0.04] border-white/10 text-white min-h-[60px]"
+              data-testid="input-board-description"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs text-white/60 mb-1.5 block">Colour</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_COLORS.map(c => {
+                const active = color === c;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setColor(c)}
+                    data-testid={`board-color-${c}`}
+                    className={`w-7 h-7 rounded-lg transition-all ${active ? "ring-2 ring-white/80 scale-110" : "hover:scale-105"}`}
+                    style={{ background: c }}
+                    title={c}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs text-white/60 mb-1.5 block">Default brand tags <span className="text-white/30">(optional)</span></Label>
+            <div className="flex flex-wrap gap-1.5">
+              {BRANDS.map(b => {
+                const active = brandTags.includes(b.slug);
+                return (
+                  <button
+                    key={b.slug}
+                    type="button"
+                    onClick={() => setBrandTags(prev => active ? prev.filter(x => x !== b.slug) : [...prev, b.slug])}
+                    data-testid={`board-brand-${b.slug}`}
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition"
+                    style={{
+                      borderColor: active ? b.color : "rgba(255,255,255,0.1)",
+                      background: active ? `${b.color}25` : "transparent",
+                      color: active ? "white" : "rgba(255,255,255,0.6)",
+                    }}
+                  >
+                    {b.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-white/30 mt-1.5">Pre-populates new tasks created in this board.</p>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+          <div>
+            {onDelete && (
+              <>
+                {confirmDelete ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-white/60">Delete and all its tasks?</span>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} className="text-white/50 h-7 text-xs px-2">Cancel</Button>
+                    <Button size="sm" onClick={onDelete} className="bg-red-600 hover:bg-red-700 text-white h-7 text-xs px-2" data-testid="button-confirm-delete-board">
+                      <Trash2 className="w-3 h-3 mr-1" /> Delete
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10" data-testid="button-delete-board">
+                    <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+          {!confirmDelete && (
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50">Cancel</Button>
+              <Button size="sm" onClick={submit} disabled={!name.trim() || saving} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-save-board">
+                <Check className="w-3.5 h-3.5 mr-1" /> {mode === "create" ? "Create board" : "Save changes"}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
