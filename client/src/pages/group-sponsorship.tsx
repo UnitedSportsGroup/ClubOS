@@ -985,6 +985,11 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] }),
   });
 
+  const remove = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/sponsorship/deliverables/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] }),
+  });
+
   const today = new Date(); today.setHours(0,0,0,0);
   const filtered = useMemo(() => {
     return rows.filter(r => {
@@ -1045,60 +1050,302 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
           </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-          <div className="grid grid-cols-[24px_1fr_1.5fr_120px_100px_140px_100px] gap-2 px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">
-            <div></div>
-            <div>Sponsor</div>
-            <div>Deliverable</div>
-            <div>Status</div>
-            <div>Owner</div>
-            <div>Scheduled</div>
-            <div>Proof</div>
-          </div>
-          {filtered.map(r => {
-            const owner = team.find(m => m.id === r.ownerId);
-            const sched = r.scheduledDate ? new Date(r.scheduledDate + "T00:00:00") : null;
-            const overdue = sched && sched < today && r.status !== "delivered" && r.status !== "waived";
-            const cfg = STATUS_CONFIG[(overdue && r.status === "pending" ? "overdue" : r.status) as keyof typeof STATUS_CONFIG];
-            const StatusIcon = cfg.icon;
-            return (
-              <div key={r.id} className="grid grid-cols-[24px_1fr_1.5fr_120px_100px_140px_100px] gap-2 px-3 py-2 border-b border-white/[0.04] hover:bg-white/[0.02] items-center text-xs">
-                <button
-                  onClick={() => {
-                    const order: SponsorshipDeliverable["status"][] = ["pending", "in_progress", "delivered"];
-                    const i = order.indexOf(r.status);
-                    update.mutate({ id: r.id, patch: { status: order[(i + 1) % order.length] } });
-                  }}
-                  className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/[0.06]"
-                  style={{ color: cfg.color }}
-                >
-                  <StatusIcon className="w-4 h-4" />
-                </button>
-                <div className="truncate text-white font-medium">{r.deal?.sponsorCompany || "—"}</div>
-                <div className={`truncate ${r.status === "delivered" || r.status === "waived" ? "line-through text-white/40" : "text-white/80"}`}>{r.title}</div>
-                <select
-                  value={r.status}
-                  onChange={e => update.mutate({ id: r.id, patch: { status: e.target.value } })}
-                  className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-1.5 h-6"
-                >
-                  {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select>
-                <div className="text-[11px] text-white/50 truncate">{owner ? `${owner.first_name} ${owner.last_name[0]}.` : "—"}</div>
-                <div className={`text-[11px] ${overdue ? "text-red-400" : "text-white/50"}`}>
-                  {sched ? sched.toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "2-digit" }) : "—"}
-                </div>
-                <div>
-                  {r.proofUrl ? (
-                    <a href={r.proofUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 text-[11px] flex items-center gap-1">
-                      <LinkIcon className="w-3 h-3" /> Open
-                    </a>
-                  ) : (
-                    <span className="text-[11px] text-white/25">—</span>
+        <DeliverablesGroupedBySponsor
+          rows={filtered}
+          team={team}
+          today={today}
+          onUpdate={(id, patch) => update.mutate({ id, patch })}
+          onDelete={(id) => remove.mutate(id)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Grouped-by-sponsor renderer for the Deliverables tab. Each sponsor is a
+// collapsible card with progress, deal context, and a fully-editable list
+// of their deliverables. Adds an "Add deliverable" affordance per sponsor
+// so contract items can be created without opening the deal modal.
+function DeliverablesGroupedBySponsor({
+  rows, team, today, onUpdate,
+}: {
+  rows: Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>;
+  team: TeamMember[];
+  today: Date;
+  onUpdate: (id: number, patch: any) => void;
+  onDelete?: (id: number) => void;
+}) {
+  const groups = useMemo(() => {
+    const m = new Map<number, { deal: SponsorshipDeal | null; items: typeof rows }>();
+    for (const r of rows) {
+      const key = r.dealId;
+      if (!m.has(key)) m.set(key, { deal: r.deal, items: [] });
+      m.get(key)!.items.push(r);
+    }
+    return Array.from(m.values()).sort((a, b) =>
+      (a.deal?.sponsorCompany || "").localeCompare(b.deal?.sponsorCompany || "")
+    );
+  }, [rows]);
+
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const toggle = (dealId: number) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(dealId)) next.delete(dealId); else next.add(dealId);
+    return next;
+  });
+
+  const queryClient2 = queryClient;
+  const [adding, setAdding] = useState<number | null>(null);
+  const createMutation = useMutation({
+    mutationFn: async ({ dealId, payload }: { dealId: number; payload: any }) => {
+      const r = await apiRequest("POST", `/api/admin/sponsorship/deals/${dealId}/deliverables`, { ...payload, category: "contract" });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient2.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] });
+      setAdding(null);
+    },
+  });
+
+  return (
+    <div className="space-y-3">
+      {groups.map(g => {
+        const isCollapsed = g.deal && collapsed.has(g.deal.id);
+        const total = g.items.length;
+        const delivered = g.items.filter(i => i.status === "delivered" || i.status === "waived").length;
+        const overdue = g.items.filter(i => {
+          if (i.status === "delivered" || i.status === "waived") return false;
+          if (!i.scheduledDate) return false;
+          return new Date(i.scheduledDate + "T00:00:00") < today;
+        }).length;
+        const stage = g.deal?.stage;
+        const stageCfg = STAGES.find(s => s.key === stage);
+        const pct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+        return (
+          <div key={g.deal?.id || 0} className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+            <button
+              onClick={() => g.deal && toggle(g.deal.id)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors text-left"
+            >
+              {stageCfg && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stageCfg.color }} />}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <span className="truncate">{g.deal?.sponsorCompany || "Unknown sponsor"}</span>
+                  {g.deal?.brandTags && g.deal.brandTags.length > 0 && (
+                    <span className="flex gap-1 flex-shrink-0">
+                      {g.deal.brandTags.slice(0, 2).map(slug => {
+                        const b = BRANDS.find(x => x.slug === slug);
+                        return <span key={slug} className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${b?.color || "#64748b"}20`, color: b?.color || "#64748b" }}>{b?.label || slug}</span>;
+                      })}
+                    </span>
                   )}
                 </div>
+                {g.deal?.title && g.deal.title !== g.deal.sponsorCompany && (
+                  <div className="text-[11px] text-white/40 truncate">{g.deal.title}</div>
+                )}
               </div>
-            );
-          })}
+              <div className="flex items-center gap-3 text-[11px] text-white/50 flex-shrink-0">
+                {overdue > 0 && (
+                  <span className="text-red-400 font-semibold flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />{overdue} overdue
+                  </span>
+                )}
+                <span className="font-medium">{delivered}/{total}</span>
+                <div className="w-20 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                  <div className="h-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#22c55e" : "#3b82f6" }} />
+                </div>
+                {isCollapsed ? <ChevronRightInline /> : <ChevronDownInline />}
+              </div>
+            </button>
+
+            {!isCollapsed && (
+              <div className="border-t border-white/[0.04] p-2 space-y-1.5 bg-black/10">
+                {g.items.map(d => (
+                  <DeliverableEditableRow
+                    key={d.id}
+                    item={d as SponsorshipDeliverable}
+                    team={team}
+                    today={today}
+                    onUpdate={(patch) => onUpdate(d.id, patch)}
+                    onDelete={onDelete ? () => onDelete(d.id) : undefined}
+                  />
+                ))}
+                {adding === g.deal?.id ? (
+                  <DeliverableForm
+                    team={team}
+                    onCancel={() => setAdding(null)}
+                    onSubmit={(payload) => g.deal && createMutation.mutate({ dealId: g.deal.id, payload })}
+                  />
+                ) : (
+                  <button
+                    onClick={() => g.deal && setAdding(g.deal.id)}
+                    className="w-full text-[11px] text-white/30 hover:text-white/60 italic py-2 rounded border border-dashed border-white/10 hover:border-white/20 transition"
+                  >
+                    + Add deliverable to {g.deal?.sponsorCompany}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChevronDownInline() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><path d="m6 9 6 6 6-6"/></svg>;
+}
+function ChevronRightInline() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><path d="m9 18 6-6-6-6"/></svg>;
+}
+
+// Fully editable deliverable row used inside the grouped Deliverables tab.
+// Click anywhere to expand; status icon click cycles status without expanding.
+function DeliverableEditableRow({ item, team, today, onUpdate, onDelete }: {
+  item: SponsorshipDeliverable;
+  team: TeamMember[];
+  today: Date;
+  onUpdate: (patch: any) => void;
+  onDelete?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [title, setTitle] = useState(item.title);
+  const [proofUrl, setProofUrl] = useState(item.proofUrl || "");
+  const owner = team.find(m => m.id === item.ownerId);
+  const sched = item.scheduledDate ? new Date(item.scheduledDate + "T00:00:00") : null;
+  const isOverdue = sched && sched < today && item.status !== "delivered" && item.status !== "waived";
+  const effectiveStatus = isOverdue && item.status === "pending" ? "overdue" : item.status;
+  const cfg = STATUS_CONFIG[effectiveStatus as keyof typeof STATUS_CONFIG];
+  const StatusIcon = cfg.icon;
+
+  const cycleStatus = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const order: SponsorshipDeliverable["status"][] = ["pending", "in_progress", "delivered"];
+    const i = order.indexOf(item.status);
+    onUpdate({ status: order[(i + 1) % order.length] });
+  };
+
+  return (
+    <div className="rounded-md border border-white/[0.04] bg-white/[0.02]">
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <button
+          onClick={cycleStatus}
+          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition hover:bg-white/[0.06]"
+          style={{ color: cfg.color }}
+          title={cfg.label}
+        >
+          <StatusIcon className="w-4 h-4" />
+        </button>
+        <button onClick={() => setExpanded(v => !v)} className="flex-1 text-left min-w-0">
+          <div className={`text-xs font-medium truncate ${item.status === "delivered" || item.status === "waived" ? "line-through text-white/40" : "text-white"}`}>
+            {item.title}
+          </div>
+          <div className="text-[10px] text-white/40 flex items-center gap-1.5 truncate">
+            {item.type && <span>{item.type.replace(/_/g, " ")}</span>}
+            {item.entitlementQty != null && item.entitlementQty > 1 && (
+              <span>· {item.usedQty || 0}/{item.entitlementQty}</span>
+            )}
+            {sched && (
+              <span className={isOverdue ? "text-red-400" : ""}>· {sched.toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "2-digit" })}</span>
+            )}
+            {owner && <span>· {owner.first_name}</span>}
+            {item.proofUrl && <LinkIcon className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+          </div>
+        </button>
+        {onDelete && (
+          <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete deliverable "${item.title}"?`)) onDelete(); }} className="w-5 h-5 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" title="Delete">
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="px-2 pb-2 pt-1 border-t border-white/[0.04] space-y-2">
+          <div>
+            <Label className="text-[10px] text-white/50 mb-0.5 block">Title</Label>
+            <Input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              onBlur={() => { if (title.trim() && title.trim() !== item.title) onUpdate({ title: title.trim() }); }}
+              className="bg-white/[0.04] border-white/10 text-white h-7 text-xs"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <div>
+              <Label className="text-[10px] text-white/50 mb-0.5 block">Status</Label>
+              <select
+                value={item.status}
+                onChange={e => onUpdate({ status: e.target.value })}
+                className="w-full text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7"
+              >
+                {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{STATUS_CONFIG[s as keyof typeof STATUS_CONFIG].label}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-[10px] text-white/50 mb-0.5 block">Owner</Label>
+              <select
+                value={item.ownerId ?? ""}
+                onChange={e => onUpdate({ ownerId: e.target.value ? parseInt(e.target.value) : null })}
+                className="w-full text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7"
+              >
+                <option value="">Unassigned</option>
+                {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            <div>
+              <Label className="text-[10px] text-white/50 mb-0.5 block">Type</Label>
+              <select
+                value={item.type || ""}
+                onChange={e => onUpdate({ type: e.target.value || null })}
+                className="w-full text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7 capitalize"
+              >
+                <option value="">—</option>
+                {DELIVERABLE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-[10px] text-white/50 mb-0.5 block">Scheduled</Label>
+              <Input
+                type="date"
+                value={item.scheduledDate || ""}
+                onChange={e => onUpdate({ scheduledDate: e.target.value || null })}
+                className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-white/50 mb-0.5 block">Qty</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min="0"
+                  value={item.usedQty ?? 0}
+                  onChange={e => onUpdate({ usedQty: parseInt(e.target.value || "0") })}
+                  className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px] w-12"
+                />
+                <span className="text-[10px] text-white/40">/ {item.entitlementQty ?? 1}</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <Label className="text-[10px] text-white/50 mb-0.5 block">Proof URL</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                value={proofUrl}
+                onChange={e => setProofUrl(e.target.value)}
+                onBlur={() => { if (proofUrl !== (item.proofUrl || "")) onUpdate({ proofUrl: proofUrl || null }); }}
+                placeholder="https://… (photo / social link / signed manifest)"
+                className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
+              />
+              {item.proofUrl && (
+                <a href={item.proofUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 px-1.5">
+                  <LinkIcon className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
