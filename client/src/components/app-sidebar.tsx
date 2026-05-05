@@ -118,7 +118,6 @@ const tournamentSecondary = [
 const gymnasticsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Programs", url: "/admin/programs", icon: GraduationCap },
-  { title: "Terms", url: "/admin/terms", icon: Calendar },
 ];
 
 const gymnasticsSecondary = [
