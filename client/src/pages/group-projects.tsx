@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, X, User, Calendar as CalendarIcon, Flag, Check, Inbox, LayoutGrid, Layers, AlertCircle } from "lucide-react";
+import { Plus, X, User, Calendar as CalendarIcon, Flag, Check, Inbox, LayoutGrid, Layers, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 
 // Brand vocabulary — the slugs of every org so brand_tags filter chips read
 // naturally. Stays in sync with organizations.slug values.
@@ -76,8 +76,12 @@ export default function GroupProjectsPage() {
   const orgId = currentOrg?.id;
 
   const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null);
-  const [view, setView] = useState<"board" | "mine">("board");
+  const [view, setView] = useState<"board" | "mine" | "calendar">("board");
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
   const [taskModal, setTaskModal] = useState<{ mode: "create" | "edit"; task?: ProjectTask; defaultGroupId?: number } | null>(null);
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
@@ -119,7 +123,51 @@ export default function GroupProjectsPage() {
       if (!r.ok) throw new Error("Failed to load");
       return r.json();
     },
-    enabled: view === "mine",
+    enabled: view === "mine" || view === "calendar",
+  });
+
+  // Calendar view fetches every task across every board (org-scoped) plus the
+  // org-wide events from /api/admin/calendar-events so the customer sees the
+  // full alignment picture: their work + the team's work + scheduled events.
+  const { data: allTasks = [] } = useQuery<ProjectTask[]>({
+    queryKey: ["/api/admin/projects/tasks", { all: true, orgId, brand: brandFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("organizationId", String(orgId));
+      if (brandFilter) params.set("brand", brandFilter);
+      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: !!orgId && view === "calendar",
+  });
+
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const start = new Date(calendarMonth.year, calendarMonth.month, 1);
+    start.setDate(1 - ((start.getDay() + 6) % 7)); // back to Monday
+    const end = new Date(start);
+    end.setDate(end.getDate() + 42);
+    return { rangeStart: start, rangeEnd: end };
+  }, [calendarMonth]);
+
+  const { data: orgEvents = [] } = useQuery<Array<{ id: number; title: string; date: string; categorySlug: string | null; allDay: boolean }>>({
+    queryKey: ["/api/admin/calendar-events", rangeStart.toISOString(), rangeEnd.toISOString()],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/calendar-events?startDate=${rangeStart.toISOString()}&endDate=${rangeEnd.toISOString()}`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: view === "calendar",
+  });
+
+  const { data: eventCategories = [] } = useQuery<Array<{ slug: string; label: string; color: string }>>({
+    queryKey: ["/api/admin/calendar-categories", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/calendar-categories?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!orgId && view === "calendar",
   });
 
   const { data: team = [] } = useQuery<TeamMember[]>({
@@ -187,7 +235,7 @@ export default function GroupProjectsPage() {
           <p className="text-[11px] text-white/40 mt-0.5">Boards across {currentOrg?.name}</p>
         </div>
 
-        {/* My Tasks pinned at top */}
+        {/* My Tasks + Calendar pinned at top */}
         <button
           onClick={() => setView("mine")}
           data-testid="button-view-mine"
@@ -202,6 +250,16 @@ export default function GroupProjectsPage() {
           {myTasks.length > 0 && view !== "mine" && (
             <span className="text-[10px] bg-white/[0.06] px-1.5 py-0.5 rounded">{myTasks.length}</span>
           )}
+        </button>
+        <button
+          onClick={() => setView("calendar")}
+          data-testid="button-view-calendar"
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm transition-colors border-l-2 ${
+            view === "calendar" ? "bg-blue-500/[0.08] text-blue-300 border-blue-500" : "text-white/70 hover:bg-white/[0.03] border-transparent"
+          }`}
+        >
+          <CalendarIcon className="w-4 h-4" />
+          Calendar
         </button>
 
         <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-white/30 font-semibold flex items-center justify-between">
@@ -307,6 +365,20 @@ export default function GroupProjectsPage() {
         <div className="flex-1 overflow-auto">
           {view === "mine" ? (
             <MyTasksView tasks={myTasks} boards={boards} team={team} onEdit={t => setTaskModal({ mode: "edit", task: t })} />
+          ) : view === "calendar" ? (
+            <CalendarView
+              year={calendarMonth.year}
+              month={calendarMonth.month}
+              setMonth={setCalendarMonth}
+              tasks={allTasks}
+              myTaskIds={new Set(myTasks.map(t => t.id))}
+              boards={boards}
+              team={team}
+              orgEvents={orgEvents}
+              eventCategories={eventCategories}
+              onEditTask={(t) => setTaskModal({ mode: "edit", task: t })}
+              currentUserId={me?.id}
+            />
           ) : board ? (
             <KanbanView
               board={board}
@@ -724,6 +796,211 @@ function TaskModal({
             </Button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Calendar view — month grid showing tasks (mine vs others) + org events ──
+// The headline alignment view: "how do my deadlines line up with what
+// everyone else is doing across the brands". Personal tasks render solid
+// and prominent; org-wide tasks render as muted bars; calendar events
+// render in their category colour.
+function CalendarView({
+  year, month, setMonth, tasks, myTaskIds, boards, team, orgEvents, eventCategories, onEditTask, currentUserId,
+}: {
+  year: number;
+  month: number;
+  setMonth: (m: { year: number; month: number }) => void;
+  tasks: ProjectTask[];
+  myTaskIds: Set<number>;
+  boards: ProjectBoard[];
+  team: TeamMember[];
+  orgEvents: Array<{ id: number; title: string; date: string; categorySlug: string | null; allDay: boolean }>;
+  eventCategories: Array<{ slug: string; label: string; color: string }>;
+  onEditTask: (t: ProjectTask) => void;
+  currentUserId?: number;
+}) {
+  const monthLabel = new Date(year, month, 1).toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Build a 6×7 grid starting on Monday containing the requested month
+  const cells: Date[] = useMemo(() => {
+    const first = new Date(year, month, 1);
+    const startOffset = (first.getDay() + 6) % 7;
+    const start = new Date(year, month, 1 - startOffset);
+    const out: Date[] = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      out.push(d);
+    }
+    return out;
+  }, [year, month]);
+
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const tasksByDate = useMemo(() => {
+    const m = new Map<string, ProjectTask[]>();
+    for (const t of tasks) {
+      if (!t.dueDate) continue;
+      const arr = m.get(t.dueDate) || [];
+      arr.push(t);
+      m.set(t.dueDate, arr);
+    }
+    return m;
+  }, [tasks]);
+  const eventsByDate = useMemo(() => {
+    const m = new Map<string, typeof orgEvents>();
+    for (const e of orgEvents) {
+      const day = e.date?.slice(0, 10);
+      if (!day) continue;
+      const arr = m.get(day) || [];
+      arr.push(e);
+      m.set(day, arr);
+    }
+    return m;
+  }, [orgEvents]);
+  const catColor = (slug: string | null) => slug ? (eventCategories.find(c => c.slug === slug)?.color || "#64748b") : "#64748b";
+
+  return (
+    <div className="p-4 space-y-3">
+      {/* Header — month nav + legend */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMonth(month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 })}
+            data-testid="button-cal-prev"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
+          ><ChevronLeft className="w-4 h-4" /></button>
+          <div className="text-base font-semibold w-44 text-center">{monthLabel}</div>
+          <button
+            onClick={() => setMonth(month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 })}
+            data-testid="button-cal-next"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.06] transition"
+          ><ChevronRight className="w-4 h-4" /></button>
+          <button
+            onClick={() => { const d = new Date(); setMonth({ year: d.getFullYear(), month: d.getMonth() }); }}
+            data-testid="button-cal-today"
+            className="ml-2 text-[11px] px-2.5 py-1 rounded-md border border-white/10 text-white/60 hover:text-white hover:border-white/20"
+          >Today</button>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-white/40">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: "#3b82f6" }} />Your tasks</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-white/20" />Team tasks</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: "#22c55e" }} />Org events</span>
+        </div>
+      </div>
+
+      {/* Day-of-week header */}
+      <div className="grid grid-cols-7 gap-1">
+        {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+          <div key={d} className="text-[10px] uppercase tracking-wider text-white/30 font-semibold text-center pb-1">{d}</div>
+        ))}
+      </div>
+
+      {/* Month grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map(d => {
+          const dStr = ymd(d);
+          const inMonth = d.getMonth() === month;
+          const isToday = dStr === todayStr;
+          const dayTasks = tasksByDate.get(dStr) || [];
+          const dayEvents = eventsByDate.get(dStr) || [];
+          // Personal tasks first so they jump out
+          const sortedTasks = [...dayTasks].sort((a, b) =>
+            (myTaskIds.has(b.id) ? 1 : 0) - (myTaskIds.has(a.id) ? 1 : 0)
+          );
+          const totalItems = sortedTasks.length + dayEvents.length;
+          const visibleTasks = sortedTasks.slice(0, 3);
+          const visibleEvents = dayEvents.slice(0, Math.max(0, 4 - visibleTasks.length));
+          const hidden = totalItems - visibleTasks.length - visibleEvents.length;
+
+          return (
+            <div
+              key={dStr}
+              className={`min-h-[110px] rounded-lg border p-1.5 transition-colors ${
+                isToday ? "border-blue-500/40 bg-blue-500/[0.06]" : "border-white/[0.06] bg-white/[0.02]"
+              } ${inMonth ? "" : "opacity-40"}`}
+              data-testid={`cal-day-${dStr}`}
+            >
+              <div className={`text-[11px] font-semibold mb-1 ${isToday ? "text-blue-300" : "text-white/60"}`}>
+                {d.getDate()}
+              </div>
+              <div className="space-y-0.5">
+                {visibleTasks.map(t => {
+                  const mine = myTaskIds.has(t.id);
+                  const owner = team.find(m => m.id === t.ownerId);
+                  const board = boards.find(b => b.id === t.boardId);
+                  return (
+                    <button
+                      key={`t${t.id}`}
+                      onClick={() => onEditTask(t)}
+                      data-testid={`cal-task-${t.id}`}
+                      className={`w-full text-left rounded px-1.5 py-0.5 text-[10px] truncate transition border ${
+                        mine
+                          ? "border-blue-500/50 text-white font-semibold"
+                          : "border-transparent text-white/55"
+                      }`}
+                      style={{
+                        background: mine ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.04)",
+                      }}
+                      title={`${t.title} · ${owner ? owner.first_name + " " + owner.last_name : "unassigned"} · ${board?.name || ""}`}
+                    >
+                      {t.title}
+                    </button>
+                  );
+                })}
+                {visibleEvents.map(e => {
+                  const color = catColor(e.categorySlug);
+                  return (
+                    <div
+                      key={`e${e.id}`}
+                      className="w-full text-left rounded px-1.5 py-0.5 text-[10px] truncate border"
+                      style={{
+                        borderColor: `${color}55`,
+                        background: `${color}15`,
+                        color,
+                      }}
+                      title={e.title}
+                    >
+                      {e.title}
+                    </div>
+                  );
+                })}
+                {hidden > 0 && (
+                  <div className="text-[9px] text-white/30 px-1">+{hidden} more</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer summary — what's coming up for me this month */}
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-white/50">
+        {(() => {
+          const monthMineCount = tasks.filter(t =>
+            t.dueDate &&
+            myTaskIds.has(t.id) &&
+            new Date(t.dueDate + "T00:00:00").getMonth() === month &&
+            new Date(t.dueDate + "T00:00:00").getFullYear() === year
+          ).length;
+          const monthTeamCount = tasks.filter(t =>
+            t.dueDate &&
+            !myTaskIds.has(t.id) &&
+            new Date(t.dueDate + "T00:00:00").getMonth() === month &&
+            new Date(t.dueDate + "T00:00:00").getFullYear() === year
+          ).length;
+          return (
+            <>
+              <span className="text-blue-300 font-semibold">{monthMineCount}</span> task{monthMineCount === 1 ? "" : "s"} on you
+              {" · "}
+              <span className="text-white/70 font-semibold">{monthTeamCount}</span> across the team
+              {" · "}
+              <span className="text-green-300/70 font-semibold">{orgEvents.length}</span> org event{orgEvents.length === 1 ? "" : "s"} this view
+            </>
+          );
+        })()}
       </div>
     </div>
   );
