@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -174,6 +175,7 @@ function TermModal({
 export default function GymnasticsTerms() {
   const { currentOrg } = useWorkspace();
   const orgId = currentOrg?.id;
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Term | null>(null);
