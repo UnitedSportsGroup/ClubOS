@@ -1008,6 +1008,54 @@ export type ProjectBoard = typeof projectBoards.$inferSelect;
 export type ProjectGroup = typeof projectGroups.$inferSelect;
 export type ProjectTask = typeof projectTasks.$inferSelect;
 
+// ── Sponsorship CRM ──────────────────────────────────────────────────────────
+// Pipeline + lifecycle tracker for sponsorship deals across every brand.
+// Stages match Daniel's existing Pipedrive flow so muscle memory carries over,
+// but the schema captures the sport-specific fields (asset category, term,
+// exclusivity, contra value) that generic CRMs miss.
+
+export const sponsorshipDealStageEnum = pgEnum("sponsorship_deal_stage", [
+  "new_lead", "contact_made", "qualified", "call_scheduled",
+  "proposal_sent", "negotiating", "won", "lost",
+  "contract_sent", "invoice_sent", "invoice_paid", "onboarded", "active",
+]);
+
+export const sponsorshipDealTypeEnum = pgEnum("sponsorship_deal_type", ["cash", "contra", "hybrid"]);
+
+export const sponsorshipDeals = pgTable("sponsorship_deals", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sponsorCompany: text("sponsor_company").notNull(),
+  primaryContactName: text("primary_contact_name"),
+  primaryContactEmail: text("primary_contact_email"),
+  primaryContactPhone: text("primary_contact_phone"),
+  stage: sponsorshipDealStageEnum("stage").notNull().default("new_lead"),
+  stageChangedAt: timestamp("stage_changed_at").defaultNow().notNull(),
+  dealValueCents: integer("deal_value_cents").default(0),
+  contraValueCents: integer("contra_value_cents").default(0),
+  dealType: sponsorshipDealTypeEnum("deal_type").notNull().default("cash"),
+  currency: text("currency").notNull().default("NZD"),
+  brandTags: text("brand_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  assetCategory: text("asset_category"),
+  termMonths: integer("term_months"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  exclusivity: text("exclusivity"),
+  ownerId: integer("owner_id").references(() => users.id),
+  source: text("source"),
+  probability: integer("probability").default(10),
+  expectedCloseDate: date("expected_close_date"),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSponsorshipDealSchema = createInsertSchema(sponsorshipDeals).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSponsorshipDeal = z.infer<typeof insertSponsorshipDealSchema>;
+export type SponsorshipDeal = typeof sponsorshipDeals.$inferSelect;
+
 export const printOrderStatusEnum = pgEnum("print_order_status", ["inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled"]);
 
 export const printOrders = pgTable("print_orders", {

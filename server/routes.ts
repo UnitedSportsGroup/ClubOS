@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4328,6 +4328,155 @@ export async function registerRoutes(
       `);
       res.json(rows.rows);
     } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // ── Sponsorship CRM ───────────────────────────────────────────────────────
+  // Pipeline + deals lifecycle. All endpoints org-scoped + auth-gated.
+  // Stages mirror Daniel's existing Pipedrive flow so the muscle memory
+  // carries over: the same 13 columns from sales (new_lead → won) through
+  // fulfilment (contract → invoice → onboarded → active).
+  const STAGE_DEFAULT_PROBABILITY: Record<string, number> = {
+    new_lead: 5, contact_made: 15, qualified: 25, call_scheduled: 35,
+    proposal_sent: 50, negotiating: 70, won: 100, lost: 0,
+    contract_sent: 100, invoice_sent: 100, invoice_paid: 100,
+    onboarded: 100, active: 100,
+  };
+
+  app.get("/api/admin/sponsorship/deals", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(sponsorshipDeals)
+        .where(eq(sponsorshipDeals.organizationId, orgId))
+        .orderBy(asc(sponsorshipDeals.stage), desc(sponsorshipDeals.dealValueCents));
+      const brand = req.query.brand as string | undefined;
+      const owner = req.query.ownerId ? parseInt(req.query.ownerId as string) : undefined;
+      let filtered = rows;
+      if (brand) filtered = filtered.filter(d => Array.isArray(d.brandTags) && d.brandTags.includes(brand));
+      if (owner) filtered = filtered.filter(d => d.ownerId === owner);
+      res.json(filtered);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Pipeline summary — KPI strip up top of the sponsorship dashboard.
+  app.get("/api/admin/sponsorship/summary", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.organizationId, orgId));
+      const yearStart = new Date(new Date().getFullYear(), 0, 1);
+      const wonStages = ["won","contract_sent","invoice_sent","invoice_paid","onboarded","active"];
+      const openStages = ["new_lead","contact_made","qualified","call_scheduled","proposal_sent","negotiating"];
+      const totalAcv = rows
+        .filter(d => wonStages.includes(d.stage))
+        .reduce((s, d) => s + (d.dealValueCents || 0), 0);
+      const totalContra = rows
+        .filter(d => wonStages.includes(d.stage))
+        .reduce((s, d) => s + (d.contraValueCents || 0), 0);
+      const wonYtd = rows
+        .filter(d => wonStages.includes(d.stage) && d.stageChangedAt && new Date(d.stageChangedAt) >= yearStart)
+        .reduce((s, d) => s + (d.dealValueCents || 0), 0);
+      const openPipeline = rows
+        .filter(d => openStages.includes(d.stage))
+        .reduce((s, d) => s + (d.dealValueCents || 0), 0);
+      const weightedPipeline = rows
+        .filter(d => openStages.includes(d.stage))
+        .reduce((s, d) => s + Math.round((d.dealValueCents || 0) * ((d.probability || 0) / 100)), 0);
+      const byStage: Record<string, { count: number; valueCents: number }> = {};
+      for (const d of rows) {
+        const k = d.stage;
+        if (!byStage[k]) byStage[k] = { count: 0, valueCents: 0 };
+        byStage[k].count += 1;
+        byStage[k].valueCents += d.dealValueCents || 0;
+      }
+      res.json({ totalAcvCents: totalAcv, totalContraCents: totalContra, wonYtdCents: wonYtd, openPipelineCents: openPipeline, weightedPipelineCents: weightedPipeline, byStage, count: rows.length });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/admin/sponsorship/deals", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const title = String(req.body?.title || "").trim();
+      const company = String(req.body?.sponsorCompany || "").trim();
+      if (!title || !company) return res.status(400).json({ message: "title and sponsorCompany required" });
+      const stage = req.body?.stage || "new_lead";
+      const probability = req.body?.probability ?? STAGE_DEFAULT_PROBABILITY[stage] ?? 10;
+      const [deal] = await db.insert(sponsorshipDeals).values({
+        organizationId: orgId,
+        title,
+        sponsorCompany: company,
+        primaryContactName: req.body?.primaryContactName || null,
+        primaryContactEmail: req.body?.primaryContactEmail || null,
+        primaryContactPhone: req.body?.primaryContactPhone || null,
+        stage,
+        dealValueCents: req.body?.dealValueCents != null ? Math.round(req.body.dealValueCents) : 0,
+        contraValueCents: req.body?.contraValueCents != null ? Math.round(req.body.contraValueCents) : 0,
+        dealType: req.body?.dealType || "cash",
+        currency: req.body?.currency || "NZD",
+        brandTags: Array.isArray(req.body?.brandTags) ? req.body.brandTags : [],
+        assetCategory: req.body?.assetCategory || null,
+        termMonths: req.body?.termMonths ?? null,
+        startDate: req.body?.startDate || null,
+        endDate: req.body?.endDate || null,
+        exclusivity: req.body?.exclusivity || null,
+        ownerId: req.body?.ownerId ?? null,
+        source: req.body?.source || null,
+        probability,
+        expectedCloseDate: req.body?.expectedCloseDate || null,
+        notes: req.body?.notes || null,
+        createdBy: req.session.userId!,
+      }).returning();
+      res.json(deal);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/deals/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = { updatedAt: new Date() };
+      const fields = [
+        "title","sponsorCompany","primaryContactName","primaryContactEmail","primaryContactPhone",
+        "dealType","currency","assetCategory","exclusivity","source","notes",
+      ];
+      for (const f of fields) if (req.body[f] !== undefined) patch[f] = req.body[f] === "" ? null : req.body[f];
+      if (req.body.dealValueCents !== undefined) patch.dealValueCents = req.body.dealValueCents == null ? 0 : Math.round(req.body.dealValueCents);
+      if (req.body.contraValueCents !== undefined) patch.contraValueCents = req.body.contraValueCents == null ? 0 : Math.round(req.body.contraValueCents);
+      if (req.body.brandTags !== undefined) patch.brandTags = Array.isArray(req.body.brandTags) ? req.body.brandTags : [];
+      if (req.body.termMonths !== undefined) patch.termMonths = req.body.termMonths;
+      if (req.body.startDate !== undefined) patch.startDate = req.body.startDate || null;
+      if (req.body.endDate !== undefined) patch.endDate = req.body.endDate || null;
+      if (req.body.expectedCloseDate !== undefined) patch.expectedCloseDate = req.body.expectedCloseDate || null;
+      if (req.body.ownerId !== undefined) patch.ownerId = req.body.ownerId;
+      if (req.body.probability !== undefined) patch.probability = req.body.probability;
+      if (req.body.stage !== undefined && req.body.stage !== existing.stage) {
+        patch.stage = req.body.stage;
+        patch.stageChangedAt = new Date();
+        // If client didn't override probability, snap it to the new stage's default.
+        if (req.body.probability === undefined) {
+          patch.probability = STAGE_DEFAULT_PROBABILITY[req.body.stage] ?? existing.probability;
+        }
+      }
+      const [updated] = await db.update(sponsorshipDeals).set(patch).where(eq(sponsorshipDeals.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/sponsorship/deals/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
   app.get("/api/admin/calendar-events", requireAuth, async (req, res) => {
