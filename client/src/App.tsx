@@ -66,6 +66,10 @@ import PrintsProjects from "@/pages/prints-projects";
 import PrintsAnalytics from "@/pages/prints-analytics";
 import PrintsLanding from "@/pages/prints-landing";
 import PrintsEmail from "@/pages/prints-email";
+import PrintsJobs from "@/pages/prints-jobs";
+import PrintsOrderDetail from "@/pages/prints-order-detail";
+import PrintsMaterials from "@/pages/prints-materials";
+import PrintsIntegrations from "@/pages/prints-integrations";
 import PrintHub from "@/pages/print-hub";
 import PrintConfigure from "@/pages/print-configure";
 import PrintCheckout from "@/pages/print-checkout";
@@ -116,12 +120,16 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={PrintsDashboard} />
-        <Route path="/admin/print-crm" component={PrintsCRM} />
+        <Route path="/admin/print-jobs" component={PrintsJobs} />
+        <Route path="/admin/print-orders/:id" component={PrintsOrderDetail} />
         <Route path="/admin/print-orders" component={PrintsOrders} />
+        <Route path="/admin/print-materials" component={PrintsMaterials} />
+        <Route path="/admin/print-crm" component={PrintsCRM} />
         <Route path="/admin/print-projects" component={PrintsProjects} />
         <Route path="/admin/print-analytics" component={PrintsAnalytics} />
         <Route path="/admin/print-landing" component={PrintsLanding} />
         <Route path="/admin/print-email" component={PrintsEmail} />
+        <Route path="/admin/integrations" component={PrintsIntegrations} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/settings" component={AdminSettings} />
         <Route component={NotFound} />

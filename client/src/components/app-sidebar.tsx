@@ -136,8 +136,10 @@ const groupSecondary = [
 
 const printsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "CRM", url: "/admin/print-crm", icon: Users },
+  { title: "Jobs", url: "/admin/print-jobs", icon: FolderKanban },
   { title: "Orders", url: "/admin/print-orders", icon: ShoppingCart },
+  { title: "Materials", url: "/admin/print-materials", icon: FileText },
+  { title: "CRM", url: "/admin/print-crm", icon: Users },
   { title: "Projects", url: "/admin/print-projects", icon: FolderKanban },
   { title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
   { title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
@@ -145,6 +147,7 @@ const printsNav = [
 ];
 
 const printsSecondary = [
+  { title: "Integrations", url: "/admin/integrations", icon: Globe },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];

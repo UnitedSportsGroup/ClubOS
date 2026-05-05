@@ -1371,6 +1371,59 @@ export const insertPrintEmailSchema = createInsertSchema(printEmails).omit({ id:
 export type InsertPrintEmail = z.infer<typeof insertPrintEmailSchema>;
 export type PrintEmail = typeof printEmails.$inferSelect;
 
+// ── Integrations (Xero, Stripe Connect, etc.) ────────────────────────────
+// Per-organization OAuth connections to external services. Refresh tokens
+// are 60-day TTL on Xero so we refresh on every API call where the token
+// is within 5 mins of expiry.
+
+export const integrationProviderEnum = pgEnum("integration_provider", ["xero", "stripe", "myob", "quickbooks"]);
+
+export const orgIntegrations = pgTable("org_integrations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  provider: integrationProviderEnum("provider").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+
+  // OAuth tokens (Xero)
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+
+  // Provider-specific identifiers
+  externalId: text("external_id"),       // Xero tenant_id, Stripe account_id, etc.
+  externalName: text("external_name"),   // Org name as it appears on the provider
+
+  // Provider-specific config (e.g. Xero invoice template, Stripe webhook secret)
+  configJson: jsonb("config_json").notNull().default(sql`'{}'::jsonb`),
+
+  connectedAt: timestamp("connected_at").defaultNow().notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  uniqueOrgProvider: unique().on(t.organizationId, t.provider),
+}));
+export const insertOrgIntegrationSchema = createInsertSchema(orgIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertOrgIntegration = z.infer<typeof insertOrgIntegrationSchema>;
+export type OrgIntegration = typeof orgIntegrations.$inferSelect;
+
+// Xero invoice tracking on print orders. Stored separately so we can record
+// pushes that succeeded vs failed without bloating the orders table.
+export const printXeroInvoices = pgTable("print_xero_invoices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  printOrderId: integer("print_order_id").notNull().references(() => printOrders.id, { onDelete: "cascade" }),
+  xeroInvoiceId: text("xero_invoice_id"),
+  xeroInvoiceNumber: text("xero_invoice_number"),
+  status: text("status").notNull().default("pending"),  // pending | sent | paid | failed
+  errorMessage: text("error_message"),
+  pushedAt: timestamp("pushed_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertPrintXeroInvoiceSchema = createInsertSchema(printXeroInvoices).omit({ id: true, createdAt: true });
+export type InsertPrintXeroInvoice = z.infer<typeof insertPrintXeroInvoiceSchema>;
+export type PrintXeroInvoice = typeof printXeroInvoices.$inferSelect;
+
 export const objectAcls = pgTable("object_acls", {
   objectPath: text("object_path").primaryKey(),
   ownerUserId: integer("owner_user_id"),

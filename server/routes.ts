@@ -6441,6 +6441,97 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Integrations (Xero, Stripe status) ────────────────────────────────
+  app.get("/api/admin/integrations", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const { getOrgIntegration } = await import("./xero");
+      const xero = await getOrgIntegration(orgId, "xero");
+      // Stripe is configured globally via env vars — surface that as connected
+      // when the keys are present. Per-org Stripe Connect can come later.
+      const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
+      res.json({
+        xero: xero ? {
+          isActive: xero.isActive,
+          tenantName: xero.externalName,
+          tenantId: xero.externalId,
+          connectedAt: xero.connectedAt,
+          lastSyncedAt: xero.lastSyncedAt,
+          tokenExpiresAt: xero.tokenExpiresAt,
+        } : null,
+        stripe: stripeConfigured ? {
+          isActive: true,
+          mode: process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_") ? "live" : "test",
+          webhookConfigured: !!process.env.STRIPE_WEBHOOK_SECRET,
+        } : null,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/integrations/xero/connect", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const { buildAuthUrl } = await import("./xero");
+      const url = await buildAuthUrl(orgId);
+      res.json({ url });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // OAuth callback — Xero redirects here after user grants access. NOT
+  // requireAuth (the user comes back via a browser redirect; the state
+  // param carries the orgId).
+  app.get("/api/integrations/xero/callback", async (req, res) => {
+    try {
+      const state = req.query.state as string;
+      if (!state) return res.status(400).send("Missing state");
+      const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+      const { handleCallback } = await import("./xero");
+      const { tenantName } = await handleCallback(fullUrl, state);
+      // Redirect back to the integrations page with success
+      res.redirect(`/admin/integrations?xero=connected&tenant=${encodeURIComponent(tenantName)}`);
+    } catch (e: any) {
+      console.error("[Xero callback] failed:", e);
+      res.redirect(`/admin/integrations?xero=error&message=${encodeURIComponent(e.message)}`);
+    }
+  });
+
+  app.post("/api/admin/integrations/xero/disconnect", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body.orgId);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const { disconnectIntegration } = await import("./xero");
+      await disconnectIntegration(orgId, "xero");
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Manually push an order to Xero (used by admin when auto-push fails or
+  // for orders created before Xero was connected).
+  app.post("/api/admin/print-orders/:id/push-to-xero", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const allOrders = await storage.getPrintOrdersByOrg(8);
+      const order = allOrders.find(o => o.id === orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      const items = await storage.getPrintOrderItems(orderId);
+      const { pushPaidOrderToXero } = await import("./xero");
+      const result = await pushPaidOrderToXero(order, items);
+      await storage.createPrintOrderEvent({
+        orderId,
+        eventType: "xero_pushed",
+        notes: `Pushed to Xero (invoice ${result.invoiceNumber})`,
+        metadataJson: result,
+        createdBy: req.session.userId,
+      } as any);
+      res.json(result);
+    } catch (e: any) {
+      console.error("[Xero push] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── Print Materials (catalog) ──────────────────────────────────────────
   app.get("/api/admin/print-materials", requireAuth, async (req, res) => {
     try {
@@ -6479,6 +6570,35 @@ export async function registerRoutes(
       if (!m) return res.status(404).json({ message: "Not found" });
       res.json(m);
     } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Order detail bundle for the admin order detail page — single round-trip.
+  app.get("/api/admin/print-orders/:id/detail", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const allOrders = await storage.getPrintOrdersByOrg(8);
+      const order = allOrders.find(o => o.id === orderId);
+      if (!order) return res.status(404).json({ message: "Not found" });
+      const [items, files, events] = await Promise.all([
+        storage.getPrintOrderItems(orderId),
+        storage.getPrintOrderFiles(orderId),
+        storage.getPrintOrderEvents(orderId),
+      ]);
+      // Look up the most recent Xero invoice link, if any
+      const { db } = await import("./db");
+      const { printXeroInvoices } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const xeroRows = await db.select().from(printXeroInvoices)
+        .where(eq(printXeroInvoices.printOrderId, orderId))
+        .orderBy(desc(printXeroInvoices.createdAt))
+        .limit(1);
+      const xeroInvoice = xeroRows[0] ? {
+        id: xeroRows[0].xeroInvoiceId,
+        number: xeroRows[0].xeroInvoiceNumber,
+        status: xeroRows[0].status,
+      } : null;
+      res.json({ order, items, files, events, xeroInvoice });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   app.delete("/api/admin/print-materials/:id", requireAuth, async (req, res) => {
@@ -6866,6 +6986,35 @@ async function handlePrintPaymentSuccess(orderId: number, paymentIntentId: strin
     await emailDimaNewOrder(updatedOrder, items[0]);
   } catch (e) {
     console.error("[Print payment] email send failed:", e);
+  }
+
+  // Auto-push to Xero if connected (fire-and-forget — don't fail payment
+  // flow if Xero is down or unconnected).
+  try {
+    const { getOrgIntegration, pushPaidOrderToXero } = await import("./xero");
+    const xeroConn = await getOrgIntegration(printOrder.organizationId, "xero");
+    if (xeroConn?.isActive) {
+      const updatedOrder = { ...printOrder, status: "paid" as const, paidCents: printOrder.totalCents, stripePaymentIntentId: paymentIntentId };
+      const result = await pushPaidOrderToXero(updatedOrder as any, items);
+      await storage.createPrintOrderEvent({
+        orderId,
+        eventType: "xero_pushed",
+        notes: `Auto-pushed to Xero on payment (invoice ${result.invoiceNumber})`,
+        metadataJson: result,
+      } as any);
+      console.log(`[Print payment] Auto-pushed order ${orderId} to Xero as ${result.invoiceNumber}`);
+    }
+  } catch (e: any) {
+    console.error("[Print payment] Xero push failed (order remains paid in our system):", e.message);
+    // Log the failure on the order so Dima can retry manually
+    try {
+      await storage.createPrintOrderEvent({
+        orderId,
+        eventType: "xero_push_failed",
+        notes: `Xero auto-push failed: ${e.message}. Manual retry available from order detail.`,
+        metadataJson: { error: e.message },
+      } as any);
+    } catch {}
   }
 }
 
