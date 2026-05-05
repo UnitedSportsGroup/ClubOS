@@ -6869,7 +6869,11 @@ export async function registerRoutes(
     try {
       const order = await storage.getPrintOrderByMagicLink(req.params.token);
       if (!order) return res.status(404).json({ message: "Not found" });
-      const items = await storage.getPrintOrderItems(order.id);
+      const [items, files, events] = await Promise.all([
+        storage.getPrintOrderItems(order.id),
+        storage.getPrintOrderFiles(order.id),
+        storage.getPrintOrderEvents(order.id),
+      ]);
       const item = items[0];
       const cfg = (item?.configJson as any) ?? {};
       const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -6878,15 +6882,52 @@ export async function registerRoutes(
         const d = new Date(order.pickupReadyDate + "T00:00:00");
         prettyDate = `${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
       }
+      // Customer-safe event labels — no internal jargon
+      const PUBLIC_EVENT_LABELS: Record<string, string> = {
+        created: "Order placed",
+        quote_sent: "Quote sent",
+        paid: "Payment received",
+        artwork_uploaded: "Artwork received",
+        in_design: "Design started",
+        in_proof: "Proof sent for approval",
+        proof_approved: "Proof approved",
+        in_production: "On the press",
+        finishing: "Finishing",
+        ready: "Ready for pickup",
+        delivered: "Delivered",
+        refunded: "Refunded",
+      };
+      const publicEvents = events
+        .filter(e => PUBLIC_EVENT_LABELS[e.eventType])
+        .map(e => ({
+          type: e.eventType,
+          label: PUBLIC_EVENT_LABELS[e.eventType],
+          at: e.createdAt,
+        }))
+        .reverse();  // chronological order
+
       res.json({
         orderNumber: order.orderNumber,
         status: order.status,
         customerName: order.customerName,
         customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone,
         totalCents: order.totalCents,
+        subtotalCents: order.subtotalCents,
+        gstCents: order.gstCents,
+        paidCents: order.paidCents,
         pickupReadyDate: prettyDate,
+        deliveryMethod: order.deliveryMethod,
         materialName: item?.materialName ?? order.title,
+        materialDetails: item ? {
+          quantity: item.quantity,
+          widthMm: item.widthMm,
+          heightMm: item.heightMm,
+          sides: item.sides,
+        } : null,
         artworkPath: cfg.artworkPath ?? "upload_now",
+        fileCount: files.length,
+        events: publicEvents,
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -6920,23 +6961,168 @@ export async function registerRoutes(
     try {
       const orgId = parseInt(req.query.orgId as string);
       if (!orgId) return res.status(400).json({ message: "orgId required" });
+
       const orders = await storage.getPrintOrdersByOrg(orgId);
       const projects = await storage.getPrintProjectsByOrg(orgId);
       const contacts = await storage.getPrintContactsByOrg(orgId);
-      const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.amount || "0")), 0);
+
+      const inProductionStatuses = new Set([
+        "paid", "artwork_pending", "in_design", "in_proof", "proof_approved",
+        "in_production", "finishing", "confirmed",
+      ]);
+      const finishedStatuses = new Set(["ready", "delivered"]);
+      const paidStatuses = new Set([
+        "paid", "in_design", "in_proof", "proof_approved", "in_production",
+        "finishing", "ready", "delivered",
+      ]);
+
+      const now = Date.now();
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+      const ordersThisWeek = orders.filter(o => o.createdAt && new Date(o.createdAt).getTime() > weekAgo);
+      const ordersThisMonth = orders.filter(o => o.createdAt && new Date(o.createdAt).getTime() > monthAgo);
+      const paidOrders = orders.filter(o => paidStatuses.has(o.status));
+
+      const revenueThisWeek = ordersThisWeek.filter(o => paidStatuses.has(o.status))
+        .reduce((s, o) => s + (o.totalCents ?? 0), 0);
+      const revenueThisMonth = ordersThisMonth.filter(o => paidStatuses.has(o.status))
+        .reduce((s, o) => s + (o.totalCents ?? 0), 0);
+      const revenueAllTime = paidOrders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
+
+      // Margin: estimated_cost on items vs subtotal (pre-GST)
+      const allItems = (await Promise.all(paidOrders.map(o => storage.getPrintOrderItems(o.id)))).flat();
+      const estimatedCost = allItems.reduce((s, it) => s + (it.estimatedCostCents ?? 0), 0);
+      const revenuePreGst = paidOrders.reduce((s, o) => s + (o.subtotalCents ?? 0), 0);
+      const grossMarginPct = revenuePreGst > 0
+        ? Math.round(((revenuePreGst - estimatedCost) / revenuePreGst) * 100)
+        : 0;
+
       const statusCounts: Record<string, number> = {};
       orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
+
+      const inProduction = orders.filter(o => inProductionStatuses.has(o.status)).length;
+      const overdue = orders.filter(o => {
+        if (finishedStatuses.has(o.status) || o.status === "cancelled") return false;
+        if (!o.pickupReadyDate) return false;
+        return new Date(o.pickupReadyDate + "T00:00:00").getTime() < now;
+      }).length;
+
+      // Top materials this month
+      const monthItems = (await Promise.all(
+        ordersThisMonth.filter(o => paidStatuses.has(o.status)).map(o => storage.getPrintOrderItems(o.id))
+      )).flat();
+      const materialRevenue: Record<string, number> = {};
+      monthItems.forEach(it => {
+        materialRevenue[it.materialName] = (materialRevenue[it.materialName] || 0) + (it.subtotalCents ?? 0);
+      });
+      const topMaterials = Object.entries(materialRevenue)
+        .map(([name, cents]) => ({ name, cents }))
+        .sort((a, b) => b.cents - a.cents)
+        .slice(0, 5);
+
       const projectStatusCounts: Record<string, number> = {};
       projects.forEach(p => { projectStatusCounts[p.status] = (projectStatusCounts[p.status] || 0) + 1; });
+
       res.json({
         totalOrders: orders.length,
-        totalRevenue,
         totalProjects: projects.length,
         totalContacts: contacts.length,
         ordersByStatus: statusCounts,
         projectsByStatus: projectStatusCounts,
-        recentOrders: orders.slice(0, 5),
+        ordersThisWeek: ordersThisWeek.length,
+        ordersThisMonth: ordersThisMonth.length,
+        revenueThisWeekCents: revenueThisWeek,
+        revenueThisMonthCents: revenueThisMonth,
+        revenueAllTimeCents: revenueAllTime,
+        grossMarginPct,
+        inProduction,
+        overdue,
+        topMaterials,
+        recentOrders: orders.slice(0, 8),
+        // Legacy field for back-compat with the old dashboard
+        totalRevenue: revenueAllTime / 100,
       });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Refund a paid order. Stripe refund + cancel the order. Doesn't credit
+  // the Xero invoice automatically — Dima can do that in Xero with the
+  // invoice already linked.
+  app.post("/api/admin/print-orders/:id/refund", requireAuth, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const reason = (req.body?.reason as string) || "requested_by_customer";
+      const allOrders = await storage.getPrintOrdersByOrg(8);
+      const order = allOrders.find(o => o.id === orderId);
+      if (!order) return res.status(404).json({ message: "Not found" });
+      if (!order.stripePaymentIntentId) return res.status(400).json({ message: "No Stripe payment to refund" });
+      if (order.status === "cancelled") return res.status(400).json({ message: "Already cancelled" });
+
+      const { stripe } = await import("./stripe");
+      const refund = await stripe.refunds.create({
+        payment_intent: order.stripePaymentIntentId,
+        reason: reason as any,
+        metadata: { printOrderId: String(order.id), orderNumber: order.orderNumber || "" },
+      });
+
+      await storage.updatePrintOrder(orderId, { status: "cancelled" } as any);
+      await storage.createPrintOrderEvent({
+        orderId,
+        eventType: "refunded",
+        notes: `Stripe refund ${refund.id} (${reason})`,
+        metadataJson: { stripeRefundId: refund.id, amountCents: refund.amount, reason },
+        createdBy: req.session.userId,
+      } as any);
+
+      res.json({ ok: true, stripeRefundId: refund.id, amountCents: refund.amount });
+    } catch (e: any) {
+      console.error("[Refund] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // CSV export — Dima's accountant runs this monthly to reconcile against
+  // Xero / Stripe. Optional from/to query params for a date range.
+  app.get("/api/admin/print-orders/export.csv", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      const orders = await storage.getPrintOrdersByOrg(orgId);
+      const filtered = orders.filter(o => {
+        if (!o.createdAt) return false;
+        const t = new Date(o.createdAt).getTime();
+        if (from && t < new Date(from).getTime()) return false;
+        if (to && t > new Date(to).getTime()) return false;
+        return true;
+      });
+
+      const escape = (v: any) => {
+        const s = v == null ? "" : String(v);
+        return s.includes(",") || s.includes('"') || s.includes("\n")
+          ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const header = ["Order #", "Date", "Customer", "Email", "Phone", "Title", "Status", "Subtotal", "GST", "Total", "Paid", "Stripe PI"];
+      const rows = filtered.map(o => [
+        o.orderNumber || `#${o.id}`,
+        o.createdAt ? new Date(o.createdAt).toISOString().split("T")[0] : "",
+        o.customerName,
+        o.customerEmail || "",
+        o.customerPhone || "",
+        o.title,
+        o.status,
+        ((o.subtotalCents ?? 0) / 100).toFixed(2),
+        ((o.gstCents ?? 0) / 100).toFixed(2),
+        ((o.totalCents ?? 0) / 100).toFixed(2),
+        ((o.paidCents ?? 0) / 100).toFixed(2),
+        o.stripePaymentIntentId || "",
+      ].map(escape).join(","));
+      const csv = [header.join(","), ...rows].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="united-prints-orders-${new Date().toISOString().split("T")[0]}.csv"`);
+      res.send(csv);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

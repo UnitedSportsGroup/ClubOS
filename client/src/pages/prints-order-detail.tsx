@@ -113,6 +113,18 @@ export default function PrintsOrderDetail() {
     onError: (e: Error) => toast({ title: "Xero push failed", description: e.message, variant: "destructive" }),
   });
 
+  const refund = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/print-orders/${orderId}/refund`, { reason: "requested_by_customer" });
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/print-orders/detail", orderId] });
+      toast({ title: "Refunded", description: `Stripe refund issued for ${money(r.amountCents)}` });
+    },
+    onError: (e: Error) => toast({ title: "Refund failed", description: e.message, variant: "destructive" }),
+  });
+
   const saveNotes = async () => {
     setSavingNotes(true);
     try {
@@ -184,6 +196,20 @@ export default function PrintsOrderDetail() {
           {order.status === "paid" && (!data?.xeroInvoice) && (
             <Button onClick={() => pushXero.mutate()} disabled={pushXero.isPending} variant="outline" className="border-white/10">
               <RefreshCw className="w-4 h-4 mr-1" /> Push to Xero
+            </Button>
+          )}
+          {order.stripePaymentIntentId && order.status !== "cancelled" && order.status !== "delivered" && (
+            <Button
+              onClick={() => {
+                if (confirm(`Refund ${money(order.totalCents)} to customer? This cancels the order and issues a Stripe refund. Cannot be undone.`)) {
+                  refund.mutate();
+                }
+              }}
+              disabled={refund.isPending}
+              variant="outline"
+              className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+            >
+              {refund.isPending ? "Refunding..." : "Refund"}
             </Button>
           )}
         </div>

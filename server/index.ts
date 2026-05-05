@@ -149,6 +149,10 @@ app.use((req, res, next) => {
   setInterval(sweepAbandonedFacilityBookings, 5 * 60 * 1000);
   setTimeout(sweepAbandonedFacilityBookings, 30 * 1000);
 
+  // United Prints: 24h upload-reminder cron.
+  const { startPrintCron } = await import("./print-cron");
+  startPrintCron();
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
