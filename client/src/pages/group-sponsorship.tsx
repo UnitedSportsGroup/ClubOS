@@ -101,6 +101,7 @@ export default function GroupSponsorship() {
   const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<SponsorshipDeal> } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<StageKey | null>(null);
+  const [view, setView] = useState<"pipeline" | "deliverables" | "onboarding">("pipeline");
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -188,13 +189,43 @@ export default function GroupSponsorship() {
           </Button>
         </div>
 
+        {/* Sub-nav */}
+        <div className="flex items-center gap-1 mt-4 border-b border-white/[0.06] -mb-4">
+          {([
+            { key: "pipeline",     label: "Pipeline",     icon: TrendingUp },
+            { key: "deliverables", label: "Deliverables", icon: ListChecks },
+            { key: "onboarding",   label: "Onboarding",   icon: CheckCircle2 },
+          ] as const).map(t => {
+            const Icon = t.icon;
+            const active = view === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setView(t.key)}
+                data-testid={`tab-${t.key}`}
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors ${
+                  active
+                    ? "text-white border-blue-500"
+                    : "text-white/50 hover:text-white/80 border-transparent"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {view === "pipeline" && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
           <Kpi label="Open pipeline" value={summary ? fmtMoneyFull(summary.openPipelineCents) : "—"} icon={<TrendingUp className="w-4 h-4" />} accent="#3b82f6" />
           <Kpi label="Weighted pipeline" value={summary ? fmtMoneyFull(summary.weightedPipelineCents) : "—"} icon={<TrendingUp className="w-4 h-4" />} accent="#a855f7" sub="× probability" />
           <Kpi label="Booked ACV" value={summary ? fmtMoneyFull(summary.totalAcvCents) : "—"} icon={<DollarSign className="w-4 h-4" />} accent="#22c55e" sub={summary && summary.totalContraCents > 0 ? `+ ${fmtMoneyFull(summary.totalContraCents)} contra` : undefined} />
           <Kpi label="Won YTD" value={summary ? fmtMoneyFull(summary.wonYtdCents) : "—"} icon={<Award className="w-4 h-4" />} accent="#f59e0b" />
         </div>
+        )}
 
+        {view === "pipeline" && (
         <div className="flex items-center gap-2 mt-4 flex-wrap">
           <button
             onClick={() => setOwnerFilter(ownerFilter === "mine" ? "all" : "mine")}
@@ -231,10 +262,13 @@ export default function GroupSponsorship() {
           </div>
           <span className="text-[10px] text-white/30 ml-auto">{deals.length} deal{deals.length === 1 ? "" : "s"}</span>
         </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-x-auto overflow-y-auto">
-        {dealsLoading ? (
+        {view === "deliverables" && orgId && <CrossDeliverablesView orgId={orgId} team={team} category="contract" />}
+        {view === "onboarding" && orgId && <OnboardingMatrixView orgId={orgId} team={team} deals={deals} />}
+        {view === "pipeline" && (dealsLoading ? (
           <div className="flex gap-3 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}
           </div>
@@ -296,7 +330,7 @@ export default function GroupSponsorship() {
               );
             })}
           </div>
-        )}
+        ))}
       </div>
 
       {dealModal && (
@@ -924,6 +958,295 @@ function DeliverableForm({ team, onSubmit, onCancel }: {
         <Button size="sm" onClick={() => { if (title.trim()) onSubmit({ title: title.trim(), type: type || null, scheduledDate: scheduledDate || null, entitlementQty: parseInt(entitlementQty) || 1, ownerId }); }} disabled={!title.trim()} className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white">
           Add
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Cross-deal deliverables view ────────────────────────────────────────────
+// Every contract deliverable across every active deal in one scrollable list.
+// "Are we delivering everything we promised across all sponsors right now?"
+function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team: TeamMember[]; category: string }) {
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "overdue" | "delivered">("open");
+  const { data: rows = [], isLoading } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
+    queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, category],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=${category}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/admin/sponsorship/deliverables/${id}`, patch);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] }),
+  });
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const filtered = useMemo(() => {
+    return rows.filter(r => {
+      if (statusFilter === "all") return true;
+      if (statusFilter === "delivered") return r.status === "delivered" || r.status === "waived";
+      if (statusFilter === "overdue") {
+        if (r.status === "delivered" || r.status === "waived") return false;
+        if (!r.scheduledDate) return false;
+        return new Date(r.scheduledDate + "T00:00:00") < today;
+      }
+      // open
+      return r.status !== "delivered" && r.status !== "waived";
+    });
+  }, [rows, statusFilter]);
+
+  const counts = useMemo(() => {
+    const open = rows.filter(r => r.status !== "delivered" && r.status !== "waived").length;
+    const delivered = rows.filter(r => r.status === "delivered" || r.status === "waived").length;
+    const overdue = rows.filter(r => r.status !== "delivered" && r.status !== "waived" && r.scheduledDate && new Date(r.scheduledDate + "T00:00:00") < today).length;
+    return { total: rows.length, open, delivered, overdue };
+  }, [rows]);
+
+  return (
+    <div className="p-4 sm:p-6">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {([
+          { key: "open",      label: `Open (${counts.open})`,         color: "#3b82f6" },
+          { key: "overdue",   label: `Overdue (${counts.overdue})`,   color: "#ef4444" },
+          { key: "delivered", label: `Delivered (${counts.delivered})`, color: "#22c55e" },
+          { key: "all",       label: `All (${counts.total})`,         color: "#94a3b8" },
+        ] as const).map(t => {
+          const active = statusFilter === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setStatusFilter(t.key)}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition"
+              style={{
+                borderColor: active ? t.color : "rgba(255,255,255,0.1)",
+                background: active ? `${t.color}25` : "transparent",
+                color: active ? "white" : "rgba(255,255,255,0.5)",
+              }}
+            >{t.label}</button>
+          );
+        })}
+      </div>
+
+      {isLoading ? (
+        <div className="text-sm text-white/30 py-12 text-center">Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+          <ListChecks className="w-10 h-10 text-white/15 mx-auto mb-3" />
+          <p className="text-sm text-white/40 mb-1">
+            {category === "contract" ? "No contract deliverables yet" : "No items"}
+          </p>
+          <p className="text-xs text-white/30">
+            Open any deal and add what you've promised — front-of-shirt, social posts, hospitality seats, signage, etc. They'll show up here.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="grid grid-cols-[24px_1fr_1.5fr_120px_100px_140px_100px] gap-2 px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+            <div></div>
+            <div>Sponsor</div>
+            <div>Deliverable</div>
+            <div>Status</div>
+            <div>Owner</div>
+            <div>Scheduled</div>
+            <div>Proof</div>
+          </div>
+          {filtered.map(r => {
+            const owner = team.find(m => m.id === r.ownerId);
+            const sched = r.scheduledDate ? new Date(r.scheduledDate + "T00:00:00") : null;
+            const overdue = sched && sched < today && r.status !== "delivered" && r.status !== "waived";
+            const cfg = STATUS_CONFIG[(overdue && r.status === "pending" ? "overdue" : r.status) as keyof typeof STATUS_CONFIG];
+            const StatusIcon = cfg.icon;
+            return (
+              <div key={r.id} className="grid grid-cols-[24px_1fr_1.5fr_120px_100px_140px_100px] gap-2 px-3 py-2 border-b border-white/[0.04] hover:bg-white/[0.02] items-center text-xs">
+                <button
+                  onClick={() => {
+                    const order: SponsorshipDeliverable["status"][] = ["pending", "in_progress", "delivered"];
+                    const i = order.indexOf(r.status);
+                    update.mutate({ id: r.id, patch: { status: order[(i + 1) % order.length] } });
+                  }}
+                  className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/[0.06]"
+                  style={{ color: cfg.color }}
+                >
+                  <StatusIcon className="w-4 h-4" />
+                </button>
+                <div className="truncate text-white font-medium">{r.deal?.sponsorCompany || "—"}</div>
+                <div className={`truncate ${r.status === "delivered" || r.status === "waived" ? "line-through text-white/40" : "text-white/80"}`}>{r.title}</div>
+                <select
+                  value={r.status}
+                  onChange={e => update.mutate({ id: r.id, patch: { status: e.target.value } })}
+                  className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-1.5 h-6"
+                >
+                  {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <div className="text-[11px] text-white/50 truncate">{owner ? `${owner.first_name} ${owner.last_name[0]}.` : "—"}</div>
+                <div className={`text-[11px] ${overdue ? "text-red-400" : "text-white/50"}`}>
+                  {sched ? sched.toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "2-digit" }) : "—"}
+                </div>
+                <div>
+                  {r.proofUrl ? (
+                    <a href={r.proofUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 text-[11px] flex items-center gap-1">
+                      <LinkIcon className="w-3 h-3" /> Open
+                    </a>
+                  ) : (
+                    <span className="text-[11px] text-white/25">—</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Onboarding matrix view ──────────────────────────────────────────────────
+// Grid of every signed sponsor × every onboarding template item. Cells show
+// status. Click a cell to cycle pending → in-progress → delivered.
+interface OnboardingTemplate {
+  id: number;
+  organizationId: number;
+  title: string;
+  description: string | null;
+  defaultOwnerId: number | null;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: TeamMember[]; deals: SponsorshipDeal[] }) {
+  const { data: templates = [] } = useQuery<OnboardingTemplate[]>({
+    queryKey: ["/api/admin/sponsorship/onboarding-templates", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/sponsorship/onboarding-templates?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
+  const { data: allDeliverables = [] } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
+    queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=onboarding`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/admin/sponsorship/deliverables/${id}`, patch);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"] }),
+  });
+
+  const applyOnboarding = useMutation({
+    mutationFn: async (dealId: number) => {
+      const r = await apiRequest("POST", `/api/admin/sponsorship/deals/${dealId}/apply-onboarding`, {});
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"] }),
+  });
+
+  const wonStages = ["won", "contract_sent", "invoice_sent", "invoice_paid", "onboarded", "active"];
+  const wonDeals = useMemo(() => deals.filter(d => wonStages.includes(d.stage)), [deals]);
+
+  // Index deliverables by (dealId, title) so the cells can look up status quickly
+  const cells = useMemo(() => {
+    const m = new Map<string, SponsorshipDeliverable>();
+    for (const d of allDeliverables) m.set(`${d.dealId}|${d.title}`, d);
+    return m;
+  }, [allDeliverables]);
+
+  if (templates.length === 0) {
+    return (
+      <div className="p-12 text-center">
+        <CheckCircle2 className="w-10 h-10 text-white/15 mx-auto mb-3" />
+        <p className="text-sm text-white/40 mb-1">No onboarding template set up yet</p>
+        <p className="text-xs text-white/30">Add items like "Send 50th Anniversary book", "Create WhatsApp group", "Send merch pack" — they'll auto-apply to every new sponsor.</p>
+      </div>
+    );
+  }
+
+  if (wonDeals.length === 0) {
+    return (
+      <div className="p-12 text-center">
+        <Handshake className="w-10 h-10 text-white/15 mx-auto mb-3" />
+        <p className="text-sm text-white/40 mb-1">No signed sponsors yet</p>
+        <p className="text-xs text-white/30">When a deal moves to Won, it'll appear here with the onboarding checklist auto-populated.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-6">
+      <div className="text-[11px] text-white/40 mb-3">
+        {wonDeals.length} signed sponsor{wonDeals.length === 1 ? "" : "s"} · {templates.length} onboarding step{templates.length === 1 ? "" : "s"} · click any cell to advance status
+      </div>
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-x-auto">
+        <table className="min-w-full text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold sticky left-0 bg-[#0a0e1a] z-10 min-w-[200px]">Sponsor</th>
+              {templates.map(t => (
+                <th key={t.id} className="px-2 py-2 border-b border-l border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold text-center min-w-[120px]" title={t.description || ""}>
+                  {t.title}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {wonDeals.map(d => {
+              const dealOnboardingCount = allDeliverables.filter(dl => dl.dealId === d.id).length;
+              const needsApply = dealOnboardingCount === 0;
+              return (
+                <tr key={d.id} className="hover:bg-white/[0.02]">
+                  <td className="px-3 py-2 border-b border-white/[0.04] sticky left-0 bg-[#0a0e1a] z-10">
+                    <div className="text-xs font-semibold text-white truncate">{d.sponsorCompany}</div>
+                    <div className="text-[10px] text-white/40 truncate">{d.title}</div>
+                    {needsApply && (
+                      <button
+                        onClick={() => applyOnboarding.mutate(d.id)}
+                        className="mt-1 text-[10px] text-blue-300 hover:text-blue-200 underline"
+                      >
+                        Apply onboarding template
+                      </button>
+                    )}
+                  </td>
+                  {templates.map(t => {
+                    const cell = cells.get(`${d.id}|${t.title}`);
+                    if (!cell) return (
+                      <td key={t.id} className="px-2 py-2 border-b border-l border-white/[0.04] text-center text-white/15">—</td>
+                    );
+                    const cfg = STATUS_CONFIG[cell.status];
+                    const StatusIcon = cfg.icon;
+                    return (
+                      <td key={t.id} className="px-2 py-2 border-b border-l border-white/[0.04] text-center">
+                        <button
+                          onClick={() => {
+                            const order: SponsorshipDeliverable["status"][] = ["pending", "in_progress", "delivered"];
+                            const i = order.indexOf(cell.status);
+                            update.mutate({ id: cell.id, patch: { status: order[(i + 1) % order.length] } });
+                          }}
+                          className="w-7 h-7 rounded-md flex items-center justify-center transition hover:bg-white/[0.06]"
+                          style={{ color: cfg.color }}
+                          title={cfg.label + (cell.deliveredAt ? ` · ${new Date(cell.deliveredAt).toLocaleDateString("en-NZ")}` : "")}
+                        >
+                          <StatusIcon className="w-4 h-4" />
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

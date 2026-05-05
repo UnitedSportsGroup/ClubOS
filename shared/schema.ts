@@ -1068,6 +1068,11 @@ export const sponsorshipDeliverables = pgTable("sponsorship_deliverables", {
   dealId: integer("deal_id").notNull().references(() => sponsorshipDeals.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   type: text("type"),
+  // 'contract' = from the signed contract (front-of-shirt, social posts, signage)
+  // 'onboarding' = standard welcome items (book, merch pack, WhatsApp group)
+  // 'activation' = scheduled live activations (LED rotation, matchday MC)
+  // 'other' = ad-hoc
+  category: text("category").notNull().default("contract"),
   triggerType: deliverableTriggerEnum("trigger_type").notNull().default("once"),
   scheduledDate: date("scheduled_date"),
   entitlementQty: integer("entitlement_qty").default(1),
@@ -1086,6 +1091,24 @@ export const sponsorshipDeliverables = pgTable("sponsorship_deliverables", {
 export const insertSponsorshipDeliverableSchema = createInsertSchema(sponsorshipDeliverables).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSponsorshipDeliverable = z.infer<typeof insertSponsorshipDeliverableSchema>;
 export type SponsorshipDeliverable = typeof sponsorshipDeliverables.$inferSelect;
+
+// Org-level template of standard onboarding items applied to every won deal.
+// When a deal flips to "won" or later, the engine reads every active template
+// row and instantiates one deliverable per item with category='onboarding'.
+export const sponsorshipOnboardingTemplates = pgTable("sponsorship_onboarding_templates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  defaultOwnerId: integer("default_owner_id").references(() => users.id),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertSponsorshipOnboardingTemplateSchema = createInsertSchema(sponsorshipOnboardingTemplates).omit({ id: true, createdAt: true });
+export type InsertSponsorshipOnboardingTemplate = z.infer<typeof insertSponsorshipOnboardingTemplateSchema>;
+export type SponsorshipOnboardingTemplate = typeof sponsorshipOnboardingTemplates.$inferSelect;
 
 // ── United Prints MIS ────────────────────────────────────────────────────────
 // A print shop management system inside ClubOS that does what ShopVox does

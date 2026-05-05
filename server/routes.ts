@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4455,17 +4455,175 @@ export async function registerRoutes(
       if (req.body.expectedCloseDate !== undefined) patch.expectedCloseDate = req.body.expectedCloseDate || null;
       if (req.body.ownerId !== undefined) patch.ownerId = req.body.ownerId;
       if (req.body.probability !== undefined) patch.probability = req.body.probability;
+      const wonStages = ["won","contract_sent","invoice_sent","invoice_paid","onboarded","active"];
+      const wasWon = wonStages.includes(existing.stage);
+      let nowWon = wasWon;
       if (req.body.stage !== undefined && req.body.stage !== existing.stage) {
         patch.stage = req.body.stage;
         patch.stageChangedAt = new Date();
+        nowWon = wonStages.includes(req.body.stage);
         // If client didn't override probability, snap it to the new stage's default.
         if (req.body.probability === undefined) {
           patch.probability = STAGE_DEFAULT_PROBABILITY[req.body.stage] ?? existing.probability;
         }
       }
       const [updated] = await db.update(sponsorshipDeals).set(patch).where(eq(sponsorshipDeals.id, id)).returning();
+
+      // Auto-instantiate onboarding template the first time a deal crosses
+      // into a "won" state. Only fires once — if any onboarding deliverables
+      // already exist for this deal we don't double-up.
+      if (!wasWon && nowWon) {
+        const existingOnboarding = await db.select().from(sponsorshipDeliverables)
+          .where(and(
+            eq(sponsorshipDeliverables.dealId, id),
+            eq(sponsorshipDeliverables.category, "onboarding"),
+          )).limit(1);
+        if (existingOnboarding.length === 0) {
+          const templates = await db.select().from(sponsorshipOnboardingTemplates)
+            .where(and(
+              eq(sponsorshipOnboardingTemplates.organizationId, existing.organizationId),
+              eq(sponsorshipOnboardingTemplates.isActive, true),
+            ))
+            .orderBy(asc(sponsorshipOnboardingTemplates.displayOrder));
+          if (templates.length > 0) {
+            await db.insert(sponsorshipDeliverables).values(templates.map(t => ({
+              dealId: id,
+              title: t.title,
+              type: "onboarding",
+              category: "onboarding",
+              triggerType: "once" as const,
+              status: "pending" as const,
+              ownerId: t.defaultOwnerId,
+              notes: t.description,
+              displayOrder: t.displayOrder,
+              createdBy: req.session.userId!,
+            })));
+          }
+        }
+      }
       res.json(updated);
     } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // Manual trigger: instantiate the onboarding template for a deal even
+  // if it didn't transition through the auto-fire path (e.g. for the 65
+  // imported Pipedrive deals that are already past "won" but missing onboarding).
+  app.post("/api/admin/sponsorship/deals/:id/apply-onboarding", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+
+      const existingOnboarding = await db.select().from(sponsorshipDeliverables)
+        .where(and(
+          eq(sponsorshipDeliverables.dealId, id),
+          eq(sponsorshipDeliverables.category, "onboarding"),
+        ));
+      const have = new Set(existingOnboarding.map(d => d.title));
+
+      const templates = await db.select().from(sponsorshipOnboardingTemplates)
+        .where(and(
+          eq(sponsorshipOnboardingTemplates.organizationId, existing.organizationId),
+          eq(sponsorshipOnboardingTemplates.isActive, true),
+        ))
+        .orderBy(asc(sponsorshipOnboardingTemplates.displayOrder));
+      const toInsert = templates.filter(t => !have.has(t.title));
+      if (toInsert.length > 0) {
+        await db.insert(sponsorshipDeliverables).values(toInsert.map(t => ({
+          dealId: id,
+          title: t.title,
+          type: "onboarding",
+          category: "onboarding",
+          triggerType: "once" as const,
+          status: "pending" as const,
+          ownerId: t.defaultOwnerId,
+          notes: t.description,
+          displayOrder: t.displayOrder,
+          createdBy: req.session.userId!,
+        })));
+      }
+      res.json({ ok: true, added: toInsert.length, alreadyExisted: existingOnboarding.length });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // Onboarding template CRUD (org-scoped)
+  app.get("/api/admin/sponsorship/onboarding-templates", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(sponsorshipOnboardingTemplates)
+        .where(eq(sponsorshipOnboardingTemplates.organizationId, orgId))
+        .orderBy(asc(sponsorshipOnboardingTemplates.displayOrder));
+      res.json(rows);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/admin/sponsorship/onboarding-templates", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const title = String(req.body?.title || "").trim();
+      if (!title) return res.status(400).json({ message: "title required" });
+      const [row] = await db.insert(sponsorshipOnboardingTemplates).values({
+        organizationId: orgId,
+        title,
+        description: req.body?.description || null,
+        defaultOwnerId: req.body?.defaultOwnerId ?? null,
+        displayOrder: req.body?.displayOrder ?? 0,
+        isActive: req.body?.isActive ?? true,
+      }).returning();
+      res.json(row);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipOnboardingTemplates).where(eq(sponsorshipOnboardingTemplates.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = {};
+      for (const f of ["title","description","defaultOwnerId","displayOrder","isActive"]) {
+        if (req.body[f] !== undefined) patch[f] = req.body[f] === "" ? null : req.body[f];
+      }
+      const [updated] = await db.update(sponsorshipOnboardingTemplates).set(patch).where(eq(sponsorshipOnboardingTemplates.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipOnboardingTemplates).where(eq(sponsorshipOnboardingTemplates.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(sponsorshipOnboardingTemplates).where(eq(sponsorshipOnboardingTemplates.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // Cross-deal deliverables — every deliverable across every deal in an org,
+  // with the parent deal info inlined. Powers the Deliverables + Onboarding
+  // tabs on the sponsorship page.
+  app.get("/api/admin/sponsorship/deliverables-all", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const category = req.query.category as string | undefined;
+      const deals = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.organizationId, orgId));
+      const dealIds = deals.map(d => d.id);
+      if (dealIds.length === 0) return res.json([]);
+      const where = category
+        ? and(inArray(sponsorshipDeliverables.dealId, dealIds), eq(sponsorshipDeliverables.category, category))
+        : inArray(sponsorshipDeliverables.dealId, dealIds);
+      const rows = await db.select().from(sponsorshipDeliverables).where(where).orderBy(asc(sponsorshipDeliverables.dealId), asc(sponsorshipDeliverables.displayOrder));
+      const dealMap = new Map(deals.map(d => [d.id, d]));
+      res.json(rows.map(r => ({ ...r, deal: dealMap.get(r.dealId) || null })));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
   app.delete("/api/admin/sponsorship/deals/:id", requireAuth, async (req, res) => {
