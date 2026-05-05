@@ -74,6 +74,160 @@ export async function registerRoutes(
     }
   });
 
+  // Team management — used by /admin/team. Returns every user with their
+  // per-workspace memberships so the UI can show which orgs each person
+  // can access and at what role.
+  app.get("/api/admin/team", requireSuperAdmin, async (_req, res) => {
+    try {
+      const all = await storage.getAllUsersWithMemberships();
+      res.json(all.map(u => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        globalRole: u.role,
+        active: u.active,
+        createdAt: u.createdAt,
+        memberships: u.memberships,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Per-user detail (memberships included) for the edit modal
+  app.get("/api/admin/team/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "Not found" });
+      const memberships = await storage.getUserOrganizations(userId);
+      res.json({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        globalRole: user.role,
+        active: user.active,
+        memberships: memberships.map(m => ({ orgId: m.id, orgName: m.name, orgSlug: m.slug, role: m.userRole })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a user + add memberships in one call. This is the primary
+  // onboarding endpoint. Body:
+  //   { email, firstName, lastName, password, globalRole, memberships: [{orgId, role}] }
+  // The user gets globalRole 'admin' by default (NOT super_admin), then
+  // their actual access is governed by which workspaces they're in.
+  app.post("/api/admin/team", requireSuperAdmin, async (req, res) => {
+    try {
+      const { email, firstName, lastName, password, globalRole, memberships, sendWelcomeEmail } = req.body;
+      if (!email || !firstName || !lastName || !password) {
+        return res.status(400).json({ message: "email, firstName, lastName, and password are required" });
+      }
+      if (!Array.isArray(memberships) || memberships.length === 0) {
+        return res.status(400).json({ message: "At least one workspace membership is required" });
+      }
+      const validRoles = ["super_admin", "admin", "team_member", "manager", "coach", "finance", "marketing", "registrar"];
+      const finalGlobalRole = globalRole || "admin";
+      if (!validRoles.includes(finalGlobalRole)) {
+        return res.status(400).json({ message: `Invalid global role: ${finalGlobalRole}` });
+      }
+      for (const m of memberships) {
+        if (!m.orgId || !m.role) return res.status(400).json({ message: "Each membership needs orgId and role" });
+        if (!validRoles.includes(m.role)) return res.status(400).json({ message: `Invalid workspace role: ${m.role}` });
+      }
+      const existing = await storage.getUserByEmail(email);
+      if (existing) return res.status(409).json({ message: "A user with this email already exists" });
+
+      const hashed = await hashPassword(password);
+      const user = await storage.createUser({
+        email, firstName, lastName, password: hashed,
+        role: finalGlobalRole as any,
+        active: true,
+      });
+      for (const m of memberships) {
+        await storage.addUserToOrganization(user.id, m.orgId, m.role);
+      }
+
+      // Optional welcome email — fire-and-forget
+      if (sendWelcomeEmail) {
+        try {
+          const { sendEmail } = await import("./email");
+          const orgNames = (await storage.getUserOrganizations(user.id)).map(o => o.name);
+          await sendEmail({
+            to: email,
+            from: "ClubOS <orders@unitedprints.co.nz>",
+            subject: "You've been added to ClubOS",
+            html: `<p>Hi ${firstName},</p>
+              <p>You've been given access to ClubOS — the system Christchurch United uses to run its operations.</p>
+              <p><strong>Login:</strong> https://app.usg.co.nz<br/>
+              <strong>Email:</strong> ${email}<br/>
+              <strong>Temporary password:</strong> <code>${password}</code></p>
+              <p>You'll have access to: <strong>${orgNames.join(", ")}</strong></p>
+              <p>Please change your password after your first login.</p>
+              <p>— The CUFC team</p>`,
+          });
+        } catch (e: any) {
+          console.error("[Team welcome email] failed:", e.message);
+        }
+      }
+
+      res.json({
+        id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName,
+        globalRole: user.role, active: user.active,
+        memberships: (await storage.getUserOrganizations(user.id)).map(o => ({ orgId: o.id, orgName: o.name, orgSlug: o.slug, role: o.userRole })),
+      });
+    } catch (error: any) {
+      console.error("[Team create] failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Manage individual workspace memberships
+  app.post("/api/admin/team/:id/memberships", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { orgId, role } = req.body;
+      if (!orgId || !role) return res.status(400).json({ message: "orgId and role required" });
+      const created = await storage.addUserToOrganization(userId, orgId, role);
+      res.json(created);
+    } catch (error: any) {
+      // duplicate membership
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "User already has access to this workspace" });
+      }
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/team/:id/memberships/:orgId", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const orgId = parseInt(req.params.orgId);
+      const { role } = req.body;
+      if (!role) return res.status(400).json({ message: "role required" });
+      const updated = await storage.updateUserOrgRole(userId, orgId, role);
+      if (!updated) return res.status(404).json({ message: "Membership not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/team/:id/memberships/:orgId", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const orgId = parseInt(req.params.orgId);
+      await storage.removeUserFromOrganization(userId, orgId);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/users", requireSuperAdmin, async (req, res) => {
     try {
       const { email, firstName, lastName, password, role } = req.body;

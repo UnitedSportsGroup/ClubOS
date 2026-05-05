@@ -32,6 +32,7 @@ import CampAnalytics from "@/pages/camp-analytics";
 import AdminDiscounts from "@/pages/admin-discounts";
 import AdminDiscountDetail from "@/pages/admin-discount-detail";
 import AdminDomainSettings from "@/pages/admin-domain-settings";
+import AdminTeam from "@/pages/admin-team";
 import GroupDashboard from "@/pages/group-dashboard";
 import GroupCalendar from "@/pages/group-calendar";
 import GroupSponsorship from "@/pages/group-sponsorship";
@@ -132,6 +133,7 @@ function AdminRouter() {
         <Route path="/admin/integrations" component={PrintsIntegrations} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/settings" component={AdminSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -145,6 +147,7 @@ function AdminRouter() {
         <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -162,6 +165,7 @@ function AdminRouter() {
         <Route path="/admin/camps/:id" component={AdminCampDetail} />
         <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -177,6 +181,7 @@ function AdminRouter() {
         <Route path="/admin/clubs/:id" component={ClubDetail} />
         <Route path="/admin/clubs" component={ClubsList} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -191,6 +196,7 @@ function AdminRouter() {
         <Route path="/admin/teams" component={LeagueTeams} />
         <Route path="/admin/league-settings" component={LeagueSettings} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -209,6 +215,7 @@ function AdminRouter() {
         <Route path="/admin/venue-settings" component={VenueSettings} />
         <Route path="/admin/website" component={VenueWebsite} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
+        <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
       </Switch>
     );
@@ -233,6 +240,7 @@ function AdminRouter() {
       <Route path="/admin/discounts" component={AdminDiscounts} />
       <Route path="/admin/domains" component={AdminDomainSettings} />
       <Route path="/admin/settings" component={AdminSettings} />
+      <Route path="/admin/team" component={AdminTeam} />
       <Route component={NotFound} />
     </Switch>
   );

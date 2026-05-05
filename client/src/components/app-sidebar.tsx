@@ -80,6 +80,7 @@ const venueNav = [
 ];
 
 const campsSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
@@ -91,11 +92,13 @@ const leagueNav = [
 ];
 
 const venueSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/venue-settings", icon: Settings },
 ];
 
 const leagueSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/league-settings", icon: Settings },
 ];
@@ -107,6 +110,7 @@ const tournamentNav = [
 ];
 
 const tournamentSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/tournament-settings", icon: Settings },
 ];
@@ -118,6 +122,7 @@ const gymnasticsNav = [
 ];
 
 const gymnasticsSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/gymnastics-settings", icon: Settings },
 ];
@@ -130,6 +135,7 @@ const groupNav = [
 ];
 
 const groupSecondary = [
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
@@ -148,6 +154,7 @@ const printsNav = [
 
 const printsSecondary = [
   { title: "Integrations", url: "/admin/integrations", icon: Globe },
+  { title: "Team", url: "/admin/team", icon: Users },
   { title: "Domains", url: "/admin/domains", icon: Globe },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];

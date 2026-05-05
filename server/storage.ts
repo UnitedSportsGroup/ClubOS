@@ -11,6 +11,7 @@ import {
   facilities, facilityPricingRules, facilityBookings, facilityAddons, venueSettings,
   leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueCoupons,
   type InsertUser, type User,
+  type UserOrganization,
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
   type InsertProgram, type Program,
@@ -74,6 +75,10 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>>;
+  addUserToOrganization(userId: number, organizationId: number, role?: string): Promise<UserOrganization>;
+  updateUserOrgRole(userId: number, organizationId: number, role: string): Promise<UserOrganization | undefined>;
+  removeUserFromOrganization(userId: number, organizationId: number): Promise<void>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, data: Partial<InsertUser>): Promise<User | undefined>;
   deleteUser(id: number): Promise<void>;
@@ -406,6 +411,58 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return db.select().from(users).orderBy(asc(users.firstName));
+  }
+
+  // For the team management page — every user with their per-workspace
+  // memberships flattened. One DB round-trip via a left join so we don't
+  // N+1 across users.
+  async getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>> {
+    const rows = await db.select({
+      user: users,
+      orgId: organizations.id,
+      orgName: organizations.name,
+      orgSlug: organizations.slug,
+      orgRole: userOrganizations.role,
+    })
+      .from(users)
+      .leftJoin(userOrganizations, eq(users.id, userOrganizations.userId))
+      .leftJoin(organizations, eq(userOrganizations.organizationId, organizations.id))
+      .orderBy(asc(users.firstName), asc(users.lastName));
+
+    const map = new Map<number, User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>();
+    for (const row of rows) {
+      const u = row.user;
+      if (!map.has(u.id)) {
+        map.set(u.id, { ...u, memberships: [] });
+      }
+      if (row.orgId) {
+        map.get(u.id)!.memberships.push({
+          orgId: row.orgId,
+          orgName: row.orgName!,
+          orgSlug: row.orgSlug!,
+          role: row.orgRole!,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }
+
+  async addUserToOrganization(userId: number, organizationId: number, role: string = "admin"): Promise<UserOrganization> {
+    const [created] = await db.insert(userOrganizations).values({ userId, organizationId, role: role as any }).returning();
+    return created;
+  }
+
+  async updateUserOrgRole(userId: number, organizationId: number, role: string): Promise<UserOrganization | undefined> {
+    const [updated] = await db.update(userOrganizations)
+      .set({ role: role as any })
+      .where(and(eq(userOrganizations.userId, userId), eq(userOrganizations.organizationId, organizationId)))
+      .returning();
+    return updated;
+  }
+
+  async removeUserFromOrganization(userId: number, organizationId: number): Promise<void> {
+    await db.delete(userOrganizations)
+      .where(and(eq(userOrganizations.userId, userId), eq(userOrganizations.organizationId, organizationId)));
   }
 
   async getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]> {
