@@ -6490,6 +6490,126 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // Public order creation. Creates a print_order in `quote_sent` status with
+  // a magic link token. Re-runs the pricing engine server-side so the
+  // customer can never spoof the price. Day 3 wires this to Stripe.
+  app.post("/api/print/orders", async (req, res) => {
+    try {
+      const { materialSlug, config, customer, delivery, artworkPath, customerNotes } = req.body;
+      if (!materialSlug || !config || !customer) {
+        return res.status(400).json({ message: "materialSlug, config, customer required" });
+      }
+      const material = await storage.getPrintMaterialBySlug(materialSlug);
+      if (!material || !material.isActive) return res.status(404).json({ message: "Material not found" });
+
+      const { quotePrintItem, quoteOrderTotals } = await import("./print-pricing");
+      const itemQuote = quotePrintItem(material, config);
+      if (!itemQuote.ok) return res.status(400).json({ message: itemQuote.message });
+
+      const totals = quoteOrderTotals([itemQuote.subtotalCents]);
+
+      const orgId = material.organizationId;
+      const allOrders = await storage.getPrintOrdersByOrg(orgId);
+      const year = new Date().getFullYear();
+      const orderNumber = `UP-${year}-${String(allOrders.length + 1).padStart(4, "0")}`;
+      const magicLinkToken = require("crypto").randomBytes(24).toString("hex");
+
+      const pickupReady = new Date();
+      let added = 0;
+      while (added < itemQuote.turnaroundDays) {
+        pickupReady.setDate(pickupReady.getDate() + 1);
+        const day = pickupReady.getDay();
+        if (day !== 0 && day !== 6) added++;
+      }
+
+      const order = await storage.createPrintOrder({
+        organizationId: orgId,
+        orderNumber,
+        customerName: `${customer.firstName} ${customer.lastName}`.trim(),
+        customerEmail: customer.email,
+        customerPhone: customer.phone,
+        customerCompany: customer.company || null,
+        title: material.name,
+        description: null,
+        status: "quote_sent",
+        amount: String((totals.totalCents / 100).toFixed(2)),
+        subtotalCents: totals.subtotalCents,
+        gstCents: totals.gstCents,
+        totalCents: totals.totalCents,
+        paidCents: 0,
+        deliveryMethod: delivery?.method ?? "pickup",
+        deliveryAddress: delivery?.method === "delivery" ? delivery.address : null,
+        deliveryQuoteCents: 0,
+        pickupReadyDate: pickupReady.toISOString().split("T")[0],
+        magicLinkToken,
+        quoteExpiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        customerNotes: customerNotes || null,
+        rushRequested: !!config.rush,
+        notes: `Artwork path: ${artworkPath || "upload_now"}`,
+      } as any);
+
+      await storage.createPrintOrderItem({
+        orderId: order.id,
+        materialId: material.id,
+        materialName: material.name,
+        widthMm: config.widthMm ?? null,
+        heightMm: config.heightMm ?? null,
+        quantity: config.quantity ?? 1,
+        sides: config.sides ?? 1,
+        configJson: { ...config, artworkPath },
+        unitPriceCents: itemQuote.unitPriceCents,
+        qtyDiscountCents: itemQuote.qtyDiscountCents,
+        addonsTotalCents: itemQuote.addonsTotalCents,
+        subtotalCents: itemQuote.subtotalCents,
+        estimatedCostCents: itemQuote.estimatedCostCents,
+        breakdownJson: itemQuote.breakdown,
+      } as any);
+
+      await storage.createPrintOrderEvent({
+        orderId: order.id,
+        eventType: "created",
+        notes: `Order placed online by ${customer.firstName} ${customer.lastName}`,
+        metadataJson: { artworkPath, deliveryMethod: delivery?.method },
+      } as any);
+
+      res.status(201).json({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        magicLinkToken: order.magicLinkToken,
+      });
+    } catch (e: any) {
+      console.error("Print order creation failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Look up an order by magic-link token. Token is the credential — no auth.
+  app.get("/api/print/orders/by-token/:token", async (req, res) => {
+    try {
+      const order = await storage.getPrintOrderByMagicLink(req.params.token);
+      if (!order) return res.status(404).json({ message: "Not found" });
+      const items = await storage.getPrintOrderItems(order.id);
+      const item = items[0];
+      const cfg = (item?.configJson as any) ?? {};
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      let prettyDate: string | null = null;
+      if (order.pickupReadyDate) {
+        const d = new Date(order.pickupReadyDate + "T00:00:00");
+        prettyDate = `${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+      }
+      res.json({
+        orderNumber: order.orderNumber,
+        status: order.status,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        totalCents: order.totalCents,
+        pickupReadyDate: prettyDate,
+        materialName: item?.materialName ?? order.title,
+        artworkPath: cfg.artworkPath ?? "upload_now",
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Public quote endpoint — runs the pricing engine. Used by the public
   // configurator on every input change. Does NOT create an order; only
   // returns the price breakdown. Server-side so the engine can never be

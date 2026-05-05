@@ -66,6 +66,10 @@ import PrintsProjects from "@/pages/prints-projects";
 import PrintsAnalytics from "@/pages/prints-analytics";
 import PrintsLanding from "@/pages/prints-landing";
 import PrintsEmail from "@/pages/prints-email";
+import PrintHub from "@/pages/print-hub";
+import PrintConfigure from "@/pages/print-configure";
+import PrintCheckout from "@/pages/print-checkout";
+import PrintOrderStatus from "@/pages/print-order-status";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -296,7 +300,9 @@ function App() {
                 const isAdminHost =
                   host.startsWith("app.") || host === "clubos.fly.dev" || host === "localhost";
                 const isVenueHost = host.startsWith("book.");
+                const isPrintHost = host.startsWith("order.") || host.includes("unitedprints.co.nz");
                 if (isVenueHost) return <VenueBookPage />;
+                if (isPrintHost) return <PrintHub />;
                 return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
               })()}
             </Route>
@@ -304,6 +310,10 @@ function App() {
             <Route path="/privacy" component={PrivacyPage} />
             <Route path="/book" component={VenueBookPage} />
             <Route path="/book/success" component={VenueBookSuccess} />
+            <Route path="/print" component={PrintHub} />
+            <Route path="/print/configure/:slug" component={PrintConfigure} />
+            <Route path="/print/checkout" component={PrintCheckout} />
+            <Route path="/print/order/:token" component={PrintOrderStatus} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/feedback" component={AttributionSurvey} />
