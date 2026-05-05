@@ -5492,6 +5492,22 @@ export async function registerRoutes(
         if (facilityGroupId) {
           try { await storage.cancelFacilityBookingsByGroup(facilityGroupId); } catch (e) { console.error(e); }
         }
+      }
+
+      // Print order branch — fires for both `payment_intent.succeeded` (above
+      // is camp/venue) and the same event type but with print metadata. We
+      // detect by metadata.printOrderId being present rather than re-checking
+      // event.type so this stays self-contained.
+      if (event.type === "payment_intent.succeeded") {
+        const pi = event.data.object as any;
+        const printOrderId = parseInt(pi.metadata?.printOrderId);
+        if (printOrderId) {
+          try {
+            await handlePrintPaymentSuccess(printOrderId, pi.id);
+          } catch (e) {
+            console.error("[Stripe Webhook] Print order handler failed:", e);
+          }
+        }
       } else if (event.type === "invoice.paid") {
         // Weekly subscription invoice succeeded. Advance the next pending
         // booking for that subscription → 'paid'.
@@ -6583,6 +6599,151 @@ export async function registerRoutes(
     }
   });
 
+  // Create a Stripe PaymentIntent for an existing print order. The order is
+  // already in `quote_sent` after POST /api/print/orders, so the price has
+  // been server-validated. We just authorise the charge.
+  app.post("/api/print/orders/:token/payment-intent", async (req, res) => {
+    try {
+      const order = await storage.getPrintOrderByMagicLink(req.params.token);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status === "paid") return res.status(400).json({ message: "Order already paid" });
+      if (order.status === "cancelled") return res.status(400).json({ message: "Order cancelled" });
+
+      const { stripe } = await import("./stripe");
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: order.totalCents,
+        currency: "nzd",
+        receipt_email: order.customerEmail || undefined,
+        description: `${order.orderNumber} — ${order.title}`,
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          printOrderId: String(order.id),
+          orderNumber: order.orderNumber || "",
+          organizationId: String(order.organizationId),
+        },
+      });
+
+      await storage.updatePrintOrder(order.id, {
+        stripePaymentIntentId: paymentIntent.id,
+      } as any);
+
+      res.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        totalCents: order.totalCents,
+        orderNumber: order.orderNumber,
+      });
+    } catch (e: any) {
+      console.error("[Print PI] Error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Magic-link artwork upload. Token = the credential. We accept any
+  // common print file format (PDF/AI/EPS/PNG/JPG/TIFF/ZIP) up to 100MB.
+  // Files go to objectAcls (private) and a row gets written to
+  // print_order_files. Status advances quote_sent → artwork_pending if
+  // it was waiting on artwork.
+  const PRINT_UPLOAD_MAX = 100 * 1024 * 1024;  // 100MB — print files can be huge
+  const PRINT_ALLOWED_MIME = new Set([
+    "application/pdf",
+    "image/png", "image/jpeg", "image/tiff", "image/webp",
+    "application/postscript",  // .ai .eps
+    "application/illustrator",
+    "application/zip", "application/x-zip-compressed",
+    "image/svg+xml",
+    "application/octet-stream",  // many systems mis-classify .ai as this
+  ]);
+
+  const printArtworkUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: PRINT_UPLOAD_MAX, files: 5 },
+    fileFilter: (_req, file, cb) => {
+      // Be permissive — accept based on extension when MIME is missing
+      const ext = (file.originalname.match(/\.([^.]+)$/) || [])[1]?.toLowerCase();
+      const okExt = new Set(["pdf", "ai", "eps", "png", "jpg", "jpeg", "tif", "tiff", "webp", "svg", "zip", "psd"]).has(ext || "");
+      if (PRINT_ALLOWED_MIME.has(file.mimetype) || okExt) cb(null, true);
+      else cb(new Error(`We don't accept .${ext || "this"} files. Try PDF, AI, EPS, PNG, JPG, or zip them up.`));
+    },
+  });
+
+  app.post(
+    "/api/print/orders/:token/upload",
+    (req, res, next) => {
+      printArtworkUpload.array("files", 5)(req, res, (err: any) => {
+        if (err) {
+          const msg = err?.code === "LIMIT_FILE_SIZE"
+            ? `File too big — max ${Math.round(PRINT_UPLOAD_MAX / 1024 / 1024)}MB. Try compressing or zipping it.`
+            : err?.message || "Upload rejected";
+          return res.status(400).json({ message: msg });
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      try {
+        const order = await storage.getPrintOrderByMagicLink(req.params.token);
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        const files = (req.files as Express.Multer.File[] | undefined) || [];
+        if (files.length === 0) return res.status(400).json({ message: "No files uploaded" });
+
+        const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
+        const { setObjectAclPolicy } = await import("./replit_integrations/object_storage/objectAcl");
+        const svc = new ObjectStorageService();
+        const created: any[] = [];
+
+        for (const file of files) {
+          const ext = (file.originalname.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "bin";
+          const upload = await svc.uploadBufferToUploads(file.buffer, file.mimetype || "application/octet-stream", ext);
+          await setObjectAclPolicy(upload.file, {
+            owner: String(order.id),       // owner = order id (no real user account)
+            visibility: "private",
+          });
+          const row = await storage.createPrintOrderFile({
+            orderId: order.id,
+            objectPath: upload.objectPath,
+            filename: file.originalname,
+            fileSize: file.size,
+            mimeType: file.mimetype,
+            uploadedBy: "customer",
+            fileType: "artwork",
+          } as any);
+          created.push(row);
+        }
+
+        // Log + advance status if it was waiting on artwork
+        await storage.createPrintOrderEvent({
+          orderId: order.id,
+          eventType: "artwork_uploaded",
+          notes: `${files.length} file${files.length > 1 ? "s" : ""} uploaded by customer`,
+          metadataJson: { fileCount: files.length, fileNames: files.map(f => f.originalname) },
+        } as any);
+
+        if (order.status === "paid" || order.status === "artwork_pending") {
+          await storage.updatePrintOrder(order.id, { status: "in_design" } as any);
+        }
+
+        res.status(201).json({ files: created });
+      } catch (e: any) {
+        console.error("[Print upload] failed:", e);
+        res.status(500).json({ message: e.message || "Upload failed" });
+      }
+    }
+  );
+
+  app.get("/api/print/orders/:token/files", async (req, res) => {
+    try {
+      const order = await storage.getPrintOrderByMagicLink(req.params.token);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      const files = await storage.getPrintOrderFiles(order.id);
+      res.json(files.map(f => ({
+        id: f.id, filename: f.filename, fileSize: f.fileSize, mimeType: f.mimeType,
+        uploadedBy: f.uploadedBy, fileType: f.fileType, uploadedAt: f.uploadedAt,
+      })));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Look up an order by magic-link token. Token is the credential — no auth.
   app.get("/api/print/orders/by-token/:token", async (req, res) => {
     try {
@@ -6660,6 +6821,52 @@ export async function registerRoutes(
   });
 
   return httpServer;
+}
+
+async function handlePrintPaymentSuccess(orderId: number, paymentIntentId: string) {
+  const order = await storage.getPrintOrder ? await (storage as any).getPrintOrder(orderId) : null;
+  // Fall back to direct DB lookup if no helper exists yet
+  let printOrder = order;
+  if (!printOrder) {
+    const allOrders = await storage.getPrintOrdersByOrg(8);
+    printOrder = allOrders.find(o => o.id === orderId);
+  }
+  if (!printOrder) {
+    console.warn(`[Print payment] Order ${orderId} not found`);
+    return;
+  }
+  if (printOrder.status === "paid") return;  // already handled
+
+  // Determine the next status: if customer chose to upload artwork later or
+  // needs design help, go to artwork_pending. Otherwise straight to paid +
+  // wait for them to upload.
+  const items = await storage.getPrintOrderItems(orderId);
+  const cfg = (items[0]?.configJson as any) ?? {};
+  const artworkPath = cfg.artworkPath ?? "upload_now";
+  const nextStatus = "paid";
+
+  await storage.updatePrintOrder(orderId, {
+    status: nextStatus,
+    paidCents: printOrder.totalCents,
+    stripePaymentIntentId: paymentIntentId,
+  } as any);
+
+  await storage.createPrintOrderEvent({
+    orderId,
+    eventType: "paid",
+    notes: `Payment received via Stripe (${paymentIntentId})`,
+    metadataJson: { paymentIntentId, amountCents: printOrder.totalCents },
+  } as any);
+
+  // Fire confirmation emails (fire-and-forget)
+  try {
+    const { emailOrderPlaced, emailDimaNewOrder } = await import("./print-email");
+    const updatedOrder = { ...printOrder, status: nextStatus, paidCents: printOrder.totalCents };
+    await emailOrderPlaced(updatedOrder, items[0], artworkPath);
+    await emailDimaNewOrder(updatedOrder, items[0]);
+  } catch (e) {
+    console.error("[Print payment] email send failed:", e);
+  }
 }
 
 async function handlePaymentSuccess(registrationId: number, stripeSessionId?: string, metadata?: Record<string, string>) {

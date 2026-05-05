@@ -70,6 +70,7 @@ import PrintHub from "@/pages/print-hub";
 import PrintConfigure from "@/pages/print-configure";
 import PrintCheckout from "@/pages/print-checkout";
 import PrintOrderStatus from "@/pages/print-order-status";
+import PrintUpload from "@/pages/print-upload";
 import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -313,6 +314,7 @@ function App() {
             <Route path="/print" component={PrintHub} />
             <Route path="/print/configure/:slug" component={PrintConfigure} />
             <Route path="/print/checkout" component={PrintCheckout} />
+            <Route path="/print/order/:token/upload" component={PrintUpload} />
             <Route path="/print/order/:token" component={PrintOrderStatus} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
