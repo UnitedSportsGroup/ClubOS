@@ -1062,12 +1062,11 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
   );
 }
 
-// Grouped-by-sponsor renderer for the Deliverables tab. Each sponsor is a
-// collapsible card with progress, deal context, and a fully-editable list
-// of their deliverables. Adds an "Add deliverable" affordance per sponsor
-// so contract items can be created without opening the deal modal.
+// Grouped-by-sponsor renderer for the Deliverables tab. Table-row layout
+// like the Onboarding tab — one row per sponsor with a colour-coded
+// completion %. Click a row to expand and edit the deliverables underneath.
 function DeliverablesGroupedBySponsor({
-  rows, team, today, onUpdate,
+  rows, team, today, onUpdate, onDelete,
 }: {
   rows: Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>;
   team: TeamMember[];
@@ -1075,129 +1074,186 @@ function DeliverablesGroupedBySponsor({
   onUpdate: (id: number, patch: any) => void;
   onDelete?: (id: number) => void;
 }) {
-  const groups = useMemo(() => {
-    const m = new Map<number, { deal: SponsorshipDeal | null; items: typeof rows }>();
-    for (const r of rows) {
-      const key = r.dealId;
-      if (!m.has(key)) m.set(key, { deal: r.deal, items: [] });
-      m.get(key)!.items.push(r);
-    }
-    return Array.from(m.values()).sort((a, b) =>
-      (a.deal?.sponsorCompany || "").localeCompare(b.deal?.sponsorCompany || "")
-    );
-  }, [rows]);
-
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
-  const toggle = (dealId: number) => setCollapsed(prev => {
-    const next = new Set(prev);
-    if (next.has(dealId)) next.delete(dealId); else next.add(dealId);
-    return next;
-  });
-
-  const queryClient2 = queryClient;
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [adding, setAdding] = useState<number | null>(null);
+
   const createMutation = useMutation({
     mutationFn: async ({ dealId, payload }: { dealId: number; payload: any }) => {
       const r = await apiRequest("POST", `/api/admin/sponsorship/deals/${dealId}/deliverables`, { ...payload, category: "contract" });
       return r.json();
     },
     onSuccess: () => {
-      queryClient2.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] });
       setAdding(null);
     },
   });
 
-  return (
-    <div className="space-y-3">
-      {groups.map(g => {
-        const isCollapsed = g.deal && collapsed.has(g.deal.id);
-        const total = g.items.length;
-        const delivered = g.items.filter(i => i.status === "delivered" || i.status === "waived").length;
-        const overdue = g.items.filter(i => {
-          if (i.status === "delivered" || i.status === "waived") return false;
-          if (!i.scheduledDate) return false;
-          return new Date(i.scheduledDate + "T00:00:00") < today;
-        }).length;
-        const stage = g.deal?.stage;
-        const stageCfg = STAGES.find(s => s.key === stage);
-        const pct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-        return (
-          <div key={g.deal?.id || 0} className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-            <button
-              onClick={() => g.deal && toggle(g.deal.id)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors text-left"
-            >
-              {stageCfg && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stageCfg.color }} />}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <span className="truncate">{g.deal?.sponsorCompany || "Unknown sponsor"}</span>
-                  {g.deal?.brandTags && g.deal.brandTags.length > 0 && (
-                    <span className="flex gap-1 flex-shrink-0">
-                      {g.deal.brandTags.slice(0, 2).map(slug => {
-                        const b = BRANDS.find(x => x.slug === slug);
-                        return <span key={slug} className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${b?.color || "#64748b"}20`, color: b?.color || "#64748b" }}>{b?.label || slug}</span>;
-                      })}
-                    </span>
-                  )}
-                </div>
-                {g.deal?.title && g.deal.title !== g.deal.sponsorCompany && (
-                  <div className="text-[11px] text-white/40 truncate">{g.deal.title}</div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 text-[11px] text-white/50 flex-shrink-0">
-                {overdue > 0 && (
-                  <span className="text-red-400 font-semibold flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />{overdue} overdue
-                  </span>
-                )}
-                <span className="font-medium">{delivered}/{total}</span>
-                <div className="w-20 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                  <div className="h-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#22c55e" : "#3b82f6" }} />
-                </div>
-                {isCollapsed ? <ChevronRightInline /> : <ChevronDownInline />}
-              </div>
-            </button>
+  const groups = useMemo(() => {
+    const m = new Map<number, { deal: SponsorshipDeal | null; items: typeof rows }>();
+    for (const r of rows) {
+      if (!m.has(r.dealId)) m.set(r.dealId, { deal: r.deal, items: [] });
+      m.get(r.dealId)!.items.push(r);
+    }
+    return Array.from(m.values()).sort((a, b) =>
+      (a.deal?.sponsorCompany || "").localeCompare(b.deal?.sponsorCompany || "")
+    );
+  }, [rows]);
 
-            {!isCollapsed && (
-              <div className="border-t border-white/[0.04] p-2 space-y-1.5 bg-black/10">
-                {g.items.map(d => (
-                  <DeliverableEditableRow
-                    key={d.id}
-                    item={d as SponsorshipDeliverable}
-                    team={team}
-                    today={today}
-                    onUpdate={(patch) => onUpdate(d.id, patch)}
-                    onDelete={onDelete ? () => onDelete(d.id) : undefined}
-                  />
-                ))}
-                {adding === g.deal?.id ? (
-                  <DeliverableForm
-                    team={team}
-                    onCancel={() => setAdding(null)}
-                    onSubmit={(payload) => g.deal && createMutation.mutate({ dealId: g.deal.id, payload })}
-                  />
-                ) : (
-                  <button
-                    onClick={() => g.deal && setAdding(g.deal.id)}
-                    className="w-full text-[11px] text-white/30 hover:text-white/60 italic py-2 rounded border border-dashed border-white/10 hover:border-white/20 transition"
-                  >
-                    + Add deliverable to {g.deal?.sponsorCompany}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+  const toggle = (dealId: number) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(dealId)) next.delete(dealId); else next.add(dealId);
+    return next;
+  });
+
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold w-8"></th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Sponsor</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Stage</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Brand</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Done</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Overdue</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold w-[200px]">Progress</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(g => {
+            if (!g.deal) return null;
+            const total = g.items.length;
+            const delivered = g.items.filter(i => i.status === "delivered" || i.status === "waived").length;
+            const overdueCount = g.items.filter(i => {
+              if (i.status === "delivered" || i.status === "waived") return false;
+              if (!i.scheduledDate) return false;
+              return new Date(i.scheduledDate + "T00:00:00") < today;
+            }).length;
+            const pct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+            // Red <40% · Amber 40-79% · Green 80%+
+            const pctColor = pct >= 80 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
+            const pctBg    = pct >= 80 ? "rgba(34,197,94,0.15)" : pct >= 40 ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)";
+            const stage = STAGES.find(s => s.key === g.deal!.stage);
+            const isExpanded = expanded.has(g.deal.id);
+
+            return (
+              <FragmentRows
+                key={g.deal.id}
+                deal={g.deal}
+                items={g.items}
+                team={team}
+                today={today}
+                isExpanded={isExpanded}
+                isAdding={adding === g.deal.id}
+                stage={stage}
+                pct={pct}
+                pctColor={pctColor}
+                pctBg={pctBg}
+                delivered={delivered}
+                total={total}
+                overdueCount={overdueCount}
+                onToggle={() => toggle(g.deal!.id)}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+                onAddRequested={() => setAdding(g.deal!.id)}
+                onAddCancelled={() => setAdding(null)}
+                onAddSubmit={(payload) => createMutation.mutate({ dealId: g.deal!.id, payload })}
+              />
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
+function FragmentRows({
+  deal, items, team, today, isExpanded, isAdding, stage, pct, pctColor, pctBg,
+  delivered, total, overdueCount, onToggle, onUpdate, onDelete,
+  onAddRequested, onAddCancelled, onAddSubmit,
+}: any) {
+  return (
+    <>
+      <tr className="hover:bg-white/[0.02] cursor-pointer transition-colors" onClick={onToggle}>
+        <td className="px-3 py-2.5 border-b border-white/[0.04] text-white/30">
+          {isExpanded ? <ChevronDownInline /> : <ChevronRightInline />}
+        </td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04]">
+          <div className="font-semibold text-white truncate">{deal.sponsorCompany}</div>
+          {deal.title && deal.title !== deal.sponsorCompany && (
+            <div className="text-[10px] text-white/40 truncate">{deal.title}</div>
+          )}
+        </td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04]">
+          {stage && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-medium" style={{ color: stage.color }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: stage.color }} />
+              {stage.label}
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04]">
+          <div className="flex gap-1 flex-wrap">
+            {(deal.brandTags || []).slice(0, 3).map((slug: string) => {
+              const b = BRANDS.find(x => x.slug === slug);
+              return <span key={slug} className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${b?.color || "#64748b"}20`, color: b?.color || "#64748b" }}>{b?.label || slug}</span>;
+            })}
+          </div>
+        </td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04] text-white/70 tabular-nums">{delivered} / {total}</td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04]">
+          {overdueCount > 0 ? (
+            <span className="text-red-400 font-semibold text-[11px] flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {overdueCount}</span>
+          ) : <span className="text-white/25">—</span>}
+        </td>
+        <td className="px-3 py-2.5 border-b border-white/[0.04]">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: pctBg }}>
+              <div className="h-full transition-all" style={{ width: `${pct}%`, background: pctColor }} />
+            </div>
+            <span className="text-[11px] font-bold tabular-nums w-10 text-right" style={{ color: pctColor }}>{pct}%</span>
+          </div>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={7} className="bg-black/20 border-b border-white/[0.04] p-3">
+            <div className="space-y-1.5">
+              {items.map((d: SponsorshipDeliverable) => (
+                <DeliverableEditableRow
+                  key={d.id}
+                  item={d}
+                  team={team}
+                  today={today}
+                  onUpdate={(patch) => onUpdate(d.id, patch)}
+                  onDelete={onDelete ? () => onDelete(d.id) : undefined}
+                />
+              ))}
+              {isAdding ? (
+                <DeliverableForm team={team} onCancel={onAddCancelled} onSubmit={onAddSubmit} />
+              ) : (
+                <button
+                  onClick={onAddRequested}
+                  className="w-full text-[11px] text-white/30 hover:text-white/60 italic py-2 rounded border border-dashed border-white/10 hover:border-white/20 transition"
+                >
+                  + Add deliverable to {deal.sponsorCompany}
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function ChevronDownInline() {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><path d="m6 9 6 6 6-6"/></svg>;
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6"/></svg>;
 }
 function ChevronRightInline() {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><path d="m9 18 6-6-6-6"/></svg>;
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>;
 }
 
 // Fully editable deliverable row used inside the grouped Deliverables tab.
