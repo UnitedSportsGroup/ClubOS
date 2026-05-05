@@ -52,6 +52,10 @@ import {
   printContacts, type InsertPrintContact, type PrintContact,
   printLandingPages, type InsertPrintLandingPage, type PrintLandingPage,
   printEmails, type InsertPrintEmail, type PrintEmail,
+  printMaterials, type InsertPrintMaterial, type PrintMaterial,
+  printOrderItems, type InsertPrintOrderItem, type PrintOrderItem,
+  printOrderFiles, type InsertPrintOrderFile, type PrintOrderFile,
+  printOrderEvents, type InsertPrintOrderEvent, type PrintOrderEvent,
   tournaments, tournamentGroups, tournamentTeams, tournamentPlayers, tournamentStaff, tournamentGames, tournamentGoals,
   clubs,
   type InsertTournament, type Tournament,
@@ -365,6 +369,28 @@ export interface IStorage {
   getPrintEmailsByOrg(orgId: number): Promise<PrintEmail[]>;
   createPrintEmail(data: InsertPrintEmail): Promise<PrintEmail>;
   updatePrintEmail(id: number, data: Partial<InsertPrintEmail>): Promise<PrintEmail | undefined>;
+
+  // Print materials catalog (the heart of the pricing engine)
+  getPrintMaterials(orgId: number, opts?: { activeOnly?: boolean }): Promise<PrintMaterial[]>;
+  getPrintMaterial(id: number): Promise<PrintMaterial | undefined>;
+  getPrintMaterialBySlug(slug: string): Promise<PrintMaterial | undefined>;
+  createPrintMaterial(data: InsertPrintMaterial): Promise<PrintMaterial>;
+  updatePrintMaterial(id: number, data: Partial<InsertPrintMaterial>): Promise<PrintMaterial | undefined>;
+  deletePrintMaterial(id: number): Promise<void>;
+
+  // Print order items, files, events
+  getPrintOrderItems(orderId: number): Promise<PrintOrderItem[]>;
+  createPrintOrderItem(data: InsertPrintOrderItem): Promise<PrintOrderItem>;
+  deletePrintOrderItems(orderId: number): Promise<void>;
+
+  getPrintOrderFiles(orderId: number): Promise<PrintOrderFile[]>;
+  createPrintOrderFile(data: InsertPrintOrderFile): Promise<PrintOrderFile>;
+  deletePrintOrderFile(id: number): Promise<void>;
+
+  getPrintOrderEvents(orderId: number): Promise<PrintOrderEvent[]>;
+  createPrintOrderEvent(data: InsertPrintOrderEvent): Promise<PrintOrderEvent>;
+
+  getPrintOrderByMagicLink(token: string): Promise<PrintOrder | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1996,6 +2022,68 @@ export class DatabaseStorage implements IStorage {
   }
   async updatePrintEmail(id: number, data: Partial<InsertPrintEmail>): Promise<PrintEmail | undefined> {
     const [r] = await db.update(printEmails).set(data).where(eq(printEmails.id, id)).returning(); return r;
+  }
+
+  // Print materials catalog
+  async getPrintMaterials(orgId: number, opts: { activeOnly?: boolean } = {}): Promise<PrintMaterial[]> {
+    const where = opts.activeOnly
+      ? and(eq(printMaterials.organizationId, orgId), eq(printMaterials.isActive, true))
+      : eq(printMaterials.organizationId, orgId);
+    return db.select().from(printMaterials).where(where).orderBy(asc(printMaterials.displayOrder), asc(printMaterials.id));
+  }
+  async getPrintMaterial(id: number): Promise<PrintMaterial | undefined> {
+    const [m] = await db.select().from(printMaterials).where(eq(printMaterials.id, id));
+    return m;
+  }
+  async getPrintMaterialBySlug(slug: string): Promise<PrintMaterial | undefined> {
+    const [m] = await db.select().from(printMaterials).where(eq(printMaterials.slug, slug));
+    return m;
+  }
+  async createPrintMaterial(data: InsertPrintMaterial): Promise<PrintMaterial> {
+    const [m] = await db.insert(printMaterials).values(data).returning();
+    return m;
+  }
+  async updatePrintMaterial(id: number, data: Partial<InsertPrintMaterial>): Promise<PrintMaterial | undefined> {
+    const [m] = await db.update(printMaterials).set({ ...data, updatedAt: new Date() }).where(eq(printMaterials.id, id)).returning();
+    return m;
+  }
+  async deletePrintMaterial(id: number): Promise<void> {
+    await db.delete(printMaterials).where(eq(printMaterials.id, id));
+  }
+
+  // Print order items
+  async getPrintOrderItems(orderId: number): Promise<PrintOrderItem[]> {
+    return db.select().from(printOrderItems).where(eq(printOrderItems.orderId, orderId)).orderBy(asc(printOrderItems.id));
+  }
+  async createPrintOrderItem(data: InsertPrintOrderItem): Promise<PrintOrderItem> {
+    const [r] = await db.insert(printOrderItems).values(data).returning(); return r;
+  }
+  async deletePrintOrderItems(orderId: number): Promise<void> {
+    await db.delete(printOrderItems).where(eq(printOrderItems.orderId, orderId));
+  }
+
+  // Print order files
+  async getPrintOrderFiles(orderId: number): Promise<PrintOrderFile[]> {
+    return db.select().from(printOrderFiles).where(eq(printOrderFiles.orderId, orderId)).orderBy(desc(printOrderFiles.uploadedAt));
+  }
+  async createPrintOrderFile(data: InsertPrintOrderFile): Promise<PrintOrderFile> {
+    const [r] = await db.insert(printOrderFiles).values(data).returning(); return r;
+  }
+  async deletePrintOrderFile(id: number): Promise<void> {
+    await db.delete(printOrderFiles).where(eq(printOrderFiles.id, id));
+  }
+
+  // Print order events
+  async getPrintOrderEvents(orderId: number): Promise<PrintOrderEvent[]> {
+    return db.select().from(printOrderEvents).where(eq(printOrderEvents.orderId, orderId)).orderBy(desc(printOrderEvents.createdAt));
+  }
+  async createPrintOrderEvent(data: InsertPrintOrderEvent): Promise<PrintOrderEvent> {
+    const [r] = await db.insert(printOrderEvents).values(data).returning(); return r;
+  }
+
+  async getPrintOrderByMagicLink(token: string): Promise<PrintOrder | undefined> {
+    const [r] = await db.select().from(printOrders).where(eq(printOrders.magicLinkToken, token));
+    return r;
   }
 }
 

@@ -1056,20 +1056,154 @@ export const insertSponsorshipDealSchema = createInsertSchema(sponsorshipDeals).
 export type InsertSponsorshipDeal = z.infer<typeof insertSponsorshipDealSchema>;
 export type SponsorshipDeal = typeof sponsorshipDeals.$inferSelect;
 
-export const printOrderStatusEnum = pgEnum("print_order_status", ["inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled"]);
+// Deliverables — what we promised the sponsor. The single biggest renewal
+// driver (per industry research): "done" requires proof_url evidence. Each
+// deal can have N deliverables (LED rotations, social posts, hospitality
+// nights, signage, content series, etc.).
+export const deliverableStatusEnum = pgEnum("deliverable_status", ["pending", "in_progress", "delivered", "overdue", "waived"]);
+export const deliverableTriggerEnum = pgEnum("deliverable_trigger", ["once", "per_match", "weekly", "monthly", "quarterly", "annually"]);
+
+export const sponsorshipDeliverables = pgTable("sponsorship_deliverables", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  dealId: integer("deal_id").notNull().references(() => sponsorshipDeals.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  type: text("type"),
+  triggerType: deliverableTriggerEnum("trigger_type").notNull().default("once"),
+  scheduledDate: date("scheduled_date"),
+  entitlementQty: integer("entitlement_qty").default(1),
+  usedQty: integer("used_qty").default(0),
+  status: deliverableStatusEnum("status").notNull().default("pending"),
+  ownerId: integer("owner_id").references(() => users.id),
+  proofUrl: text("proof_url"),
+  deliveredAt: timestamp("delivered_at"),
+  notes: text("notes"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSponsorshipDeliverableSchema = createInsertSchema(sponsorshipDeliverables).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSponsorshipDeliverable = z.infer<typeof insertSponsorshipDeliverableSchema>;
+export type SponsorshipDeliverable = typeof sponsorshipDeliverables.$inferSelect;
+
+// ── United Prints MIS ────────────────────────────────────────────────────────
+// A print shop management system inside ClubOS that does what ShopVox does
+// (~NZD $1,000/mo) plus the one thing they don't: a public-facing instant-quote
+// flow with embedded Stripe checkout. Reference: plans/2026-05-05-united-prints-mis-v1.md
+//
+// Lifecycle: draft → quote_sent → paid → artwork_pending → in_design → in_proof
+// → proof_approved → in_production → finishing → ready → delivered → cancelled.
+// One record (printOrders) carries the full lifecycle — quote and order are
+// not separate tables.
+
+export const printOrderStatusEnum = pgEnum("print_order_status", [
+  "inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled",
+  // v1 lifecycle additions:
+  "draft", "quote_sent", "paid", "artwork_pending", "in_design", "in_proof",
+  "proof_approved", "finishing",
+]);
+
+export const printMaterialCategoryEnum = pgEnum("print_material_category", [
+  "banner", "corflute", "vinyl_decal", "aluminium", "garment", "rollup", "poster", "sticker", "custom",
+]);
+
+export const printPricingMethodEnum = pgEnum("print_pricing_method", [
+  "per_m2", "per_piece", "per_piece_tiered", "garment_decoration", "bundle",
+]);
+
+// The catalog. The single most important table — every quote derives from a
+// material's pricing method, base rate, and rules. Keep this normalised so
+// Dima can update prices without code changes.
+export const printMaterials = pgTable("print_materials", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  category: printMaterialCategoryEnum("category").notNull(),
+  description: text("description"),
+  heroImageUrl: text("hero_image_url"),
+  isActive: boolean("is_active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+
+  pricingMethod: printPricingMethodEnum("pricing_method").notNull(),
+  baseRateCents: integer("base_rate_cents").notNull().default(0),
+  substrateCostPerM2Cents: integer("substrate_cost_per_m2_cents").notNull().default(0),
+  markupMultiplier: decimal("markup_multiplier", { precision: 5, scale: 2 }).notNull().default("2.5"),
+  minChargeCents: integer("min_charge_cents").notNull().default(0),
+
+  sizeMinWMm: integer("size_min_w_mm"),
+  sizeMaxWMm: integer("size_max_w_mm"),
+  sizeMinHMm: integer("size_min_h_mm"),
+  sizeMaxHMm: integer("size_max_h_mm"),
+
+  // Add-ons: [{id, name, formula: 'flat'|'per_unit'|'per_m'|'per_perimeter_m', unitPriceCents, default?}]
+  addonsJson: jsonb("addons_json").notNull().default(sql`'[]'::jsonb`),
+  // [{name, included: true}, ...]
+  finishingDefaultJson: jsonb("finishing_default_json").notNull().default(sql`'[]'::jsonb`),
+  // [{minQty: 10, discountPct: 5}, ...]
+  qtyTiersJson: jsonb("qty_tiers_json").notNull().default(sql`'[]'::jsonb`),
+  // For stock-size + bundle products: [{label, w, h, priceCents}, ...]
+  sizeTiersJson: jsonb("size_tiers_json").notNull().default(sql`'[]'::jsonb`),
+
+  turnaroundDays: integer("turnaround_days").notNull().default(3),
+  rushAvailable: boolean("rush_available").notNull().default(true),
+  humanQuoteRequired: boolean("human_quote_required").notNull().default(false),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrintMaterialSchema = createInsertSchema(printMaterials).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrintMaterial = z.infer<typeof insertPrintMaterialSchema>;
+export type PrintMaterial = typeof printMaterials.$inferSelect;
 
 export const printOrders = pgTable("print_orders", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+
+  // Order number visible to customer + Dima (e.g. UP-2026-0001). Generated server-side.
+  orderNumber: text("order_number").unique(),
+
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
+  customerCompany: text("customer_company"),
+
   title: text("title").notNull(),
   description: text("description"),
   status: printOrderStatusEnum("status").notNull().default("inquiry"),
+
+  // Money — all in cents. amount kept for back-compat with older rows.
   amount: decimal("amount", { precision: 12, scale: 2 }),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+  gstCents: integer("gst_cents").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  paidCents: integer("paid_cents").notNull().default(0),
+
+  // Delivery
+  deliveryMethod: text("delivery_method").notNull().default("pickup"),  // 'pickup' | 'delivery'
+  deliveryAddress: text("delivery_address"),
+  deliveryQuoteCents: integer("delivery_quote_cents").notNull().default(0),
+
+  pickupReadyDate: date("pickup_ready_date"),
   dueDate: date("due_date"),
+
+  // Stripe
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeInvoiceId: text("stripe_invoice_id"),
+
+  // Magic link for the artwork upload portal (random 32-char). Public-readable
+  // by token only, no auth needed.
+  magicLinkToken: text("magic_link_token").unique(),
+
+  quoteExpiresAt: timestamp("quote_expires_at"),
+  customerNotes: text("customer_notes"),
+  internalNotes: text("internal_notes"),
   notes: text("notes"),
+
+  rushRequested: boolean("rush_requested").notNull().default(false),
+
   createdBy: integer("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1078,6 +1212,83 @@ export const printOrders = pgTable("print_orders", {
 export const insertPrintOrderSchema = createInsertSchema(printOrders).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertPrintOrder = z.infer<typeof insertPrintOrderSchema>;
 export type PrintOrder = typeof printOrders.$inferSelect;
+
+// Line items on each order. Most banner orders are 1 item; garment orders or
+// multi-product orders are 2-5. Each line item snapshots the material's
+// pricing at quote time so historical orders don't drift if Dima updates
+// material prices later.
+export const printOrderItems = pgTable("print_order_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => printOrders.id, { onDelete: "cascade" }),
+  materialId: integer("material_id").references(() => printMaterials.id),
+
+  // Snapshot at quote time
+  materialName: text("material_name").notNull(),
+  description: text("description"),
+
+  widthMm: integer("width_mm"),
+  heightMm: integer("height_mm"),
+  quantity: integer("quantity").notNull().default(1),
+  sides: integer("sides").notNull().default(1),
+
+  // {selectedAddons: [...], finishing: [...]}
+  configJson: jsonb("config_json").notNull().default(sql`'{}'::jsonb`),
+
+  // Money — pre-GST. GST is computed at the order level on the sum of items.
+  unitPriceCents: integer("unit_price_cents").notNull().default(0),
+  qtyDiscountCents: integer("qty_discount_cents").notNull().default(0),
+  addonsTotalCents: integer("addons_total_cents").notNull().default(0),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+
+  // Cost tracking for margin reports
+  estimatedCostCents: integer("estimated_cost_cents").notNull().default(0),
+
+  // Human-readable breakdown of how the price was computed (so the customer
+  // sees: '4.5 m² × $50/m² × 1', 'Eyelets ×4', 'Qty discount 10%')
+  breakdownJson: jsonb("breakdown_json").notNull().default(sql`'[]'::jsonb`),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertPrintOrderItemSchema = createInsertSchema(printOrderItems).omit({ id: true, createdAt: true });
+export type InsertPrintOrderItem = z.infer<typeof insertPrintOrderItemSchema>;
+export type PrintOrderItem = typeof printOrderItems.$inferSelect;
+
+// Design files / proofs / artwork. Either uploaded by the customer (via the
+// magic-link portal) or by Dima (proofs, mockups). Files live in objectAcls
+// like every other private file — same flow as team logos and age docs.
+export const printOrderFiles = pgTable("print_order_files", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => printOrders.id, { onDelete: "cascade" }),
+  orderItemId: integer("order_item_id").references(() => printOrderItems.id, { onDelete: "cascade" }),
+  objectPath: text("object_path").notNull(),
+  filename: text("filename").notNull(),
+  fileSize: integer("file_size"),
+  mimeType: text("mime_type"),
+  uploadedBy: text("uploaded_by").notNull().default("customer"),  // 'customer' | 'admin'
+  fileType: text("file_type").notNull().default("artwork"),  // 'artwork' | 'proof' | 'reference' | 'invoice'
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+export const insertPrintOrderFileSchema = createInsertSchema(printOrderFiles).omit({ id: true, uploadedAt: true });
+export type InsertPrintOrderFile = z.infer<typeof insertPrintOrderFileSchema>;
+export type PrintOrderFile = typeof printOrderFiles.$inferSelect;
+
+// Activity log on the order. Drives the "Events" tab on the order detail
+// page and the customer-facing status timeline.
+export const printOrderEvents = pgTable("print_order_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => printOrders.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  // 'created' | 'quote_sent' | 'paid' | 'artwork_uploaded' | 'in_design' |
+  // 'in_proof' | 'proof_approved' | 'in_production' | 'finishing' | 'ready' |
+  // 'delivered' | 'cancelled' | 'note_added' | 'email_sent'
+  notes: text("notes"),
+  metadataJson: jsonb("metadata_json").notNull().default(sql`'{}'::jsonb`),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertPrintOrderEventSchema = createInsertSchema(printOrderEvents).omit({ id: true, createdAt: true });
+export type InsertPrintOrderEvent = z.infer<typeof insertPrintOrderEventSchema>;
+export type PrintOrderEvent = typeof printOrderEvents.$inferSelect;
 
 export const printProjectStatusEnum = pgEnum("print_project_status", ["planning", "active", "on_hold", "completed", "archived"]);
 

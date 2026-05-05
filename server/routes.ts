@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4479,6 +4479,90 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
+  // ── Sponsorship deliverables ─────────────────────────────────────────────
+  // Per-deal checklist of what we promised. Source of truth for end-of-season
+  // partner reports (the #1 renewal driver per industry research). "Done"
+  // requires a proof_url to enforce evidence-of-delivery.
+  async function dealForUser(req: Request, dealId: number) {
+    const [deal] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, dealId));
+    if (!deal) return null;
+    if (!(await checkUserOrg(req.session.userId!, deal.organizationId))) return null;
+    return deal;
+  }
+
+  app.get("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, async (req, res) => {
+    try {
+      const dealId = parseInt(req.params.dealId);
+      const deal = await dealForUser(req, dealId);
+      if (!deal) return res.status(404).json({ message: "Not found" });
+      const rows = await db.select().from(sponsorshipDeliverables)
+        .where(eq(sponsorshipDeliverables.dealId, dealId))
+        .orderBy(asc(sponsorshipDeliverables.displayOrder), asc(sponsorshipDeliverables.id));
+      res.json(rows);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, async (req, res) => {
+    try {
+      const dealId = parseInt(req.params.dealId);
+      const deal = await dealForUser(req, dealId);
+      if (!deal) return res.status(404).json({ message: "Not found" });
+      const title = String(req.body?.title || "").trim();
+      if (!title) return res.status(400).json({ message: "title required" });
+      const [row] = await db.insert(sponsorshipDeliverables).values({
+        dealId,
+        title,
+        type: req.body?.type || null,
+        triggerType: req.body?.triggerType || "once",
+        scheduledDate: req.body?.scheduledDate || null,
+        entitlementQty: req.body?.entitlementQty != null ? req.body.entitlementQty : 1,
+        usedQty: req.body?.usedQty != null ? req.body.usedQty : 0,
+        status: req.body?.status || "pending",
+        ownerId: req.body?.ownerId ?? null,
+        proofUrl: req.body?.proofUrl || null,
+        notes: req.body?.notes || null,
+        createdBy: req.session.userId!,
+      }).returning();
+      res.json(row);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/deliverables/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const deal = await dealForUser(req, existing.dealId);
+      if (!deal) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = { updatedAt: new Date() };
+      const fields = ["title", "type", "triggerType", "scheduledDate", "ownerId", "proofUrl", "notes", "entitlementQty", "usedQty", "displayOrder"];
+      for (const f of fields) if (req.body[f] !== undefined) patch[f] = req.body[f] === "" ? null : req.body[f];
+      if (req.body.status !== undefined) {
+        patch.status = req.body.status;
+        // Auto-stamp deliveredAt the moment a deliverable transitions to delivered.
+        if (req.body.status === "delivered" && existing.status !== "delivered") {
+          patch.deliveredAt = new Date();
+        } else if (req.body.status !== "delivered" && existing.deliveredAt) {
+          patch.deliveredAt = null;
+        }
+      }
+      const [updated] = await db.update(sponsorshipDeliverables).set(patch).where(eq(sponsorshipDeliverables.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/sponsorship/deliverables/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const deal = await dealForUser(req, existing.dealId);
+      if (!deal) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
   app.get("/api/admin/calendar-events", requireAuth, async (req, res) => {
     try {
       const filters: any = {};
@@ -6338,6 +6422,96 @@ export async function registerRoutes(
       const email = await storage.updatePrintEmail(parseInt(req.params.id), req.body);
       if (!email) return res.status(404).json({ message: "Not found" });
       res.json(email);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Print Materials (catalog) ──────────────────────────────────────────
+  app.get("/api/admin/print-materials", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const activeOnly = req.query.activeOnly === "true";
+      const materials = await storage.getPrintMaterials(orgId, { activeOnly });
+      res.json(materials);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/print-materials/:id", requireAuth, async (req, res) => {
+    try {
+      const m = await storage.getPrintMaterial(parseInt(req.params.id));
+      if (!m) return res.status(404).json({ message: "Not found" });
+      res.json(m);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/print-materials", requireAuth, async (req, res) => {
+    try {
+      if (!req.body.organizationId) return res.status(400).json({ message: "organizationId required" });
+      const m = await storage.createPrintMaterial(req.body);
+      res.status(201).json(m);
+    } catch (e: any) {
+      if (e?.code === "23505") {
+        return res.status(409).json({ message: "A material with that slug already exists." });
+      }
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/print-materials/:id", requireAuth, async (req, res) => {
+    try {
+      const m = await storage.updatePrintMaterial(parseInt(req.params.id), req.body);
+      if (!m) return res.status(404).json({ message: "Not found" });
+      res.json(m);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/print-materials/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePrintMaterial(parseInt(req.params.id));
+      res.status(204).end();
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Public-facing: list active materials by org (for the order page).
+  // No auth — this is the public catalog.
+  app.get("/api/print/materials", async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string) || 8;  // United Prints default
+      const materials = await storage.getPrintMaterials(orgId, { activeOnly: true });
+      res.json(materials);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/print/materials/:slug", async (req, res) => {
+    try {
+      const m = await storage.getPrintMaterialBySlug(req.params.slug);
+      if (!m || !m.isActive) return res.status(404).json({ message: "Not found" });
+      res.json(m);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Public quote endpoint — runs the pricing engine. Used by the public
+  // configurator on every input change. Does NOT create an order; only
+  // returns the price breakdown. Server-side so the engine can never be
+  // bypassed by the client.
+  app.post("/api/print/quote", async (req, res) => {
+    try {
+      const { materialSlug, config } = req.body;
+      if (!materialSlug || !config) return res.status(400).json({ message: "materialSlug + config required" });
+      const material = await storage.getPrintMaterialBySlug(materialSlug);
+      if (!material || !material.isActive) return res.status(404).json({ message: "Material not found" });
+      const { quotePrintItem, quoteOrderTotals } = await import("./print-pricing");
+      const itemQuote = quotePrintItem(material, config);
+      if (!itemQuote.ok) {
+        return res.json({ ok: false, reason: itemQuote.reason, message: itemQuote.message });
+      }
+      const totals = quoteOrderTotals([itemQuote.subtotalCents]);
+      res.json({
+        ok: true,
+        item: itemQuote,
+        totals,
+        material: { name: material.name, slug: material.slug, turnaroundDays: itemQuote.turnaroundDays },
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
