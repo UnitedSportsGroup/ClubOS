@@ -333,9 +333,6 @@ export async function registerRoutes(
 
   app.post("/api/admin/programs", requireAuth, async (req, res) => {
     try {
-      // Caller must supply organizationId + type explicitly. Defaults are
-      // sensible for new gymnastics programs but won't help if the wrong
-      // org is on the request — fail loudly.
       const data = { ...req.body };
       if (!data.organizationId) return res.status(400).json({ message: "organizationId required" });
       if (!data.type) data.type = "open_training";
@@ -349,6 +346,13 @@ export async function registerRoutes(
       });
       res.status(201).json(program);
     } catch (error: any) {
+      // Surface unique-constraint violations (now per-org on slug) as a
+      // human-readable conflict instead of dumping the raw SQL.
+      if (error?.code === "23505") {
+        return res.status(409).json({
+          message: `A program with that slug already exists in this workspace. Pick a different slug, or open the existing program from your Programs list.`,
+        });
+      }
       res.status(400).json({ message: error.message });
     }
   });

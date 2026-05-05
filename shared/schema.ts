@@ -75,10 +75,13 @@ export const contactRelationships = pgTable("contact_relationships", {
   isPrimaryContact: boolean("is_primary_contact").default(true),
 });
 
+// Slug uniqueness is per-organization, NOT global. Different workspaces
+// can each have their own 'recreational' or 'world-cup' program without
+// colliding. Enforced by the programs_org_slug_unique constraint.
 export const programs = pgTable("programs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
-  slug: text("slug").unique(),
+  slug: text("slug"),
   type: programTypeEnum("type").notNull(),
   description: text("description"),
   heroImage: text("hero_image"),
