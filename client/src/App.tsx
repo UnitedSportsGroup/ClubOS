@@ -35,6 +35,7 @@ import AdminDomainSettings from "@/pages/admin-domain-settings";
 import GroupDashboard from "@/pages/group-dashboard";
 import GroupCalendar from "@/pages/group-calendar";
 import GroupSponsorship from "@/pages/group-sponsorship";
+import GroupProjects from "@/pages/group-projects";
 import AdminAcademy from "@/pages/admin-academy";
 import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
@@ -128,6 +129,7 @@ function AdminRouter() {
       <Switch>
         <Route path="/admin" component={GroupDashboard} />
         <Route path="/admin/calendar" component={GroupCalendar} />
+        <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route component={NotFound} />

@@ -948,6 +948,66 @@ export const insertCalendarCategorySchema = createInsertSchema(calendarCategorie
 export type InsertCalendarCategory = z.infer<typeof insertCalendarCategorySchema>;
 export type CalendarCategory = typeof calendarCategories.$inferSelect;
 
+// ── Project management ───────────────────────────────────────────────────────
+// Lightweight Monday-style boards/groups/tasks. Tasks live in the USG
+// "command center" workspace and use brand_tags (multi-select) so a single
+// task can show up in multiple brand views — e.g. "design CIC sponsor pack"
+// tagged ['cic','sponsorship'] appears in both filters.
+
+export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "urgent"]);
+
+export const projectBoards = pgTable("project_boards", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  // Default brand context for tasks created in this board (still overridable per task).
+  brandTags: text("brand_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  color: text("color").default("#3b82f6"),
+  archived: boolean("archived").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const projectGroups = pgTable("project_groups", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  boardId: integer("board_id").notNull().references(() => projectBoards.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").default("#6b7280"),
+  // is_done = treat tasks in this group as completed (auto-fills completedAt).
+  isDone: boolean("is_done").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+});
+
+export const projectTasks = pgTable("project_tasks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  boardId: integer("board_id").notNull().references(() => projectBoards.id, { onDelete: "cascade" }),
+  groupId: integer("group_id").references(() => projectGroups.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  priority: taskPriorityEnum("priority").notNull().default("medium"),
+  ownerId: integer("owner_id").references(() => users.id),
+  dueDate: date("due_date"),
+  brandTags: text("brand_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  displayOrder: integer("display_order").notNull().default(0),
+  completedAt: timestamp("completed_at"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectBoardSchema = createInsertSchema(projectBoards).omit({ id: true, createdAt: true });
+export const insertProjectGroupSchema = createInsertSchema(projectGroups).omit({ id: true });
+export const insertProjectTaskSchema = createInsertSchema(projectTasks).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertProjectBoard = z.infer<typeof insertProjectBoardSchema>;
+export type InsertProjectGroup = z.infer<typeof insertProjectGroupSchema>;
+export type InsertProjectTask = z.infer<typeof insertProjectTaskSchema>;
+export type ProjectBoard = typeof projectBoards.$inferSelect;
+export type ProjectGroup = typeof projectGroups.$inferSelect;
+export type ProjectTask = typeof projectTasks.$inferSelect;
+
 export const printOrderStatusEnum = pgEnum("print_order_status", ["inquiry", "quoted", "confirmed", "in_production", "ready", "delivered", "cancelled"]);
 
 export const printOrders = pgTable("print_orders", {

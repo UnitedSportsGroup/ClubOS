@@ -1,0 +1,730 @@
+import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useWorkspace } from "@/lib/workspace-context";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, X, User, Calendar as CalendarIcon, Flag, Check, Inbox, LayoutGrid, Layers, AlertCircle } from "lucide-react";
+
+// Brand vocabulary — the slugs of every org so brand_tags filter chips read
+// naturally. Stays in sync with organizations.slug values.
+const BRANDS: { slug: string; label: string; color: string }[] = [
+  { slug: "cufc",       label: "CUFC",         color: "#3b82f6" },
+  { slug: "siu",        label: "SIU",          color: "#8b5cf6" },
+  { slug: "mfl",        label: "MFL",          color: "#06b6d4" },
+  { slug: "cic",        label: "CIC",          color: "#a855f7" },
+  { slug: "usc",        label: "USC",          color: "#22c55e" },
+  { slug: "gymnastics", label: "Gymnastics",   color: "#ec4899" },
+  { slug: "usg",        label: "USG",          color: "#64748b" },
+  { slug: "print",      label: "Print",        color: "#f59e0b" },
+  { slug: "sponsorship",label: "Sponsorship",  color: "#ef4444" },
+];
+
+const PRIORITY_COLORS: Record<string, string> = {
+  low:    "#64748b",
+  medium: "#3b82f6",
+  high:   "#f59e0b",
+  urgent: "#ef4444",
+};
+
+interface ProjectGroup {
+  id: number;
+  boardId: number;
+  name: string;
+  color: string;
+  isDone: boolean;
+  displayOrder: number;
+}
+interface ProjectBoard {
+  id: number;
+  organizationId: number;
+  name: string;
+  description: string | null;
+  brandTags: string[];
+  color: string;
+  archived: boolean;
+  groups: ProjectGroup[];
+}
+interface ProjectTask {
+  id: number;
+  organizationId: number;
+  boardId: number;
+  groupId: number | null;
+  title: string;
+  description: string | null;
+  priority: "low" | "medium" | "high" | "urgent";
+  ownerId: number | null;
+  dueDate: string | null;
+  brandTags: string[];
+  displayOrder: number;
+  completedAt: string | null;
+}
+interface TeamMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
+export default function GroupProjectsPage() {
+  const { currentOrg } = useWorkspace();
+  const { toast } = useToast();
+  const orgId = currentOrg?.id;
+
+  const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null);
+  const [view, setView] = useState<"board" | "mine">("board");
+  const [brandFilter, setBrandFilter] = useState<string | null>(null);
+  const [taskModal, setTaskModal] = useState<{ mode: "create" | "edit"; task?: ProjectTask; defaultGroupId?: number } | null>(null);
+
+  const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
+
+  const { data: boards = [], isLoading: boardsLoading } = useQuery<ProjectBoard[]>({
+    queryKey: ["/api/admin/projects/boards", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/projects/boards?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load boards");
+      return r.json();
+    },
+    enabled: !!orgId,
+  });
+
+  // Auto-select first board on load
+  const board = useMemo(() => {
+    if (selectedBoardId) return boards.find(b => b.id === selectedBoardId) || null;
+    return boards[0] || null;
+  }, [boards, selectedBoardId]);
+
+  const { data: tasks = [] } = useQuery<ProjectTask[]>({
+    queryKey: ["/api/admin/projects/tasks", { boardId: board?.id, orgId, brand: brandFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("organizationId", String(orgId));
+      if (board) params.set("boardId", String(board.id));
+      if (brandFilter) params.set("brand", brandFilter);
+      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load tasks");
+      return r.json();
+    },
+    enabled: !!orgId && !!board && view === "board",
+  });
+
+  const { data: myTasks = [] } = useQuery<ProjectTask[]>({
+    queryKey: ["/api/admin/projects/tasks/mine"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/projects/tasks/mine", { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load");
+      return r.json();
+    },
+    enabled: view === "mine",
+  });
+
+  const { data: team = [] } = useQuery<TeamMember[]>({
+    queryKey: ["/api/admin/projects/team", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/projects/team?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load team");
+      return r.json();
+    },
+    enabled: !!orgId,
+  });
+
+  const createBoard = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/projects/boards", { organizationId: orgId, name: "New board" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/boards", orgId] });
+      toast({ title: "Board created" });
+    },
+  });
+
+  const createTask = useMutation({
+    mutationFn: async (payload: any) => {
+      const r = await apiRequest("POST", "/api/admin/projects/tasks", payload);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks/mine"] });
+      setTaskModal(null);
+      toast({ title: "Task created" });
+    },
+    onError: (e: any) => toast({ title: "Couldn't create task", description: e.message, variant: "destructive" }),
+  });
+
+  const updateTask = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/admin/projects/tasks/${id}`, patch);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks/mine"] });
+      setTaskModal(null);
+    },
+  });
+
+  const deleteTask = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/projects/tasks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks/mine"] });
+      setTaskModal(null);
+      toast({ title: "Task deleted" });
+    },
+  });
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (!orgId) return null;
+  return (
+    <div className="flex h-full">
+      {/* Sidebar — boards list */}
+      <aside className="w-60 border-r border-white/[0.06] flex flex-col">
+        <div className="px-4 py-4 border-b border-white/[0.06]">
+          <h1 className="text-base font-semibold">Projects</h1>
+          <p className="text-[11px] text-white/40 mt-0.5">Boards across {currentOrg?.name}</p>
+        </div>
+
+        {/* My Tasks pinned at top */}
+        <button
+          onClick={() => setView("mine")}
+          data-testid="button-view-mine"
+          className={`flex items-center justify-between gap-2 px-4 py-2.5 text-sm transition-colors border-l-2 ${
+            view === "mine" ? "bg-blue-500/[0.08] text-blue-300 border-blue-500" : "text-white/70 hover:bg-white/[0.03] border-transparent"
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <Inbox className="w-4 h-4" />
+            My Tasks
+          </span>
+          {myTasks.length > 0 && view !== "mine" && (
+            <span className="text-[10px] bg-white/[0.06] px-1.5 py-0.5 rounded">{myTasks.length}</span>
+          )}
+        </button>
+
+        <div className="px-4 pt-4 pb-1.5 text-[10px] uppercase tracking-wider text-white/30 font-semibold flex items-center justify-between">
+          <span>Boards</span>
+          <button
+            onClick={() => createBoard.mutate()}
+            data-testid="button-create-board"
+            className="w-5 h-5 rounded hover:bg-white/[0.06] flex items-center justify-center text-white/40 hover:text-white"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {boardsLoading ? (
+            <div className="px-4 py-2 space-y-2">
+              <Skeleton className="h-7 w-full" />
+              <Skeleton className="h-7 w-full" />
+            </div>
+          ) : boards.map(b => {
+            const active = view === "board" && board?.id === b.id;
+            return (
+              <button
+                key={b.id}
+                onClick={() => { setView("board"); setSelectedBoardId(b.id); }}
+                data-testid={`button-board-${b.id}`}
+                className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors border-l-2 ${
+                  active ? "bg-white/[0.04] text-white border-blue-500" : "text-white/60 hover:bg-white/[0.02] border-transparent"
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: b.color || "#3b82f6" }} />
+                <span className="truncate">{b.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar — title, view toggle, brand filter, new task */}
+        <div className="px-6 py-4 border-b border-white/[0.06] flex items-center gap-4 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-semibold truncate">
+              {view === "mine" ? "My Tasks" : board?.name || "Select a board"}
+            </h2>
+            {view === "board" && board?.description && (
+              <p className="text-xs text-white/40 truncate">{board.description}</p>
+            )}
+            {view === "mine" && (
+              <p className="text-xs text-white/40">{myTasks.length} task{myTasks.length === 1 ? "" : "s"} assigned to you</p>
+            )}
+          </div>
+
+          {view === "board" && (
+            <>
+              {/* Brand filter chips */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {brandFilter && (
+                  <button
+                    onClick={() => setBrandFilter(null)}
+                    data-testid="button-clear-brand-filter"
+                    className="text-[10px] px-2 py-1 rounded-md border border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                  >
+                    Clear filter
+                  </button>
+                )}
+                {BRANDS.map(b => {
+                  const active = brandFilter === b.slug;
+                  return (
+                    <button
+                      key={b.slug}
+                      onClick={() => setBrandFilter(active ? null : b.slug)}
+                      data-testid={`chip-brand-${b.slug}`}
+                      className="text-[10px] font-semibold px-2 py-1 rounded-md border transition"
+                      style={{
+                        borderColor: active ? b.color : "rgba(255,255,255,0.1)",
+                        background: active ? `${b.color}25` : "transparent",
+                        color: active ? "white" : "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      {b.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {board && (
+                <Button
+                  size="sm"
+                  onClick={() => setTaskModal({ mode: "create", defaultGroupId: board.groups[0]?.id })}
+                  data-testid="button-new-task"
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> New task
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto">
+          {view === "mine" ? (
+            <MyTasksView tasks={myTasks} boards={boards} team={team} onEdit={t => setTaskModal({ mode: "edit", task: t })} />
+          ) : board ? (
+            <KanbanView
+              board={board}
+              tasks={tasks}
+              team={team}
+              onCreate={(groupId) => setTaskModal({ mode: "create", defaultGroupId: groupId })}
+              onEdit={(t) => setTaskModal({ mode: "edit", task: t })}
+              onMoveToGroup={(taskId, groupId) => updateTask.mutate({ id: taskId, patch: { groupId } })}
+              currentUserId={me?.id}
+            />
+          ) : (
+            <div className="p-12 text-center text-white/40 text-sm">
+              Create a board to get started.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {taskModal && board && (
+        <TaskModal
+          mode={taskModal.mode}
+          task={taskModal.task}
+          board={board}
+          allBoards={boards}
+          team={team}
+          defaultGroupId={taskModal.defaultGroupId}
+          orgId={orgId}
+          onClose={() => setTaskModal(null)}
+          onSubmit={(payload) => {
+            if (taskModal.mode === "create") createTask.mutate(payload);
+            else if (taskModal.task) updateTask.mutate({ id: taskModal.task.id, patch: payload });
+          }}
+          onDelete={taskModal.task ? () => deleteTask.mutate(taskModal.task!.id) : undefined}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Kanban view ──────────────────────────────────────────────────────────────
+function KanbanView({
+  board, tasks, team, onCreate, onEdit, onMoveToGroup, currentUserId,
+}: {
+  board: ProjectBoard;
+  tasks: ProjectTask[];
+  team: TeamMember[];
+  onCreate: (groupId: number) => void;
+  onEdit: (task: ProjectTask) => void;
+  onMoveToGroup: (taskId: number, groupId: number) => void;
+  currentUserId?: number;
+}) {
+  const tasksByGroup = useMemo(() => {
+    const m = new Map<number | null, ProjectTask[]>();
+    for (const t of tasks) {
+      const arr = m.get(t.groupId) || [];
+      arr.push(t);
+      m.set(t.groupId, arr);
+    }
+    return m;
+  }, [tasks]);
+
+  return (
+    <div className="flex gap-3 p-4 h-full min-w-max">
+      {board.groups.map(g => {
+        const items = tasksByGroup.get(g.id) || [];
+        return (
+          <div key={g.id} className="w-72 flex-shrink-0 flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04]">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: g.color }} />
+                <span className="text-sm font-semibold">{g.name}</span>
+                <span className="text-[10px] text-white/30">{items.length}</span>
+              </div>
+              <button
+                onClick={() => onCreate(g.id)}
+                data-testid={`button-add-task-${g.id}`}
+                className="w-6 h-6 rounded text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[120px]">
+              {items.length === 0 ? (
+                <button
+                  onClick={() => onCreate(g.id)}
+                  className="w-full text-[11px] text-white/30 hover:text-white/50 italic py-3 rounded border border-dashed border-white/10"
+                >
+                  + Add a task
+                </button>
+              ) : items.map(t => (
+                <TaskCard
+                  key={t.id}
+                  task={t}
+                  team={team}
+                  groupIsDone={g.isDone}
+                  onClick={() => onEdit(t)}
+                  highlightOwner={currentUserId === t.ownerId}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Task card (used in both kanban and my tasks) ─────────────────────────────
+function TaskCard({ task, team, groupIsDone, onClick, highlightOwner }: {
+  task: ProjectTask;
+  team: TeamMember[];
+  groupIsDone?: boolean;
+  onClick: () => void;
+  highlightOwner?: boolean;
+}) {
+  const owner = team.find(m => m.id === task.ownerId);
+  const dueDate = task.dueDate ? new Date(task.dueDate + "T00:00:00") : null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const overdue = dueDate && !groupIsDone && dueDate < today;
+  const dueSoon = dueDate && !overdue && !groupIsDone && (dueDate.getTime() - today.getTime()) < 1000*60*60*24*3;
+
+  return (
+    <button
+      onClick={onClick}
+      data-testid={`card-task-${task.id}`}
+      className={`w-full text-left rounded-lg p-2.5 border transition-all hover:border-white/15 ${
+        groupIsDone ? "opacity-60" : ""
+      } ${highlightOwner ? "ring-1 ring-blue-500/30" : ""}`}
+      style={{
+        borderColor: highlightOwner ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.06)",
+        background: highlightOwner ? "rgba(59,130,246,0.05)" : "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className={`text-xs font-medium leading-snug ${groupIsDone ? "line-through text-white/40" : "text-white"}`}>
+          {task.title}
+        </div>
+        {task.priority !== "medium" && (
+          <Flag className="w-3 h-3 flex-shrink-0 mt-0.5" style={{ color: PRIORITY_COLORS[task.priority] }} />
+        )}
+      </div>
+      {task.brandTags && task.brandTags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-1.5">
+          {task.brandTags.slice(0, 3).map(slug => {
+            const b = BRANDS.find(x => x.slug === slug);
+            return (
+              <span key={slug} className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{
+                background: `${(b?.color || "#64748b")}20`,
+                color: b?.color || "#64748b",
+              }}>{b?.label || slug}</span>
+            );
+          })}
+          {task.brandTags.length > 3 && <span className="text-[9px] text-white/30">+{task.brandTags.length - 3}</span>}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[10px] text-white/40">
+          {owner ? (
+            <span className="flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-white/[0.08] flex items-center justify-center text-[8px] font-semibold text-white/70">
+                {owner.first_name[0]}{owner.last_name[0]}
+              </span>
+              <span>{owner.first_name}</span>
+            </span>
+          ) : <span className="italic">Unassigned</span>}
+        </div>
+        {dueDate && (
+          <span className={`text-[10px] flex items-center gap-1 ${overdue ? "text-red-400" : dueSoon ? "text-amber-300" : "text-white/40"}`}>
+            <CalendarIcon className="w-2.5 h-2.5" />
+            {dueDate.toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ── My Tasks view (grouped by due bucket) ────────────────────────────────────
+function MyTasksView({ tasks, boards, team, onEdit }: {
+  tasks: ProjectTask[];
+  boards: ProjectBoard[];
+  team: TeamMember[];
+  onEdit: (t: ProjectTask) => void;
+}) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const buckets = useMemo(() => {
+    const overdue: ProjectTask[] = [];
+    const todayList: ProjectTask[] = [];
+    const thisWeek: ProjectTask[] = [];
+    const later: ProjectTask[] = [];
+    const noDate: ProjectTask[] = [];
+    for (const t of tasks) {
+      if (!t.dueDate) { noDate.push(t); continue; }
+      const d = new Date(t.dueDate + "T00:00:00");
+      const dt = d.getTime() - today.getTime();
+      if (dt < 0) overdue.push(t);
+      else if (dt < 1000*60*60*24) todayList.push(t);
+      else if (dt < 1000*60*60*24*7) thisWeek.push(t);
+      else later.push(t);
+    }
+    return { overdue, today: todayList, thisWeek, later, noDate };
+  }, [tasks]);
+
+  const sections = [
+    { label: "Overdue", icon: AlertCircle, items: buckets.overdue, color: "text-red-400" },
+    { label: "Today",   icon: CalendarIcon, items: buckets.today, color: "text-blue-300" },
+    { label: "This week", icon: CalendarIcon, items: buckets.thisWeek, color: "text-white/70" },
+    { label: "Later",   icon: Layers, items: buckets.later, color: "text-white/40" },
+    { label: "No due date", icon: Inbox, items: buckets.noDate, color: "text-white/30" },
+  ];
+
+  return (
+    <div className="p-6 space-y-6 max-w-3xl mx-auto">
+      {tasks.length === 0 && (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-12 text-center text-white/40 text-sm">
+          No tasks assigned to you. Open any board and assign yourself a task to see it here.
+        </div>
+      )}
+      {sections.filter(s => s.items.length > 0).map(s => {
+        const Icon = s.icon;
+        return (
+          <div key={s.label}>
+            <div className={`flex items-center gap-2 mb-2 text-xs font-semibold uppercase tracking-wider ${s.color}`}>
+              <Icon className="w-3.5 h-3.5" />
+              {s.label}
+              <span className="text-white/30 normal-case font-normal">· {s.items.length}</span>
+            </div>
+            <div className="space-y-1.5">
+              {s.items.map(t => {
+                const board = boards.find(b => b.id === t.boardId);
+                const group = board?.groups.find(g => g.id === t.groupId);
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onEdit(t)}
+                    data-testid={`my-task-${t.id}`}
+                    className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/15 p-3 flex items-center gap-3 transition-colors"
+                  >
+                    {t.priority !== "medium" && (
+                      <Flag className="w-3.5 h-3.5 flex-shrink-0" style={{ color: PRIORITY_COLORS[t.priority] }} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-medium truncate ${group?.isDone ? "line-through text-white/40" : "text-white"}`}>{t.title}</div>
+                      <div className="text-[11px] text-white/40 mt-0.5 flex items-center gap-2">
+                        {board && <span>{board.name}</span>}
+                        {group && <span className="text-white/25">·</span>}
+                        {group && <span style={{ color: group.color }}>{group.name}</span>}
+                        {t.brandTags.length > 0 && (
+                          <>
+                            <span className="text-white/25">·</span>
+                            <span className="flex gap-1">
+                              {t.brandTags.slice(0, 3).map(slug => {
+                                const b = BRANDS.find(x => x.slug === slug);
+                                return <span key={slug} className="text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: `${b?.color || "#64748b"}20`, color: b?.color || "#64748b" }}>{b?.label || slug}</span>;
+                              })}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {t.dueDate && (
+                      <span className={`text-xs flex items-center gap-1 ${s.label === "Overdue" ? "text-red-400" : "text-white/50"}`}>
+                        <CalendarIcon className="w-3 h-3" />
+                        {new Date(t.dueDate + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Task modal (create/edit) ─────────────────────────────────────────────────
+function TaskModal({
+  mode, task, board, allBoards, team, defaultGroupId, orgId, onClose, onSubmit, onDelete,
+}: {
+  mode: "create" | "edit";
+  task?: ProjectTask;
+  board: ProjectBoard;
+  allBoards: ProjectBoard[];
+  team: TeamMember[];
+  defaultGroupId?: number;
+  orgId: number;
+  onClose: () => void;
+  onSubmit: (payload: any) => void;
+  onDelete?: () => void;
+}) {
+  const [title, setTitle] = useState(task?.title || "");
+  const [description, setDescription] = useState(task?.description || "");
+  const [priority, setPriority] = useState<ProjectTask["priority"]>(task?.priority || "medium");
+  const [groupId, setGroupId] = useState<number | null>(task?.groupId ?? defaultGroupId ?? null);
+  const [boardId, setBoardId] = useState<number>(task?.boardId ?? board.id);
+  const [ownerId, setOwnerId] = useState<number | null>(task?.ownerId ?? null);
+  const [dueDate, setDueDate] = useState(task?.dueDate || "");
+  const [brandTags, setBrandTags] = useState<string[]>(task?.brandTags || []);
+
+  const activeBoard = allBoards.find(b => b.id === boardId) || board;
+
+  const submit = () => {
+    if (!title.trim()) return;
+    const payload: any = {
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      groupId,
+      ownerId,
+      dueDate: dueDate || null,
+      brandTags,
+    };
+    if (mode === "create") {
+      payload.organizationId = orgId;
+      payload.boardId = boardId;
+    } else if (boardId !== task?.boardId) {
+      payload.boardId = boardId;
+    }
+    onSubmit(payload);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-xl bg-[#0a0e1a] border border-white/10 rounded-2xl shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <h2 className="text-base font-semibold">{mode === "create" ? "New task" : "Edit task"}</h2>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg text-white/40 hover:text-white hover:bg-white/[0.06] flex items-center justify-center">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+          <div>
+            <Label className="text-xs text-white/60 mb-1 block">Title</Label>
+            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs doing?" autoFocus className="bg-white/[0.04] border-white/10 text-white" data-testid="input-task-title" />
+          </div>
+          <div>
+            <Label className="text-xs text-white/60 mb-1 block">Description</Label>
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Add detail, links, acceptance criteria…" className="bg-white/[0.04] border-white/10 text-white min-h-[80px]" data-testid="input-task-description" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Board</Label>
+              <select value={boardId} onChange={e => { setBoardId(parseInt(e.target.value)); setGroupId(null); }} className="w-full h-9 rounded-md bg-white/[0.04] border border-white/10 px-2 text-sm">
+                {allBoards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Status</Label>
+              <select value={groupId ?? ""} onChange={e => setGroupId(e.target.value ? parseInt(e.target.value) : null)} className="w-full h-9 rounded-md bg-white/[0.04] border border-white/10 px-2 text-sm">
+                <option value="">—</option>
+                {activeBoard.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Priority</Label>
+              <select value={priority} onChange={e => setPriority(e.target.value as any)} className="w-full h-9 rounded-md bg-white/[0.04] border border-white/10 px-2 text-sm">
+                {["low","medium","high","urgent"].map(p => <option key={p} value={p}>{p[0].toUpperCase()+p.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Owner</Label>
+              <select value={ownerId ?? ""} onChange={e => setOwnerId(e.target.value ? parseInt(e.target.value) : null)} className="w-full h-9 rounded-md bg-white/[0.04] border border-white/10 px-2 text-sm">
+                <option value="">Unassigned</option>
+                {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Due date</Label>
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9" />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs text-white/60 mb-1.5 block">Brand tags</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {BRANDS.map(b => {
+                const active = brandTags.includes(b.slug);
+                return (
+                  <button
+                    key={b.slug}
+                    type="button"
+                    onClick={() => setBrandTags(prev => active ? prev.filter(x => x !== b.slug) : [...prev, b.slug])}
+                    className="text-[11px] font-semibold px-2 py-1 rounded-md border transition"
+                    style={{
+                      borderColor: active ? b.color : "rgba(255,255,255,0.1)",
+                      background: active ? `${b.color}25` : "transparent",
+                      color: active ? "white" : "rgba(255,255,255,0.6)",
+                    }}
+                  >
+                    {b.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+          <div>
+            {onDelete && (
+              <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                Delete
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50">Cancel</Button>
+            <Button size="sm" onClick={submit} disabled={!title.trim()} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-save-task">
+              <Check className="w-3.5 h-3.5 mr-1" /> {mode === "create" ? "Create" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

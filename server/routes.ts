@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4121,6 +4121,213 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
+  });
+
+  // ── Project management (boards / groups / tasks) ───────────────────────────
+  // Lightweight Monday-style PM. All endpoints are auth-gated. Access is
+  // gated on the requesting user belonging to the board's org. brand_tags
+  // is a free-form text[] (slugs of orgs the task touches), so a USG-level
+  // task can carry ['cufc','sponsorship'] and surface in the right filters.
+
+  app.get("/api/admin/projects/boards", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const boards = await db.select().from(projectBoards)
+        .where(and(eq(projectBoards.organizationId, orgId), eq(projectBoards.archived, false)))
+        .orderBy(asc(projectBoards.displayOrder), asc(projectBoards.id));
+      // Fetch all groups for these boards in one go
+      const boardIds = boards.map(b => b.id);
+      const groups = boardIds.length > 0
+        ? await db.select().from(projectGroups).where(inArray(projectGroups.boardId, boardIds)).orderBy(asc(projectGroups.boardId), asc(projectGroups.displayOrder))
+        : [];
+      const groupsByBoard = new Map<number, typeof groups>();
+      for (const g of groups) {
+        const arr = groupsByBoard.get(g.boardId) || [];
+        arr.push(g);
+        groupsByBoard.set(g.boardId, arr);
+      }
+      res.json(boards.map(b => ({ ...b, groups: groupsByBoard.get(b.id) || [] })));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/admin/projects/boards", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const name = String(req.body?.name || "").trim();
+      if (!name) return res.status(400).json({ message: "name required" });
+      const [board] = await db.insert(projectBoards).values({
+        organizationId: orgId,
+        name,
+        description: req.body?.description || null,
+        brandTags: Array.isArray(req.body?.brandTags) ? req.body.brandTags : [],
+        color: req.body?.color || "#3b82f6",
+        createdBy: req.session.userId!,
+      }).returning();
+      // Auto-seed standard groups
+      await db.insert(projectGroups).values([
+        { boardId: board.id, name: "Backlog",     color: "#6b7280", isDone: false, displayOrder: 0 },
+        { boardId: board.id, name: "In Progress", color: "#3b82f6", isDone: false, displayOrder: 1 },
+        { boardId: board.id, name: "Blocked",     color: "#f59e0b", isDone: false, displayOrder: 2 },
+        { boardId: board.id, name: "Done",        color: "#22c55e", isDone: true,  displayOrder: 3 },
+      ]);
+      res.json(board);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/projects/boards/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(projectBoards).where(eq(projectBoards.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = {};
+      if (typeof req.body.name === "string") patch.name = req.body.name.trim();
+      if (typeof req.body.description === "string") patch.description = req.body.description;
+      if (Array.isArray(req.body.brandTags)) patch.brandTags = req.body.brandTags;
+      if (typeof req.body.color === "string") patch.color = req.body.color;
+      if (typeof req.body.archived === "boolean") patch.archived = req.body.archived;
+      const [updated] = await db.update(projectBoards).set(patch).where(eq(projectBoards.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/projects/boards/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(projectBoards).where(eq(projectBoards.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(projectBoards).where(eq(projectBoards.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // ── Tasks ────────────────────────────────────────────────────────────────
+  app.get("/api/admin/projects/tasks", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const filters: any[] = [eq(projectTasks.organizationId, orgId)];
+      if (req.query.boardId) filters.push(eq(projectTasks.boardId, parseInt(req.query.boardId as string)));
+      if (req.query.ownerId) filters.push(eq(projectTasks.ownerId, parseInt(req.query.ownerId as string)));
+      const rows = await db.select().from(projectTasks)
+        .where(and(...filters))
+        .orderBy(asc(projectTasks.displayOrder), asc(projectTasks.id));
+      // Optional brand_tag filter — applied server-side on the array column.
+      const brand = req.query.brand as string | undefined;
+      const filtered = brand
+        ? rows.filter(t => Array.isArray(t.brandTags) && t.brandTags.includes(brand))
+        : rows;
+      res.json(filtered);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // "My tasks" — every task owned by the requesting user, across all boards
+  // they have access to. Used by the home view + daily brief integration.
+  app.get("/api/admin/projects/tasks/mine", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const userOrgs = await storage.getUserOrganizations(userId);
+      const orgIds = userOrgs.map((o: any) => o.id);
+      if (orgIds.length === 0) return res.json([]);
+      const rows = await db.select().from(projectTasks)
+        .where(and(eq(projectTasks.ownerId, userId), inArray(projectTasks.organizationId, orgIds)))
+        .orderBy(asc(projectTasks.dueDate), asc(projectTasks.priority));
+      res.json(rows);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.post("/api/admin/projects/tasks", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      const boardId = parseInt(req.body?.boardId);
+      if (!orgId || !boardId) return res.status(400).json({ message: "organizationId and boardId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const title = String(req.body?.title || "").trim();
+      if (!title) return res.status(400).json({ message: "title required" });
+      // Default to first group of the board if none supplied
+      let groupId = req.body?.groupId ? parseInt(req.body.groupId) : null;
+      if (!groupId) {
+        const [firstGroup] = await db.select().from(projectGroups)
+          .where(eq(projectGroups.boardId, boardId))
+          .orderBy(asc(projectGroups.displayOrder)).limit(1);
+        if (firstGroup) groupId = firstGroup.id;
+      }
+      const [task] = await db.insert(projectTasks).values({
+        organizationId: orgId,
+        boardId,
+        groupId,
+        title,
+        description: req.body?.description || null,
+        priority: req.body?.priority || "medium",
+        ownerId: req.body?.ownerId ? parseInt(req.body.ownerId) : null,
+        dueDate: req.body?.dueDate || null,
+        brandTags: Array.isArray(req.body?.brandTags) ? req.body.brandTags : [],
+        createdBy: req.session.userId!,
+      }).returning();
+      res.json(task);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/projects/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(projectTasks).where(eq(projectTasks.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = { updatedAt: new Date() };
+      if (typeof req.body.title === "string") patch.title = req.body.title.trim();
+      if (typeof req.body.description === "string") patch.description = req.body.description;
+      if (typeof req.body.priority === "string") patch.priority = req.body.priority;
+      if (req.body.ownerId === null) patch.ownerId = null;
+      else if (typeof req.body.ownerId === "number") patch.ownerId = req.body.ownerId;
+      if (req.body.dueDate === null) patch.dueDate = null;
+      else if (typeof req.body.dueDate === "string") patch.dueDate = req.body.dueDate;
+      if (Array.isArray(req.body.brandTags)) patch.brandTags = req.body.brandTags;
+      if (typeof req.body.groupId === "number") {
+        patch.groupId = req.body.groupId;
+        // Auto-stamp completedAt when moved into a 'done' group
+        const [g] = await db.select().from(projectGroups).where(eq(projectGroups.id, req.body.groupId));
+        if (g) patch.completedAt = g.isDone ? new Date() : null;
+      }
+      if (typeof req.body.displayOrder === "number") patch.displayOrder = req.body.displayOrder;
+      const [updated] = await db.update(projectTasks).set(patch).where(eq(projectTasks.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/projects/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(projectTasks).where(eq(projectTasks.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(projectTasks).where(eq(projectTasks.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // Lightweight team list — every user with access to a given org. Used by
+  // the assignee dropdown in the task editor.
+  app.get("/api/admin/projects/team", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT u.id, u.first_name, u.last_name, u.email
+        FROM users u
+        JOIN user_organizations uo ON uo.user_id = u.id
+        WHERE uo.organization_id = ${orgId} AND u.active = true
+        ORDER BY u.first_name, u.last_name
+      `);
+      res.json(rows.rows);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
   app.get("/api/admin/calendar-events", requireAuth, async (req, res) => {

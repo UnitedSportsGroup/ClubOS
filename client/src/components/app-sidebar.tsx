@@ -125,6 +125,7 @@ const gymnasticsSecondary = [
 const groupNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Calendar", url: "/admin/calendar", icon: Calendar },
+  { title: "Projects", url: "/admin/projects", icon: ClipboardCheck },
   { title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
 ];
 
