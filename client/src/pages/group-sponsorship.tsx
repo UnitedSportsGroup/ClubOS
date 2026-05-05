@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, X, Handshake, TrendingUp, DollarSign, Award, Filter, Check, Trash2,
+  CheckCircle2, Circle, Clock, AlertCircle, Link as LinkIcon, GripVertical, ListChecks,
 } from "lucide-react";
 
 // Stages mirror Daniel's existing Pipedrive flow exactly so muscle memory carries over.
@@ -98,6 +99,8 @@ export default function GroupSponsorship() {
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
   const [ownerFilter, setOwnerFilter] = useState<"all" | "mine">("all");
   const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<SponsorshipDeal> } | null>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<StageKey | null>(null);
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -240,8 +243,25 @@ export default function GroupSponsorship() {
             {STAGES.map(s => {
               const items = dealsByStage.get(s.key) || [];
               const totalCents = items.reduce((sum, d) => sum + (d.dealValueCents || 0), 0);
+              const isDropTarget = dropTarget === s.key;
               return (
-                <div key={s.key} className="w-72 flex-shrink-0 flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                <div
+                  key={s.key}
+                  className={`w-72 flex-shrink-0 flex flex-col rounded-xl border transition-colors ${
+                    isDropTarget ? "border-blue-500/50 bg-blue-500/[0.06]" : "border-white/[0.06] bg-white/[0.02]"
+                  }`}
+                  onDragOver={e => { e.preventDefault(); setDropTarget(s.key); }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={e => {
+                    e.preventDefault();
+                    setDropTarget(null);
+                    if (draggingId == null) return;
+                    const d = deals.find(x => x.id === draggingId);
+                    if (!d || d.stage === s.key) return;
+                    saveDeal.mutate({ id: draggingId, payload: { stage: s.key } });
+                    setDraggingId(null);
+                  }}
+                >
                   <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.color }} />
@@ -258,10 +278,18 @@ export default function GroupSponsorship() {
                         onClick={() => setDealModal({ mode: "create", deal: { stage: s.key } })}
                         className="w-full text-[11px] text-white/30 hover:text-white/50 italic py-3 rounded border border-dashed border-white/10"
                       >
-                        + Add deal
+                        {isDropTarget ? "Drop here" : "+ Add deal"}
                       </button>
                     ) : items.map(d => (
-                      <DealCard key={d.id} deal={d} team={team} onClick={() => setDealModal({ mode: "edit", deal: d })} highlightMine={d.ownerId === me?.id} />
+                      <div
+                        key={d.id}
+                        draggable
+                        onDragStart={e => { setDraggingId(d.id); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setDraggingId(null); setDropTarget(null); }}
+                        style={{ opacity: draggingId === d.id ? 0.4 : 1 }}
+                      >
+                        <DealCard deal={d} team={team} onClick={() => setDealModal({ mode: "edit", deal: d })} highlightMine={d.ownerId === me?.id} />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -576,6 +604,10 @@ function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
             <Label className="text-xs text-white/60 mb-1 block">Notes</Label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Decision-maker, budget cycle, key competitors, last interaction…" className="bg-white/[0.04] border-white/10 text-white min-h-[70px]" />
           </div>
+
+          {mode === "edit" && deal?.id && (
+            <DeliverablesSection dealId={deal.id} team={team} />
+          )}
         </div>
 
         <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
@@ -603,6 +635,295 @@ function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Deliverables section inside the deal modal ─────────────────────────────
+interface SponsorshipDeliverable {
+  id: number;
+  dealId: number;
+  title: string;
+  type: string | null;
+  triggerType: "once" | "per_match" | "weekly" | "monthly" | "quarterly" | "annually";
+  scheduledDate: string | null;
+  entitlementQty: number | null;
+  usedQty: number | null;
+  status: "pending" | "in_progress" | "delivered" | "overdue" | "waived";
+  ownerId: number | null;
+  proofUrl: string | null;
+  deliveredAt: string | null;
+  notes: string | null;
+}
+
+const DELIVERABLE_TYPES = [
+  "led_rotation", "social_post", "kit_branding", "stadium_signage",
+  "matchday_pa", "hospitality_seats", "content_feature", "newsletter_mention",
+  "training_kit", "community_event", "other",
+];
+
+const STATUS_CONFIG: Record<SponsorshipDeliverable["status"], { label: string; color: string; icon: any }> = {
+  pending:     { label: "Pending",     color: "#64748b", icon: Circle },
+  in_progress: { label: "In progress", color: "#3b82f6", icon: Clock },
+  delivered:   { label: "Delivered",   color: "#22c55e", icon: CheckCircle2 },
+  overdue:     { label: "Overdue",     color: "#ef4444", icon: AlertCircle },
+  waived:      { label: "Waived",      color: "#94a3b8", icon: X },
+};
+
+function DeliverablesSection({ dealId, team }: { dealId: number; team: TeamMember[] }) {
+  const { toast } = useToast();
+  const [adding, setAdding] = useState(false);
+  const { data: items = [], isLoading } = useQuery<SponsorshipDeliverable[]>({
+    queryKey: ["/api/admin/sponsorship/deliverables", dealId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/sponsorship/deals/${dealId}/deliverables`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
+  const create = useMutation({
+    mutationFn: async (payload: any) => {
+      const r = await apiRequest("POST", `/api/admin/sponsorship/deals/${dealId}/deliverables`, payload);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables", dealId] });
+      setAdding(false);
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/admin/sponsorship/deliverables/${id}`, patch);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables", dealId] }),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/sponsorship/deliverables/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables", dealId] }),
+  });
+
+  const counts = useMemo(() => {
+    const total = items.length;
+    const delivered = items.filter(i => i.status === "delivered" || i.status === "waived").length;
+    const overdue = items.filter(i => {
+      if (i.status === "delivered" || i.status === "waived") return false;
+      if (!i.scheduledDate) return false;
+      return new Date(i.scheduledDate + "T00:00:00") < new Date(new Date().toDateString());
+    }).length;
+    return { total, delivered, overdue };
+  }, [items]);
+
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <ListChecks className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-semibold">Deliverables</span>
+          {counts.total > 0 && (
+            <span className="text-[10px] text-white/40">
+              {counts.delivered}/{counts.total} delivered
+              {counts.overdue > 0 && <span className="text-red-400 ml-1.5">· {counts.overdue} overdue</span>}
+            </span>
+          )}
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setAdding(true)} className="h-7 text-xs">
+          <Plus className="w-3 h-3 mr-1" /> Add
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-[11px] text-white/30 italic py-2">Loading…</div>
+      ) : items.length === 0 && !adding ? (
+        <div className="text-[11px] text-white/30 italic py-2">
+          No deliverables yet. Add what you've promised the sponsor (LED rotations, social posts, hospitality seats, etc.).
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map(d => (
+            <DeliverableRow
+              key={d.id}
+              item={d}
+              team={team}
+              onUpdate={(patch) => update.mutate({ id: d.id, patch })}
+              onDelete={() => remove.mutate(d.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <DeliverableForm
+          team={team}
+          onSubmit={(payload) => create.mutate(payload)}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeliverableRow({ item, team, onUpdate, onDelete }: {
+  item: SponsorshipDeliverable;
+  team: TeamMember[];
+  onUpdate: (patch: any) => void;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [proofUrl, setProofUrl] = useState(item.proofUrl || "");
+  const owner = team.find(m => m.id === item.ownerId);
+  const sched = item.scheduledDate ? new Date(item.scheduledDate + "T00:00:00") : null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const isOverdue = sched && sched < today && item.status !== "delivered" && item.status !== "waived";
+  const effectiveStatus = isOverdue && item.status === "pending" ? "overdue" : item.status;
+  const cfg = STATUS_CONFIG[effectiveStatus];
+  const StatusIcon = cfg.icon;
+
+  const cycleStatus = () => {
+    const order: SponsorshipDeliverable["status"][] = ["pending", "in_progress", "delivered"];
+    const i = order.indexOf(item.status);
+    const next = order[(i + 1) % order.length];
+    onUpdate({ status: next });
+  };
+
+  return (
+    <div className="rounded-md border border-white/[0.04] bg-white/[0.01]">
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <button
+          onClick={cycleStatus}
+          className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition hover:bg-white/[0.06]"
+          style={{ color: cfg.color }}
+          title={cfg.label}
+        >
+          <StatusIcon className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex-1 text-left min-w-0"
+        >
+          <div className={`text-xs font-medium truncate ${item.status === "delivered" || item.status === "waived" ? "line-through text-white/40" : "text-white"}`}>
+            {item.title}
+          </div>
+          <div className="text-[10px] text-white/40 flex items-center gap-1.5 truncate">
+            {item.type && <span>{item.type.replace(/_/g, " ")}</span>}
+            {item.entitlementQty != null && item.entitlementQty > 1 && (
+              <span>· {item.usedQty || 0}/{item.entitlementQty}</span>
+            )}
+            {sched && (
+              <span className={isOverdue ? "text-red-400" : ""}>· {sched.toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}</span>
+            )}
+            {owner && <span>· {owner.first_name}</span>}
+            {item.proofUrl && <LinkIcon className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+          </div>
+        </button>
+        <button onClick={onDelete} className="w-5 h-5 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" title="Remove">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="px-2 pb-2 pt-1 border-t border-white/[0.04] space-y-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
+            <select
+              value={item.status}
+              onChange={e => onUpdate({ status: e.target.value })}
+              className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7"
+            >
+              {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{STATUS_CONFIG[s as keyof typeof STATUS_CONFIG].label}</option>)}
+            </select>
+            <select
+              value={item.ownerId ?? ""}
+              onChange={e => onUpdate({ ownerId: e.target.value ? parseInt(e.target.value) : null })}
+              className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7"
+            >
+              <option value="">Unassigned</option>
+              {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+            </select>
+          </div>
+          <Input
+            type="date"
+            value={item.scheduledDate || ""}
+            onChange={e => onUpdate({ scheduledDate: e.target.value || null })}
+            className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
+          />
+          {item.entitlementQty != null && item.entitlementQty > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-white/40">Used</span>
+              <Input
+                type="number"
+                min="0"
+                max={item.entitlementQty}
+                value={item.usedQty ?? 0}
+                onChange={e => onUpdate({ usedQty: parseInt(e.target.value || "0") })}
+                className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px] w-16"
+              />
+              <span className="text-[10px] text-white/40">/ {item.entitlementQty}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <Input
+              placeholder="Proof URL (photo / social link / signed manifest)"
+              value={proofUrl}
+              onChange={e => setProofUrl(e.target.value)}
+              onBlur={() => { if (proofUrl !== (item.proofUrl || "")) onUpdate({ proofUrl: proofUrl || null }); }}
+              className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
+            />
+            {item.proofUrl && (
+              <a href={item.proofUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                <LinkIcon className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeliverableForm({ team, onSubmit, onCancel }: {
+  team: TeamMember[];
+  onSubmit: (payload: any) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [entitlementQty, setEntitlementQty] = useState("1");
+  const [ownerId, setOwnerId] = useState<number | null>(null);
+
+  return (
+    <div className="mt-2 rounded-md border border-blue-500/20 bg-blue-500/[0.03] p-2 space-y-1.5">
+      <Input
+        autoFocus
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter" && title.trim()) onSubmit({ title: title.trim(), type: type || null, scheduledDate: scheduledDate || null, entitlementQty: parseInt(entitlementQty) || 1, ownerId }); }}
+        placeholder="What did we promise? e.g. LED rotation 30s, half-time"
+        className="bg-white/[0.04] border-white/10 text-white h-8 text-xs"
+      />
+      <div className="grid grid-cols-2 gap-1.5">
+        <select value={type} onChange={e => setType(e.target.value)} className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7 capitalize">
+          <option value="">Type…</option>
+          {DELIVERABLE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+        </select>
+        <Input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]" />
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Input type="number" min="1" value={entitlementQty} onChange={e => setEntitlementQty(e.target.value)} placeholder="Qty (e.g. 20 seats)" className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]" />
+        <select value={ownerId ?? ""} onChange={e => setOwnerId(e.target.value ? parseInt(e.target.value) : null)} className="text-[11px] bg-white/[0.04] border border-white/10 rounded px-2 h-7">
+          <option value="">Unassigned</option>
+          {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+        </select>
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={onCancel} className="h-7 text-xs text-white/50">Cancel</Button>
+        <Button size="sm" onClick={() => { if (title.trim()) onSubmit({ title: title.trim(), type: type || null, scheduledDate: scheduledDate || null, entitlementQty: parseInt(entitlementQty) || 1, ownerId }); }} disabled={!title.trim()} className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white">
+          Add
+        </Button>
       </div>
     </div>
   );
