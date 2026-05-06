@@ -230,6 +230,7 @@ function AdminRouter() {
       <Route path="/admin/camps/:id" component={AdminCampDetail} />
       <Route path="/admin/camps/:campId/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/academy" component={AdminAcademy} />
+      <Route path="/admin/terms" component={GymnasticsTerms} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />
       <Route path="/admin/contacts/parent/:id" component={AdminContactDetail} />

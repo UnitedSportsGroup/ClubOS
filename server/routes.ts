@@ -7522,6 +7522,38 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── AI copy generation ────────────────────────────────────────────────
+  // Powers the ✨ AI button on every text field in the editor. Brand voice
+  // is picked server-side based on the orgSlug in the request so the model
+  // always knows the workspace's tone of voice + personas.
+  app.post("/api/admin/ai/generate-copy", requireAuth, async (req, res) => {
+    try {
+      const { prompt, fieldName, fieldHint, currentValue, orgSlug, maxTokens } = req.body || {};
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ message: "prompt is required" });
+      }
+      const { generateCopy } = await import("./ai");
+      const text = await generateCopy({
+        prompt,
+        fieldName,
+        fieldHint,
+        currentValue,
+        orgSlug,
+        maxTokens: maxTokens ? Math.min(parseInt(maxTokens), 4000) : undefined,
+      });
+      res.json({ text });
+    } catch (e: any) {
+      console.error("[AI generate-copy] failed:", e);
+      // Surface model errors clearly so the UI can show 'Anthropic key not
+      // configured' vs 'rate limit' vs 'overloaded' rather than a generic
+      // 500.
+      const status = /not configured/i.test(e.message) ? 503
+        : /rate limit|overloaded/i.test(e.message) ? 429
+        : 500;
+      res.status(status).json({ message: e.message });
+    }
+  });
+
   // ── Integrations (Xero, Stripe status) ────────────────────────────────
   app.get("/api/admin/integrations", requireAuth, async (req, res) => {
     try {

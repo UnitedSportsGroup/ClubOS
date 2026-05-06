@@ -61,7 +61,9 @@ const campsNav = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Camps", url: "/admin/camps", icon: Tent },
   { title: "Academy", url: "/admin/academy", icon: GraduationCap },
-  { title: "Terms", url: "/admin/terms", icon: Calendar },
+  // Terms intentionally NOT in the sidebar — it's reachable as a sub-tab
+  // from the Academy page (Programs / Term Dates), matching the gymnastics
+  // workspace's All Programs / Term Dates pattern.
   { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { title: "Contacts", url: "/admin/contacts", icon: Users },
   { title: "Mailer", url: "/admin/mailer", icon: Mail },

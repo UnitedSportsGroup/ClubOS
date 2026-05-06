@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
+import { AiCopyButton } from "@/components/ui/ai-copy-button";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
 const BRAND = {
@@ -467,6 +468,9 @@ export default function AdminEditPage() {
             <ArrowLeft className="w-4 h-4" /> Back to Camp
           </button>
           <div className="flex items-center gap-3">
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-violet-300/60 bg-violet-500/[0.08] border border-violet-500/[0.15] px-2 py-1 rounded-md">
+              <Sparkles className="w-3 h-3" /> AI write — hover any field
+            </span>
             {camp.slug && (
               <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] text-blue-400/60 hover:text-blue-400 transition-colors" data-testid="link-preview-page">
                 <Eye className="w-3.5 h-3.5" /> Preview
@@ -497,6 +501,16 @@ export default function AdminEditPage() {
               </div>
               <div className="w-full max-w-2xl mb-3 relative group/ab">
                 <E value={heroHeadline} onChange={v => { setHeroHeadline(v); markChanged(); }} tag="h1" className="text-[28px] sm:text-4xl md:text-5xl lg:text-[52px] font-bold tracking-tight leading-[1.08]" style={{ color: BRAND.white }} data-testid="edit-hero-headline" />
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab:opacity-100 transition-opacity">
+                  <AiCopyButton
+                    fieldName="heroHeadline"
+                    fieldHint="Hero headline (1 short sentence — under 12 words)"
+                    currentValue={heroHeadline}
+                    examplePrompt="Write a hero headline for the Recreational gymnastics class — speak to a parent who wants their kid moving and making friends."
+                    maxTokens={200}
+                    onGenerated={(text) => { setHeroHeadline(text); markChanged(); }}
+                  />
+                </div>
                 <button
                   onClick={() => openAbTest("heroHeadline", heroHeadline)}
                   className="absolute -right-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab:opacity-100 transition-opacity bg-purple-600 hover:bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg"
@@ -508,6 +522,16 @@ export default function AdminEditPage() {
               </div>
               <div className="w-full max-w-xl mb-6 relative group/ab2">
                 <E value={heroSubheadline} onChange={v => { setHeroSubheadline(v); markChanged(); }} tag="p" className="text-[14px] sm:text-[16px] md:text-[18px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.55)' }} multiline data-testid="edit-hero-sub" />
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab2:opacity-100 transition-opacity">
+                  <AiCopyButton
+                    fieldName="heroSubheadline"
+                    fieldHint="Hero subheadline (1-2 sentences — supports the headline, names a benefit)"
+                    currentValue={heroSubheadline}
+                    examplePrompt="Write a hero subheadline that builds on the headline — call out who it's for + the outcome."
+                    maxTokens={300}
+                    onGenerated={(text) => { setHeroSubheadline(text); markChanged(); }}
+                  />
+                </div>
                 <button
                   onClick={() => openAbTest("heroSubheadline", heroSubheadline)}
                   className="absolute -right-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab2:opacity-100 transition-opacity bg-purple-600 hover:bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg"
