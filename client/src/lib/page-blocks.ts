@@ -10,7 +10,7 @@
 //   4. Render it in PublicBlock + EditableBlock components
 //   5. Add an entry to BLOCK_PALETTE for the 'Add block' menu
 
-export type BlockType = "stats" | "features" | "cta";
+export type BlockType = "stats" | "features" | "cta" | "image_text" | "video" | "testimonials" | "logos";
 
 export interface StatsBlockProps {
   eyebrow?: string;             // small uppercase line above the stats
@@ -32,6 +32,33 @@ export interface CtaBlockProps {
   buttonHref?: string;
 }
 
+export interface ImageTextBlockProps {
+  imageUrl?: string;
+  imagePosition?: "left" | "right";
+  eyebrow?: string;
+  title?: string;
+  body?: string;
+  buttonText?: string;
+  buttonHref?: string;
+}
+
+export interface VideoBlockProps {
+  wistiaId?: string;        // primary path (matches existing hero pattern)
+  youtubeUrl?: string;      // optional
+  caption?: string;
+}
+
+export interface TestimonialsBlockProps {
+  eyebrow?: string;
+  title?: string;
+  items: { quote: string; name: string; role?: string; avatarUrl?: string }[];
+}
+
+export interface LogosBlockProps {
+  eyebrow?: string;
+  items: { src: string; alt?: string; href?: string }[];
+}
+
 export interface PageBlock<T = any> {
   id: string;
   type: BlockType;
@@ -39,9 +66,13 @@ export interface PageBlock<T = any> {
 }
 
 export const BLOCK_PALETTE: Array<{ type: BlockType; label: string; description: string; icon: string }> = [
-  { type: "stats",    label: "Stats Strip",    description: "4 numbers + labels — '50 years · 200+ kids · 5 coaches · 10 sessions/term'", icon: "📊" },
-  { type: "features", label: "Feature Grid",   description: "3-4 cards with title + description — call out what makes the program work", icon: "🎯" },
-  { type: "cta",      label: "CTA Strip",      description: "Big call-to-action band — headline + button, drives the next click",       icon: "👉" },
+  { type: "stats",        label: "Stats Strip",     description: "4 numbers + labels — credibility / by-the-numbers", icon: "📊" },
+  { type: "features",     label: "Feature Grid",    description: "3-4 cards with title + description — differentiators", icon: "🎯" },
+  { type: "cta",          label: "CTA Strip",       description: "Big call-to-action band — headline + button",         icon: "👉" },
+  { type: "image_text",   label: "Image + Text",    description: "Image on one side, copy + button on the other — story / about / coach intro",         icon: "🖼️" },
+  { type: "video",        label: "Video",           description: "Embed a Wistia video with optional caption",          icon: "🎬" },
+  { type: "testimonials", label: "Testimonials",    description: "3-card grid of parent / customer quotes",             icon: "💬" },
+  { type: "logos",        label: "Logo Strip",      description: "Sponsor / partner / press logos in a horizontal strip", icon: "🏷️" },
 ];
 
 let _idCounter = Date.now();
@@ -92,6 +123,56 @@ export function createDefaultBlock(type: BlockType): PageBlock {
           buttonText: "Book a free trial",
           buttonHref: "",
         } as CtaBlockProps,
+      };
+    case "image_text":
+      return {
+        id: newBlockId(),
+        type: "image_text",
+        props: {
+          imageUrl: "",
+          imagePosition: "right",
+          eyebrow: "OUR STORY",
+          title: "Built by a 50-year-old club",
+          body: "Christchurch United has run sport in this city since 1976. We brought that long-game thinking — real coaches, term-by-term, no surprises — to gymnastics in 2020. Same not-for-profit, same belief that a good club is the long game.",
+          buttonText: "About the club",
+          buttonHref: "",
+        } as ImageTextBlockProps,
+      };
+    case "video":
+      return {
+        id: newBlockId(),
+        type: "video",
+        props: {
+          wistiaId: "",
+          caption: "",
+        } as VideoBlockProps,
+      };
+    case "testimonials":
+      return {
+        id: newBlockId(),
+        type: "testimonials",
+        props: {
+          eyebrow: "PARENTS SAY",
+          title: "Real Hornby parents, real kids",
+          items: [
+            { quote: "She asks me every Saturday morning if it's gym day yet. That's the whole review.", name: "Kelly", role: "mum of Olivia, 5" },
+            { quote: "I love that the prices are on the page. No back-and-forth, just book it.", name: "Brent", role: "dad of Cooper + Tilly" },
+            { quote: "The coach knew her name on day one. That doesn't sound like much until your kid feels it.", name: "Priya", role: "mum of Aanya, 8" },
+          ],
+        } as TestimonialsBlockProps,
+      };
+    case "logos":
+      return {
+        id: newBlockId(),
+        type: "logos",
+        props: {
+          eyebrow: "PART OF",
+          items: [
+            { src: "/logos/christchurch-united.png", alt: "Christchurch United FC" },
+            { src: "/logos/united-sports-group.png", alt: "United Sports Group" },
+            { src: "/logos/united-sports-centre.png", alt: "United Sports Centre" },
+          ],
+        } as LogosBlockProps,
       };
   }
 }

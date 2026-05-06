@@ -14,9 +14,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   type PageBlock, type BlockType,
   type StatsBlockProps, type FeaturesBlockProps, type CtaBlockProps,
+  type ImageTextBlockProps, type VideoBlockProps, type TestimonialsBlockProps, type LogosBlockProps,
   BLOCK_PALETTE, createDefaultBlock,
 } from "@/lib/page-blocks";
 import { PublicBlock } from "./public-block";
+import { ImagePicker } from "@/components/ui/image-picker";
 
 interface Props {
   blocks: PageBlock[];
@@ -142,6 +144,10 @@ function BlockForm({ block, onChange }: { block: PageBlock; onChange: (props: an
   if (block.type === "stats") return <StatsForm props={block.props as StatsBlockProps} onChange={onChange} />;
   if (block.type === "features") return <FeaturesForm props={block.props as FeaturesBlockProps} onChange={onChange} />;
   if (block.type === "cta") return <CtaForm props={block.props as CtaBlockProps} onChange={onChange} />;
+  if (block.type === "image_text") return <ImageTextForm props={block.props as ImageTextBlockProps} onChange={onChange} />;
+  if (block.type === "video") return <VideoForm props={block.props as VideoBlockProps} onChange={onChange} />;
+  if (block.type === "testimonials") return <TestimonialsForm props={block.props as TestimonialsBlockProps} onChange={onChange} />;
+  if (block.type === "logos") return <LogosForm props={block.props as LogosBlockProps} onChange={onChange} />;
   return null;
 }
 
@@ -208,6 +214,131 @@ function CtaForm({ props, onChange }: { props: CtaBlockProps; onChange: (p: any)
       <FieldInput label="Subheadline (optional)" value={props.subheadline ?? ""} onChange={(v) => onChange({ subheadline: v })} className="sm:col-span-2" />
       <FieldInput label="Button text" value={props.buttonText ?? ""} onChange={(v) => onChange({ buttonText: v })} />
       <FieldInput label="Button URL (blank = uses page CTA)" value={props.buttonHref ?? ""} onChange={(v) => onChange({ buttonHref: v })} />
+    </div>
+  );
+}
+
+function ImageTextForm({ props, onChange }: { props: ImageTextBlockProps; onChange: (p: any) => void }) {
+  return (
+    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white/[0.01]">
+      <div className="sm:col-span-2">
+        <ImagePicker label="Image" value={props.imageUrl} onChange={(url) => onChange({ imageUrl: url })} />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-[10px] uppercase tracking-wider text-white/40">Image position</label>
+        <div className="grid grid-cols-2 gap-2">
+          {["left", "right"].map(pos => (
+            <button
+              key={pos}
+              type="button"
+              onClick={() => onChange({ imagePosition: pos })}
+              className={`p-2 rounded-md text-xs font-medium ${(props.imagePosition ?? "right") === pos ? "bg-blue-600 text-white" : "bg-white/[0.04] text-white/60"}`}
+            >
+              {pos === "left" ? "← Image left" : "Image right →"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <FieldInput label="Eyebrow" value={props.eyebrow ?? ""} onChange={(v) => onChange({ eyebrow: v })} />
+      <FieldInput label="Title" value={props.title ?? ""} onChange={(v) => onChange({ title: v })} className="sm:col-span-2" />
+      <div className="sm:col-span-2 space-y-1.5">
+        <label className="text-[10px] uppercase tracking-wider text-white/40">Body</label>
+        <textarea
+          value={props.body ?? ""}
+          onChange={e => onChange({ body: e.target.value })}
+          rows={4}
+          className="w-full bg-white/[0.03] border border-white/10 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/40 resize-y"
+        />
+      </div>
+      <FieldInput label="Button text" value={props.buttonText ?? ""} onChange={(v) => onChange({ buttonText: v })} />
+      <FieldInput label="Button URL (blank = page CTA)" value={props.buttonHref ?? ""} onChange={(v) => onChange({ buttonHref: v })} />
+    </div>
+  );
+}
+
+function VideoForm({ props, onChange }: { props: VideoBlockProps; onChange: (p: any) => void }) {
+  return (
+    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white/[0.01]">
+      <FieldInput label="Wistia ID" value={props.wistiaId ?? ""} onChange={(v) => onChange({ wistiaId: v.trim() })} />
+      <FieldInput label="OR YouTube URL" value={props.youtubeUrl ?? ""} onChange={(v) => onChange({ youtubeUrl: v.trim() })} />
+      <FieldInput label="Caption (optional)" value={props.caption ?? ""} onChange={(v) => onChange({ caption: v })} className="sm:col-span-2" />
+    </div>
+  );
+}
+
+function TestimonialsForm({ props, onChange }: { props: TestimonialsBlockProps; onChange: (p: any) => void }) {
+  const updateItem = (i: number, field: keyof TestimonialsBlockProps["items"][number], v: string) => {
+    const items = [...(props.items ?? [])];
+    items[i] = { ...items[i], [field]: v };
+    onChange({ items });
+  };
+  const addItem = () => onChange({ items: [...(props.items ?? []), { quote: "", name: "", role: "" }] });
+  const removeItem = (i: number) => onChange({ items: (props.items ?? []).filter((_, idx) => idx !== i) });
+  return (
+    <div className="p-4 space-y-3 bg-white/[0.01]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FieldInput label="Eyebrow" value={props.eyebrow ?? ""} onChange={(v) => onChange({ eyebrow: v })} />
+        <FieldInput label="Title" value={props.title ?? ""} onChange={(v) => onChange({ title: v })} />
+      </div>
+      <div className="space-y-2">
+        {(props.items ?? []).map((item, i) => (
+          <div key={i} className="rounded-lg bg-white/[0.02] p-3 space-y-2">
+            <div className="flex items-start justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-white/40">Testimonial {i + 1}</span>
+              <button onClick={() => removeItem(i)} className="text-red-400/60 hover:text-red-400">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <textarea
+              value={item.quote}
+              onChange={e => updateItem(i, "quote", e.target.value)}
+              placeholder="The quote — keep it short, real, parent voice"
+              rows={2}
+              className="w-full bg-white/[0.03] border border-white/10 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/40 resize-none"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input value={item.name} onChange={e => updateItem(i, "name", e.target.value)} placeholder="Name" className="bg-white/[0.03] border-white/10 text-white text-sm" />
+              <Input value={item.role ?? ""} onChange={e => updateItem(i, "role", e.target.value)} placeholder="Role / context" className="bg-white/[0.03] border-white/10 text-white text-sm" />
+            </div>
+            <ImagePicker label="Avatar (optional)" value={item.avatarUrl} onChange={(url) => updateItem(i, "avatarUrl", url)} />
+          </div>
+        ))}
+        <button onClick={addItem} className="text-xs text-blue-400/70 hover:text-blue-400 flex items-center gap-1">
+          <Plus className="w-3 h-3" /> Add testimonial
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LogosForm({ props, onChange }: { props: LogosBlockProps; onChange: (p: any) => void }) {
+  const updateItem = (i: number, field: "src" | "alt" | "href", v: string) => {
+    const items = [...(props.items ?? [])];
+    items[i] = { ...items[i], [field]: v };
+    onChange({ items });
+  };
+  const addItem = () => onChange({ items: [...(props.items ?? []), { src: "", alt: "" }] });
+  const removeItem = (i: number) => onChange({ items: (props.items ?? []).filter((_, idx) => idx !== i) });
+  return (
+    <div className="p-4 space-y-3 bg-white/[0.01]">
+      <FieldInput label="Eyebrow" value={props.eyebrow ?? ""} onChange={(v) => onChange({ eyebrow: v })} />
+      <div className="space-y-2">
+        {(props.items ?? []).map((item, i) => (
+          <div key={i} className="rounded-lg bg-white/[0.02] p-3 grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2 items-start">
+            <ImagePicker label={`Logo ${i + 1}`} value={item.src} onChange={(url) => updateItem(i, "src", url)} />
+            <div className="space-y-1.5">
+              <Input value={item.alt ?? ""} onChange={e => updateItem(i, "alt", e.target.value)} placeholder="Alt text" className="bg-white/[0.03] border-white/10 text-white text-sm" />
+              <Input value={item.href ?? ""} onChange={e => updateItem(i, "href", e.target.value)} placeholder="Optional link URL" className="bg-white/[0.03] border-white/10 text-white text-sm" />
+            </div>
+            <button onClick={() => removeItem(i)} className="text-red-400/60 hover:text-red-400 p-1.5 self-center">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button onClick={addItem} className="text-xs text-blue-400/70 hover:text-blue-400 flex items-center gap-1">
+          <Plus className="w-3 h-3" /> Add logo
+        </button>
+      </div>
     </div>
   );
 }
@@ -311,6 +442,19 @@ function shapeFor(type: BlockType): string {
   if (type === "cta") {
     return `{ "headline": "1 sentence call to action", "subheadline": "1 sentence support", "buttonText": "2-4 word verb phrase" }`;
   }
+  if (type === "image_text") {
+    return `{ "eyebrow": "all-caps", "title": "section title", "body": "2-3 sentences narrative", "buttonText": "verb phrase" }`;
+  }
+  if (type === "testimonials") {
+    return `{ "eyebrow": "all-caps", "title": "section heading", "items": [{"quote":"Short real-feeling parent quote","name":"First name only","role":"mum of [child], age"}, {"quote":"...","name":"...","role":"..."}, {"quote":"...","name":"...","role":"..."}] }`;
+  }
+  if (type === "logos") {
+    // Logos are images — AI doesn't help here
+    return `{ "eyebrow": "all-caps line — what these logos represent" }`;
+  }
+  if (type === "video") {
+    return `{ "caption": "1 short sentence below the video — what they're about to see" }`;
+  }
   return "{}";
 }
 
@@ -318,5 +462,9 @@ function examplePromptFor(type: BlockType): string {
   if (type === "stats") return "Stats for the Recreational program — credibility numbers parents care about.";
   if (type === "features") return "4 features that differentiate us from Olympia and Delta — anti-elite framing.";
   if (type === "cta") return "Final CTA pushing for a free trial booking before term 2 fills up.";
+  if (type === "image_text") return "Story about how the club started in 2020 as part of CUFC's multi-sport hub.";
+  if (type === "testimonials") return "3 realistic-sounding parent testimonials — Hornby mums, mix of rec and pathway, specific kid moments.";
+  if (type === "logos") return "Eyebrow line for a logo strip showing CUFC parent brands.";
+  if (type === "video") return "1-sentence caption for a hero video — what parents will see in 30 seconds.";
   return "";
 }

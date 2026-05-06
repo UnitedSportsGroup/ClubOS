@@ -7526,6 +7526,51 @@ export async function registerRoutes(
   // Powers the ✨ AI button on every text field in the editor. Brand voice
   // is picked server-side based on the orgSlug in the request so the model
   // always knows the workspace's tone of voice + personas.
+  // Generic image upload — used by the page-block editor to add images to
+  // image+text blocks, logo strips, testimonial avatars. Re-encodes to webp,
+  // resizes, marks public via objectAcls. Returns the public /objects/...
+  // URL the client stores in the block props.
+  const blockImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+  app.post(
+    "/api/admin/uploads/image",
+    requireAuth,
+    (req, res, next) => {
+      blockImageUpload.single("file")(req, res, (err: any) => {
+        if (err) {
+          const msg = err?.code === "LIMIT_FILE_SIZE" ? "File too big — max 10MB" : err?.message || "Upload rejected";
+          return res.status(400).json({ message: msg });
+        }
+        next();
+      });
+    },
+    async (req: any, res) => {
+      try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ message: "No file uploaded" });
+        const sharp = (await import("sharp")).default;
+        const meta = await sharp(file.buffer, { failOn: "error", animated: false, limitInputPixels: 200_000_000 }).metadata();
+        if (!meta.format || !["jpeg", "jpg", "png", "webp", "avif", "gif"].includes(meta.format)) {
+          return res.status(400).json({ message: `Unsupported image format: ${meta.format}` });
+        }
+        const buf = await sharp(file.buffer)
+          .rotate()
+          .resize({ width: 1920, height: 1920, fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 85, effort: 4 })
+          .toBuffer();
+        const svc = new ObjectStorageService();
+        const upload = await svc.uploadBufferToUploads(buf, "image/webp", "webp");
+        await setObjectAclPolicy(upload.file, { owner: String(req.session.userId), visibility: "public" });
+        res.json({ url: upload.objectPath });
+      } catch (e: any) {
+        console.error("[Block image upload] failed:", e);
+        res.status(500).json({ message: e.message });
+      }
+    }
+  );
+
   app.post("/api/admin/ai/generate-copy", requireAuth, async (req, res) => {
     try {
       const { prompt, fieldName, fieldHint, currentValue, orgSlug, maxTokens } = req.body || {};
