@@ -101,7 +101,7 @@ export default function GroupSponsorship() {
   const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<SponsorshipDeal> } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<StageKey | null>(null);
-  const [view, setView] = useState<"pipeline" | "deliverables" | "onboarding">("pipeline");
+  const [view, setView] = useState<"pipeline" | "deliverables" | "onboarding" | "billboards">("pipeline");
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -195,6 +195,7 @@ export default function GroupSponsorship() {
             { key: "pipeline",     label: "Pipeline",     icon: TrendingUp },
             { key: "deliverables", label: "Deliverables", icon: ListChecks },
             { key: "onboarding",   label: "Onboarding",   icon: CheckCircle2 },
+            { key: "billboards",   label: "Billboards",   icon: DollarSign },
           ] as const).map(t => {
             const Icon = t.icon;
             const active = view === t.key;
@@ -268,6 +269,7 @@ export default function GroupSponsorship() {
       <div className="flex-1 overflow-x-auto overflow-y-auto">
         {view === "deliverables" && orgId && <CrossDeliverablesView orgId={orgId} team={team} category="contract" />}
         {view === "onboarding" && orgId && <OnboardingMatrixView orgId={orgId} team={team} deals={deals} />}
+        {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
         {view === "pipeline" && (dealsLoading ? (
           <div className="flex gap-3 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}
@@ -1550,6 +1552,527 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Billboards view (Go Media contra resell) ────────────────────────────────
+const BILLBOARD_STAGES = [
+  { key: "lead",          label: "Lead",          color: "#64748b" },
+  { key: "contacted",     label: "Contacted",     color: "#94a3b8" },
+  { key: "quoted",        label: "Quoted",        color: "#06b6d4" },
+  { key: "negotiating",   label: "Negotiating",   color: "#a855f7" },
+  { key: "contract_sent", label: "Contract Sent", color: "#3b82f6" },
+  { key: "paid",          label: "Paid",          color: "#10b981" },
+  { key: "live",          label: "Live",          color: "#22c55e" },
+  { key: "completed",     label: "Completed",     color: "#84cc16" },
+  { key: "lost",          label: "Lost",          color: "#ef4444" },
+] as const;
+type BillboardStageKey = typeof BILLBOARD_STAGES[number]["key"];
+
+const BILLBOARD_SOURCES = [
+  { key: "existing_sponsor", label: "Existing sponsor", color: "#22c55e" },
+  { key: "walk_in",          label: "Walk-in",          color: "#f59e0b" },
+  { key: "referral",         label: "Referral",         color: "#a855f7" },
+  { key: "ad",               label: "Ad",               color: "#3b82f6" },
+  { key: "cold_outreach",    label: "Cold outreach",    color: "#64748b" },
+  { key: "inbound",          label: "Inbound",          color: "#06b6d4" },
+  { key: "other",            label: "Other",            color: "#94a3b8" },
+];
+
+interface BillboardDeal {
+  id: number;
+  organizationId: number;
+  customerName: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  source: string;
+  sourceNotes: string | null;
+  stage: BillboardStageKey;
+  rateCardValueCents: number;
+  discountPct: number;
+  netValueCents: number;
+  revenueCollectedCents: number;
+  creditConsumedCents: number;
+  billboardLocations: string[];
+  startDate: string | null;
+  endDate: string | null;
+  weeksBooked: number | null;
+  expectedCloseDate: string | null;
+  ownerId: number | null;
+  notes: string | null;
+}
+interface BillboardSummary {
+  creditCapCents: number;
+  revenueTargetCents: number;
+  creditConsumedCents: number;
+  creditRemainingCents: number;
+  revenueCollectedCents: number;
+  revenueGapCents: number;
+  openPipelineNetCents: number;
+  wonCount: number;
+  totalCount: number;
+  byStage: Record<string, { count: number; netCents: number }>;
+  bySource: Record<string, { count: number; netCents: number; revenueCents: number }>;
+}
+
+function BillboardsView({ orgId, team, currentUserId }: { orgId: number; team: TeamMember[]; currentUserId?: number }) {
+  const { toast } = useToast();
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<BillboardDeal> } | null>(null);
+
+  const { data: summary } = useQuery<BillboardSummary>({
+    queryKey: ["/api/admin/billboards/summary", orgId],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/billboards/summary?organizationId=${orgId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load summary");
+      return r.json();
+    },
+  });
+
+  const { data: deals = [], isLoading } = useQuery<BillboardDeal[]>({
+    queryKey: ["/api/admin/billboards/deals", { orgId, source: sourceFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams({ organizationId: String(orgId) });
+      if (sourceFilter) params.set("source", sourceFilter);
+      const r = await fetch(`/api/admin/billboards/deals?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
+  const saveDeal = useMutation({
+    mutationFn: async ({ id, payload }: { id?: number; payload: any }) => {
+      if (id) {
+        const r = await apiRequest("PATCH", `/api/admin/billboards/deals/${id}`, payload);
+        return r.json();
+      }
+      const r = await apiRequest("POST", "/api/admin/billboards/deals", { ...payload, organizationId: orgId });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/billboards/deals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/billboards/summary", orgId] });
+      setDealModal(null);
+      toast({ title: "Billboard deal saved" });
+    },
+    onError: (e: any) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteDeal = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/billboards/deals/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/billboards/deals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/billboards/summary", orgId] });
+      setDealModal(null);
+      toast({ title: "Deleted" });
+    },
+  });
+
+  const dealsByStage = useMemo(() => {
+    const m = new Map<BillboardStageKey, BillboardDeal[]>();
+    for (const s of BILLBOARD_STAGES) m.set(s.key, []);
+    for (const d of deals) m.get(d.stage as BillboardStageKey)?.push(d);
+    return m;
+  }, [deals]);
+
+  // Credit pacing colour: red <40%, amber 40-79%, green 80%+
+  const creditPct = summary ? Math.min(100, Math.round((summary.creditConsumedCents / summary.creditCapCents) * 100)) : 0;
+  const revenuePct = summary ? Math.min(100, Math.round((summary.revenueCollectedCents / summary.revenueTargetCents) * 100)) : 0;
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-4 sm:px-6 pt-4 pb-3 border-b border-white/[0.06]">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-white/40 mb-0.5">Go Media contra · $250k credit · $200k revenue target · 20-30% discount range</div>
+          </div>
+          <Button onClick={() => setDealModal({ mode: "create" })} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-new-billboard">
+            <Plus className="w-4 h-4 mr-1.5" /> New billboard deal
+          </Button>
+        </div>
+
+        {/* KPI strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+          <BBKpi
+            label="Credit consumed"
+            value={summary ? fmtMoneyFull(summary.creditConsumedCents) : "—"}
+            sub={summary ? `of ${fmtMoneyFull(summary.creditCapCents)} · ${fmtMoneyFull(summary.creditRemainingCents)} left` : undefined}
+            pct={creditPct}
+            colorAt={(p) => (p >= 80 ? "#22c55e" : p >= 40 ? "#f59e0b" : "#3b82f6")}
+            icon={<DollarSign className="w-4 h-4" />}
+          />
+          <BBKpi
+            label="Revenue collected"
+            value={summary ? fmtMoneyFull(summary.revenueCollectedCents) : "—"}
+            sub={summary ? `of ${fmtMoneyFull(summary.revenueTargetCents)} · ${fmtMoneyFull(summary.revenueGapCents)} to go` : undefined}
+            pct={revenuePct}
+            colorAt={(p) => (p >= 80 ? "#22c55e" : p >= 40 ? "#f59e0b" : "#ef4444")}
+            icon={<Award className="w-4 h-4" />}
+          />
+          <BBKpi
+            label="Open pipeline (net)"
+            value={summary ? fmtMoneyFull(summary.openPipelineNetCents) : "—"}
+            sub={summary ? `${summary.totalCount - (summary.wonCount || 0)} open` : undefined}
+            icon={<TrendingUp className="w-4 h-4" />}
+          />
+          <BBKpi
+            label="Booked deals"
+            value={summary ? String(summary.wonCount) : "—"}
+            sub={summary && summary.totalCount > 0 ? `of ${summary.totalCount} total · ${Math.round((summary.wonCount / summary.totalCount) * 100)}% win rate` : undefined}
+            icon={<CheckCircle2 className="w-4 h-4" />}
+          />
+        </div>
+
+        {/* Source filter chips */}
+        <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-white/30 mr-1">Source:</span>
+          {sourceFilter && (
+            <button onClick={() => setSourceFilter(null)} className="text-[10px] px-2 py-1 rounded-md border border-white/10 text-white/50 hover:text-white">Clear</button>
+          )}
+          {BILLBOARD_SOURCES.map(s => {
+            const active = sourceFilter === s.key;
+            const sCount = summary?.bySource?.[s.key]?.count ?? 0;
+            return (
+              <button
+                key={s.key}
+                onClick={() => setSourceFilter(active ? null : s.key)}
+                className="text-[10px] font-semibold px-2 py-1 rounded-md border transition flex items-center gap-1"
+                style={{
+                  borderColor: active ? s.color : "rgba(255,255,255,0.1)",
+                  background: active ? `${s.color}25` : "transparent",
+                  color: active ? "white" : "rgba(255,255,255,0.55)",
+                }}
+              >
+                {s.label}
+                {sCount > 0 && <span className="text-white/30">{sCount}</span>}
+              </button>
+            );
+          })}
+          <span className="text-[10px] text-white/30 ml-auto">{deals.length} deal{deals.length === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+
+      {/* Pipeline kanban */}
+      <div className="flex-1 overflow-x-auto overflow-y-auto">
+        {isLoading ? (
+          <div className="flex gap-3 p-4">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}
+          </div>
+        ) : (
+          <div className="flex gap-3 p-4 min-w-max">
+            {BILLBOARD_STAGES.map(s => {
+              const items = dealsByStage.get(s.key) || [];
+              const totalNet = items.reduce((sum, d) => sum + (d.netValueCents || 0), 0);
+              return (
+                <div key={s.key} className="w-72 flex-shrink-0 flex flex-col rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.color }} />
+                      <span className="text-sm font-semibold truncate">{s.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-white/40 flex-shrink-0">
+                      <span>{items.length}</span>
+                      {totalNet > 0 && <span className="text-white/60 font-medium">{fmtMoney(totalNet)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[80px]">
+                    {items.length === 0 ? (
+                      <button onClick={() => setDealModal({ mode: "create", deal: { stage: s.key } })} className="w-full text-[11px] text-white/30 hover:text-white/50 italic py-3 rounded border border-dashed border-white/10">+ Add deal</button>
+                    ) : items.map(d => (
+                      <BillboardDealCard key={d.id} deal={d} team={team} highlightMine={d.ownerId === currentUserId} onClick={() => setDealModal({ mode: "edit", deal: d })} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {dealModal && (
+        <BillboardDealModal
+          mode={dealModal.mode}
+          deal={dealModal.deal}
+          team={team}
+          onClose={() => setDealModal(null)}
+          onSave={(payload) => saveDeal.mutate({ id: dealModal.deal?.id, payload })}
+          onDelete={dealModal.deal?.id ? () => deleteDeal.mutate(dealModal.deal!.id!) : undefined}
+        />
+      )}
+    </div>
+  );
+}
+
+function BBKpi({ label, value, sub, pct, colorAt, icon }: {
+  label: string; value: string; sub?: string; pct?: number; colorAt?: (p: number) => string; icon: React.ReactNode;
+}) {
+  const accent = pct != null && colorAt ? colorAt(pct) : "#3b82f6";
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-white/40 mb-1.5">
+        <span style={{ color: accent }}>{icon}</span>
+        {label}
+      </div>
+      <div className="text-lg font-semibold text-white tabular-nums">{value}</div>
+      {sub && <div className="text-[10px] text-white/40 mt-0.5">{sub}</div>}
+      {pct != null && (
+        <div className="mt-2 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+          <div className="h-full transition-all" style={{ width: `${pct}%`, background: accent }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BillboardDealCard({ deal, team, highlightMine, onClick }: { deal: BillboardDeal; team: TeamMember[]; highlightMine?: boolean; onClick: () => void }) {
+  const owner = team.find(m => m.id === deal.ownerId);
+  const closeDate = deal.expectedCloseDate ? new Date(deal.expectedCloseDate + "T00:00:00") : null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysToClose = closeDate ? Math.ceil((closeDate.getTime() - today.getTime()) / (1000*60*60*24)) : null;
+  const sourceCfg = BILLBOARD_SOURCES.find(x => x.key === deal.source);
+
+  return (
+    <button
+      onClick={onClick}
+      data-testid={`card-billboard-${deal.id}`}
+      className="w-full text-left rounded-lg p-2.5 border transition-all hover:border-white/15"
+      style={{
+        borderColor: highlightMine ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.06)",
+        background: highlightMine ? "rgba(59,130,246,0.05)" : "rgba(255,255,255,0.02)",
+        boxShadow: highlightMine ? "0 0 0 1px rgba(59,130,246,0.3)" : undefined,
+      }}
+    >
+      <div className="text-xs font-semibold text-white truncate mb-0.5">{deal.customerName}</div>
+      {deal.contactName && <div className="text-[10px] text-white/50 truncate mb-1">{deal.contactName}</div>}
+      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+        <span className="text-[11px] font-semibold text-green-400 tabular-nums">{fmtMoney(deal.netValueCents)}</span>
+        {deal.discountPct > 0 && <span className="text-[10px] text-white/40">@ {deal.discountPct}% off</span>}
+        {deal.rateCardValueCents > 0 && <span className="text-[10px] text-white/30">RC {fmtMoney(deal.rateCardValueCents)}</span>}
+      </div>
+      {sourceCfg && (
+        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block mb-1.5" style={{ background: `${sourceCfg.color}20`, color: sourceCfg.color }}>
+          {sourceCfg.label}
+        </span>
+      )}
+      {deal.billboardLocations.length > 0 && (
+        <div className="text-[10px] text-white/40 truncate mb-1">📍 {deal.billboardLocations.slice(0, 2).join(", ")}{deal.billboardLocations.length > 2 ? ` +${deal.billboardLocations.length - 2}` : ""}</div>
+      )}
+      <div className="flex items-center justify-between text-[10px] text-white/40">
+        {owner ? (
+          <span className="flex items-center gap-1">
+            <span className="w-4 h-4 rounded-full bg-white/[0.08] flex items-center justify-center text-[8px] font-semibold text-white/70">{owner.first_name[0]}{owner.last_name[0]}</span>
+            <span>{owner.first_name}</span>
+          </span>
+        ) : <span className="italic">Unassigned</span>}
+        {daysToClose !== null && (
+          <span className={daysToClose < 0 ? "text-red-400" : daysToClose < 14 ? "text-amber-300" : "text-white/40"}>
+            {daysToClose < 0 ? `${-daysToClose}d overdue` : daysToClose === 0 ? "today" : `${daysToClose}d`}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function BillboardDealModal({ mode, deal, team, onClose, onSave, onDelete }: {
+  mode: "create" | "edit";
+  deal?: Partial<BillboardDeal>;
+  team: TeamMember[];
+  onClose: () => void;
+  onSave: (payload: any) => void;
+  onDelete?: () => void;
+}) {
+  const [customerName, setCustomerName] = useState(deal?.customerName || "");
+  const [contactName, setContactName] = useState(deal?.contactName || "");
+  const [contactEmail, setContactEmail] = useState(deal?.contactEmail || "");
+  const [contactPhone, setContactPhone] = useState(deal?.contactPhone || "");
+  const [source, setSource] = useState(deal?.source || "cold_outreach");
+  const [sourceNotes, setSourceNotes] = useState(deal?.sourceNotes || "");
+  const [stage, setStage] = useState<BillboardStageKey>((deal?.stage as BillboardStageKey) || "lead");
+  const [rateCard, setRateCard] = useState(deal?.rateCardValueCents != null && deal.rateCardValueCents > 0 ? (deal.rateCardValueCents / 100).toString() : "");
+  const [discount, setDiscount] = useState(deal?.discountPct != null ? String(deal.discountPct) : "20");
+  const [revenueCollected, setRevenueCollected] = useState(deal?.revenueCollectedCents != null && deal.revenueCollectedCents > 0 ? (deal.revenueCollectedCents / 100).toString() : "");
+  const [locations, setLocations] = useState<string[]>(deal?.billboardLocations || []);
+  const [locationInput, setLocationInput] = useState("");
+  const [startDate, setStartDate] = useState(deal?.startDate || "");
+  const [endDate, setEndDate] = useState(deal?.endDate || "");
+  const [weeksBooked, setWeeksBooked] = useState(deal?.weeksBooked != null ? String(deal.weeksBooked) : "");
+  const [expectedCloseDate, setExpectedCloseDate] = useState(deal?.expectedCloseDate || "");
+  const [ownerId, setOwnerId] = useState<number | null>(deal?.ownerId ?? null);
+  const [notes, setNotes] = useState(deal?.notes || "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Auto-compute net from rate × discount
+  const rcCents = rateCard ? Math.round(parseFloat(rateCard) * 100) : 0;
+  const dPct = parseInt(discount || "0") || 0;
+  const netCents = Math.round(rcCents * (100 - Math.max(0, Math.min(100, dPct))) / 100);
+
+  const submit = () => {
+    if (!customerName.trim()) return;
+    onSave({
+      customerName: customerName.trim(),
+      contactName: contactName || null,
+      contactEmail: contactEmail || null,
+      contactPhone: contactPhone || null,
+      source,
+      sourceNotes: sourceNotes || null,
+      stage,
+      rateCardValueCents: rcCents,
+      discountPct: dPct,
+      netValueCents: netCents,
+      revenueCollectedCents: revenueCollected ? Math.round(parseFloat(revenueCollected) * 100) : 0,
+      billboardLocations: locations,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      weeksBooked: weeksBooked ? parseInt(weeksBooked) : null,
+      expectedCloseDate: expectedCloseDate || null,
+      ownerId,
+      notes: notes || null,
+    });
+  };
+
+  const addLocation = () => {
+    const v = locationInput.trim();
+    if (v && !locations.includes(v)) {
+      setLocations([...locations, v]);
+      setLocationInput("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-[#0a0e1a] border border-white/10 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-2 duration-200 max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <h2 className="text-base font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4 text-blue-400" />{mode === "create" ? "New billboard deal" : "Edit billboard deal"}</h2>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg text-white/40 hover:text-white hover:bg-white/[0.06] flex items-center justify-center"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-5 overflow-y-auto space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Customer / Business *</Label>
+              <Input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. Harcourts Riccarton" autoFocus className="bg-white/[0.04] border-white/10 text-white" data-testid="input-customer-name" />
+            </div>
+            <div>
+              <Label className="text-xs text-white/60 mb-1 block">Owner</Label>
+              <select value={ownerId ?? ""} onChange={e => setOwnerId(e.target.value ? parseInt(e.target.value) : null)} className="w-full h-9 rounded-md bg-white/[0.04] border border-white/10 px-2 text-sm">
+                <option value="">Unassigned</option>
+                {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs text-white/60 mb-1.5 block">Stage</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {BILLBOARD_STAGES.map(s => {
+                const active = stage === s.key;
+                return (
+                  <button key={s.key} type="button" onClick={() => setStage(s.key)} className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition" style={{ borderColor: active ? s.color : "rgba(255,255,255,0.1)", background: active ? `${s.color}25` : "transparent", color: active ? "white" : "rgba(255,255,255,0.6)" }}>{s.label}</button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2 font-semibold">Source — where did this lead come from?</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {BILLBOARD_SOURCES.map(s => {
+                const active = source === s.key;
+                return (
+                  <button key={s.key} type="button" onClick={() => setSource(s.key)} className="text-[11px] font-semibold px-2.5 py-1 rounded-md border transition" style={{ borderColor: active ? s.color : "rgba(255,255,255,0.1)", background: active ? `${s.color}25` : "transparent", color: active ? "white" : "rgba(255,255,255,0.6)" }}>{s.label}</button>
+                );
+              })}
+            </div>
+            <Input value={sourceNotes} onChange={e => setSourceNotes(e.target.value)} placeholder="e.g. Walked into Harcourts Riccarton, met branch manager" className="bg-white/[0.04] border-white/10 text-white h-8 text-xs" />
+          </div>
+
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2 font-semibold">Pricing — Go Media credit @ {discount || "?"}% off</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <Label className="text-[10px] text-white/50 mb-1 block">Rate card value (NZD)</Label>
+                <Input type="number" min="0" step="100" value={rateCard} onChange={e => setRateCard(e.target.value)} placeholder="0" className="bg-white/[0.04] border-white/10 text-white h-9" />
+              </div>
+              <div>
+                <Label className="text-[10px] text-white/50 mb-1 block">Discount %</Label>
+                <Input type="number" min="0" max="100" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="20" className="bg-white/[0.04] border-white/10 text-white h-9" />
+                <p className="text-[9px] text-white/30 mt-0.5">20% base · up to 30% volume</p>
+              </div>
+              <div>
+                <Label className="text-[10px] text-white/50 mb-1 block">Net invoice (auto)</Label>
+                <div className="h-9 px-3 rounded-md bg-white/[0.02] border border-white/10 flex items-center text-sm text-green-400 font-semibold tabular-nums">${(netCents / 100).toLocaleString("en-NZ")}</div>
+              </div>
+            </div>
+            <div className="mt-2">
+              <Label className="text-[10px] text-white/50 mb-1 block">Revenue collected to date (NZD)</Label>
+              <Input type="number" min="0" step="100" value={revenueCollected} onChange={e => setRevenueCollected(e.target.value)} placeholder="0" className="bg-white/[0.04] border-white/10 text-white h-9 max-w-xs" />
+              <p className="text-[10px] text-white/30 mt-0.5">Auto-fills to net value when stage moves to Paid (override anytime).</p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2 font-semibold">Primary contact</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Name" className="bg-white/[0.04] border-white/10 text-white h-9 text-sm" />
+              <Input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" className="bg-white/[0.04] border-white/10 text-white h-9 text-sm" />
+              <Input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="Phone" className="bg-white/[0.04] border-white/10 text-white h-9 text-sm" />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2 font-semibold">Billboard locations</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {locations.map((loc, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-white/[0.06] text-white/80">
+                  {loc}
+                  <button onClick={() => setLocations(locations.filter((_, j) => j !== i))} className="text-white/30 hover:text-red-400"><X className="w-3 h-3" /></button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input value={locationInput} onChange={e => setLocationInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLocation(); } }} placeholder="e.g. Riccarton 5L" className="bg-white/[0.04] border-white/10 text-white h-8 text-xs" />
+              <Button size="sm" onClick={addLocation} className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white" type="button">Add</Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div><Label className="text-[10px] text-white/50 mb-1 block">Start</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">End</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">Weeks</Label><Input type="number" min="1" value={weeksBooked} onChange={e => setWeeksBooked(e.target.value)} placeholder="4" className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">Expected close</Label><Input type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+          </div>
+
+          <div>
+            <Label className="text-xs text-white/60 mb-1 block">Notes</Label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Decision-maker, budget cycle, follow-up plan…" className="bg-white/[0.04] border-white/10 text-white min-h-[60px]" />
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+          <div>
+            {onDelete && (
+              confirmDelete ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-white/60">Delete deal?</span>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} className="text-white/50 h-7 text-xs px-2">Cancel</Button>
+                  <Button size="sm" onClick={onDelete} className="bg-red-600 hover:bg-red-700 text-white h-7 text-xs px-2"><Trash2 className="w-3 h-3 mr-1" />Delete</Button>
+                </div>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 mr-1" />Delete</Button>
+              )
+            )}
+          </div>
+          {!confirmDelete && (
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50">Cancel</Button>
+              <Button size="sm" onClick={submit} disabled={!customerName.trim()} className="bg-blue-600 hover:bg-blue-700 text-white"><Check className="w-3.5 h-3.5 mr-1" />{mode === "create" ? "Create deal" : "Save"}</Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1113,6 +1113,51 @@ export const insertSponsorshipOnboardingTemplateSchema = createInsertSchema(spon
 export type InsertSponsorshipOnboardingTemplate = z.infer<typeof insertSponsorshipOnboardingTemplateSchema>;
 export type SponsorshipOnboardingTemplate = typeof sponsorshipOnboardingTemplates.$inferSelect;
 
+// ── Billboard sales (Go Media contra resell) ────────────────────────────────
+// USG holds a $250k contra credit with Go Media. We resell slices of that
+// credit to local businesses at 20-30% off rate-card, target $200k revenue.
+// Tracks credit-consumed vs cap and revenue-collected vs target, plus where
+// each lead came from (walk-in / existing sponsor / referral / ad / cold).
+export const billboardDealStageEnum = pgEnum("billboard_deal_stage", [
+  "lead", "contacted", "quoted", "negotiating",
+  "contract_sent", "paid", "live", "completed", "lost",
+]);
+export const billboardDealSourceEnum = pgEnum("billboard_deal_source", [
+  "existing_sponsor", "walk_in", "referral", "ad", "cold_outreach", "inbound", "other",
+]);
+
+export const billboardDeals = pgTable("billboard_deals", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  source: billboardDealSourceEnum("source").notNull().default("cold_outreach"),
+  sourceNotes: text("source_notes"),
+  stage: billboardDealStageEnum("stage").notNull().default("lead"),
+  stageChangedAt: timestamp("stage_changed_at").defaultNow().notNull(),
+  rateCardValueCents: integer("rate_card_value_cents").notNull().default(0),
+  discountPct: integer("discount_pct").notNull().default(20),
+  netValueCents: integer("net_value_cents").notNull().default(0),
+  revenueCollectedCents: integer("revenue_collected_cents").notNull().default(0),
+  creditConsumedCents: integer("credit_consumed_cents").notNull().default(0),
+  billboardLocations: text("billboard_locations").array().notNull().default(sql`ARRAY[]::text[]`),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  weeksBooked: integer("weeks_booked"),
+  expectedCloseDate: date("expected_close_date"),
+  ownerId: integer("owner_id").references(() => users.id),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBillboardDealSchema = createInsertSchema(billboardDeals).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBillboardDeal = z.infer<typeof insertBillboardDealSchema>;
+export type BillboardDeal = typeof billboardDeals.$inferSelect;
+
 // ── United Prints MIS ────────────────────────────────────────────────────────
 // A print shop management system inside ClubOS that does what ShopVox does
 // (~NZD $1,000/mo) plus the one thing they don't: a public-facing instant-quote

@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -4875,6 +4875,186 @@ export async function registerRoutes(
       const deal = await dealForUser(req, existing.dealId);
       if (!deal) return res.status(403).json({ message: "Forbidden" });
       await db.delete(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  // ── Billboard sales (Go Media contra resell) ─────────────────────────────
+  // USG holds a $250k credit with Go Media; we resell at 20-30% off rate-card
+  // up to a $200k revenue target. This pipeline tracks credit-consumed vs
+  // cap, revenue collected vs target, and per-deal source attribution so
+  // Daniel can see what's actually working (walk-ins vs ads vs cold).
+  const BILLBOARD_CREDIT_CAP_CENTS = 250_000_00;   // $250k contra
+  const BILLBOARD_REVENUE_TARGET_CENTS = 200_000_00; // $200k revenue goal
+
+  app.get("/api/admin/billboards/deals", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(billboardDeals)
+        .where(eq(billboardDeals.organizationId, orgId))
+        .orderBy(asc(billboardDeals.stage), desc(billboardDeals.netValueCents));
+      const source = req.query.source as string | undefined;
+      const owner = req.query.ownerId ? parseInt(req.query.ownerId as string) : undefined;
+      let filtered = rows;
+      if (source) filtered = filtered.filter(d => d.source === source);
+      if (owner) filtered = filtered.filter(d => d.ownerId === owner);
+      res.json(filtered);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  app.get("/api/admin/billboards/summary", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.organizationId as string);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select().from(billboardDeals).where(eq(billboardDeals.organizationId, orgId));
+
+      // Credit consumed = rate-card value of any deal that's been booked (paid → completed)
+      // Revenue collected = actual money in the door (revenueCollectedCents)
+      const bookedStages = ["paid", "live", "completed"];
+      const openStages = ["lead", "contacted", "quoted", "negotiating", "contract_sent"];
+      const creditConsumed = rows
+        .filter(d => bookedStages.includes(d.stage))
+        .reduce((s, d) => s + (d.rateCardValueCents || 0), 0);
+      const revenueCollected = rows.reduce((s, d) => s + (d.revenueCollectedCents || 0), 0);
+      const openPipelineNet = rows
+        .filter(d => openStages.includes(d.stage))
+        .reduce((s, d) => s + (d.netValueCents || 0), 0);
+      const wonCount = rows.filter(d => bookedStages.includes(d.stage)).length;
+
+      const byStage: Record<string, { count: number; netCents: number }> = {};
+      for (const d of rows) {
+        const k = d.stage;
+        if (!byStage[k]) byStage[k] = { count: 0, netCents: 0 };
+        byStage[k].count += 1;
+        byStage[k].netCents += d.netValueCents || 0;
+      }
+
+      const bySource: Record<string, { count: number; netCents: number; revenueCents: number }> = {};
+      for (const d of rows) {
+        const k = d.source;
+        if (!bySource[k]) bySource[k] = { count: 0, netCents: 0, revenueCents: 0 };
+        bySource[k].count += 1;
+        bySource[k].netCents += d.netValueCents || 0;
+        bySource[k].revenueCents += d.revenueCollectedCents || 0;
+      }
+
+      res.json({
+        creditCapCents: BILLBOARD_CREDIT_CAP_CENTS,
+        revenueTargetCents: BILLBOARD_REVENUE_TARGET_CENTS,
+        creditConsumedCents: creditConsumed,
+        creditRemainingCents: BILLBOARD_CREDIT_CAP_CENTS - creditConsumed,
+        revenueCollectedCents: revenueCollected,
+        revenueGapCents: BILLBOARD_REVENUE_TARGET_CENTS - revenueCollected,
+        openPipelineNetCents: openPipelineNet,
+        wonCount,
+        totalCount: rows.length,
+        byStage,
+        bySource,
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  function computeNetCents(rateCardCents: number, discountPct: number): number {
+    const d = Math.max(0, Math.min(100, discountPct || 0));
+    return Math.round(rateCardCents * (100 - d) / 100);
+  }
+
+  app.post("/api/admin/billboards/deals", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(req.body?.organizationId);
+      if (!orgId) return res.status(400).json({ message: "organizationId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const customer = String(req.body?.customerName || "").trim();
+      if (!customer) return res.status(400).json({ message: "customerName required" });
+      const rateCard = req.body?.rateCardValueCents != null ? Math.round(req.body.rateCardValueCents) : 0;
+      const discount = req.body?.discountPct != null ? parseInt(req.body.discountPct) : 20;
+      const net = req.body?.netValueCents != null ? Math.round(req.body.netValueCents) : computeNetCents(rateCard, discount);
+      const [row] = await db.insert(billboardDeals).values({
+        organizationId: orgId,
+        customerName: customer,
+        contactName: req.body?.contactName || null,
+        contactEmail: req.body?.contactEmail || null,
+        contactPhone: req.body?.contactPhone || null,
+        source: req.body?.source || "cold_outreach",
+        sourceNotes: req.body?.sourceNotes || null,
+        stage: req.body?.stage || "lead",
+        rateCardValueCents: rateCard,
+        discountPct: discount,
+        netValueCents: net,
+        revenueCollectedCents: req.body?.revenueCollectedCents != null ? Math.round(req.body.revenueCollectedCents) : 0,
+        creditConsumedCents: req.body?.creditConsumedCents != null ? Math.round(req.body.creditConsumedCents) : 0,
+        billboardLocations: Array.isArray(req.body?.billboardLocations) ? req.body.billboardLocations : [],
+        startDate: req.body?.startDate || null,
+        endDate: req.body?.endDate || null,
+        weeksBooked: req.body?.weeksBooked ?? null,
+        expectedCloseDate: req.body?.expectedCloseDate || null,
+        ownerId: req.body?.ownerId ?? null,
+        notes: req.body?.notes || null,
+        createdBy: req.session.userId!,
+      }).returning();
+      res.json(row);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.patch("/api/admin/billboards/deals/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(billboardDeals).where(eq(billboardDeals.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      const patch: any = { updatedAt: new Date() };
+      const fields = [
+        "customerName", "contactName", "contactEmail", "contactPhone",
+        "source", "sourceNotes", "notes",
+      ];
+      for (const f of fields) if (req.body[f] !== undefined) patch[f] = req.body[f] === "" ? null : req.body[f];
+      if (req.body.rateCardValueCents !== undefined) patch.rateCardValueCents = Math.round(req.body.rateCardValueCents || 0);
+      if (req.body.discountPct !== undefined) patch.discountPct = parseInt(req.body.discountPct) || 0;
+      if (req.body.netValueCents !== undefined) patch.netValueCents = Math.round(req.body.netValueCents || 0);
+      // Auto-recompute net if rate card or discount changed but net wasn't explicitly set
+      if ((req.body.rateCardValueCents !== undefined || req.body.discountPct !== undefined) && req.body.netValueCents === undefined) {
+        const rc = patch.rateCardValueCents ?? existing.rateCardValueCents;
+        const dp = patch.discountPct ?? existing.discountPct;
+        patch.netValueCents = computeNetCents(rc, dp);
+      }
+      if (req.body.revenueCollectedCents !== undefined) patch.revenueCollectedCents = Math.round(req.body.revenueCollectedCents || 0);
+      if (req.body.creditConsumedCents !== undefined) patch.creditConsumedCents = Math.round(req.body.creditConsumedCents || 0);
+      if (Array.isArray(req.body.billboardLocations)) patch.billboardLocations = req.body.billboardLocations;
+      if (req.body.startDate !== undefined) patch.startDate = req.body.startDate || null;
+      if (req.body.endDate !== undefined) patch.endDate = req.body.endDate || null;
+      if (req.body.weeksBooked !== undefined) patch.weeksBooked = req.body.weeksBooked;
+      if (req.body.expectedCloseDate !== undefined) patch.expectedCloseDate = req.body.expectedCloseDate || null;
+      if (req.body.ownerId !== undefined) patch.ownerId = req.body.ownerId;
+      if (req.body.stage !== undefined && req.body.stage !== existing.stage) {
+        patch.stage = req.body.stage;
+        patch.stageChangedAt = new Date();
+        // When the deal transitions to "paid", auto-set credit consumed = rate card
+        // and (if not yet collected) revenue collected = net value. Operator can
+        // override if reality differs.
+        if (req.body.stage === "paid" && existing.stage !== "paid") {
+          if (req.body.creditConsumedCents === undefined) {
+            patch.creditConsumedCents = patch.rateCardValueCents ?? existing.rateCardValueCents;
+          }
+          if (req.body.revenueCollectedCents === undefined && (existing.revenueCollectedCents || 0) === 0) {
+            patch.revenueCollectedCents = patch.netValueCents ?? existing.netValueCents;
+          }
+        }
+      }
+      const [updated] = await db.update(billboardDeals).set(patch).where(eq(billboardDeals.id, id)).returning();
+      res.json(updated);
+    } catch (error: any) { res.status(400).json({ message: error.message }); }
+  });
+
+  app.delete("/api/admin/billboards/deals/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(billboardDeals).where(eq(billboardDeals.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      await db.delete(billboardDeals).where(eq(billboardDeals.id, id));
       res.json({ ok: true });
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
