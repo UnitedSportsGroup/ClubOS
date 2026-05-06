@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useWorkspace } from "@/lib/workspace-context";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
 const BRAND = {
@@ -319,6 +320,13 @@ export default function AdminEditPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const reviewsRef = useRef<HTMLDivElement>(null);
+  const { currentOrg } = useWorkspace();
+  // Use the active workspace's logo in the preview so the admin sees the
+  // brand crest that'll show on the public landing page (gymnastics workspace
+  // → CUGC crest, etc.). Falls back to the CUFC default if the org somehow
+  // has no logo set.
+  const previewLogo = currentOrg?.logoUrl || cuFcLogoPath;
+  const previewBrandName = currentOrg?.name || "Christchurch United Football Club";
 
   const { data: camp, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId],
@@ -485,7 +493,7 @@ export default function AdminEditPage() {
           <div className="relative max-w-3xl mx-auto px-6 pt-8 pb-10 md:pt-10 md:pb-12">
             <div className="flex flex-col items-center text-center">
               <div className="mb-4">
-                <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-14 h-14 md:w-18 md:h-18 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]" />
+                <img src={previewLogo} alt={previewBrandName} className="w-14 h-14 md:w-18 md:h-18 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]" />
               </div>
               <div className="w-full max-w-2xl mb-3 relative group/ab">
                 <E value={heroHeadline} onChange={v => { setHeroHeadline(v); markChanged(); }} tag="h1" className="text-[28px] sm:text-4xl md:text-5xl lg:text-[52px] font-bold tracking-tight leading-[1.08]" style={{ color: BRAND.white }} data-testid="edit-hero-headline" />
@@ -782,8 +790,8 @@ export default function AdminEditPage() {
         <footer style={{ background: BRAND.darkBlue }}>
           <div className="max-w-4xl mx-auto px-6 py-8">
             <div className="flex flex-col items-center text-center">
-              <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-10 h-10 object-contain opacity-50 mb-3" />
-              <p className="text-[12px] font-semibold mb-4" style={{ color: 'rgba(251,251,252,0.35)' }}>Christchurch United Football Club</p>
+              <img src={previewLogo} alt={previewBrandName} className="w-10 h-10 object-contain opacity-50 mb-3" />
+              <p className="text-[12px] font-semibold mb-4" style={{ color: 'rgba(251,251,252,0.35)' }}>{previewBrandName}</p>
               <div className="flex items-center gap-5 mb-4">
                 <span className="text-[11px] transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }}>Privacy Policy</span>
                 <span className="text-[11px] transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }}>Terms & Conditions</span>

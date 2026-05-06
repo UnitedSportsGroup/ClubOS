@@ -5796,7 +5796,16 @@ export async function registerRoutes(
           activeSplitTests.push({ testId: t.id, field: t.field, variant: chosen });
         }
       }
-      res.json({ camp, pricing, dates, discounts, splitTests: activeSplitTests });
+      // Include the organisation so the public page can render the right
+      // brand crest. Gymnastics programs get the CUGC crest, etc. — without
+      // this the hero falls back to the hardcoded CUFC logo regardless of
+      // which workspace owns the program.
+      let organization = null;
+      if (camp.organizationId) {
+        const [org] = await db.select().from(organizations).where(eq(organizations.id, camp.organizationId));
+        if (org) organization = { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl };
+      }
+      res.json({ camp, organization, pricing, dates, discounts, splitTests: activeSplitTests });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

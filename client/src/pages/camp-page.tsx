@@ -206,6 +206,7 @@ export default function CampPage() {
 
   const { data, isLoading, error } = useQuery<{
     camp: any;
+    organization?: { id: number; name: string; slug: string; logoUrl: string | null };
     pricing: any[];
     dates: any[];
     discounts: any[];
@@ -360,8 +361,8 @@ export default function CampPage() {
           <div className="flex flex-col items-center text-center">
             <div className="mb-4 animate-[fadeInDown_0.6s_ease-out]">
               <img
-                src={cuFcLogoPath}
-                alt="Christchurch United FC"
+                src={data?.organization?.logoUrl || cuFcLogoPath}
+                alt={data?.organization?.name || "Christchurch United FC"}
                 className="w-14 h-14 md:w-18 md:h-18 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
                 data-testid="img-club-logo"
               />
@@ -762,8 +763,8 @@ export default function CampPage() {
       <footer style={{ background: BRAND.darkBlue }}>
         <div className="max-w-4xl mx-auto px-6 py-8">
           <div className="flex flex-col items-center text-center">
-            <img src={cuFcLogoPath} alt="Christchurch United FC" className="w-10 h-10 object-contain opacity-50 mb-3" />
-            <p className="text-[12px] font-semibold mb-4" style={{ color: 'rgba(251,251,252,0.35)' }}>Christchurch United Football Club</p>
+            <img src={data?.organization?.logoUrl || cuFcLogoPath} alt={data?.organization?.name || "Christchurch United FC"} className="w-10 h-10 object-contain opacity-50 mb-3" />
+            <p className="text-[12px] font-semibold mb-4" style={{ color: 'rgba(251,251,252,0.35)' }}>{data?.organization?.name || "Christchurch United Football Club"}</p>
             <div className="flex items-center gap-5 mb-4">
               <a href="/privacy" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-privacy">Privacy Policy</a>
               <a href="/terms" className="text-[11px] hover:underline transition-colors" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="link-terms">Terms & Conditions</a>
