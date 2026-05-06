@@ -9,7 +9,7 @@ import { useRoute, Link, useLocation } from "wouter";
 import { useWorkspace } from "@/lib/workspace-context";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
@@ -23,12 +23,52 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
   const [capacity, setCapacity] = useState(String(camp.capacity || ""));
   const [isActive, setIsActive] = useState(camp.isActive);
 
+  const isTermMode = camp.scheduleType === "term";
+
+  // Term-binding state — only used when scheduleType === "term".
+  const [termId, setTermId] = useState<string>(camp.termId ? String(camp.termId) : "");
+  const [termPrice, setTermPrice] = useState<string>(
+    camp.termPriceCents ? (camp.termPriceCents / 100).toFixed(2) : ""
+  );
+  const [sessionCount, setSessionCount] = useState<string>(
+    camp.sessionCount ? String(camp.sessionCount) : ""
+  );
+
+  const { data: termsList } = useQuery<{ id: number; name: string; year: number; termNumber: number; startDate: string; endDate: string }[]>({
+    queryKey: ["/api/admin/terms", { orgId: camp.organizationId }],
+    enabled: isTermMode && !!camp.organizationId,
+  });
+
   const handleSave = () => {
-    onUpdate({ name, description, location, startDate: startDate || null, endDate: endDate || null, ageMin: parseInt(ageMin) || null, ageMax: parseInt(ageMax) || null, capacity: parseInt(capacity) || null, isActive });
+    const payload: Record<string, unknown> = {
+      name, description, location,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      ageMin: parseInt(ageMin) || null,
+      ageMax: parseInt(ageMax) || null,
+      capacity: parseInt(capacity) || null,
+      isActive,
+    };
+    if (isTermMode) {
+      payload.termId = termId ? parseInt(termId) : null;
+      payload.termPriceCents = termPrice ? Math.round(parseFloat(termPrice) * 100) : null;
+      payload.sessionCount = sessionCount ? parseInt(sessionCount) : null;
+    }
+    onUpdate(payload);
   };
 
   return (
     <div className="space-y-4">
+      {/* Mode badge — read-only indicator of how this program is scheduled. */}
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${isTermMode ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-blue-500/40 bg-blue-500/10 text-blue-200"}`}>
+          {isTermMode ? "Term Program" : "Holiday Camp"}
+        </span>
+        {isTermMode && (
+          <span className="text-[11px] text-white/30">Sessions auto-generated from a weekly schedule</span>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="sm:col-span-2 space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Camp Name</label>
@@ -69,6 +109,42 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
           </label>
         </div>
       </div>
+
+      {isTermMode && (
+        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.03] p-4 space-y-3">
+          <div className="text-[11px] uppercase tracking-wider font-semibold text-amber-200/60">Term binding</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="text-[10px] text-white/40 uppercase">Term</label>
+              <select
+                value={termId}
+                onChange={e => setTermId(e.target.value)}
+                className="premium-input text-white/80 rounded-xl w-full"
+                data-testid="select-camp-term"
+              >
+                <option value="">— Not bound —</option>
+                {(termsList ?? []).map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.year} T{t.termNumber}) — {t.startDate} → {t.endDate}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-white/40 uppercase">Sessions in term</label>
+              <Input type="number" value={sessionCount} onChange={e => setSessionCount(e.target.value)} placeholder="auto" className="premium-input text-white/80 rounded-xl" />
+            </div>
+            <div className="sm:col-span-3 space-y-1.5">
+              <label className="text-[10px] text-white/40 uppercase">Term price ($NZD, full term)</label>
+              <Input type="number" step="0.01" value={termPrice} onChange={e => setTermPrice(e.target.value)} placeholder="e.g. 195.00" className="premium-input text-white/80 rounded-xl" data-testid="input-camp-term-price" />
+              <p className="text-[10px] text-white/30">
+                Pro-rated automatically for parents who sign up after the term has started — same logic as the gymnastics programs.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Button onClick={handleSave} className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px] glow-btn" data-testid="button-save-overview">
         <Save className="w-4 h-4 mr-1.5" /> Save Changes
       </Button>
