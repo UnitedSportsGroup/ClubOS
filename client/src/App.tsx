@@ -21,6 +21,7 @@ import CampPage from "@/pages/camp-page";
 import TermsPage from "@/pages/terms";
 import PrivacyPage from "@/pages/privacy";
 import BookingPage from "@/pages/booking-page";
+import ClassBookingPage from "@/pages/class-booking-page";
 import BookingSuccess from "@/pages/booking-success";
 import AttributionSurvey from "@/pages/attribution-survey";
 import BookingCancel from "@/pages/booking-cancel";
@@ -333,6 +334,7 @@ function App() {
             <Route path="/print/order/:token/upload" component={PrintUpload} />
             <Route path="/print/order/:token" component={PrintOrderStatus} />
             <Route path="/:slug/book" component={BookingPage} />
+            <Route path="/:slug/class-book" component={ClassBookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />
             <Route path="/:slug/feedback" component={AttributionSurvey} />
             <Route path="/:slug/success" component={BookingSuccess} />

@@ -499,6 +499,132 @@ export async function registerRoutes(
     }
   });
 
+  // Public class-registration intent — single endpoint that creates the
+  // contact records, the registration row, and the Stripe PaymentIntent
+  // in one shot. Server-side re-quotes pricing so the client can never
+  // spoof the amount paid. After Stripe confirms the PaymentIntent, the
+  // webhook flips the registration to 'confirmed' and fires confirmation.
+  app.post("/api/public/class-registrations/intent", async (req, res) => {
+    try {
+      const {
+        programSlug,
+        parent: { firstName, lastName, email, phone },
+        child: { firstName: childFirst, lastName: childLast, dateOfBirth },
+        notes,
+        utm,
+      } = req.body || {};
+
+      if (!programSlug || !firstName || !lastName || !email || !phone || !childFirst || !childLast) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Look up program + linked term, server-side quote
+      const program = await storage.getProgramBySlug(programSlug);
+      if (!program || !program.isActive) return res.status(404).json({ message: "Program not found" });
+      if (program.scheduleType !== "term") return res.status(400).json({ message: "This program isn't a class" });
+
+      let term = null;
+      if (program.termId) {
+        const { db } = await import("./db");
+        const { terms } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const [t] = await db.select().from(terms).where(eq(terms.id, program.termId));
+        term = t ?? null;
+      }
+      const { quoteProgram } = await import("./program-pricing");
+      const quote = quoteProgram(program, term);
+      if (quote.payNowCents <= 0) {
+        return res.status(400).json({ message: quote.reason });
+      }
+
+      // Create / find guardian + child contacts
+      let guardian = await storage.getContactByEmail?.(email);
+      if (!guardian) {
+        guardian = await storage.createContact({
+          type: "guardian",
+          firstName, lastName, email, phone,
+          newsletterConsent: true,
+        } as any);
+      }
+      const child = await storage.createContact({
+        type: "player",
+        firstName: childFirst,
+        lastName: childLast,
+        dateOfBirth: dateOfBirth || null,
+      } as any);
+      // Link guardian → child
+      await storage.createContactRelationship?.({
+        guardianId: guardian.id,
+        playerId: child.id,
+        relationship: "parent",
+        isPrimaryContact: true,
+      } as any);
+
+      // Create the registration row in 'pending' state
+      const reg = await storage.createRegistration({
+        programId: program.id,
+        contactId: child.id,
+        guardianId: guardian.id,
+        status: "pending",
+        amountPaid: "0",
+        subtotalCents: quote.payNowCents,
+        discountCents: quote.discountCents,
+        totalCents: quote.payNowCents,
+        currency: "NZD",
+        notes: notes || null,
+        utmSource: utm?.source || null,
+        utmMedium: utm?.medium || null,
+        utmCampaign: utm?.campaign || null,
+        utmContent: utm?.content || null,
+        fbclid: utm?.fbclid || null,
+        gclid: utm?.gclid || null,
+        registrationLocation: "online",
+      } as any);
+
+      // Stripe PaymentIntent
+      const { stripe } = await import("./stripe");
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: quote.payNowCents,
+        currency: "nzd",
+        receipt_email: email,
+        description: `${program.name}${term ? ` — Term ${term.termNumber} ${term.year}` : ""}`,
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          registrationId: String(reg.id),
+          programId: String(program.id),
+          programSlug,
+          registrationType: "class",
+          parentEmail: email,
+          childName: `${childFirst} ${childLast}`,
+          ...(term ? { termId: String(term.id) } : {}),
+        },
+      });
+
+      await storage.updateRegistration(reg.id, {
+        stripePaymentIntentId: paymentIntent.id,
+      } as any);
+
+      res.json({
+        registrationId: reg.id,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        quote: {
+          fullPriceCents: quote.fullPriceCents,
+          payNowCents: quote.payNowCents,
+          discountCents: quote.discountCents,
+          sessionsRemaining: quote.sessionsRemaining,
+          totalSessions: quote.totalSessions,
+          reason: quote.reason,
+        },
+        program: { name: program.name, slug: program.slug },
+        term: term ? { name: term.name, termNumber: term.termNumber, year: term.year, startDate: term.startDate, endDate: term.endDate } : null,
+      });
+    } catch (e: any) {
+      console.error("[Class registration intent] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // Public program quote — used by the public registration page to show
   // a live pro-rated price ('$200 → $100, 5 of 10 sessions remaining').
   // Server is the source of truth; client uses this endpoint for display
@@ -8254,6 +8380,7 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
 
   await storage.updateRegistration(registrationId, {
     status: "confirmed",
+    amountPaid: ((reg.totalCents ?? 0) / 100).toFixed(2),
   });
   await storage.assignOrderNumber(registrationId);
 
@@ -8261,6 +8388,56 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
     await storage.incrementDiscountUsage((reg as any).discountId, reg.discountCents);
   }
 
+  // Class registrations have a different shape from camp registrations.
+  // For camps the contact is the guardian and items list each day they
+  // bought; for classes the contact is the child directly and there are
+  // no day items (they're enrolled for the whole term).
+  const isClassReg = metadata?.registrationType === "class";
+  if (isClassReg) {
+    const program = await storage.getProgram(reg.programId);
+    const child = await storage.getContact(reg.contactId);
+    const guardian = reg.guardianId ? await storage.getContact(reg.guardianId) : null;
+    if (program && guardian && guardian.email) {
+      try {
+        const { sendEmail } = await import("./email");
+        await sendEmail({
+          to: guardian.email,
+          from: "ClubOS <noreply@cufc.co.nz>",
+          replyTo: "info@cufc.co.nz",
+          subject: `${program.name} — registration confirmed`,
+          html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:20px;color:#111">
+            <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:32px;border-radius:16px 16px 0 0;text-align:center;color:#fff">
+              <h1 style="margin:0;font-size:22px">You're in!</h1>
+              <p style="margin:6px 0 0;opacity:.85;font-size:14px">${program.name}</p>
+            </div>
+            <div style="background:#f8fafc;padding:32px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 16px 16px">
+              <p style="font-size:16px;margin:0 0 16px">Hi ${guardian.firstName},</p>
+              <p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 16px">
+                ${child?.firstName ?? "Your child"} is registered for ${program.name}.
+              </p>
+              <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin:0 0 20px">
+                <table style="width:100%;border-collapse:collapse">
+                  <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Order #</td><td style="padding:6px 0;text-align:right;font-family:monospace">${reg.orderNumber ?? registrationId}</td></tr>
+                  <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Total paid</td><td style="padding:6px 0;text-align:right;font-weight:600">$${((reg.totalCents ?? 0) / 100).toFixed(2)} NZD</td></tr>
+                  <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Child</td><td style="padding:6px 0;text-align:right">${child?.firstName} ${child?.lastName}</td></tr>
+                </table>
+              </div>
+              <p style="font-size:14px;line-height:1.6;color:#475569;margin:0">
+                We'll be in touch with the first session details. Reply to this email if anything's wrong.
+              </p>
+            </div>
+          </div>`,
+          registrationId,
+          campId: program.id,
+        });
+      } catch (e: any) {
+        console.error("[Class confirmation email] failed:", e.message);
+      }
+    }
+    return;
+  }
+
+  // Legacy camp path below — registrationItems-driven.
   const contact = await storage.getContact(reg.contactId);
   const program = await storage.getProgram(reg.programId);
   const items = await storage.getRegistrationItems(registrationId);

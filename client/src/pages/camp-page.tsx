@@ -399,7 +399,7 @@ export default function CampPage() {
             </div>
 
             <div className="animate-[fadeInUp_1s_ease-out]">
-              <Link href={`/${slug}/book`}>
+              <Link href={`/${slug}/${camp.scheduleType === "term" ? "class-book" : "book"}`}>
                 <button
                   onClick={handleBookClick}
                   className="group relative inline-flex items-center gap-2 px-10 py-3.5 text-[15px] font-bold rounded-full transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
