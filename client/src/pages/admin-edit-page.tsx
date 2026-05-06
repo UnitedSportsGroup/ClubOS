@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
 import { AiCopyButton } from "@/components/ui/ai-copy-button";
+import { AiPageBriefButton, type PageDraft } from "@/components/ui/ai-page-brief-button";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
 const BRAND = {
@@ -468,9 +469,27 @@ export default function AdminEditPage() {
             <ArrowLeft className="w-4 h-4" /> Back to Camp
           </button>
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-violet-300/60 bg-violet-500/[0.08] border border-violet-500/[0.15] px-2 py-1 rounded-md">
-              <Sparkles className="w-3 h-3" /> AI write — hover any field
-            </span>
+            <AiPageBriefButton
+              programName={camp?.name}
+              programType={camp?.type}
+              onApply={(draft) => {
+                if (draft.heroHeadline) { setHeroHeadline(draft.heroHeadline); }
+                if (draft.heroSubheadline) { setHeroSubheadline(draft.heroSubheadline); }
+                if (draft.primaryCta) { setPrimaryCta(draft.primaryCta); }
+                setContent(prev => ({
+                  ...prev,
+                  ...(draft.trustBadge ? { trustBadge: draft.trustBadge } : {}),
+                  ...(draft.reviewsSectionTitle ? { reviewsSectionTitle: draft.reviewsSectionTitle } : {}),
+                  ...(draft.reviewsSectionSub ? { reviewsSectionSub: draft.reviewsSectionSub } : {}),
+                  ...(draft.keyInfoTitle ? { keyInfoTitle: draft.keyInfoTitle } : {}),
+                  ...(draft.scheduleTitle ? { scheduleTitle: draft.scheduleTitle } : {}),
+                  ...(draft.scheduleSub ? { scheduleSub: draft.scheduleSub } : {}),
+                  ...(draft.experienceTitle ? { experienceTitle: draft.experienceTitle } : {}),
+                  ...(draft.faqs && draft.faqs.length > 0 ? { faqs: draft.faqs } : {}),
+                }));
+                markChanged();
+              }}
+            />
             {camp.slug && (
               <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] text-blue-400/60 hover:text-blue-400 transition-colors" data-testid="link-preview-page">
                 <Eye className="w-3.5 h-3.5" /> Preview

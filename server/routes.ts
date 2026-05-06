@@ -7554,6 +7554,27 @@ export async function registerRoutes(
     }
   });
 
+  // Generate a full landing-page draft from one short brief. Returns a
+  // structured object covering hero / CTAs / section headings / FAQs.
+  app.post("/api/admin/ai/generate-page", requireAuth, async (req, res) => {
+    try {
+      const { brief, orgSlug, programName, programType, audience } = req.body || {};
+      if (!brief || typeof brief !== "string") {
+        return res.status(400).json({ message: "brief is required" });
+      }
+      const { generatePageFromBrief } = await import("./ai");
+      const draft = await generatePageFromBrief({ brief, orgSlug, programName, programType, audience });
+      res.json({ draft });
+    } catch (e: any) {
+      console.error("[AI generate-page] failed:", e);
+      const status = /not configured/i.test(e.message) ? 503
+        : /rate limit|overloaded/i.test(e.message) ? 429
+        : /parse/i.test(e.message) ? 422
+        : 500;
+      res.status(status).json({ message: e.message });
+    }
+  });
+
   // ── Integrations (Xero, Stripe status) ────────────────────────────────
   app.get("/api/admin/integrations", requireAuth, async (req, res) => {
     try {
@@ -8387,6 +8408,38 @@ export async function registerRoutes(
         .returning();
       res.json(updated);
     } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Admin-only announcement composer endpoint. The MFL app's admin tab posts
+  // here; same role check as the score endpoint's admin fallback.
+  app.post("/api/league/announcements", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+      if (!user || !["super_admin", "admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Admin role required" });
+      }
+      const title = String(req.body?.title ?? "").trim();
+      const body = String(req.body?.body ?? "").trim();
+      if (!title || !body) return res.status(400).json({ message: "title + body required" });
+      const orgId = req.body?.organizationId ? parseInt(req.body.organizationId) : MFL_ORG_ID;
+      const pinned = req.body?.pinned === true;
+      const ctaLabel = req.body?.ctaLabel ? String(req.body.ctaLabel).slice(0, 80) : null;
+      const ctaUrl = req.body?.ctaUrl ? String(req.body.ctaUrl).slice(0, 500) : null;
+      const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
+      const [row] = await db.insert(leagueAnnouncements).values({
+        organizationId: orgId,
+        title: title.slice(0, 200),
+        body: body.slice(0, 4000),
+        pinned,
+        ctaLabel,
+        ctaUrl,
+        expiresAt,
+        publishedAt: new Date(),
+        createdBy: userId,
+      } as any).returning();
+      res.status(201).json(row);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // The user's "what's my involvement" payload — drives the home tab and

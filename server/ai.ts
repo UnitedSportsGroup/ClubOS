@@ -112,3 +112,98 @@ export async function generateCopy(params: GenerateCopyParams): Promise<string> 
   }
   return textBlock.text.trim();
 }
+
+// ── Full-page generation ─────────────────────────────────────────────────
+// Single Claude call that returns a structured object covering every major
+// editable field on a landing page. Faster + cheaper than firing N
+// generate-copy calls; also lets the model keep the whole page coherent
+// (the headline, subheadline, CTA, and trust badge all riff on the same
+// idea instead of feeling stitched together).
+
+export interface GeneratePageParams {
+  brief: string;                     // 1-paragraph brief from the user
+  orgSlug?: string;
+  programName?: string;              // 'Recreational' / 'Beginner Combo'
+  programType?: string;              // 'open_training' / 'holiday_camp' / 'academy'
+  audience?: string;                 // free-form, e.g. 'parents of 5-12yo girls'
+}
+
+export interface PageDraft {
+  heroHeadline?: string;
+  heroSubheadline?: string;
+  primaryCta?: string;
+  trustBadge?: string;
+  reviewsSectionTitle?: string;
+  reviewsSectionSub?: string;
+  keyInfoTitle?: string;
+  scheduleTitle?: string;
+  scheduleSub?: string;
+  experienceTitle?: string;
+  faqs?: { q: string; a: string }[];
+}
+
+export async function generatePageFromBrief(params: GeneratePageParams): Promise<PageDraft> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY not configured. Set it via fly secrets.");
+  }
+
+  const voice = pickVoice(params.orgSlug);
+
+  const userMessage = `
+Generate a complete landing-page copy draft from this brief.
+
+Program: ${params.programName ?? "(unnamed)"}
+Type: ${params.programType ?? "open_training"}
+${params.audience ? `Audience: ${params.audience}\n` : ""}
+
+Brief:
+${params.brief}
+
+Return ONLY valid JSON matching this exact shape — no markdown, no code fences, no explanation:
+
+{
+  "heroHeadline": "1 short sentence — under 12 words",
+  "heroSubheadline": "1-2 sentences supporting the headline, names the parent + outcome",
+  "primaryCta": "2-3 word action verb (e.g. 'Book a free trial', 'Save my spot')",
+  "trustBadge": "All-caps short phrase shown above the star rating, e.g. 'TRUSTED BY 200+ HORNBY FAMILIES'",
+  "reviewsSectionTitle": "Section heading for parent reviews",
+  "reviewsSectionSub": "1 sentence sub for the reviews section",
+  "keyInfoTitle": "Section heading for the 'when, where, how much' info card",
+  "scheduleTitle": "Section heading for the schedule",
+  "scheduleSub": "1 sentence sub for the schedule",
+  "experienceTitle": "Section heading for what to expect / the experience",
+  "faqs": [
+    { "q": "Question parents actually ask", "a": "Short, direct answer" },
+    { "q": "Second FAQ", "a": "Answer" },
+    { "q": "Third FAQ", "a": "Answer" },
+    { "q": "Fourth FAQ", "a": "Answer" }
+  ]
+}
+
+All copy must follow the brand voice in the system prompt. Every field is required. JSON only — no preamble.
+  `.trim();
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 2500,
+    system: voice,
+    messages: [{ role: "user", content: userMessage }],
+  });
+
+  const textBlock = response.content.find((b: any) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Claude returned no text content");
+  }
+
+  // Defensive parse: strip code fences if model added them despite instructions
+  let raw = textBlock.text.trim();
+  raw = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```\s*$/, "").trim();
+
+  try {
+    const parsed = JSON.parse(raw) as PageDraft;
+    return parsed;
+  } catch (e: any) {
+    console.error("[AI page draft] JSON parse failed. Raw:", raw.slice(0, 500));
+    throw new Error("Couldn't parse AI response as JSON. Try a shorter brief.");
+  }
+}
