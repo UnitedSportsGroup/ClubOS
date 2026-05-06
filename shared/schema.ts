@@ -80,6 +80,12 @@ export const contactRelationships = pgTable("contact_relationships", {
 // colliding. Enforced by the programs_org_slug_unique constraint.
 export const programs = pgTable("programs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  // CRITICAL: programs are org-scoped. Without this column declared on the
+  // Drizzle schema, db.insert silently drops the field even though the DB
+  // column exists, leading to programs with org_id=null that don't appear
+  // in any workspace's program list (May 2026 incident). Every program
+  // must be tied to an organisation.
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: text("slug"),
   type: programTypeEnum("type").notNull(),
