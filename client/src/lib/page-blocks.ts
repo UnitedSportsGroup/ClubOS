@@ -1,0 +1,97 @@
+// Custom block types for the landing-page builder. Append-only sections
+// rendered between the FAQ and the footer on the public page. Each block
+// has a stable id (so React keys are stable across edits) and a type-specific
+// props bag.
+//
+// To add a new block type:
+//   1. Add it to BlockType union
+//   2. Add a Props interface
+//   3. Add a default in createDefaultBlock()
+//   4. Render it in PublicBlock + EditableBlock components
+//   5. Add an entry to BLOCK_PALETTE for the 'Add block' menu
+
+export type BlockType = "stats" | "features" | "cta";
+
+export interface StatsBlockProps {
+  eyebrow?: string;             // small uppercase line above the stats
+  title?: string;               // optional heading
+  items: { value: string; label: string }[];  // 4 items recommended
+}
+
+export interface FeaturesBlockProps {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  items: { title: string; body: string }[];   // 3-4 items recommended
+}
+
+export interface CtaBlockProps {
+  headline: string;
+  subheadline?: string;
+  buttonText?: string;
+  buttonHref?: string;
+}
+
+export interface PageBlock<T = any> {
+  id: string;
+  type: BlockType;
+  props: T;
+}
+
+export const BLOCK_PALETTE: Array<{ type: BlockType; label: string; description: string; icon: string }> = [
+  { type: "stats",    label: "Stats Strip",    description: "4 numbers + labels — '50 years · 200+ kids · 5 coaches · 10 sessions/term'", icon: "📊" },
+  { type: "features", label: "Feature Grid",   description: "3-4 cards with title + description — call out what makes the program work", icon: "🎯" },
+  { type: "cta",      label: "CTA Strip",      description: "Big call-to-action band — headline + button, drives the next click",       icon: "👉" },
+];
+
+let _idCounter = Date.now();
+export function newBlockId(): string {
+  return `b_${(_idCounter++).toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createDefaultBlock(type: BlockType): PageBlock {
+  switch (type) {
+    case "stats":
+      return {
+        id: newBlockId(),
+        type: "stats",
+        props: {
+          eyebrow: "BY THE NUMBERS",
+          title: "",
+          items: [
+            { value: "50", label: "years of CUFC" },
+            { value: "200+", label: "Hornby families" },
+            { value: "5", label: "named coaches" },
+            { value: "10", label: "sessions per term" },
+          ],
+        } as StatsBlockProps,
+      };
+    case "features":
+      return {
+        id: newBlockId(),
+        type: "features",
+        props: {
+          eyebrow: "WHY US",
+          title: "Built for the kid in front of us",
+          subtitle: "Not the medal table. Not the Instagram reel. Your kid.",
+          items: [
+            { title: "A club, not an academy", body: "Every kid welcome. No tryouts, no elite hype, no pressure." },
+            { title: "Coaches who know your kid's name", body: "Same NZ-qualified coach every week. No drop-in volunteers." },
+            { title: "Prices on the page", body: "Term price up front. Sibling discount auto-applied. No surprises." },
+            { title: "Hornby, sorted", body: "One venue, easy parking, sibling slots back-to-back." },
+          ],
+        } as FeaturesBlockProps,
+      };
+    case "cta":
+      return {
+        id: newBlockId(),
+        type: "cta",
+        props: {
+          headline: "Ready to start?",
+          subheadline: "Free first class. No uniform until you're sure.",
+          buttonText: "Book a free trial",
+          buttonHref: "",
+        } as CtaBlockProps,
+      };
+  }
+}

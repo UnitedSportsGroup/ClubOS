@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useWorkspace } from "@/lib/workspace-context";
 import { AiCopyButton } from "@/components/ui/ai-copy-button";
 import { AiPageBriefButton, type PageDraft } from "@/components/ui/ai-page-brief-button";
+import { BlocksEditor } from "@/components/page-blocks/blocks-editor";
+import type { PageBlock } from "@/lib/page-blocks";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
 const BRAND = {
@@ -372,6 +374,7 @@ export default function AdminEditPage() {
   const [heroVideoId, setHeroVideoId] = useState("");
   const [faqItems, setFaqItems] = useState<{ q: string; a: string }[]>([]);
   const [content, setContent] = useState<PageContent>(getDefaultContent());
+  const [customBlocks, setCustomBlocks] = useState<PageBlock[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
@@ -380,6 +383,7 @@ export default function AdminEditPage() {
     setHeroSubheadline(camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football.");
     setPrimaryCta(camp.primaryCta || "Book Now");
     setHeroVideoId(camp.heroVideoId || "");
+    setCustomBlocks(Array.isArray(camp.customBlocksJson) ? camp.customBlocksJson : []);
     let faq: { q: string; a: string }[] = [];
     try { faq = camp.faqJson ? JSON.parse(camp.faqJson) : []; } catch {}
     setFaqItems(faq.length > 0 ? faq : DEFAULT_FAQ);
@@ -421,6 +425,7 @@ export default function AdminEditPage() {
       heroVideoId: heroVideoId || null,
       faqJson: JSON.stringify(faqItems),
       pageContentJson: JSON.stringify(content),
+      customBlocksJson: customBlocks,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
@@ -872,6 +877,9 @@ export default function AdminEditPage() {
             <E value={content.finalCtaFootnote} onChange={v => updateContent("finalCtaFootnote", v)} tag="p" className="text-[11px] mt-4" style={{ color: 'rgba(251,251,252,0.3)' }} data-testid="edit-final-footnote" />
           </div>
         </section>
+
+        {/* CUSTOM SECTIONS — admin can add stats / feature grid / CTA blocks */}
+        <BlocksEditor blocks={customBlocks} onChange={(b) => { setCustomBlocks(b); markChanged(); }} />
 
         {/* FOOTER */}
         <footer style={{ background: BRAND.darkBlue }}>

@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tent, MapPin, Calendar, Users, DollarSign, ArrowRight, Clock, ChevronDown, ChevronUp, Star, ChevronRight, ChevronLeft, Shield, Sparkles, Heart, Zap, Gamepad2, UserPlus, Sun, CloudRain, CalendarCheck, HelpCircle } from "lucide-react";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
+import { PublicBlock } from "@/components/page-blocks/public-block";
 
 const BRAND = {
   blue: "#22399B",
@@ -769,6 +770,17 @@ export default function CampPage() {
           </p>
         </div>
       </section>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          CUSTOM SECTIONS — admin-added blocks render between FAQ and footer
+      ═══════════════════════════════════════════════════════════════ */}
+      {Array.isArray(camp.customBlocksJson) && camp.customBlocksJson.length > 0 && (
+        <>
+          {camp.customBlocksJson.map((block: any) => (
+            <PublicBlock key={block.id} block={block} primaryButtonHref={`/${slug}/${camp.scheduleType === "term" ? "class-book" : "book"}`} />
+          ))}
+        </>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════
           SECTION 10 — FOOTER

@@ -98,6 +98,11 @@ export const programs = pgTable("programs", {
   // Wistia media id (e.g. '0l469en6m5'). When set, the public landing page
   // renders this video as the hero. Falls back to heroImage if null.
   heroVideoId: text("hero_video_id"),
+  // Custom blocks rendered between the FAQ and footer on the public page.
+  // Each block is { id, type: 'stats'|'features'|'cta', props: object }.
+  // Designed to be append-only — the existing page template stays as-is,
+  // blocks add custom sections without breaking the layout.
+  customBlocksJson: jsonb("custom_blocks_json").default(sql`'[]'::jsonb`),
   location: text("location"),
   startDate: date("start_date"),
   endDate: date("end_date"),
