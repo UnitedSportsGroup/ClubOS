@@ -226,9 +226,12 @@ function E({ value, onChange, tag = "p", className = "", style = {}, multiline =
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
-      className={`${className} cursor-text outline-none rounded-sm transition-all ring-0 hover:ring-1 hover:ring-blue-400/40 focus:ring-2 focus:ring-blue-400/60`}
+      // Always-on subtle dashed underline so editable fields look editable.
+      // Hover bumps it to a clear blue ring; focus = solid blue ring.
+      className={`${className} cursor-text outline-none rounded-md transition-all ring-1 ring-blue-400/15 hover:ring-2 hover:ring-blue-400/50 focus:ring-2 focus:ring-blue-400 px-1 -mx-1`}
       style={{ ...style, caretColor: BRAND.gold, minWidth: 20 }}
       data-testid={props["data-testid"]}
+      title="Click to edit"
     />
   );
 }
@@ -544,6 +547,19 @@ export default function AdminEditPage() {
 
       <div className="pt-14">
 
+        {/* How-to-edit help banner */}
+        <div className="bg-blue-500/[0.06] border-y border-blue-500/[0.15] py-2.5">
+          <div className="max-w-5xl mx-auto px-4 text-[11px] text-blue-200/80 flex items-center gap-3 flex-wrap justify-center">
+            <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono">click</kbd> any text to edit</span>
+            <span className="text-blue-300/30">·</span>
+            <span className="flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> hover to reveal AI buttons</span>
+            <span className="text-blue-300/30">·</span>
+            <span>scroll to bottom to add custom sections</span>
+            <span className="text-blue-300/30">·</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono">Save Changes</kbd> when done</span>
+          </div>
+        </div>
+
         {/* HERO */}
         <section className="relative overflow-hidden" style={{ background: `linear-gradient(180deg, ${BRAND.darkBlue} 0%, ${BRAND.blue} 100%)` }}>
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -557,7 +573,7 @@ export default function AdminEditPage() {
               </div>
               <div className="w-full max-w-2xl mb-3 relative group/ab">
                 <E value={heroHeadline} onChange={v => { setHeroHeadline(v); markChanged(); }} tag="h1" className="text-[28px] sm:text-4xl md:text-5xl lg:text-[52px] font-bold tracking-tight leading-[1.08]" style={{ color: BRAND.white }} data-testid="edit-hero-headline" />
-                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab:opacity-100 transition-opacity">
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab:opacity-100 transition-opacity pointer-events-none group-hover/ab:pointer-events-auto">
                   <AiCopyButton
                     fieldName="heroHeadline"
                     fieldHint="Hero headline (1 short sentence — under 12 words)"
@@ -578,7 +594,7 @@ export default function AdminEditPage() {
               </div>
               <div className="w-full max-w-xl mb-6 relative group/ab2">
                 <E value={heroSubheadline} onChange={v => { setHeroSubheadline(v); markChanged(); }} tag="p" className="text-[14px] sm:text-[16px] md:text-[18px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.55)' }} multiline data-testid="edit-hero-sub" />
-                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab2:opacity-100 transition-opacity">
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover/ab2:opacity-100 transition-opacity pointer-events-none group-hover/ab2:pointer-events-auto">
                   <AiCopyButton
                     fieldName="heroSubheadline"
                     fieldHint="Hero subheadline (1-2 sentences — supports the headline, names a benefit)"
