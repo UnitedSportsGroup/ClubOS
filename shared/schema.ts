@@ -95,6 +95,9 @@ export const programs = pgTable("programs", {
   type: programTypeEnum("type").notNull(),
   description: text("description"),
   heroImage: text("hero_image"),
+  // Wistia media id (e.g. '0l469en6m5'). When set, the public landing page
+  // renders this video as the hero. Falls back to heroImage if null.
+  heroVideoId: text("hero_video_id"),
   location: text("location"),
   startDate: date("start_date"),
   endDate: date("end_date"),

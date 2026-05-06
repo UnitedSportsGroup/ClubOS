@@ -253,9 +253,12 @@ export default function CampPage() {
     }
   }, [data]);
 
+  // Lazy-load Wistia per video id so we don't ship the wrong video's
+  // jsonp when the program has its own Wistia id set on it.
+  const heroVideoId = data?.camp?.heroVideoId || "0l469en6m5";
   useEffect(() => {
     const wistiaScript = document.createElement("script");
-    wistiaScript.src = "https://fast.wistia.com/embed/medias/0l469en6m5.jsonp";
+    wistiaScript.src = `https://fast.wistia.com/embed/medias/${heroVideoId}.jsonp`;
     wistiaScript.async = true;
     document.head.appendChild(wistiaScript);
 
@@ -268,7 +271,7 @@ export default function CampPage() {
       try { document.head.removeChild(wistiaScript); } catch {}
       try { document.head.removeChild(wistiaLib); } catch {}
     };
-  }, []);
+  }, [heroVideoId]);
 
   const scrollReviews = (direction: "left" | "right") => {
     if (reviewsRef.current) {
@@ -384,19 +387,29 @@ export default function CampPage() {
               {activeVariants.heroSubheadline?.value || camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football."}
             </p>
 
-            <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
-              <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
-                  <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
-                    <div className="wistia_embed wistia_async_0l469en6m5 seo=true videoFoam=true" style={{ height: '100%', position: 'relative', width: '100%' }}>
-                      <div className="wistia_swatch" style={{ height: '100%', left: 0, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, transition: 'opacity 200ms', width: '100%' }}>
-                        <img src="https://fast.wistia.com/embed/medias/0l469en6m5/swatch" style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
+            {/* Hero media — Wistia video if heroVideoId set, otherwise heroImage,
+                otherwise nothing (clean hero with just text + CTA). */}
+            {heroVideoId ? (
+              <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
+                <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
+                    <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
+                      <div className={`wistia_embed wistia_async_${heroVideoId} seo=true videoFoam=true`} style={{ height: '100%', position: 'relative', width: '100%' }}>
+                        <div className="wistia_swatch" style={{ height: '100%', left: 0, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, transition: 'opacity 200ms', width: '100%' }}>
+                          <img src={`https://fast.wistia.com/embed/medias/${heroVideoId}/swatch`} style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : camp.heroImage ? (
+              <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
+                <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <img src={camp.heroImage} alt={camp.name} className="w-full h-auto object-cover" />
+                </div>
+              </div>
+            ) : null}
 
             <div className="animate-[fadeInUp_1s_ease-out]">
               <Link href={`/${slug}/${camp.scheduleType === "term" ? "class-book" : "book"}`}>

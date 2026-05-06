@@ -296,18 +296,44 @@ function EditableFAQ({ items, onUpdate }: { items: { q: string; a: string }[]; o
   return (
     <div className="rounded-2xl px-5 sm:px-6" style={{ background: BRAND.blue, border: '1px solid rgba(34,57,155,0.5)' }}>
       {items.map((item, i) => (
-        <div key={i} className="last:border-0" style={{ borderBottom: '1px solid rgba(34,57,155,0.3)' }}>
-          <div className="w-full flex items-center justify-between py-4 sm:py-5 text-left">
-            <div className="flex-1 pr-4">
-              <E value={item.q} onChange={v => update(i, "q", v)} tag="span" className="font-semibold text-[14px] sm:text-[15px]" style={{ color: BRAND.white }} data-testid={`edit-faq-q-${i}`} />
+        <div key={i} className="last:border-0 group/faq" style={{ borderBottom: '1px solid rgba(34,57,155,0.3)' }}>
+          <div className="w-full flex items-center justify-between py-4 sm:py-5 text-left gap-2">
+            <div className="flex-1 pr-2 flex items-center gap-2">
+              <div className="opacity-0 group-hover/faq:opacity-100 transition-opacity">
+                <AiCopyButton
+                  fieldName={`faq-q-${i}`}
+                  fieldHint={`FAQ question ${i + 1} (parent voice — short, direct, what they actually ask)`}
+                  currentValue={item.q}
+                  examplePrompt="Write a parent-realistic question they'd actually ask before signing their kid up."
+                  maxTokens={150}
+                  onGenerated={(text) => update(i, "q", text)}
+                  size="xs"
+                />
+              </div>
+              <div className="flex-1">
+                <E value={item.q} onChange={v => update(i, "q", v)} tag="span" className="font-semibold text-[14px] sm:text-[15px]" style={{ color: BRAND.white }} data-testid={`edit-faq-q-${i}`} />
+              </div>
             </div>
             <button onClick={() => setOpenIndex(openIndex === i ? null : i)} className="cursor-pointer flex-shrink-0">
               {openIndex === i ? <ChevronUp className="w-4 h-4" style={{ color: BRAND.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: 'rgba(251,251,252,0.4)' }} />}
             </button>
           </div>
           {openIndex === i && (
-            <div className="pb-4">
-              <E value={item.a} onChange={v => update(i, "a", v)} tag="p" className="text-[13px] sm:text-[14px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.6)' }} multiline data-testid={`edit-faq-a-${i}`} />
+            <div className="pb-4 flex gap-2 items-start">
+              <div className="opacity-0 group-hover/faq:opacity-100 transition-opacity pt-1">
+                <AiCopyButton
+                  fieldName={`faq-a-${i}`}
+                  fieldHint={`FAQ answer ${i + 1} (short — 1-3 sentences, direct, no hype)`}
+                  currentValue={item.a}
+                  examplePrompt="Write a short direct answer — no hype, just the facts a parent needs."
+                  maxTokens={300}
+                  onGenerated={(text) => update(i, "a", text)}
+                  size="xs"
+                />
+              </div>
+              <div className="flex-1">
+                <E value={item.a} onChange={v => update(i, "a", v)} tag="p" className="text-[13px] sm:text-[14px] leading-relaxed" style={{ color: 'rgba(251,251,252,0.6)' }} multiline data-testid={`edit-faq-a-${i}`} />
+              </div>
             </div>
           )}
         </div>
@@ -343,6 +369,7 @@ export default function AdminEditPage() {
   const [heroHeadline, setHeroHeadline] = useState("");
   const [heroSubheadline, setHeroSubheadline] = useState("");
   const [primaryCta, setPrimaryCta] = useState("Book Now");
+  const [heroVideoId, setHeroVideoId] = useState("");
   const [faqItems, setFaqItems] = useState<{ q: string; a: string }[]>([]);
   const [content, setContent] = useState<PageContent>(getDefaultContent());
   const [hasChanges, setHasChanges] = useState(false);
@@ -352,6 +379,7 @@ export default function AdminEditPage() {
     setHeroHeadline(camp.heroHeadline || camp.name || "");
     setHeroSubheadline(camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football.");
     setPrimaryCta(camp.primaryCta || "Book Now");
+    setHeroVideoId(camp.heroVideoId || "");
     let faq: { q: string; a: string }[] = [];
     try { faq = camp.faqJson ? JSON.parse(camp.faqJson) : []; } catch {}
     setFaqItems(faq.length > 0 ? faq : DEFAULT_FAQ);
@@ -367,9 +395,12 @@ export default function AdminEditPage() {
     setHasChanges(true);
   }, []);
 
+  // Re-load Wistia jsonp whenever the program's hero video id changes so
+  // the editor preview matches what'll ship live.
+  const previewVideoId = heroVideoId || "0l469en6m5";
   useEffect(() => {
     const wistiaScript = document.createElement("script");
-    wistiaScript.src = "https://fast.wistia.com/embed/medias/0l469en6m5.jsonp";
+    wistiaScript.src = `https://fast.wistia.com/embed/medias/${previewVideoId}.jsonp`;
     wistiaScript.async = true;
     document.head.appendChild(wistiaScript);
     const wistiaLib = document.createElement("script");
@@ -380,13 +411,14 @@ export default function AdminEditPage() {
       try { document.head.removeChild(wistiaScript); } catch {}
       try { document.head.removeChild(wistiaLib); } catch {}
     };
-  }, []);
+  }, [previewVideoId]);
 
   const saveMutation = useMutation({
     mutationFn: () => apiRequest("PATCH", `/api/admin/camps/${campId}`, {
       heroHeadline,
       heroSubheadline,
       primaryCta,
+      heroVideoId: heroVideoId || null,
       faqJson: JSON.stringify(faqItems),
       pageContentJson: JSON.stringify(content),
     }),
@@ -560,17 +592,29 @@ export default function AdminEditPage() {
                   <FlaskConical className="w-4 h-4" />
                 </button>
               </div>
-              <div className="w-full max-w-[680px] mb-6">
+              <div className="w-full max-w-[680px] mb-3 group/video relative">
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
                     <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
-                      <div className="wistia_embed wistia_async_0l469en6m5 seo=true videoFoam=true" style={{ height: '100%', position: 'relative', width: '100%' }}>
+                      <div className={`wistia_embed wistia_async_${previewVideoId} seo=true videoFoam=true`} style={{ height: '100%', position: 'relative', width: '100%' }}>
                         <div className="wistia_swatch" style={{ height: '100%', left: 0, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, transition: 'opacity 200ms', width: '100%' }}>
-                          <img src="https://fast.wistia.com/embed/medias/0l469en6m5/swatch" style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
+                          <img src={`https://fast.wistia.com/embed/medias/${previewVideoId}/swatch`} style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
                         </div>
                       </div>
                     </div>
                   </div>
+                </div>
+                {/* Wistia video id editor — appears on hover */}
+                <div className="opacity-0 group-hover/video:opacity-100 transition-opacity absolute -bottom-3 left-1/2 -translate-x-1/2 translate-y-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 shadow-xl flex items-center gap-2 z-10">
+                  <label className="text-[10px] uppercase tracking-wider text-white/50">Wistia ID</label>
+                  <input
+                    type="text"
+                    value={heroVideoId}
+                    onChange={e => { setHeroVideoId(e.target.value.trim()); markChanged(); }}
+                    placeholder={heroVideoId ? "" : "0l469en6m5 (default)"}
+                    className="bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-[12px] text-white/80 font-mono w-44 focus:outline-none focus:border-blue-500/50"
+                  />
+                  <a href="https://fast.wistia.com/projects" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400/70 hover:text-blue-400">Find IDs ↗</a>
                 </div>
               </div>
               <div>
