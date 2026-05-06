@@ -133,6 +133,13 @@ export const programs = pgTable("programs", {
   pricingModel: text("pricing_model").default("flat"),
   termPriceCents: integer("term_price_cents"),  // full term price in cents
 
+  // Weekly recurring pattern for term-mode programs — JSON array of slots:
+  //   [{ daysOfWeek: number[], startTime: "HH:MM", endTime: "HH:MM",
+  //      capacity: number, name?: string }]
+  // Persisted so admins can re-generate sessions after editing the term
+  // (e.g. when a term's date range changes) without re-typing the schedule.
+  weeklyPatternJson: text("weekly_pattern_json"),
+
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -272,6 +279,10 @@ export const campDates = pgTable("camp_dates", {
   // capacity model instead.
   startTime: text("start_time"),
   endTime: text("end_time"),
+  // Optional human label for the slot — e.g. "Age 4-6", "Age 7-8" for
+  // age-split Saturday sessions. Lets a single program run multiple slots
+  // on the same day with different rolls.
+  name: text("name"),
 });
 
 export const campSettings = pgTable("camp_settings", {

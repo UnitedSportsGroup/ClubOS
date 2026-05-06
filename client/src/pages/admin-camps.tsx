@@ -27,8 +27,11 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
   return `${startDay} ${startMonth} – ${endDay} ${endMonth} ${endYear}`;
 }
 
+type CampMode = "holiday" | "term";
+
 function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
+  const [mode, setMode] = useState<CampMode>("holiday");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
@@ -38,21 +41,45 @@ function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void
   const [ageMin, setAgeMin] = useState("3");
   const [ageMax, setAgeMax] = useState("12");
 
+  // Term-mode fields
+  const [termId, setTermId] = useState<string>("");
+  const [termPrice, setTermPrice] = useState<string>("");
+
+  // Org context — needed to scope the term picker to the right workspace.
+  const { data: me } = useQuery<{ user: { organizationId: number } }>({
+    queryKey: ["/api/auth/me"],
+  });
+  const orgId = me?.user?.organizationId;
+
+  const { data: termsList } = useQuery<{ id: number; name: string; year: number; termNumber: number; startDate: string; endDate: string }[]>({
+    queryKey: ["/api/admin/terms", { orgId }],
+    enabled: mode === "term" && !!orgId,
+  });
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/camps", {
+      const isTerm = mode === "term";
+      const body: Record<string, unknown> = {
         name, slug, description, location,
         startDate: startDate || null,
         endDate: endDate || null,
         ageMin: parseInt(ageMin) || null,
         ageMax: parseInt(ageMax) || null,
         isActive: true,
-      });
+      };
+      if (isTerm) {
+        body.scheduleType = "term";
+        body.termId = termId ? parseInt(termId) : null;
+        body.pricingModel = "term_prorated";
+        body.termPriceCents = termPrice ? Math.round(parseFloat(termPrice) * 100) : null;
+        body.organizationId = orgId;
+      }
+      const res = await apiRequest("POST", "/api/admin/camps", body);
       return res.json();
     },
     onSuccess: (camp: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
-      toast({ title: "Camp created" });
+      toast({ title: mode === "term" ? "Term program created" : "Camp created" });
       onClose();
       window.location.href = `/admin/camps/${camp.id}`;
     },
@@ -66,12 +93,32 @@ function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-lg mx-4 rounded-2xl border border-blue-500/[0.15] overflow-hidden animate-fade-in-up" style={{ background: "linear-gradient(135deg, rgba(3,86,197,0.06) 0%, #02060E 100%)", animationDelay: "0ms", opacity: 0 }} data-testid="modal-create-camp">
         <div className="flex items-center justify-between px-5 py-4 border-b border-blue-500/[0.08]">
-          <h3 className="text-[14px] font-semibold text-white/80">Create Holiday Camp</h3>
+          <h3 className="text-[14px] font-semibold text-white/80">{mode === "term" ? "Create Term Program" : "Create Holiday Camp"}</h3>
           <button onClick={onClose} className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.08] transition-colors cursor-pointer">
             <X className="w-3.5 h-3.5 text-white/40" />
           </button>
         </div>
         <div className="p-5 space-y-4">
+          {/* Mode selector */}
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-1 grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => setMode("holiday")}
+              className={`text-[12px] font-semibold py-2 rounded-lg transition-colors ${mode === "holiday" ? "bg-blue-500/20 text-blue-200 border border-blue-500/40" : "text-white/40 hover:text-white/60"}`}
+              data-testid="mode-holiday"
+            >
+              Holiday Camp
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("term")}
+              className={`text-[12px] font-semibold py-2 rounded-lg transition-colors ${mode === "term" ? "bg-blue-500/20 text-blue-200 border border-blue-500/40" : "text-white/40 hover:text-white/60"}`}
+              data-testid="mode-term"
+            >
+              Term Program
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1.5">
               <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Camp Name</label>
@@ -105,9 +152,41 @@ function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void
               <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Max Age</label>
               <Input type="number" value={ageMax} onChange={e => setAgeMax(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-age-max" />
             </div>
+
+            {mode === "term" && (
+              <>
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Term</label>
+                  <select
+                    value={termId}
+                    onChange={e => setTermId(e.target.value)}
+                    className="premium-input text-white/80 rounded-xl w-full"
+                    data-testid="select-term"
+                  >
+                    <option value="">Select a term…</option>
+                    {(termsList ?? []).map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.year} T{t.termNumber}) — {t.startDate} → {t.endDate}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-[10px] text-white/30">
+                    Sessions will be auto-generated from the weekly schedule once you set it on the next screen.
+                    {(!termsList || termsList.length === 0) && (
+                      <span className="block mt-1 text-amber-300/70">No terms yet — set them up in <span className="font-mono">/admin/terms</span> first.</span>
+                    )}
+                  </div>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Term Price (full term, $NZD)</label>
+                  <Input type="number" step="0.01" value={termPrice} onChange={e => setTermPrice(e.target.value)} placeholder="e.g. 195.00" className="premium-input text-white/80 rounded-xl" data-testid="input-term-price" />
+                  <div className="text-[10px] text-white/30">Pro-rated automatically for parents who sign up mid-term.</div>
+                </div>
+              </>
+            )}
           </div>
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name || !slug} className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-10 text-[13px] glow-btn" data-testid="button-create-camp">
-            {createMutation.isPending ? "Creating..." : "Create Camp"}
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !name || !slug || (mode === "term" && (!termId || !termPrice))} className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white border-0 rounded-xl h-10 text-[13px] glow-btn" data-testid="button-create-camp">
+            {createMutation.isPending ? "Creating..." : (mode === "term" ? "Create Term Program" : "Create Camp")}
           </Button>
         </div>
       </div>

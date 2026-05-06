@@ -152,10 +152,33 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
   );
 }
 
-// Class-mode dates tab — for term programs running once a week (e.g.
-// Recreational Saturdays 9:30am–10:30am). Shows: a 'Generate from term'
-// form (day-of-week + time + capacity), the existing list of generated
-// session dates, and per-row edit/delete. Each row is one weekly session.
+// Class-mode "Schedule" tab — defines the recurring weekly pattern for a
+// term program and bulk-generates one session per (day, slot) combination
+// across the entire term. Supports multiple slots so the U4-U8 academy can
+// run Mon-Fri training + two age-split Saturday slots from the same form.
+type ScheduleSlot = {
+  id: string;            // local-only React key
+  daysOfWeek: number[];  // 0=Sun..6=Sat
+  startTime: string;     // "HH:MM"
+  endTime: string;
+  capacity: string;
+  name: string;          // optional label, e.g. "Age 4-6"
+};
+
+const DOW_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DOW_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
+
+function newSlot(partial: Partial<ScheduleSlot> = {}): ScheduleSlot {
+  return {
+    id: `slot-${Math.random().toString(36).slice(2, 9)}`,
+    daysOfWeek: partial.daysOfWeek ?? [],
+    startTime: partial.startTime ?? "16:30",
+    endTime: partial.endTime ?? "17:15",
+    capacity: partial.capacity ?? "20",
+    name: partial.name ?? "",
+  };
+}
+
 function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
   const { toast } = useToast();
   const { data: dates, isLoading } = useQuery<any[]>({
@@ -163,23 +186,73 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
     queryFn: () => fetch(`/api/admin/camps/${campId}/dates`, { credentials: "include" }).then(r => r.json()),
   });
 
-  const [dayOfWeek, setDayOfWeek] = useState<number>(6);  // default Saturday
-  const [startTime, setStartTime] = useState("09:30");
-  const [endTime, setEndTime] = useState("10:30");
-  const [capacity, setCapacity] = useState("16");
+  // Seed slot rows from the persisted weekly_pattern_json if there is one,
+  // otherwise default to the U4-U8 academy starter pattern Daniel asked for:
+  //   Mon-Fri 4:30-5:15pm + Sat 9:30-10:15 (Age 4-6) + Sat 10:30-11:15 (Age 7-8).
+  const initialSlots = (() => {
+    if (camp?.weeklyPatternJson) {
+      try {
+        const parsed = JSON.parse(camp.weeklyPatternJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((s: any) => newSlot({
+            daysOfWeek: s.daysOfWeek ?? [],
+            startTime: s.startTime,
+            endTime: s.endTime,
+            capacity: s.capacity != null ? String(s.capacity) : "",
+            name: s.name ?? "",
+          }));
+        }
+      } catch { /* ignore — fall through to defaults */ }
+    }
+    return [
+      newSlot({ daysOfWeek: [1, 2, 3, 4, 5], startTime: "16:30", endTime: "17:15", capacity: "20", name: "" }),
+      newSlot({ daysOfWeek: [6], startTime: "09:30", endTime: "10:15", capacity: "20", name: "Age 4-6" }),
+      newSlot({ daysOfWeek: [6], startTime: "10:30", endTime: "11:15", capacity: "20", name: "Age 7-8" }),
+    ];
+  })();
+
+  const [slots, setSlots] = useState<ScheduleSlot[]>(initialSlots);
+
+  const updateSlot = (id: string, patch: Partial<ScheduleSlot>) => {
+    setSlots(prev => prev.map(s => (s.id === id ? { ...s, ...patch } : s)));
+  };
+  const toggleDay = (id: string, day: number) => {
+    setSlots(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      const next = s.daysOfWeek.includes(day)
+        ? s.daysOfWeek.filter(d => d !== day)
+        : [...s.daysOfWeek, day].sort((a, b) => a - b);
+      return { ...s, daysOfWeek: next };
+    }));
+  };
+  const addSlot = () => setSlots(prev => [...prev, newSlot()]);
+  const removeSlot = (id: string) => setSlots(prev => prev.filter(s => s.id !== id));
 
   const generate = useMutation({
     mutationFn: async (replaceExisting: boolean) => {
+      const validSlots = slots
+        .filter(s => s.daysOfWeek.length > 0 && s.startTime && s.endTime)
+        .map(s => ({
+          daysOfWeek: s.daysOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          capacity: parseInt(s.capacity) || null,
+          name: s.name.trim() || null,
+        }));
+      if (validSlots.length === 0) {
+        throw new Error("Add at least one slot with a day, start time and end time before generating.");
+      }
       const res = await apiRequest("POST", `/api/admin/camps/${campId}/dates/generate-from-term`, {
-        dayOfWeek, startTime, endTime,
-        capacity: parseInt(capacity) || 16,
+        slots: validSlots,
         replaceExisting,
+        persistPattern: true,
       });
       return res.json();
     },
     onSuccess: (r: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "dates"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "sessions-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
       toast({ title: `Generated ${r.count} session${r.count === 1 ? "" : "s"}` });
     },
     onError: (e: Error) => toast({ title: "Couldn't generate", description: e.message, variant: "destructive" }),
@@ -194,76 +267,148 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
     },
   });
 
-  const DOW_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
   if (!camp.termId) {
     return (
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
-        This is a term program but it isn't linked to a specific term yet. Open the program edit modal and pick a term so we can generate the weekly sessions.
+        This is a term program but it isn't linked to a specific term yet. Open the Overview tab and pick a term so we can generate the weekly sessions.
       </div>
     );
   }
 
+  // Estimate how many sessions the current pattern will produce so the
+  // admin can sanity-check before generating (e.g. 70 for U4-U8 over 10 weeks).
+  const estimateCount = (): number => {
+    if (!camp.startDate || !camp.endDate) return 0;
+    const start = new Date(camp.startDate + "T00:00:00");
+    const end = new Date(camp.endDate + "T00:00:00");
+    let count = 0;
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const dow = cursor.getDay();
+      for (const slot of slots) if (slot.daysOfWeek.includes(dow)) count++;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return count;
+  };
+  const estimated = estimateCount();
+
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-blue-500/[0.08] bg-blue-500/[0.02] p-4">
-        <div className="text-[11px] uppercase tracking-wider font-semibold text-blue-300/40 mb-3">Generate weekly sessions</div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-white/40 uppercase">Day of week</label>
-            <select
-              value={dayOfWeek}
-              onChange={e => setDayOfWeek(parseInt(e.target.value))}
-              className="w-full text-white/80 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2 text-sm"
-            >
-              {DOW_LABELS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-            </select>
+      <div className="rounded-xl border border-blue-500/[0.08] bg-blue-500/[0.02] p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-blue-300/40">Weekly schedule</div>
+            <div className="text-[11px] text-white/30 mt-0.5">
+              {camp.startDate && camp.endDate ? <>Repeats every week between <span className="font-mono text-white/50">{camp.startDate}</span> and <span className="font-mono text-white/50">{camp.endDate}</span>.</> : "Set the term dates first."}
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-white/40 uppercase">Start time</label>
-            <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="text-white/80 rounded-xl" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-white/40 uppercase">End time</label>
-            <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="text-white/80 rounded-xl" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-white/40 uppercase">Capacity per session</label>
-            <Input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} className="text-white/80 rounded-xl" />
-          </div>
+          <button
+            type="button"
+            onClick={addSlot}
+            className="text-[11px] text-blue-300/70 hover:text-blue-200 inline-flex items-center gap-1"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add slot
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {slots.map((slot, idx) => (
+            <div key={slot.id} className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Slot {idx + 1}</span>
+                {slots.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeSlot(slot.id)}
+                    className="ml-auto text-red-400/50 hover:text-red-400 text-[10px] inline-flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3 h-3" /> Remove
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-white/40 uppercase">Days of week</label>
+                <div className="flex gap-1.5 mt-1">
+                  {DOW_SHORT.map((d, i) => (
+                    <button
+                      type="button"
+                      key={i}
+                      onClick={() => toggleDay(slot.id, i)}
+                      className={`flex-1 h-9 rounded-lg text-[12px] font-bold transition-colors ${slot.daysOfWeek.includes(i) ? "bg-blue-500/30 border border-blue-400 text-white" : "bg-white/[0.03] border border-white/[0.06] text-white/35 hover:text-white/60"}`}
+                      data-testid={`slot-${idx}-day-${i}`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-white/25 mt-1">
+                  {slot.daysOfWeek.length === 0 ? "Pick at least one day" : slot.daysOfWeek.map(i => DOW_LABELS[i]).join(", ")}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-white/40 uppercase">Start</label>
+                  <Input type="time" value={slot.startTime} onChange={e => updateSlot(slot.id, { startTime: e.target.value })} className="text-white/80 rounded-lg" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-white/40 uppercase">End</label>
+                  <Input type="time" value={slot.endTime} onChange={e => updateSlot(slot.id, { endTime: e.target.value })} className="text-white/80 rounded-lg" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-white/40 uppercase">Capacity</label>
+                  <Input type="number" value={slot.capacity} onChange={e => updateSlot(slot.id, { capacity: e.target.value })} className="text-white/80 rounded-lg" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-white/40 uppercase">Label (optional)</label>
+                  <Input type="text" placeholder="e.g. Age 4-6" value={slot.name} onChange={e => updateSlot(slot.id, { name: e.target.value })} className="text-white/80 rounded-lg" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-1">
+          <p className="text-[11px] text-white/30">
+            {estimated > 0 ? <>Will generate <span className="text-white/60 font-semibold">{estimated}</span> session{estimated === 1 ? "" : "s"} across the term.</> : "Set days + times to preview the count."}
+          </p>
           <Button
             onClick={() => {
               const hasExisting = dates && dates.length > 0;
               if (hasExisting) {
-                if (!confirm(`Replace the ${dates!.length} existing session${dates!.length === 1 ? "" : "s"} with a fresh schedule? Existing roll data will not be deleted.`)) return;
+                if (!confirm(`Replace the ${dates!.length} existing session${dates!.length === 1 ? "" : "s"} with the new schedule? Sessions with confirmed registrations are protected and will block the regenerate.`)) return;
                 generate.mutate(true);
               } else {
                 generate.mutate(false);
               }
             }}
-            disabled={generate.isPending}
+            disabled={generate.isPending || estimated === 0}
             className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px]"
+            data-testid="button-generate-sessions"
           >
-            <Plus className="w-4 h-4 mr-1" /> {generate.isPending ? "Generating…" : (dates && dates.length > 0 ? "Re-generate" : "Generate")}
+            <Plus className="w-4 h-4 mr-1" /> {generate.isPending ? "Generating…" : (dates && dates.length > 0 ? "Regenerate sessions" : "Generate sessions")}
           </Button>
         </div>
-        <p className="text-[10px] text-white/30 mt-2">
-          Walks the linked term and creates one session for every {DOW_LABELS[dayOfWeek]} between the term's start and end dates.
-        </p>
       </div>
 
       {isLoading ? (
         <Skeleton className="h-32 w-full rounded-xl bg-blue-500/[0.04]" />
       ) : !dates || dates.length === 0 ? (
-        <p className="text-[13px] text-white/25 text-center py-8">No sessions yet — generate them from the form above.</p>
+        <p className="text-[13px] text-white/25 text-center py-8">No sessions yet — set the schedule above and hit Generate.</p>
       ) : (
         <div className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-blue-500/[0.06] flex items-center justify-between">
+            <div className="text-[11px] text-blue-300/40 uppercase tracking-wider font-semibold">Generated sessions</div>
+            <div className="text-[11px] text-white/35">{dates.length} session{dates.length === 1 ? "" : "s"}</div>
+          </div>
           <table className="w-full">
             <thead>
               <tr className="border-b border-blue-500/[0.06]">
                 <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Date</th>
                 <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Day</th>
                 <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Time</th>
+                <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Label</th>
                 <th className="text-center px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Capacity</th>
                 <th className="w-12"></th>
               </tr>
@@ -276,6 +421,7 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
                     <td className="px-4 py-2.5 text-sm text-white">{d.date}</td>
                     <td className="px-4 py-2.5 text-sm text-white/60">{DOW_LABELS[dt.getDay()]}</td>
                     <td className="px-4 py-2.5 text-sm text-white/80 font-mono">{d.startTime ?? "—"}–{d.endTime ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-sm text-white/60">{d.name || "—"}</td>
                     <td className="px-4 py-2.5 text-sm text-white/60 text-center">{d.capacityFullDay ?? "—"}</td>
                     <td className="px-2 py-2.5">
                       <button
@@ -1465,10 +1611,10 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
   );
 }
 
-function SessionsTab({ campId }: { campId: number }) {
+function SessionsTab({ campId, camp }: { campId: number; camp?: any }) {
   const [, navigate] = useLocation();
 
-  const { data: sessions, isLoading } = useQuery<SessionSummary[]>({
+  const { data: sessions, isLoading } = useQuery<(SessionSummary & { name?: string | null; startTime?: string | null; endTime?: string | null })[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
     queryFn: async () => {
       const res = await fetch(`/api/admin/camps/${campId}/sessions-summary`, { credentials: "include" });
@@ -1485,6 +1631,114 @@ function SessionsTab({ campId }: { campId: number }) {
     return <p className="text-[13px] text-white/25 text-center py-8">No sessions available. Add dates first.</p>;
   }
 
+  const isTermMode = camp?.scheduleType === "term";
+
+  // Term-mode: each row is one session (one camp_date) — no morning/afternoon
+  // split. Group by week so 70 sessions across a 10-week term don't render
+  // as a wall of rows.
+  if (isTermMode) {
+    const weeks: Record<string, typeof sessions> = {};
+    sessions.forEach(s => {
+      const wk = getWeekKey(s.date);
+      if (!weeks[wk]) weeks[wk] = [];
+      weeks[wk].push(s);
+    });
+
+    return (
+      <div className="space-y-4">
+        {Object.entries(weeks).map(([weekLabel, weekSessions]) => {
+          const weekBooked = weekSessions.reduce((sum, s) => sum + (s.bookedCount ?? 0), 0);
+          const weekCapacity = weekSessions.reduce((sum, s) => sum + (s.capacity ?? 0), 0);
+          const sorted = [...weekSessions].sort((a, b) => {
+            if (a.date !== b.date) return a.date.localeCompare(b.date);
+            return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+          });
+
+          return (
+            <div key={weekLabel} className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
+              <div className="px-4 py-2.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06] flex items-center justify-between">
+                <span className="text-[11px] text-blue-300/40 uppercase tracking-wider font-semibold">{weekLabel}</span>
+                <span className="text-[11px] text-white/40">{weekSessions.length} session{weekSessions.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[420px]" data-testid={`table-sessions-${weekLabel}`}>
+                  <thead>
+                    <tr className="border-b border-blue-500/[0.06]">
+                      <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Day</th>
+                      <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Time</th>
+                      <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden sm:table-cell">Slot</th>
+                      <th className="text-center px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Roll</th>
+                      <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold w-32 hidden md:table-cell">Occupancy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map(s => {
+                      const pct = s.capacity > 0 ? Math.round((s.bookedCount / s.capacity) * 100) : 0;
+                      const barColor = pct >= 90 ? "bg-red-400" : pct >= 60 ? "bg-amber-400" : "bg-blue-400";
+                      return (
+                        <tr
+                          key={`${s.campDateId}`}
+                          onClick={() => navigate(`/admin/camps/${campId}/session/${s.campDateId}/SESSION`)}
+                          className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.04] transition-colors cursor-pointer"
+                          data-testid={`row-session-${s.campDateId}`}
+                        >
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <ChevronRight className="w-3.5 h-3.5 text-white/20" />
+                              <span className="text-[13px] text-white/70 font-medium">{getDayLabel(s.date)}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="text-[12px] text-white/60 font-mono">
+                              {(s.startTime ?? "").slice(0, 5)}–{(s.endTime ?? "").slice(0, 5)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell">
+                            <span className="text-[11px] text-amber-400/70 font-medium">{s.name || "—"}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className="text-[13px] text-white/60">
+                              <span className="font-semibold text-white/80">{s.bookedCount}</span>
+                              <span className="text-white/25 mx-1">/</span>
+                              <span>{s.capacity}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 hidden md:table-cell">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                              </div>
+                              <span className="text-[10px] text-white/30 w-8 text-right">{pct}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-blue-500/[0.03]">
+                      <td className="px-4 py-2 text-[11px] text-blue-300/30 font-semibold uppercase tracking-wider" colSpan={3}>Week Total</td>
+                      <td className="px-4 py-2 text-center">
+                        <span className="text-[12px] text-white/50 font-medium">{weekBooked} / {weekCapacity}</span>
+                      </td>
+                      <td className="px-4 py-2 hidden md:table-cell">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                            <div className="h-full rounded-full bg-blue-400/60 transition-all duration-500" style={{ width: `${weekCapacity > 0 ? Math.min(Math.round((weekBooked / weekCapacity) * 100), 100) : 0}%` }} />
+                          </div>
+                          <span className="text-[10px] text-white/30 w-8 text-right">{weekCapacity > 0 ? Math.round((weekBooked / weekCapacity) * 100) : 0}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Holiday-camp mode (legacy) — keep MORNING/AFTERNOON pair-per-date.
   const uniqueDates = [...new Set(sessions.map(s => s.date))].sort();
   const weeks: Record<string, string[]> = {};
   uniqueDates.forEach(d => {
@@ -1734,7 +1988,7 @@ export default function AdminCampDetail() {
       </div>
 
       <div className="rounded-2xl glass-card p-3 sm:p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
-        {tab === "sessions" && <SessionsTab campId={campId} />}
+        {tab === "sessions" && <SessionsTab campId={campId} camp={camp} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
         {tab === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}

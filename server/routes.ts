@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -855,7 +855,36 @@ export async function registerRoutes(
 
   app.post("/api/admin/camps", requireAuth, async (req, res) => {
     try {
-      const data = { ...req.body, type: "holiday_camp" };
+      const data = { ...req.body };
+      // Default to holiday_camp for backwards compat. The frontend Mode toggle
+      // sends scheduleType="term" + type="academy" (or another non-holiday
+      // type) for term-mode programs.
+      if (!data.type) data.type = "holiday_camp";
+
+      // Term auto-fill — mirrors the gymnastics /programs route. When the
+      // camp is bound to a term, copy startDate/endDate/sessionCount from
+      // the term so the admin doesn't have to re-type.
+      if (data.scheduleType === "term" && data.termId) {
+        const [term] = await db.select().from(terms).where(eq(terms.id, data.termId));
+        if (!term) return res.status(400).json({ message: "Term not found" });
+        if (data.organizationId && term.organizationId !== data.organizationId) {
+          return res.status(400).json({ message: "Term belongs to a different workspace" });
+        }
+        if (!data.startDate) data.startDate = term.startDate;
+        if (!data.endDate) data.endDate = term.endDate;
+        if (!data.sessionCount) {
+          const a = new Date(term.startDate + "T00:00:00").getTime();
+          const b = new Date(term.endDate + "T00:00:00").getTime();
+          data.sessionCount = Math.max(1, Math.round((b - a) / (1000 * 60 * 60 * 24 * 7)) + 1);
+        }
+      }
+
+      // Defensive: dollar→cents conversion if the form posts dollars
+      if (data.termPrice && !data.termPriceCents) {
+        data.termPriceCents = Math.round(parseFloat(data.termPrice) * 100);
+        delete data.termPrice;
+      }
+
       const camp = await storage.createProgram(data);
       await storage.createAuditLog({ userId: req.session.userId, action: "create", entity: "camp", entityId: camp.id, details: `Created camp: ${camp.name}` });
       res.status(201).json(camp);
@@ -1003,51 +1032,104 @@ export async function registerRoutes(
 
   // Bulk-generate weekly class sessions for a term-bound program. Walks the
   // linked term's date range and creates one camp_date row for every
-  // matching weekday with the given start/end time.
-  // Body: { dayOfWeek: 0..6 (Sun=0), startTime: "09:30", endTime: "10:30",
-  //         capacity: 16, replaceExisting?: boolean }
+  // matching (day, slot) combination — supports multiple slots in a single
+  // call, e.g. Mon-Fri 4:30-5:15pm + Sat 9:30-10:15am (Age 4-6) +
+  // Sat 10:30-11:15am (Age 7-8) for the U4-U8 academy.
+  //
+  // Body (preferred):
+  //   { slots: Array<{ daysOfWeek: number[], startTime: "HH:MM",
+  //                    endTime: "HH:MM", capacity?: number, name?: string }>,
+  //     replaceExisting?: boolean,
+  //     persistPattern?: boolean }
+  // Body (legacy single-slot, kept for backwards compat):
+  //   { dayOfWeek, startTime, endTime, capacity, replaceExisting }
   app.post("/api/admin/camps/:id/dates/generate-from-term", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(req.params.id);
-      const { dayOfWeek, startTime, endTime, capacity, replaceExisting } = req.body;
-      if (typeof dayOfWeek !== "number" || dayOfWeek < 0 || dayOfWeek > 6) {
-        return res.status(400).json({ message: "dayOfWeek must be 0–6" });
+      const body = req.body ?? {};
+
+      // Normalise legacy single-slot body into the new shape.
+      let slots: Array<{ daysOfWeek: number[]; startTime: string; endTime: string; capacity?: number | null; name?: string | null }> = [];
+      if (Array.isArray(body.slots) && body.slots.length > 0) {
+        slots = body.slots;
+      } else if (typeof body.dayOfWeek === "number") {
+        slots = [{
+          daysOfWeek: [body.dayOfWeek],
+          startTime: body.startTime,
+          endTime: body.endTime,
+          capacity: body.capacity ?? null,
+          name: body.name ?? null,
+        }];
       }
-      if (!startTime || !endTime) return res.status(400).json({ message: "startTime + endTime required" });
+      if (slots.length === 0) {
+        return res.status(400).json({ message: "Provide slots[] or legacy dayOfWeek/startTime/endTime" });
+      }
+      for (const s of slots) {
+        if (!Array.isArray(s.daysOfWeek) || s.daysOfWeek.length === 0) {
+          return res.status(400).json({ message: "Each slot needs at least one day-of-week" });
+        }
+        if (s.daysOfWeek.some(d => typeof d !== "number" || d < 0 || d > 6)) {
+          return res.status(400).json({ message: "daysOfWeek must contain 0..6 (Sun=0)" });
+        }
+        if (!s.startTime || !s.endTime) {
+          return res.status(400).json({ message: "Each slot needs startTime and endTime" });
+        }
+      }
 
       const program = await storage.getProgram(campId);
       if (!program) return res.status(404).json({ message: "Program not found" });
       if (!program.termId) return res.status(400).json({ message: "Program is not linked to a term" });
 
-      const { db } = await import("./db");
-      const { terms, campDates } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
       const [term] = await db.select().from(terms).where(eq(terms.id, program.termId));
       if (!term) return res.status(404).json({ message: "Linked term not found" });
 
-      if (replaceExisting) {
+      // Refuse to wipe existing dates if any have linked registrations.
+      // The Daniel-style guard: protect parents who already paid.
+      if (body.replaceExisting) {
+        const existing = await storage.getCampDates(campId);
+        for (const d of existing) {
+          const reg = await storage.getRegistrationsByCampDate?.(d.id);
+          if (reg && reg.length > 0) {
+            return res.status(409).json({
+              message: "Cannot regenerate — one or more existing sessions already have registrations. Cancel/refund those first or generate without replacing.",
+            });
+          }
+        }
         await db.delete(campDates).where(eq(campDates.campId, campId));
       }
 
       const generated: any[] = [];
       const start = new Date(term.startDate + "T00:00:00");
       const end = new Date(term.endDate + "T00:00:00");
+      // Walk every day of the term ONCE, then for each day check every slot.
       const cursor = new Date(start);
       while (cursor <= end) {
-        if (cursor.getDay() === dayOfWeek) {
-          const dateStr = cursor.toISOString().split("T")[0];
-          const created = await storage.createCampDate({
-            campId,
-            date: dateStr,
-            capacityFullDay: capacity ?? null,
-            capacityMorning: null,
-            capacityAfternoon: null,
-            startTime,
-            endTime,
-          } as any);
-          generated.push(created);
+        const dow = cursor.getDay();
+        const dateStr = cursor.toISOString().split("T")[0];
+        for (const slot of slots) {
+          if (slot.daysOfWeek.includes(dow)) {
+            const created = await storage.createCampDate({
+              campId,
+              date: dateStr,
+              capacityFullDay: slot.capacity ?? null,
+              capacityMorning: null,
+              capacityAfternoon: null,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              name: slot.name ?? null,
+            } as any);
+            generated.push(created);
+          }
         }
         cursor.setDate(cursor.getDate() + 1);
+      }
+
+      // Optionally remember the schedule pattern on the program so re-generating
+      // after a term-date change doesn't require re-typing the slots.
+      if (body.persistPattern !== false) {
+        await storage.updateProgram(campId, {
+          weeklyPatternJson: JSON.stringify(slots),
+        } as any);
       }
 
       res.status(201).json({ count: generated.length, dates: generated });

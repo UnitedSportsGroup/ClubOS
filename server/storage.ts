@@ -832,9 +832,12 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]> {
+  async getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number; name?: string | null; startTime?: string | null; endTime?: string | null }[]> {
     const dates = await this.getCampDates(campId);
     if (dates.length === 0) return [];
+
+    const program = await this.getProgram(campId);
+    const isTermMode = program?.scheduleType === "term";
 
     const dateIds = dates.map(d => d.id);
     const items = await db.select({
@@ -851,7 +854,30 @@ export class DatabaseStorage implements IStorage {
     ))
     .groupBy(registrationItems.campDateId, registrationItems.productType);
 
-    const results: { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[] = [];
+    const results: { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number; name?: string | null; startTime?: string | null; endTime?: string | null }[] = [];
+
+    if (isTermMode) {
+      // Term-mode: one summary row per camp_date (the slot itself is the
+      // session — no MORNING/AFTERNOON split). Capacity is capacityFullDay.
+      for (const d of dates) {
+        const totalCount = items
+          .filter(i => i.campDateId === d.id)
+          .reduce((sum, i) => sum + (i.count || 0), 0);
+        results.push({
+          campDateId: d.id,
+          date: d.date,
+          productType: "SESSION",
+          bookedCount: totalCount,
+          capacity: d.capacityFullDay || 0,
+          name: d.name,
+          startTime: d.startTime,
+          endTime: d.endTime,
+        });
+      }
+      return results;
+    }
+
+    // Holiday-camp mode (legacy): morning + afternoon rows per date.
     for (const d of dates) {
       const fullDayCount = items.find(i => i.campDateId === d.id && i.productType === "FULL_DAY")?.count || 0;
       for (const pt of ["MORNING", "AFTERNOON"]) {
@@ -894,19 +920,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]> {
-    const productTypes = sessionType === "MORNING" ? ["MORNING", "FULL_DAY"] :
-                         sessionType === "AFTERNOON" ? ["AFTERNOON", "FULL_DAY"] :
-                         [sessionType];
+    // Term-mode programs: each camp_date IS the session, so we don't filter
+    // by product type — every registration item attached to this date is
+    // on the roll.
+    const program = await this.getProgram(campId);
+    const isTermMode = program?.scheduleType === "term";
 
-    const items = await db.select()
-      .from(registrationItems)
-      .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
-      .where(and(
-        eq(registrationItems.campDateId, campDateId),
-        eq(registrations.programId, campId),
-        eq(registrations.status, "confirmed"),
-        inArray(registrationItems.productType, productTypes),
-      ));
+    const baseConditions = [
+      eq(registrationItems.campDateId, campDateId),
+      eq(registrations.programId, campId),
+      eq(registrations.status, "confirmed"),
+    ];
+
+    let items;
+    if (isTermMode || sessionType === "SESSION") {
+      items = await db.select()
+        .from(registrationItems)
+        .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+        .where(and(...baseConditions));
+    } else {
+      const productTypes = sessionType === "MORNING" ? ["MORNING", "FULL_DAY"] :
+                           sessionType === "AFTERNOON" ? ["AFTERNOON", "FULL_DAY"] :
+                           [sessionType];
+      items = await db.select()
+        .from(registrationItems)
+        .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+        .where(and(
+          ...baseConditions,
+          inArray(registrationItems.productType, productTypes),
+        ));
+    }
 
     const results: { child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[] = [];
     const seenChildIds = new Set<number>();
