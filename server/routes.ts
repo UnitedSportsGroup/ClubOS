@@ -499,6 +499,45 @@ export async function registerRoutes(
     }
   });
 
+  // Program options — admin CRUD. Each option is a priced package on a
+  // class-mode program (e.g. Beginner Thursday / Saturday / Combo).
+  app.get("/api/admin/programs/:id/options", requireAuth, async (req, res) => {
+    try {
+      const list = await storage.getProgramOptions(parseInt(req.params.id));
+      res.json(list);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/admin/programs/:id/options", requireAuth, async (req, res) => {
+    try {
+      const programId = parseInt(req.params.id);
+      const r = await storage.createProgramOption({ ...req.body, programId } as any);
+      res.status(201).json(r);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+  app.patch("/api/admin/program-options/:id", requireAuth, async (req, res) => {
+    try {
+      const r = await storage.updateProgramOption(parseInt(req.params.id), req.body);
+      if (!r) return res.status(404).json({ message: "Not found" });
+      res.json(r);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+  app.delete("/api/admin/program-options/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteProgramOption(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Public — list options for a program (the registration-page picker).
+  app.get("/api/public/programs/:slug/options", async (req, res) => {
+    try {
+      const program = await storage.getProgramBySlug(req.params.slug);
+      if (!program || !program.isActive) return res.status(404).json({ message: "Program not found" });
+      const list = await storage.getProgramOptions(program.id, { activeOnly: true });
+      res.json({ programId: program.id, options: list });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Public class-registration intent — single endpoint that creates the
   // contact records, the registration row, and the Stripe PaymentIntent
   // in one shot. Server-side re-quotes pricing so the client can never
@@ -508,6 +547,8 @@ export async function registerRoutes(
     try {
       const {
         programSlug,
+        programOptionId,
+        paymentMode,  // 'upfront' | 'weekly'
         parent: { firstName, lastName, email, phone },
         child: { firstName: childFirst, lastName: childLast, dateOfBirth },
         notes,
@@ -531,10 +572,37 @@ export async function registerRoutes(
         const [t] = await db.select().from(terms).where(eq(terms.id, program.termId));
         term = t ?? null;
       }
+
+      // If a programOptionId was passed, build a synthetic 'program' that
+      // overrides termPriceCents + sessionCount with the option's values
+      // before quoting. This keeps quoteProgram() unchanged while letting
+      // us price each option independently.
+      let option = null;
+      let priceProgram: any = program;
+      if (programOptionId) {
+        option = await storage.getProgramOption(parseInt(programOptionId));
+        if (!option || option.programId !== program.id) {
+          return res.status(400).json({ message: "Invalid option for this program" });
+        }
+        if (!option.isActive) return res.status(400).json({ message: "That option isn't available" });
+        priceProgram = {
+          ...program,
+          termPriceCents: option.fullPriceCents,
+          sessionCount: option.sessionCount ?? program.sessionCount,
+          pricingModel: option.pricingModel,
+        };
+      }
+
       const { quoteProgram } = await import("./program-pricing");
-      const quote = quoteProgram(program, term);
+      const quote = quoteProgram(priceProgram, term);
       if (quote.payNowCents <= 0) {
         return res.status(400).json({ message: quote.reason });
+      }
+
+      // Weekly subscription branch — only available when an option opts in.
+      const isWeekly = paymentMode === "weekly" && option?.allowPayWeekly;
+      if (paymentMode === "weekly" && !option?.allowPayWeekly) {
+        return res.status(400).json({ message: "Weekly payment isn't available for this option" });
       }
 
       // Create / find guardian + child contacts
@@ -560,16 +628,28 @@ export async function registerRoutes(
         isPrimaryContact: true,
       } as any);
 
+      // Pay-mode-specific Stripe setup
+      const { stripe } = await import("./stripe");
+      const optionLabel = option ? ` (${option.name})` : "";
+
+      // Compute the weekly price for the subscription branch.
+      // weekly_price = full_price / total_sessions, rounded.
+      const weeklyPriceCents = isWeekly
+        ? (option?.weeklyPriceCents ?? Math.round((option?.fullPriceCents ?? 0) / (option?.sessionCount ?? quote.totalSessions)))
+        : 0;
+
       // Create the registration row in 'pending' state
       const reg = await storage.createRegistration({
         programId: program.id,
+        programOptionId: option?.id ?? null,
+        paymentMode: isWeekly ? "weekly" : "upfront",
         contactId: child.id,
         guardianId: guardian.id,
         status: "pending",
         amountPaid: "0",
-        subtotalCents: quote.payNowCents,
+        subtotalCents: isWeekly ? weeklyPriceCents : quote.payNowCents,
         discountCents: quote.discountCents,
-        totalCents: quote.payNowCents,
+        totalCents: isWeekly ? weeklyPriceCents : quote.payNowCents,
         currency: "NZD",
         notes: notes || null,
         utmSource: utm?.source || null,
@@ -581,41 +661,94 @@ export async function registerRoutes(
         registrationLocation: "online",
       } as any);
 
-      // Stripe PaymentIntent
-      const { stripe } = await import("./stripe");
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: quote.payNowCents,
-        currency: "nzd",
-        receipt_email: email,
-        description: `${program.name}${term ? ` — Term ${term.termNumber} ${term.year}` : ""}`,
-        automatic_payment_methods: { enabled: true },
-        metadata: {
-          registrationId: String(reg.id),
-          programId: String(program.id),
-          programSlug,
-          registrationType: "class",
-          parentEmail: email,
-          childName: `${childFirst} ${childLast}`,
-          ...(term ? { termId: String(term.id) } : {}),
-        },
-      });
+      const sharedMetadata = {
+        registrationId: String(reg.id),
+        programId: String(program.id),
+        programSlug,
+        registrationType: "class",
+        parentEmail: email,
+        childName: `${childFirst} ${childLast}`,
+        ...(option ? { programOptionId: String(option.id), optionName: option.name } : {}),
+        ...(term ? { termId: String(term.id) } : {}),
+      };
 
-      await storage.updateRegistration(reg.id, {
-        stripePaymentIntentId: paymentIntent.id,
-      } as any);
+      let clientSecret: string | null;
+      let paymentIntentId: string | null = null;
+      let subscriptionId: string | null = null;
+
+      if (isWeekly) {
+        // Stripe Subscription — bills `weeklyPriceCents` every week for
+        // up to `totalSessions` cycles. Customer charged immediately for
+        // week 1; subsequent weeks auto-charge.
+        const customer = await stripe.customers.create({
+          email,
+          name: `${firstName} ${lastName}`,
+          metadata: sharedMetadata,
+        });
+        const product = await stripe.products.create({
+          name: `${program.name}${optionLabel}`,
+          metadata: sharedMetadata,
+        });
+        const price = await stripe.prices.create({
+          product: product.id,
+          unit_amount: weeklyPriceCents,
+          currency: "nzd",
+          recurring: { interval: "week" },
+        });
+        const subscription = await stripe.subscriptions.create({
+          customer: customer.id,
+          items: [{ price: price.id }],
+          payment_behavior: "default_incomplete",
+          payment_settings: { save_default_payment_method: "on_subscription" },
+          expand: ["latest_invoice.payment_intent"],
+          metadata: sharedMetadata,
+          // Cancel after totalSessions cycles
+          cancel_at: Math.floor(Date.now() / 1000) + (option?.sessionCount ?? quote.totalSessions) * 7 * 24 * 60 * 60,
+        });
+        const latestInvoice: any = subscription.latest_invoice;
+        const pi = latestInvoice?.payment_intent;
+        clientSecret = pi?.client_secret ?? null;
+        paymentIntentId = pi?.id ?? null;
+        subscriptionId = subscription.id;
+        await storage.updateRegistration(reg.id, {
+          stripeSubscriptionId: subscription.id,
+          stripePaymentIntentId: paymentIntentId,
+        } as any);
+      } else {
+        // One-shot PaymentIntent for upfront payment
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: quote.payNowCents,
+          currency: "nzd",
+          receipt_email: email,
+          description: `${program.name}${optionLabel}${term ? ` — Term ${term.termNumber} ${term.year}` : ""}`,
+          automatic_payment_methods: { enabled: true },
+          metadata: sharedMetadata,
+        });
+        clientSecret = paymentIntent.client_secret;
+        paymentIntentId = paymentIntent.id;
+        await storage.updateRegistration(reg.id, {
+          stripePaymentIntentId: paymentIntent.id,
+        } as any);
+      }
 
       res.json({
         registrationId: reg.id,
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
+        clientSecret,
+        paymentIntentId,
+        subscriptionId,
+        paymentMode: isWeekly ? "weekly" : "upfront",
         quote: {
           fullPriceCents: quote.fullPriceCents,
-          payNowCents: quote.payNowCents,
+          payNowCents: isWeekly ? weeklyPriceCents : quote.payNowCents,
           discountCents: quote.discountCents,
           sessionsRemaining: quote.sessionsRemaining,
           totalSessions: quote.totalSessions,
-          reason: quote.reason,
+          reason: isWeekly
+            ? `${weeklyPriceCents > 0 ? `$${(weeklyPriceCents / 100).toFixed(2)}/week` : ""} × ${option?.sessionCount ?? quote.totalSessions} weeks`
+            : quote.reason,
+          weeklyPriceCents,
         },
+        option: option ? { id: option.id, name: option.name, scheduleText: option.scheduleText } : null,
         program: { name: program.name, slug: program.slug },
         term: term ? { name: term.name, termNumber: term.termNumber, year: term.year, startDate: term.startDate, endDate: term.endDate } : null,
       });

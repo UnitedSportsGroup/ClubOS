@@ -15,6 +15,7 @@ import {
   type InsertContact, type Contact,
   type InsertRelationship, type ContactRelationship,
   type InsertProgram, type Program,
+  programOptions, type InsertProgramOption, type ProgramOption,
   type InsertSession, type ProgramSession,
   type InsertSessionBooking, type SessionBooking,
   type InsertDiscount, type ProgramDiscount,
@@ -558,6 +559,31 @@ export class DatabaseStorage implements IStorage {
   async updateProgram(id: number, data: Partial<InsertProgram>): Promise<Program | undefined> {
     const [updated] = await db.update(programs).set(data).where(eq(programs.id, id)).returning();
     return updated;
+  }
+
+  // Program options — priced packages on a program (e.g. Beginner Thursday
+  // / Beginner Saturday / Beginner Combo). Each row is what the parent
+  // picks on the public registration page.
+  async getProgramOptions(programId: number, opts: { activeOnly?: boolean } = {}): Promise<ProgramOption[]> {
+    const where = opts.activeOnly
+      ? and(eq(programOptions.programId, programId), eq(programOptions.isActive, true))
+      : eq(programOptions.programId, programId);
+    return db.select().from(programOptions).where(where).orderBy(asc(programOptions.displayOrder), asc(programOptions.id));
+  }
+  async getProgramOption(id: number): Promise<ProgramOption | undefined> {
+    const [r] = await db.select().from(programOptions).where(eq(programOptions.id, id));
+    return r;
+  }
+  async createProgramOption(data: InsertProgramOption): Promise<ProgramOption> {
+    const [r] = await db.insert(programOptions).values(data).returning();
+    return r;
+  }
+  async updateProgramOption(id: number, data: Partial<InsertProgramOption>): Promise<ProgramOption | undefined> {
+    const [r] = await db.update(programOptions).set(data).where(eq(programOptions.id, id)).returning();
+    return r;
+  }
+  async deleteProgramOption(id: number): Promise<void> {
+    await db.delete(programOptions).where(eq(programOptions.id, id));
   }
 
   async deleteProgram(id: number): Promise<void> {

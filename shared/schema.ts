@@ -137,6 +137,33 @@ export const programs = pgTable("programs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Program options — priced packages a customer can pick from on the public
+// landing page. One Beginner program can have:
+//   1) Thursday only — $295/term
+//   2) Saturday only (with ballet) — $350/term
+//   3) Both days combo — $565/term, weekly pay available
+// Each option has its own schedule_text (free-form, displayed to parents),
+// price, and (for combos / large totals) an opt-in weekly Stripe sub
+// option that breaks the term price into N weekly installments.
+export const programOptions = pgTable("program_options", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  programId: integer("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  scheduleText: text("schedule_text"),  // e.g. "Thursdays 4-6pm" — shown to parents
+  fullPriceCents: integer("full_price_cents").notNull(),
+  pricingModel: text("pricing_model").notNull().default("term_prorated"),  // 'flat' | 'term_prorated'
+  sessionCount: integer("session_count"),  // overrides program.sessionCount when set
+  allowPayWeekly: boolean("allow_pay_weekly").notNull().default(false),
+  weeklyPriceCents: integer("weekly_price_cents"),  // computed if null
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertProgramOptionSchema = createInsertSchema(programOptions).omit({ id: true, createdAt: true });
+export type InsertProgramOption = z.infer<typeof insertProgramOptionSchema>;
+export type ProgramOption = typeof programOptions.$inferSelect;
+
 // School/program terms — org-scoped so each workspace can manage its own
 // calendar (NZ school terms for gymnastics, OFC season blocks for football,
 // etc.). One row per (org, year, termNumber) so an org can never have two
@@ -211,6 +238,11 @@ export const registrations = pgTable("registrations", {
   currency: text("currency").default("NZD"),
   registrationLocation: text("registration_location").default("online"),
   referralSource: text("referral_source"),
+  // Class registrations may pick a specific program option (e.g. Beginner
+  // Thursday vs Beginner Combo) and a payment mode (upfront vs weekly sub).
+  programOptionId: integer("program_option_id"),
+  paymentMode: text("payment_mode"),  // 'upfront' | 'weekly'
+  stripeSubscriptionId: text("stripe_subscription_id"),
   refundedAt: timestamp("refunded_at"),
   refundedAmountCents: integer("refunded_amount_cents"),
   refundReason: text("refund_reason"),

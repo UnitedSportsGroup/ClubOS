@@ -220,10 +220,255 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
   );
 }
 
-// Class-mode pricing tab — single 'Term price' input (no morning/afternoon
-// nonsense). Saves to programs.term_price_cents directly via PATCH on the
-// camp record so it round-trips through the existing endpoint.
+// Class-mode pricing tab — manages program options. Each option = a priced
+// package (e.g. Beginner Thursday $295, Beginner Combo $565 with weekly pay).
+// Falls back to the single-price-on-program model if no options are defined.
 function ClassPricingTab({ campId, camp }: { campId: number; camp: any }) {
+  const { toast } = useToast();
+  const { data: options = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/programs", campId, "options"],
+    queryFn: () => fetch(`/api/admin/programs/${campId}/options`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const [editing, setEditing] = useState<any | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const deleteOption = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/program-options/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/programs", campId, "options"] });
+      toast({ title: "Option removed" });
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Pricing options</h3>
+          <p className="text-xs text-white/40 mt-0.5">Parents pick one option on the registration page. Each has its own schedule + price.</p>
+        </div>
+        <Button onClick={() => setShowAdd(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-sm">
+          <Plus className="w-4 h-4 mr-1" /> Add option
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-32 w-full rounded-xl bg-blue-500/[0.04]" />
+      ) : options.length === 0 ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
+          No options yet. Add at least one — even a simple 'Term Pass — $200' covers a single-class program.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {options.map(o => (
+            <div
+              key={o.id}
+              className="rounded-xl border border-blue-500/[0.08] bg-white/[0.02] p-4 hover:bg-white/[0.04] transition group"
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <div className="font-semibold text-white">{o.name}</div>
+                  {o.scheduleText && <div className="text-xs text-white/50 mt-0.5">{o.scheduleText}</div>}
+                  {o.description && <div className="text-xs text-white/40 mt-1">{o.description}</div>}
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-white">${(o.fullPriceCents / 100).toFixed(0)}<span className="text-xs text-white/40">/term</span></div>
+                  <div className="text-[10px] text-white/40">{o.sessionCount ?? "—"} sessions</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider">
+                  <span className={o.isActive ? "text-emerald-400" : "text-white/30"}>
+                    {o.isActive ? "● Live" : "○ Inactive"}
+                  </span>
+                  <span className="text-white/40">{o.pricingModel === "term_prorated" ? "Pro-rated" : "Flat"}</span>
+                  {o.allowPayWeekly && <span className="text-blue-400">+ Weekly pay</span>}
+                </div>
+                <div className="opacity-0 group-hover:opacity-100 transition flex gap-1">
+                  <button onClick={() => setEditing(o)} className="p-1.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-white/60">
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => { if (confirm(`Delete "${o.name}"?`)) deleteOption.mutate(o.id); }}
+                    className="p-1.5 rounded bg-white/[0.04] hover:bg-red-500/20 text-white/60"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(showAdd || editing) && (
+        <OptionEditModal
+          campId={campId}
+          option={editing}
+          defaultSessionCount={camp.sessionCount ?? 10}
+          onClose={() => { setShowAdd(false); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OptionEditModal({ campId, option, defaultSessionCount, onClose }: {
+  campId: number; option: any | null; defaultSessionCount: number; onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const isEdit = !!option;
+  const [form, setForm] = useState({
+    name: option?.name ?? "",
+    description: option?.description ?? "",
+    scheduleText: option?.scheduleText ?? "",
+    fullPrice: option ? (option.fullPriceCents / 100).toFixed(2) : "",
+    pricingModel: option?.pricingModel ?? "term_prorated",
+    sessionCount: String(option?.sessionCount ?? defaultSessionCount),
+    allowPayWeekly: option?.allowPayWeekly ?? false,
+    weeklyPrice: option?.weeklyPriceCents ? (option.weeklyPriceCents / 100).toFixed(2) : "",
+    isActive: option?.isActive ?? true,
+    displayOrder: String(option?.displayOrder ?? 0),
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const body = {
+        name: form.name,
+        description: form.description || null,
+        scheduleText: form.scheduleText || null,
+        fullPriceCents: Math.round(parseFloat(form.fullPrice) * 100),
+        pricingModel: form.pricingModel,
+        sessionCount: parseInt(form.sessionCount) || null,
+        allowPayWeekly: form.allowPayWeekly,
+        weeklyPriceCents: form.allowPayWeekly && form.weeklyPrice ? Math.round(parseFloat(form.weeklyPrice) * 100) : null,
+        isActive: form.isActive,
+        displayOrder: parseInt(form.displayOrder) || 0,
+      };
+      if (isEdit) {
+        await apiRequest("PATCH", `/api/admin/program-options/${option.id}`, body);
+      } else {
+        await apiRequest("POST", `/api/admin/programs/${campId}/options`, body);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/programs", campId, "options"] });
+      toast({ title: isEdit ? "Option updated" : "Option added" });
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
+  });
+
+  // Auto-suggest weekly price from full / sessions when toggle flips on
+  const suggestedWeekly = form.fullPrice && form.sessionCount
+    ? (parseFloat(form.fullPrice) / parseInt(form.sessionCount)).toFixed(2)
+    : "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-2xl border border-blue-500/[0.15] bg-[#02060E] max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-blue-500/[0.08]">
+          <h3 className="text-sm font-semibold text-white/80">{isEdit ? "Edit option" : "Add option"}</h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Option name</label>
+            <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Beginner Thursday" className="text-white/80 rounded-xl" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Schedule (shown to parents)</label>
+            <Input value={form.scheduleText} onChange={e => setForm({ ...form, scheduleText: e.target.value })} placeholder="Thursdays 4pm – 6pm" className="text-white/80 rounded-xl" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Description (optional)</label>
+            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Includes ballet warm-up. Suitable for ages 5+..." className="w-full h-16 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Full term price ($)</label>
+              <Input type="number" step="0.01" value={form.fullPrice} onChange={e => setForm({ ...form, fullPrice: e.target.value })} placeholder="295.00" className="text-white/80 rounded-xl" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Sessions</label>
+              <Input type="number" value={form.sessionCount} onChange={e => setForm({ ...form, sessionCount: e.target.value })} placeholder="10" className="text-white/80 rounded-xl" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[11px] text-blue-300/30 uppercase tracking-wider font-semibold">Pricing model</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: "term_prorated", label: "Pro-rated" },
+                { value: "flat", label: "Flat" },
+              ].map(m => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, pricingModel: m.value })}
+                  className={`p-2 rounded-lg text-sm transition border ${
+                    form.pricingModel === m.value
+                      ? "bg-blue-500/15 border-blue-500/40 text-white"
+                      : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/[0.04]"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="pt-2 border-t border-white/5">
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer">
+              <input type="checkbox" checked={form.allowPayWeekly} onChange={e => setForm({ ...form, allowPayWeekly: e.target.checked, weeklyPrice: e.target.checked ? suggestedWeekly : "" })} />
+              Allow weekly payment (Stripe subscription)
+            </label>
+            <p className="text-[10px] text-white/30 mt-1 ml-5">Better for combo / high-priced options ($500+). Customer pays per week instead of upfront.</p>
+            {form.allowPayWeekly && (
+              <div className="mt-3 ml-5 space-y-1.5">
+                <label className="text-[10px] text-white/40 uppercase">Weekly price ($)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.weeklyPrice}
+                  onChange={e => setForm({ ...form, weeklyPrice: e.target.value })}
+                  placeholder={suggestedWeekly}
+                  className="text-white/80 rounded-xl"
+                />
+                <p className="text-[10px] text-white/30">Suggested: ${suggestedWeekly} (full price ÷ sessions). Leave blank to use auto.</p>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-white/40 uppercase">Display order</label>
+              <Input type="number" value={form.displayOrder} onChange={e => setForm({ ...form, displayOrder: e.target.value })} className="text-white/80 rounded-xl" />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer pt-6">
+              <input type="checkbox" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />
+              Active (live to parents)
+            </label>
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-blue-500/[0.08] flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => save.mutate()}
+            disabled={!form.name || !form.fullPrice || save.isPending}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {save.isPending ? "Saving…" : isEdit ? "Save changes" : "Add option"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Legacy single-price tab kept for any path that still references it
+function ClassPricingTab_LEGACY({ campId, camp }: { campId: number; camp: any }) {
   const { toast } = useToast();
   const [price, setPrice] = useState(
     camp.termPriceCents ? (camp.termPriceCents / 100).toFixed(2) : ""
