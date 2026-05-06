@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
+import { useWorkspace } from "@/lib/workspace-context";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
 import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban } from "lucide-react";
@@ -1052,6 +1053,12 @@ export default function AdminCampDetail() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const { currentOrg } = useWorkspace();
+  // Where 'back' goes depends on the workspace. The camp-detail page is
+  // re-used across CUFC camps, gymnastics programs, and any future workspace
+  // — each workspace has a different list landing route. Camp / academy
+  // workspaces use /admin/camps; gymnastics uses /admin/programs.
+  const listPath = currentOrg?.slug === "united-gymnastics" ? "/admin/programs" : "/admin/camps";
 
   const { data: camp, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId],
@@ -1082,7 +1089,7 @@ export default function AdminCampDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
       toast({ title: "Camp deleted" });
-      navigate("/admin/camps");
+      navigate(listPath);
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -1117,7 +1124,7 @@ export default function AdminCampDetail() {
   return (
     <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 max-w-5xl mx-auto">
       <div className="flex items-start sm:items-center gap-3 animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
-        <Link href="/admin/camps">
+        <Link href={listPath}>
           <button className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] transition-colors cursor-pointer flex-shrink-0 mt-0.5 sm:mt-0" data-testid="button-back">
             <ArrowLeft className="w-4 h-4 text-white/40" />
           </button>
