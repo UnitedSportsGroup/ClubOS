@@ -154,25 +154,8 @@ export async function registerRoutes(
 
       // Optional welcome email — fire-and-forget
       if (sendWelcomeEmail) {
-        try {
-          const { sendEmail } = await import("./email");
-          const orgNames = (await storage.getUserOrganizations(user.id)).map(o => o.name);
-          await sendEmail({
-            to: email,
-            from: "ClubOS <orders@unitedprints.co.nz>",
-            subject: "You've been added to ClubOS",
-            html: `<p>Hi ${firstName},</p>
-              <p>You've been given access to ClubOS — the system Christchurch United uses to run its operations.</p>
-              <p><strong>Login:</strong> https://app.usg.co.nz<br/>
-              <strong>Email:</strong> ${email}<br/>
-              <strong>Temporary password:</strong> <code>${password}</code></p>
-              <p>You'll have access to: <strong>${orgNames.join(", ")}</strong></p>
-              <p>Please change your password after your first login.</p>
-              <p>— The CUFC team</p>`,
-          });
-        } catch (e: any) {
-          console.error("[Team welcome email] failed:", e.message);
-        }
+        const orgNames = (await storage.getUserOrganizations(user.id)).map(o => o.name);
+        await sendTeamInviteEmail({ email, firstName, password, orgNames });
       }
 
       res.json({
@@ -224,6 +207,75 @@ export async function registerRoutes(
       await storage.removeUserFromOrganization(userId, orgId);
       res.json({ ok: true });
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Reset a team member's password. Generates a new temp password (or uses
+  // the one passed in the body), hashes it, saves it, optionally emails it.
+  // Super-admin only — no self-service password reset for now (low priority
+  // for an internal-tool with <10 users).
+  app.post("/api/admin/team/:id/reset-password", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const newPassword = (req.body?.password as string) || generateTempPassword();
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      const hashed = await hashPassword(newPassword);
+      await storage.updateUser(userId, { password: hashed });
+
+      // Optionally email the user the new credentials
+      const sendEmailFlag = req.body?.sendEmail !== false;  // default true
+      let emailSent = false;
+      if (sendEmailFlag && user.email) {
+        const orgNames = (await storage.getUserOrganizations(userId)).map(o => o.name);
+        emailSent = await sendPasswordResetEmail({
+          email: user.email,
+          firstName: user.firstName,
+          password: newPassword,
+          orgNames,
+        });
+      }
+
+      // Return the password so the admin can also share it via Slack/text
+      // if needed. This is fine here because this endpoint is super-admin
+      // gated and the response goes back to the admin who issued the reset.
+      res.json({ ok: true, password: newPassword, emailSent });
+    } catch (error: any) {
+      console.error("[Team reset-password] failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Re-send the welcome email with a new temp password. Use this when the
+  // first email didn't deliver. Same logic as reset-password but framed
+  // differently in the UI.
+  app.post("/api/admin/team/:id/resend-invite", requireSuperAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const newPassword = generateTempPassword();
+      const hashed = await hashPassword(newPassword);
+      await storage.updateUser(userId, { password: hashed });
+
+      const orgNames = (await storage.getUserOrganizations(userId)).map(o => o.name);
+      const emailSent = await sendTeamInviteEmail({
+        email: user.email,
+        firstName: user.firstName,
+        password: newPassword,
+        orgNames,
+      });
+
+      res.json({ ok: true, password: newPassword, emailSent });
+    } catch (error: any) {
+      console.error("[Team resend-invite] failed:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -7688,6 +7740,103 @@ export async function registerRoutes(
   });
 
   return httpServer;
+}
+
+// Friendly memorable temp password — adjective-noun-NNN. Same format used
+// in the AddMemberModal client-side; duplicated here so the server can
+// generate fresh ones on reset/resend.
+function generateTempPassword(): string {
+  const adj = ["bright", "swift", "calm", "happy", "lucky", "kind", "bold", "warm"];
+  const noun = ["fox", "owl", "wave", "hill", "tree", "lake", "cloud", "stone"];
+  const num = Math.floor(Math.random() * 900) + 100;
+  return `${adj[Math.floor(Math.random() * adj.length)]}-${noun[Math.floor(Math.random() * noun.length)]}-${num}`;
+}
+
+// Welcome / invite email. Sent from a verified Resend domain (cufc.co.nz)
+// — the previous unitedprints.co.nz sender silently failed because the
+// domain isn't set up for outbound mail in Resend.
+async function sendTeamInviteEmail(params: {
+  email: string;
+  firstName: string;
+  password: string;
+  orgNames: string[];
+}): Promise<boolean> {
+  const { sendEmail } = await import("./email");
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:20px;color:#111">
+      <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:32px;border-radius:16px 16px 0 0;text-align:center;color:#fff">
+        <h1 style="margin:0;font-size:22px">Welcome to ClubOS</h1>
+        <p style="margin:6px 0 0;color:rgba(255,255,255,.85);font-size:14px">Christchurch United Football Club</p>
+      </div>
+      <div style="background:#f8fafc;padding:32px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 16px 16px">
+        <p style="font-size:16px;margin:0 0 16px">Hi ${params.firstName},</p>
+        <p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 16px">
+          You've been given access to ClubOS — the system Christchurch United uses to run its operations.
+        </p>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin:0 0 20px">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Login</td><td style="padding:6px 0;text-align:right"><a href="https://app.usg.co.nz" style="color:#2563eb">app.usg.co.nz</a></td></tr>
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Email</td><td style="padding:6px 0;text-align:right;font-family:monospace">${params.email}</td></tr>
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Temp password</td><td style="padding:6px 0;text-align:right;font-family:monospace;font-weight:600">${params.password}</td></tr>
+          </table>
+        </div>
+        <p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 16px">
+          You'll have access to: <strong>${params.orgNames.length > 0 ? params.orgNames.join(", ") : "(no workspaces yet — ask Daniel)"}</strong>
+        </p>
+        <p style="font-size:14px;line-height:1.6;color:#475569;margin:0">
+          Please change your password after your first login. If anything looks off, reply to this email.
+        </p>
+      </div>
+      <p style="text-align:center;color:#94a3b8;font-size:11px;margin:16px 0 0">Christchurch United Football Club Inc.</p>
+    </div>
+  `;
+  return sendEmail({
+    to: params.email,
+    from: "ClubOS <noreply@cufc.co.nz>",
+    replyTo: "info@cufc.co.nz",
+    subject: "Your ClubOS login",
+    html,
+  });
+}
+
+// Password-reset email. Same shell, different framing.
+async function sendPasswordResetEmail(params: {
+  email: string;
+  firstName: string;
+  password: string;
+  orgNames: string[];
+}): Promise<boolean> {
+  const { sendEmail } = await import("./email");
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:20px;color:#111">
+      <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);padding:32px;border-radius:16px 16px 0 0;text-align:center;color:#fff">
+        <h1 style="margin:0;font-size:22px">Your ClubOS password was reset</h1>
+      </div>
+      <div style="background:#f8fafc;padding:32px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 16px 16px">
+        <p style="font-size:16px;margin:0 0 16px">Hi ${params.firstName},</p>
+        <p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 16px">
+          A super admin reset your password. Use the new credentials below to log in.
+        </p>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin:0 0 20px">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Login</td><td style="padding:6px 0;text-align:right"><a href="https://app.usg.co.nz" style="color:#2563eb">app.usg.co.nz</a></td></tr>
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">Email</td><td style="padding:6px 0;text-align:right;font-family:monospace">${params.email}</td></tr>
+            <tr><td style="color:#94a3b8;font-size:12px;text-transform:uppercase;padding:6px 0">New password</td><td style="padding:6px 0;text-align:right;font-family:monospace;font-weight:600">${params.password}</td></tr>
+          </table>
+        </div>
+        <p style="font-size:14px;line-height:1.6;color:#475569;margin:0">
+          If you didn't expect this, reply immediately and we'll lock the account.
+        </p>
+      </div>
+    </div>
+  `;
+  return sendEmail({
+    to: params.email,
+    from: "ClubOS <noreply@cufc.co.nz>",
+    replyTo: "info@cufc.co.nz",
+    subject: "Your ClubOS password was reset",
+    html,
+  });
 }
 
 async function handlePrintPaymentSuccess(orderId: number, paymentIntentId: string) {

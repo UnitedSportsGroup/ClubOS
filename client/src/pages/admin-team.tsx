@@ -5,7 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users, UserPlus, X, Search, Shield, ChevronRight, Trash2, MailCheck,
-  Lock, Building2, AlertCircle,
+  Lock, Building2, AlertCircle, KeyRound, Mail, Copy, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -268,6 +268,42 @@ function ManageMembershipsModal({
     onError: (e: Error) => toast({ title: "Couldn't remove", description: e.message, variant: "destructive" }),
   });
 
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const [emailFlag, setEmailFlag] = useState<boolean | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const resetPassword = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/team/${memberId}/reset-password`, { sendEmail: true });
+      return res.json();
+    },
+    onSuccess: (r: { password: string; emailSent: boolean }) => {
+      setRevealedPassword(r.password);
+      setEmailFlag(r.emailSent);
+      toast({
+        title: r.emailSent ? "Password reset + emailed" : "Password reset (email failed — copy manually)",
+        description: r.emailSent ? `${member?.firstName} can log in with the new password.` : "Use the copy button to share securely.",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't reset password", description: e.message, variant: "destructive" }),
+  });
+
+  const resendInvite = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/team/${memberId}/resend-invite`);
+      return res.json();
+    },
+    onSuccess: (r: { password: string; emailSent: boolean }) => {
+      setRevealedPassword(r.password);
+      setEmailFlag(r.emailSent);
+      toast({
+        title: r.emailSent ? "Invite re-sent" : "New password generated (email failed)",
+        description: r.emailSent ? `Welcome email re-sent to ${member?.email} with a fresh temp password.` : "Use the copy button to share manually.",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't resend invite", description: e.message, variant: "destructive" }),
+  });
+
   if (!open || !member) return null;
   const memberOrgIds = new Set(member.memberships.map(m => m.orgId));
   const availableOrgs = organizations.filter(o => !memberOrgIds.has(o.id));
@@ -340,6 +376,73 @@ function ManageMembershipsModal({
               </div>
             </div>
           )}
+
+          {/* Security — super-admin only password actions */}
+          <div>
+            <h4 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3 flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5" /> Security
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button
+                onClick={() => {
+                  if (confirm(`Reset ${member.firstName}'s password? They'll get an email with the new credentials.`)) {
+                    resetPassword.mutate();
+                  }
+                }}
+                disabled={resetPassword.isPending || resendInvite.isPending}
+                variant="outline"
+                className="border-white/10 hover:bg-white/[0.06]"
+              >
+                <KeyRound className="w-4 h-4 mr-1.5" />
+                {resetPassword.isPending ? "Resetting..." : "Reset password"}
+              </Button>
+              <Button
+                onClick={() => {
+                  if (confirm(`Resend the welcome invite to ${member.email}? A fresh temp password will be generated and emailed.`)) {
+                    resendInvite.mutate();
+                  }
+                }}
+                disabled={resetPassword.isPending || resendInvite.isPending}
+                variant="outline"
+                className="border-white/10 hover:bg-white/[0.06]"
+              >
+                <Mail className="w-4 h-4 mr-1.5" />
+                {resendInvite.isPending ? "Sending..." : "Resend invite"}
+              </Button>
+            </div>
+
+            {revealedPassword && (
+              <div className="mt-3 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="text-xs font-semibold text-emerald-300">
+                    {emailFlag ? "✉ Email sent" : "⚠ Email failed — share manually"}
+                  </div>
+                  <button
+                    onClick={() => setRevealedPassword(null)}
+                    className="text-emerald-300/40 hover:text-emerald-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-sm font-mono text-emerald-200 px-2 py-1.5 rounded bg-black/20">{revealedPassword}</code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(revealedPassword);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="px-2 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-emerald-300/60 mt-2">
+                  This password is shown once — copy it now. You won't see it again unless you reset.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
