@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -581,8 +582,7 @@ export default function AdminDiscountDetail() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-white/50 text-xs font-medium mb-1.5 block">Start date</Label>
-                  <Input
-                    type="date"
+                  <DatePickerInput
                     value={startDate}
                     onChange={e => setStartDate(e.target.value)}
                     className="premium-input text-white/80 rounded-xl"
@@ -612,8 +612,7 @@ export default function AdminDiscountDetail() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-white/50 text-xs font-medium mb-1.5 block">End date</Label>
-                    <Input
-                      type="date"
+                    <DatePickerInput
                       value={endDate}
                       onChange={e => setEndDate(e.target.value)}
                       className="premium-input text-white/80 rounded-xl"

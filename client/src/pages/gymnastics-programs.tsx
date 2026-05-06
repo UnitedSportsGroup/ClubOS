@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, X, ChevronRight, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Program, Term } from "@shared/schema";
 
@@ -226,12 +227,12 @@ function CreateProgramModal({ open, onClose, orgId, prefill }: CreateProgramModa
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-white/40 uppercase">Start</label>
-                  <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="text-white/80 rounded-xl" />
+                  <DatePickerInput value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="text-white/80 rounded-xl" />
                 </div>
                 {form.scheduleType !== "event" && (
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-white/40 uppercase">End</label>
-                    <Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="text-white/80 rounded-xl" />
+                    <DatePickerInput value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="text-white/80 rounded-xl" />
                   </div>
                 )}
               </div>

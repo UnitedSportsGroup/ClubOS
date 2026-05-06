@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -813,7 +814,7 @@ function TaskModal({
             </div>
             <div>
               <Label className="text-xs text-white/60 mb-1 block">Due date</Label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9" />
+              <DatePickerInput value={dueDate} onChange={e => setDueDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9" />
             </div>
           </div>
           <div>

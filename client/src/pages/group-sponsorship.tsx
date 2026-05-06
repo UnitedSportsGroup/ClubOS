@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -599,11 +600,11 @@ function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
                 <Label className="text-[10px] text-white/50 mb-1 block">Start</Label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
+                <DatePickerInput value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
               </div>
               <div>
                 <Label className="text-[10px] text-white/50 mb-1 block">End</Label>
-                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
+                <DatePickerInput value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
               </div>
               <div>
                 <Label className="text-[10px] text-white/50 mb-1 block">Term (months)</Label>
@@ -611,7 +612,7 @@ function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
               </div>
               <div>
                 <Label className="text-[10px] text-white/50 mb-1 block">Expected close</Label>
-                <Input type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
+                <DatePickerInput value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" />
               </div>
             </div>
           </div>
@@ -880,8 +881,7 @@ function DeliverableRow({ item, team, onUpdate, onDelete }: {
               {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
             </select>
           </div>
-          <Input
-            type="date"
+          <DatePickerInput
             value={item.scheduledDate || ""}
             onChange={e => onUpdate({ scheduledDate: e.target.value || null })}
             className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
@@ -946,7 +946,7 @@ function DeliverableForm({ team, onSubmit, onCancel }: {
           <option value="">Type…</option>
           {DELIVERABLE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
         </select>
-        <Input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]" />
+        <DatePickerInput value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]" />
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <Input type="number" min="1" value={entitlementQty} onChange={e => setEntitlementQty(e.target.value)} placeholder="Qty (e.g. 20 seats)" className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]" />
@@ -1366,8 +1366,7 @@ function DeliverableEditableRow({ item, team, today, onUpdate, onDelete }: {
             </div>
             <div>
               <Label className="text-[10px] text-white/50 mb-0.5 block">Scheduled</Label>
-              <Input
-                type="date"
+              <DatePickerInput
                 value={item.scheduledDate || ""}
                 onChange={e => onUpdate({ scheduledDate: e.target.value || null })}
                 className="bg-white/[0.04] border-white/10 text-white h-7 text-[11px]"
@@ -2040,10 +2039,10 @@ function BillboardDealModal({ mode, deal, team, onClose, onSave, onDelete }: {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div><Label className="text-[10px] text-white/50 mb-1 block">Start</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
-            <div><Label className="text-[10px] text-white/50 mb-1 block">End</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">Start</Label><DatePickerInput value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">End</Label><DatePickerInput value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
             <div><Label className="text-[10px] text-white/50 mb-1 block">Weeks</Label><Input type="number" min="1" value={weeksBooked} onChange={e => setWeeksBooked(e.target.value)} placeholder="4" className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
-            <div><Label className="text-[10px] text-white/50 mb-1 block">Expected close</Label><Input type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
+            <div><Label className="text-[10px] text-white/50 mb-1 block">Expected close</Label><DatePickerInput value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} className="bg-white/[0.04] border-white/10 text-white h-9 text-xs" /></div>
           </div>
 
           <div>

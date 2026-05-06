@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, X, Calendar as CalendarIcon, Pencil, Trash2, Sun, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Term } from "@shared/schema";
 
@@ -137,11 +138,11 @@ function TermModal({
             </div>
             <div className="space-y-1.5">
               <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Start Date</label>
-              <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="premium-input text-white/80 rounded-xl" />
+              <DatePickerInput value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="premium-input text-white/80 rounded-xl" />
             </div>
             <div className="space-y-1.5">
               <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">End Date</label>
-              <Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="premium-input text-white/80 rounded-xl" />
+              <DatePickerInput value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="premium-input text-white/80 rounded-xl" />
             </div>
             {!startBeforeEnd && (
               <div className="col-span-2 text-[11px] text-amber-400/80">Start date must be on or before end date.</div>

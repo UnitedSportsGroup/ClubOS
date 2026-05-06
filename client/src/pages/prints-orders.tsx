@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -177,7 +178,7 @@ export default function PrintsOrders() {
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                 <Input type="number" placeholder="Amount" value={amount} onChange={e => setAmount(e.target.value)} className="premium-input text-white/70 rounded-xl pl-9" data-testid="input-order-amount" />
               </div>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-due-date" />
+              <DatePickerInput value={dueDate} onChange={e => setDueDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-due-date" />
             </div>
             <Textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} className="premium-input text-white/70 rounded-xl min-h-[60px]" data-testid="input-order-description" />
             <Textarea placeholder="Internal notes" value={notes} onChange={e => setNotes(e.target.value)} className="premium-input text-white/70 rounded-xl min-h-[40px]" data-testid="input-order-notes" />

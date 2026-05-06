@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from "rea
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -707,11 +708,11 @@ export default function GroupCalendar() {
                 <Clock className="w-4 h-4 text-white/30 flex-shrink-0" />
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Input type="date" value={formStartDate} onChange={e => { setFormStartDate(e.target.value); if (!formEndDate || e.target.value > formEndDate) setFormEndDate(e.target.value); }} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-start-date" />
+                    <DatePickerInput value={formStartDate} onChange={e => { setFormStartDate(e.target.value); if (!formEndDate || e.target.value > formEndDate) setFormEndDate(e.target.value); }} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-start-date" />
                     {!formAllDay && <Input type="time" value={formStartTime} onChange={e => setFormStartTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-start-time" />}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input type="date" value={formEndDate} onChange={e => setFormEndDate(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-end-date" />
+                    <DatePickerInput value={formEndDate} onChange={e => setFormEndDate(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-end-date" />
                     {!formAllDay && <Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-end-time" />}
                   </div>
                 </div>
@@ -756,7 +757,7 @@ export default function GroupCalendar() {
                 {formRepeatType !== "none" && (
                   <div className="ml-7 flex items-center gap-2">
                     <span className="text-xs text-white/40">Until</span>
-                    <Input type="date" value={formRepeatUntil} onChange={e => setFormRepeatUntil(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1 h-8" data-testid="input-repeat-until" placeholder="No end date" />
+                    <DatePickerInput value={formRepeatUntil} onChange={e => setFormRepeatUntil(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1 h-8" data-testid="input-repeat-until" placeholder="No end date" />
                     {formRepeatUntil && (
                       <button onClick={() => setFormRepeatUntil("")} className="text-white/30 hover:text-white/50"><X className="w-3.5 h-3.5" /></button>
                     )}

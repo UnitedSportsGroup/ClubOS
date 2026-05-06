@@ -6,6 +6,7 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 import { ArrowLeft, Lock, CheckCircle, Calendar, Repeat, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
@@ -367,7 +368,7 @@ export default function ClassBookingPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <Input value={childFirst} onChange={e => setChildFirst(e.target.value)} placeholder="First name" />
                     <Input value={childLast} onChange={e => setChildLast(e.target.value)} placeholder="Last name" />
-                    <Input type="date" value={childDob} onChange={e => setChildDob(e.target.value)} className="col-span-2" />
+                    <DatePickerInput value={childDob} onChange={e => setChildDob(e.target.value)} className="col-span-2" />
                   </div>
                 </div>
 

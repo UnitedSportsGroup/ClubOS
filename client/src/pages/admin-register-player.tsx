@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Badge } from "@/components/ui/badge";
 import {
   X, ChevronRight, ChevronLeft, User, Baby, Calendar, CheckCircle,
@@ -308,7 +309,7 @@ export function RegisterPlayerModal({ open, onClose }: { open: boolean; onClose:
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] text-white/25">Date of Birth</label>
-                      <Input type="date" value={child.dateOfBirth} onChange={e => updateChild(ci, "dateOfBirth", e.target.value)} className="premium-input text-white/80 rounded-xl h-9 text-[13px]" data-testid={`input-child-dob-${ci}`} />
+                      <DatePickerInput value={child.dateOfBirth} onChange={e => updateChild(ci, "dateOfBirth", e.target.value)} className="premium-input text-white/80 rounded-xl h-9 text-[13px]" data-testid={`input-child-dob-${ci}`} />
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] text-white/25">Allergies</label>

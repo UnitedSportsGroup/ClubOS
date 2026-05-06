@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -160,11 +161,11 @@ export default function PrintsProjects() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] text-white/30 uppercase tracking-wider mb-1 block">Start Date</label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-start-date" />
+                <DatePickerInput value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-start-date" />
               </div>
               <div>
                 <label className="text-[10px] text-white/30 uppercase tracking-wider mb-1 block">End Date</label>
-                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-end-date" />
+                <DatePickerInput value={endDate} onChange={e => setEndDate(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-end-date" />
               </div>
             </div>
             <Textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} className="premium-input text-white/70 rounded-xl min-h-[60px]" data-testid="input-project-description" />

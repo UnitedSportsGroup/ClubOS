@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Users, UserCog, Plus, Trash2, X, FileText, Upload, Image as ImageIcon, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import type { TournamentTeam, TournamentPlayer, TournamentStaff, Club, Tournament } from "@shared/schema";
 
 // Swap a /objects/uploads/<id>.webp URL for its .avif sibling. <picture>
@@ -364,7 +365,7 @@ function PlayersTab({ teamId }: { teamId: number }) {
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Date of Birth</label>
-                  <Input type="date" value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} className="premium-input text-white" />
+                  <DatePickerInput value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} className="premium-input text-white" />
                 </div>
               </div>
             </div>

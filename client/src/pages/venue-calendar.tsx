@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FacilityBooking, Facility } from "@shared/schema";
 
@@ -677,7 +678,7 @@ export default function VenueCalendar() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Date</label>
-                  <Input type="date" value={newBooking.bookingDate} onChange={e => setNewBooking({ ...newBooking, bookingDate: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-date" />
+                  <DatePickerInput value={newBooking.bookingDate} onChange={e => setNewBooking({ ...newBooking, bookingDate: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-date" />
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Start</label>
@@ -735,8 +736,7 @@ export default function VenueCalendar() {
                 {newBooking.repeatFreq !== "none" && (
                   <div className="mt-2">
                     <label className="text-xs text-white/40 mb-1 block">Repeat until</label>
-                    <Input
-                      type="date"
+                    <DatePickerInput
                       value={newBooking.repeatUntil}
                       onChange={e => setNewBooking({ ...newBooking, repeatUntil: e.target.value })}
                       className="bg-white/5 border-white/10 text-white"

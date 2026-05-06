@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { CreditCard, DollarSign, Clock, TrendingUp, Search, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FacilityBooking, Facility } from "@shared/schema";
 
@@ -104,8 +105,8 @@ export default function VenuePayments() {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
-        <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="bg-white/5 border-white/10 text-white/60 w-36" placeholder="From" data-testid="input-date-from" />
-        <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="bg-white/5 border-white/10 text-white/60 w-36" placeholder="To" data-testid="input-date-to" />
+        <DatePickerInput value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="bg-white/5 border-white/10 text-white/60 w-36" placeholder="From" data-testid="input-date-from" />
+        <DatePickerInput value={dateTo} onChange={e => setDateTo(e.target.value)} className="bg-white/5 border-white/10 text-white/60 w-36" placeholder="To" data-testid="input-date-to" />
       </div>
 
       <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden">

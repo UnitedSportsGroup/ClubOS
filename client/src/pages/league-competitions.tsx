@@ -7,6 +7,7 @@ import { useLocation } from "wouter";
 import { Trophy, Plus, Search, Archive, MoreVertical, Copy, Trash2, X, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { LeagueCompetition } from "@shared/schema";
@@ -83,11 +84,11 @@ function CompetitionModal({ competition, orgId, onClose }: { competition?: Leagu
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-white/40 mb-1 block">Start Date</label>
-              <Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="premium-input text-white" data-testid="input-comp-start" />
+              <DatePickerInput value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="premium-input text-white" data-testid="input-comp-start" />
             </div>
             <div>
               <label className="text-xs text-white/40 mb-1 block">End Date</label>
-              <Input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="premium-input text-white" data-testid="input-comp-end" />
+              <DatePickerInput value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="premium-input text-white" data-testid="input-comp-end" />
             </div>
           </div>
 

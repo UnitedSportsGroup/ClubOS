@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
@@ -119,11 +120,11 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Start Date</label>
-          <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-start" />
+          <DatePickerInput value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-start" />
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">End Date</label>
-          <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-end" />
+          <DatePickerInput value={endDate} onChange={e => setEndDate(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-end" />
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Min Age</label>
@@ -856,7 +857,7 @@ function DatesTab({ campId }: { campId: number }) {
       <div className="flex items-end gap-3 flex-wrap">
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Date</label>
-          <Input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="premium-input text-white/80 rounded-xl w-44" data-testid="input-new-date" />
+          <DatePickerInput value={newDate} onChange={e => setNewDate(e.target.value)} className="premium-input text-white/80 rounded-xl w-44" data-testid="input-new-date" />
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Full Day Cap</label>

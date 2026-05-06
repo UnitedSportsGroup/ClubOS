@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Award, Users, Calendar, LayoutGrid, Settings2, Plus, Trash2, GripVertical, X, Shield, Clock, MapPin, Pencil, Check, ChevronDown, Goal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tournament, TournamentGroup, TournamentTeam, TournamentGame, TournamentPlayer, TournamentGoal } from "@shared/schema";
 
@@ -569,8 +570,7 @@ function ScheduleTab({ tournament }: { tournament: Tournament }) {
       {editingGameId && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#0a0e1a] border border-blue-500/20 rounded-xl px-4 py-2.5 shadow-2xl flex items-center gap-3 z-50">
           <span className="text-xs text-white/40">Edit date:</span>
-          <Input
-            type="date"
+          <DatePickerInput
             value={editDate}
             onChange={e => setEditDate(e.target.value)}
             className="w-36 h-7 text-xs premium-input text-white"

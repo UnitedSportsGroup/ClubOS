@@ -4,6 +4,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -1099,8 +1100,7 @@ function ConfigureFacility({
           <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
             <div>
               <Label className="text-[11px] text-white/60 mb-1.5 block">Repeat until</Label>
-              <Input
-                type="date"
+              <DatePickerInput
                 value={recurringUntil}
                 min={date}
                 max={addDays(todayISO(), settings.advanceBookingDays)}
