@@ -406,13 +406,30 @@ export default function GymnasticsTerms() {
                       <button
                         key={`h-${item.year}-${item.afterTermNumber}-${idx}`}
                         onClick={() => {
-                          const params = new URLSearchParams({
-                            new: "holiday_camp",
-                            startDate: item.startDate,
-                            endDate: item.endDate,
-                            name: `${item.label.replace("School holiday", "Holiday")} Camp ${item.year}`,
-                          });
-                          setLocation(`/admin/programs?${params.toString()}`);
+                          // Gymnastics has a unified /admin/programs page where
+                          // the modal reads ?new=holiday_camp. Camps-style
+                          // workspaces (CUFC) have a separate /admin/camps
+                          // page that reads ?action=new. Branch the route
+                          // and key names so the right page opens the
+                          // create modal with the holiday dates pre-filled.
+                          const holidayName = `${item.label.replace("School holiday", "Holiday")} Camp ${item.year}`;
+                          if (isGymnastics) {
+                            const params = new URLSearchParams({
+                              new: "holiday_camp",
+                              startDate: item.startDate,
+                              endDate: item.endDate,
+                              name: holidayName,
+                            });
+                            setLocation(`/admin/programs?${params.toString()}`);
+                          } else {
+                            const params = new URLSearchParams({
+                              action: "new",
+                              startDate: item.startDate,
+                              endDate: item.endDate,
+                              name: holidayName,
+                            });
+                            setLocation(`/admin/camps?${params.toString()}`);
+                          }
                         }}
                         className="text-left rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-4 hover:border-amber-500/40 hover:bg-amber-500/[0.08] transition group"
                       >

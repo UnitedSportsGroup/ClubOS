@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -30,15 +30,23 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
 
 type CampMode = "holiday" | "term";
 
-function CreateCampModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CreateCampModal({
+  open,
+  onClose,
+  prefill,
+}: {
+  open: boolean;
+  onClose: () => void;
+  prefill?: { name?: string; startDate?: string; endDate?: string };
+}) {
   const { toast } = useToast();
   const [mode, setMode] = useState<CampMode>("holiday");
-  const [name, setName] = useState("");
+  const [name, setName] = useState(prefill?.name ?? "");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("Christchurch Football Centre, 250 Westminster St");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(prefill?.startDate ?? "");
+  const [endDate, setEndDate] = useState(prefill?.endDate ?? "");
   const [ageMin, setAgeMin] = useState("3");
   const [ageMax, setAgeMax] = useState("12");
 
@@ -204,6 +212,19 @@ export default function AdminCamps() {
   const { data: camps, isLoading } = useQuery<Program[]>({ queryKey: ["/api/admin/camps"] });
   const { data: regCounts } = useQuery<Record<number, number>>({ queryKey: ["/api/admin/camps/registration-counts"] });
 
+  // Read prefill values from the URL (set by the "Plan a holiday camp here"
+  // button on the Term Dates page) so the create modal opens with the
+  // dates and a sensible default name pre-populated.
+  const prefill = useMemo(() => {
+    const params = new URLSearchParams(search);
+    if (!params.has("action")) return undefined;
+    return {
+      name: params.get("name") ?? undefined,
+      startDate: params.get("startDate") ?? undefined,
+      endDate: params.get("endDate") ?? undefined,
+    };
+  }, [search]);
+
   const filtered = camps?.filter(c =>
     c.name.toLowerCase().includes(filter.toLowerCase()) ||
     c.slug?.toLowerCase().includes(filter.toLowerCase())
@@ -314,7 +335,17 @@ export default function AdminCamps() {
         )}
       </div>
 
-      <CreateCampModal open={showCreate} onClose={() => setShowCreate(false)} />
+      <CreateCampModal
+        open={showCreate}
+        onClose={() => {
+          setShowCreate(false);
+          // Strip the prefill query string so re-opening the modal manually
+          // doesn't keep auto-filling the previous holiday's dates.
+          if (search.includes("action=new")) navigate("/admin/camps");
+        }}
+        prefill={prefill}
+        key={prefill ? `${prefill.startDate}-${prefill.name}` : "blank"}
+      />
       <RegisterPlayerModal open={showRegister} onClose={() => setShowRegister(false)} />
     </div>
   );
