@@ -336,6 +336,34 @@ export async function registerRoutes(
       const data = { ...req.body };
       if (!data.organizationId) return res.status(400).json({ message: "organizationId required" });
       if (!data.type) data.type = "open_training";
+
+      // Term-bound programs auto-populate start/end + session count from
+      // the linked term so the admin doesn't have to copy dates manually.
+      if (data.scheduleType === "term" && data.termId) {
+        const { db } = await import("./db");
+        const { terms } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const [term] = await db.select().from(terms).where(eq(terms.id, data.termId));
+        if (!term) return res.status(400).json({ message: "Term not found" });
+        if (term.organizationId !== data.organizationId) {
+          return res.status(400).json({ message: "Term belongs to a different workspace" });
+        }
+        if (!data.startDate) data.startDate = term.startDate;
+        if (!data.endDate) data.endDate = term.endDate;
+        if (!data.sessionCount) {
+          const a = new Date(term.startDate + "T00:00:00").getTime();
+          const b = new Date(term.endDate + "T00:00:00").getTime();
+          data.sessionCount = Math.max(1, Math.round((b - a) / (1000 * 60 * 60 * 24 * 7)) + 1);
+        }
+      }
+
+      // Convert dollar amounts to cents if termPriceCents arrived as a
+      // dollar value (defensive — keep cents-only on the wire long term).
+      if (data.termPrice && !data.termPriceCents) {
+        data.termPriceCents = Math.round(parseFloat(data.termPrice) * 100);
+        delete data.termPrice;
+      }
+
       const program = await storage.createProgram(data);
       await storage.createAuditLog({
         userId: req.session.userId,
@@ -355,6 +383,43 @@ export async function registerRoutes(
       }
       res.status(400).json({ message: error.message });
     }
+  });
+
+  // Public program quote — used by the public registration page to show
+  // a live pro-rated price ('$200 → $100, 5 of 10 sessions remaining').
+  // Server is the source of truth; client uses this endpoint for display
+  // and we re-validate the same value before charging Stripe.
+  app.get("/api/public/program-quote/:slug", async (req, res) => {
+    try {
+      const programs = await storage.getPrograms();
+      const program = programs.find(p => p.slug === req.params.slug);
+      if (!program || !program.isActive) return res.status(404).json({ message: "Program not found" });
+
+      let term = null;
+      if (program.termId) {
+        const { db } = await import("./db");
+        const { terms } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const [t] = await db.select().from(terms).where(eq(terms.id, program.termId));
+        term = t ?? null;
+      }
+
+      const { quoteProgram } = await import("./program-pricing");
+      const quote = quoteProgram(program, term);
+      res.json({
+        program: {
+          id: program.id,
+          name: program.name,
+          slug: program.slug,
+          scheduleType: program.scheduleType,
+          startDate: program.startDate,
+          endDate: program.endDate,
+          sessionCount: program.sessionCount,
+        },
+        term: term ? { id: term.id, year: term.year, termNumber: term.termNumber, name: term.name, startDate: term.startDate, endDate: term.endDate } : null,
+        quote,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // Terms — org-scoped school/program term calendar (NZ school terms etc.)

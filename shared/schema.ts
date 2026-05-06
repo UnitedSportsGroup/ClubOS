@@ -107,6 +107,22 @@ export const programs = pgTable("programs", {
   primaryCta: text("primary_cta").default("Book Now"),
   faqJson: text("faq_json"),
   pageContentJson: text("page_content_json"),
+
+  // Schedule binding — tells the system how this program's calendar relates
+  // to the workspace's terms. Term-bound programs auto-populate their
+  // start/end from the term they reference. holidayWindow is a string token
+  // like '2026-spring' so we can recompute holiday windows from terms.
+  scheduleType: text("schedule_type"),  // 'term' | 'holiday' | 'custom' | 'event'
+  termId: integer("term_id"),            // → terms.id (when scheduleType = 'term')
+  holidayWindow: text("holiday_window"), // e.g. '2026-spring' (when scheduleType = 'holiday')
+  sessionCount: integer("session_count"),  // weeks/sessions in the term (default 10 for NZ)
+
+  // Pricing model — 'flat' is the legacy single-fee behaviour. 'term_prorated'
+  // discounts based on sessions remaining in the term. 'per_day' is for
+  // holiday camps where customers pick which days they want.
+  pricingModel: text("pricing_model").default("flat"),
+  termPriceCents: integer("term_price_cents"),  // full term price in cents
+
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
