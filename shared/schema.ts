@@ -1180,6 +1180,46 @@ export const insertBillboardDealSchema = createInsertSchema(billboardDeals).omit
 export type InsertBillboardDeal = z.infer<typeof insertBillboardDealSchema>;
 export type BillboardDeal = typeof billboardDeals.$inferSelect;
 
+// ── Mini Football Leagues — mobile app support ──────────────────────────────
+// league_team_members links app users to teams. Parent registering kid:
+// contact_id points to kid's contacts row. User-as-player: contact_id null.
+export const leagueTeamMembers = pgTable("league_team_members", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  teamId: integer("team_id").notNull().references(() => leagueTeams.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  role: text("role").notNull().default("player"),
+  jerseyNumber: integer("jersey_number"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const leagueGameReferees = pgTable("league_game_referees", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  gameId: integer("game_id").notNull().references(() => leagueGames.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+});
+
+export const leagueAnnouncements = pgTable("league_announcements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  competitionId: integer("competition_id").references(() => leagueCompetitions.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  ctaLabel: text("cta_label"),
+  ctaUrl: text("cta_url"),
+  pinned: boolean("pinned").notNull().default(false),
+  publishedAt: timestamp("published_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LeagueTeamMember = typeof leagueTeamMembers.$inferSelect;
+export type LeagueGameReferee = typeof leagueGameReferees.$inferSelect;
+export type LeagueAnnouncement = typeof leagueAnnouncements.$inferSelect;
+
 // ── United Prints MIS ────────────────────────────────────────────────────────
 // A print shop management system inside ClubOS that does what ShopVox does
 // (~NZD $1,000/mo) plus the one thing they don't: a public-facing instant-quote

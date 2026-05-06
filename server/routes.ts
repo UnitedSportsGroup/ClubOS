@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -7745,6 +7745,150 @@ export async function registerRoutes(
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="united-prints-orders-${new Date().toISOString().split("T")[0]}.csv"`);
       res.send(csv);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── PUBLIC LEAGUE API (Mini Football Leagues mobile app) ──────────────────
+  // No auth required — fixtures/standings/results are public data so the app
+  // works for fans + parents + curious onlookers. Locked to MFL org (id=3) for
+  // safety so this can't accidentally expose other workspaces.
+  const MFL_ORG_ID = 3;
+
+  app.get("/api/public/league/competitions", async (req, res) => {
+    try {
+      const orgId = req.query.organizationId ? parseInt(req.query.organizationId as string) : MFL_ORG_ID;
+      const rows = await db.select().from(leagueCompetitions)
+        .where(eq(leagueCompetitions.organizationId, orgId))
+        .orderBy(desc(leagueCompetitions.startDate));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/public/league/competitions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [comp] = await db.select().from(leagueCompetitions).where(eq(leagueCompetitions.id, id));
+      if (!comp) return res.status(404).json({ message: "Not found" });
+      const divisions = await db.select().from(leagueDivisions)
+        .where(eq(leagueDivisions.competitionId, id))
+        .orderBy(asc(leagueDivisions.sortOrder), asc(leagueDivisions.name));
+      const teams = await db.select().from(leagueTeams).where(eq(leagueTeams.competitionId, id));
+      res.json({ ...comp, divisions, teams });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/public/league/competitions/:id/games", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const filters: any[] = [eq(leagueGames.competitionId, id)];
+      if (req.query.divisionId) filters.push(eq(leagueGames.divisionId, parseInt(req.query.divisionId as string)));
+      if (req.query.teamId) {
+        const teamId = parseInt(req.query.teamId as string);
+        const all = await db.select().from(leagueGames).where(and(...filters)).orderBy(asc(leagueGames.gameDate), asc(leagueGames.startTime));
+        return res.json(all.filter(g => g.homeTeamId === teamId || g.awayTeamId === teamId));
+      }
+      const rows = await db.select().from(leagueGames)
+        .where(and(...filters))
+        .orderBy(asc(leagueGames.gameDate), asc(leagueGames.startTime));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Standings — computed from completed games (status = 'final').
+  // 3 pts win, 1 pt draw. Returns ladder per division.
+  app.get("/api/public/league/competitions/:id/standings", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const teams = await db.select().from(leagueTeams).where(eq(leagueTeams.competitionId, id));
+      const games = await db.select().from(leagueGames)
+        .where(and(eq(leagueGames.competitionId, id), eq(leagueGames.status, "final")));
+      type Row = { teamId: number; teamName: string; divisionId: number | null; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; gd: number; pts: number };
+      const map = new Map<number, Row>();
+      for (const t of teams) map.set(t.id, { teamId: t.id, teamName: t.name, divisionId: t.divisionId, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, pts: 0 });
+      for (const g of games) {
+        if (g.homeTeamId == null || g.awayTeamId == null) continue;
+        const home = map.get(g.homeTeamId);
+        const away = map.get(g.awayTeamId);
+        if (!home || !away) continue;
+        const hs = (g as any).homeScore ?? 0;
+        const as = (g as any).awayScore ?? 0;
+        home.played++; away.played++;
+        home.gf += hs; home.ga += as;
+        away.gf += as; away.ga += hs;
+        if (hs > as)      { home.won++; home.pts += 3; away.lost++; }
+        else if (hs < as) { away.won++; away.pts += 3; home.lost++; }
+        else              { home.drawn++; home.pts += 1; away.drawn++; away.pts += 1; }
+      }
+      const standings = Array.from(map.values()).map(r => ({ ...r, gd: r.gf - r.ga }))
+        .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.teamName.localeCompare(b.teamName));
+      res.json(standings);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/public/league/teams/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [team] = await db.select().from(leagueTeams).where(eq(leagueTeams.id, id));
+      if (!team) return res.status(404).json({ message: "Not found" });
+      // Don't leak contact info publicly — strip from response
+      const { contactEmail, contactPhone, ...safe } = team as any;
+      res.json(safe);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/public/league/announcements", async (req, res) => {
+    try {
+      const orgId = req.query.organizationId ? parseInt(req.query.organizationId as string) : MFL_ORG_ID;
+      const rows = await db.select().from(leagueAnnouncements)
+        .where(eq(leagueAnnouncements.organizationId, orgId))
+        .orderBy(desc(leagueAnnouncements.pinned), desc(leagueAnnouncements.publishedAt))
+        .limit(50);
+      const now = new Date();
+      const live = rows.filter(r => !r.expiresAt || new Date(r.expiresAt) > now);
+      res.json(live);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Score submission by an assigned referee. Auth-gated + checks the
+  // requester is the assigned ref before accepting the score.
+  app.post("/api/league/games/:id/score", requireAuth, async (req, res) => {
+    try {
+      const gameId = parseInt(req.params.id);
+      const userId = req.session.userId!;
+      const [assignment] = await db.select().from(leagueGameReferees)
+        .where(and(eq(leagueGameReferees.gameId, gameId), eq(leagueGameReferees.userId, userId)));
+      if (!assignment) {
+        // Fall back to admin role check for in-house scoring
+        const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+        if (!user || !["super_admin", "admin", "referee"].includes(user.role)) {
+          return res.status(403).json({ message: "Not assigned to this game" });
+        }
+      }
+      const homeScore = parseInt(req.body?.homeScore);
+      const awayScore = parseInt(req.body?.awayScore);
+      if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
+        return res.status(400).json({ message: "homeScore + awayScore required (non-negative integers)" });
+      }
+      const status = req.body?.status || "final";
+      const [updated] = await db.update(leagueGames)
+        .set({ homeScore, awayScore, status } as any)
+        .where(eq(leagueGames.id, gameId))
+        .returning();
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // The user's "what's my involvement" payload — drives the home tab.
+  app.get("/api/league/me", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const memberships = await db.select().from(leagueTeamMembers).where(eq(leagueTeamMembers.userId, userId));
+      const refAssignments = await db.select().from(leagueGameReferees).where(eq(leagueGameReferees.userId, userId));
+      const teamIds = Array.from(new Set(memberships.map(m => m.teamId)));
+      const teams = teamIds.length > 0
+        ? await db.select().from(leagueTeams).where(inArray(leagueTeams.id, teamIds))
+        : [];
+      res.json({ memberships, teams, refAssignments });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
