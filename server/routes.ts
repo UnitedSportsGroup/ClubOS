@@ -43,6 +43,68 @@ export async function registerRoutes(
     });
   });
 
+  // Google sign-in. Client (mobile or web) gets a Google ID token via
+  // expo-auth-session / Google Identity, posts it here. We verify the token
+  // against Google's tokeninfo endpoint, then either match an existing user
+  // (by googleId, then by email) or create a new account with no password.
+  app.post("/api/auth/google", async (req, res) => {
+    try {
+      const idToken: string | undefined = req.body?.idToken;
+      if (!idToken) return res.status(400).json({ message: "idToken required" });
+
+      const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+      if (!r.ok) return res.status(401).json({ message: "Invalid Google token" });
+      const info: { sub: string; email?: string; email_verified?: string | boolean; given_name?: string; family_name?: string; name?: string; aud?: string } = await r.json();
+      if (!info.sub || !info.email) return res.status(401).json({ message: "Google token missing identity" });
+      if (info.email_verified === false || info.email_verified === "false") {
+        return res.status(401).json({ message: "Google email not verified" });
+      }
+
+      // Optional audience check — only enforce if env var is set so dev with
+      // multiple Google clients (iOS/web) doesn't break.
+      const expectedAud = process.env.GOOGLE_OAUTH_CLIENT_IDS;
+      if (expectedAud) {
+        const allowed = expectedAud.split(",").map(s => s.trim()).filter(Boolean);
+        if (!info.aud || !allowed.includes(info.aud)) {
+          return res.status(401).json({ message: "Google token audience not allowed" });
+        }
+      }
+
+      // 1) Match by googleId (most stable). 2) Fall back to email + link.
+      // 3) Create new account.
+      let [user] = await db.select().from(usersTable).where(eq(usersTable.googleId, info.sub));
+      if (!user) {
+        const emailLower = info.email.toLowerCase();
+        const [byEmail] = await db.select().from(usersTable).where(eq(usersTable.email, emailLower));
+        if (byEmail) {
+          [user] = await db.update(usersTable).set({ googleId: info.sub }).where(eq(usersTable.id, byEmail.id)).returning();
+        } else {
+          const firstName = info.given_name || info.name?.split(" ")[0] || "Player";
+          const lastName = info.family_name || info.name?.split(" ").slice(1).join(" ") || "";
+          // Random unusable password — Google users never need it, but the
+          // column is NOT NULL so we generate something they'll never know.
+          const placeholder = await hashPassword(`google-${info.sub}-${Date.now()}-${Math.random()}`);
+          [user] = await db.insert(usersTable).values({
+            email: emailLower,
+            firstName,
+            lastName,
+            password: placeholder,
+            googleId: info.sub,
+            role: "coach",
+          }).returning();
+        }
+      }
+
+      if (!user.active) return res.status(403).json({ message: "Account disabled" });
+
+      req.session.userId = user.id;
+      res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
+    } catch (e: any) {
+      console.error("[google-auth]", e);
+      res.status(500).json({ message: e.message || "Google sign-in failed" });
+    }
+  });
+
   app.get("/api/auth/me", async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
     const user = await storage.getUser(req.session.userId);
@@ -677,6 +739,62 @@ export async function registerRoutes(
       res.status(201).json(d);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Bulk-generate weekly class sessions for a term-bound program. Walks the
+  // linked term's date range and creates one camp_date row for every
+  // matching weekday with the given start/end time.
+  // Body: { dayOfWeek: 0..6 (Sun=0), startTime: "09:30", endTime: "10:30",
+  //         capacity: 16, replaceExisting?: boolean }
+  app.post("/api/admin/camps/:id/dates/generate-from-term", requireAuth, async (req, res) => {
+    try {
+      const campId = parseInt(req.params.id);
+      const { dayOfWeek, startTime, endTime, capacity, replaceExisting } = req.body;
+      if (typeof dayOfWeek !== "number" || dayOfWeek < 0 || dayOfWeek > 6) {
+        return res.status(400).json({ message: "dayOfWeek must be 0–6" });
+      }
+      if (!startTime || !endTime) return res.status(400).json({ message: "startTime + endTime required" });
+
+      const program = await storage.getProgram(campId);
+      if (!program) return res.status(404).json({ message: "Program not found" });
+      if (!program.termId) return res.status(400).json({ message: "Program is not linked to a term" });
+
+      const { db } = await import("./db");
+      const { terms, campDates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [term] = await db.select().from(terms).where(eq(terms.id, program.termId));
+      if (!term) return res.status(404).json({ message: "Linked term not found" });
+
+      if (replaceExisting) {
+        await db.delete(campDates).where(eq(campDates.campId, campId));
+      }
+
+      const generated: any[] = [];
+      const start = new Date(term.startDate + "T00:00:00");
+      const end = new Date(term.endDate + "T00:00:00");
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        if (cursor.getDay() === dayOfWeek) {
+          const dateStr = cursor.toISOString().split("T")[0];
+          const created = await storage.createCampDate({
+            campId,
+            date: dateStr,
+            capacityFullDay: capacity ?? null,
+            capacityMorning: null,
+            capacityAfternoon: null,
+            startTime,
+            endTime,
+          } as any);
+          generated.push(created);
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      res.status(201).json({ count: generated.length, dates: generated });
+    } catch (error: any) {
+      console.error("[Class generate] failed:", error);
+      res.status(500).json({ message: error.message });
     }
   });
 
@@ -7825,6 +7943,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // Single game with both teams attached — used by the referee scoring
+  // screen and the fixtures-detail tap-through.
+  app.get("/api/public/league/games/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [game] = await db.select().from(leagueGames).where(eq(leagueGames.id, id));
+      if (!game) return res.status(404).json({ message: "Not found" });
+      const teamIds = [game.homeTeamId, game.awayTeamId].filter((x): x is number => x != null);
+      const teams = teamIds.length > 0
+        ? await db.select().from(leagueTeams).where(inArray(leagueTeams.id, teamIds))
+        : [];
+      const byId = new Map(teams.map(t => [t.id, t]));
+      res.json({
+        ...game,
+        homeTeam: game.homeTeamId ? byId.get(game.homeTeamId) ?? null : null,
+        awayTeam: game.awayTeamId ? byId.get(game.awayTeamId) ?? null : null,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.get("/api/public/league/teams/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -7878,16 +8016,59 @@ export async function registerRoutes(
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
-  // The user's "what's my involvement" payload — drives the home tab.
+  // The user's "what's my involvement" payload — drives the home tab and
+  // the referee mode. Ref assignments are joined with their game so the
+  // client can render kickoff time, location, and home/away team names
+  // without a second round-trip per game.
   app.get("/api/league/me", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const memberships = await db.select().from(leagueTeamMembers).where(eq(leagueTeamMembers.userId, userId));
-      const refAssignments = await db.select().from(leagueGameReferees).where(eq(leagueGameReferees.userId, userId));
       const teamIds = Array.from(new Set(memberships.map(m => m.teamId)));
       const teams = teamIds.length > 0
         ? await db.select().from(leagueTeams).where(inArray(leagueTeams.id, teamIds))
         : [];
+
+      const refRows = await db.select().from(leagueGameReferees).where(eq(leagueGameReferees.userId, userId));
+      let refAssignments: any[] = [];
+      if (refRows.length > 0) {
+        const gameIds = Array.from(new Set(refRows.map(r => r.gameId)));
+        const games = await db.select().from(leagueGames).where(inArray(leagueGames.id, gameIds));
+        const gameTeamIds = Array.from(new Set(games.flatMap(g => [g.homeTeamId, g.awayTeamId].filter((x): x is number => x != null))));
+        const refTeams = gameTeamIds.length > 0
+          ? await db.select().from(leagueTeams).where(inArray(leagueTeams.id, gameTeamIds))
+          : [];
+        const teamById = new Map(refTeams.map(t => [t.id, t]));
+        const gameById = new Map(games.map(g => [g.id, g]));
+        refAssignments = refRows.map(r => {
+          const g = gameById.get(r.gameId);
+          if (!g) return { ...r };
+          return {
+            id: r.id,
+            gameId: g.id,
+            competitionId: g.competitionId,
+            divisionId: g.divisionId,
+            gameNumber: g.gameNumber,
+            gameDate: g.gameDate,
+            startTime: g.startTime,
+            endTime: g.endTime,
+            location: g.location,
+            surface: g.surface,
+            status: g.status,
+            homeScore: g.homeScore,
+            awayScore: g.awayScore,
+            homeTeam: g.homeTeamId ? teamById.get(g.homeTeamId) ?? null : null,
+            awayTeam: g.awayTeamId ? teamById.get(g.awayTeamId) ?? null : null,
+          };
+        });
+        // Upcoming first, then by date.
+        refAssignments.sort((a, b) => {
+          const ka = `${a.gameDate ?? "9999"}${a.startTime ?? ""}`;
+          const kb = `${b.gameDate ?? "9999"}${b.startTime ?? ""}`;
+          return ka.localeCompare(kb);
+        });
+      }
+
       res.json({ memberships, teams, refAssignments });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

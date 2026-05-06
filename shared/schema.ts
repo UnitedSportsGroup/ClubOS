@@ -34,6 +34,10 @@ export const users = pgTable("users", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   password: text("password").notNull(),
+  // Google OAuth — null for password-only users; populated on first
+  // Google sign-in. Lets us match returning Google users by stable subject ID
+  // even if they change email.
+  googleId: text("google_id").unique(),
   role: roleEnum("role").notNull().default("coach"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -231,6 +235,11 @@ export const campDates = pgTable("camp_dates", {
   capacityFullDay: integer("capacity_full_day"),
   capacityMorning: integer("capacity_morning"),
   capacityAfternoon: integer("capacity_afternoon"),
+  // Class-mode (term programs run weekly): simple start/end time on the
+  // session row. NULL on holiday-camp dates which use the morning/afternoon
+  // capacity model instead.
+  startTime: text("start_time"),
+  endTime: text("end_time"),
 });
 
 export const campSettings = pgTable("camp_settings", {

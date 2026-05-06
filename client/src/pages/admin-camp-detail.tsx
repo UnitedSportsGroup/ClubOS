@@ -76,6 +76,229 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
   );
 }
 
+// Class-mode dates tab — for term programs running once a week (e.g.
+// Recreational Saturdays 9:30am–10:30am). Shows: a 'Generate from term'
+// form (day-of-week + time + capacity), the existing list of generated
+// session dates, and per-row edit/delete. Each row is one weekly session.
+function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
+  const { toast } = useToast();
+  const { data: dates, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/camps", campId, "dates"],
+    queryFn: () => fetch(`/api/admin/camps/${campId}/dates`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const [dayOfWeek, setDayOfWeek] = useState<number>(6);  // default Saturday
+  const [startTime, setStartTime] = useState("09:30");
+  const [endTime, setEndTime] = useState("10:30");
+  const [capacity, setCapacity] = useState("16");
+
+  const generate = useMutation({
+    mutationFn: async (replaceExisting: boolean) => {
+      const res = await apiRequest("POST", `/api/admin/camps/${campId}/dates/generate-from-term`, {
+        dayOfWeek, startTime, endTime,
+        capacity: parseInt(capacity) || 16,
+        replaceExisting,
+      });
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "dates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "sessions-summary"] });
+      toast({ title: `Generated ${r.count} session${r.count === 1 ? "" : "s"}` });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't generate", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/camp-dates/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "dates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "sessions-summary"] });
+      toast({ title: "Session removed" });
+    },
+  });
+
+  const DOW_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  if (!camp.termId) {
+    return (
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200">
+        This is a term program but it isn't linked to a specific term yet. Open the program edit modal and pick a term so we can generate the weekly sessions.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-blue-500/[0.08] bg-blue-500/[0.02] p-4">
+        <div className="text-[11px] uppercase tracking-wider font-semibold text-blue-300/40 mb-3">Generate weekly sessions</div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-white/40 uppercase">Day of week</label>
+            <select
+              value={dayOfWeek}
+              onChange={e => setDayOfWeek(parseInt(e.target.value))}
+              className="w-full text-white/80 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2 text-sm"
+            >
+              {DOW_LABELS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-white/40 uppercase">Start time</label>
+            <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="text-white/80 rounded-xl" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-white/40 uppercase">End time</label>
+            <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="text-white/80 rounded-xl" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-white/40 uppercase">Capacity per session</label>
+            <Input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} className="text-white/80 rounded-xl" />
+          </div>
+          <Button
+            onClick={() => {
+              const hasExisting = dates && dates.length > 0;
+              if (hasExisting) {
+                if (!confirm(`Replace the ${dates!.length} existing session${dates!.length === 1 ? "" : "s"} with a fresh schedule? Existing roll data will not be deleted.`)) return;
+                generate.mutate(true);
+              } else {
+                generate.mutate(false);
+              }
+            }}
+            disabled={generate.isPending}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px]"
+          >
+            <Plus className="w-4 h-4 mr-1" /> {generate.isPending ? "Generating…" : (dates && dates.length > 0 ? "Re-generate" : "Generate")}
+          </Button>
+        </div>
+        <p className="text-[10px] text-white/30 mt-2">
+          Walks the linked term and creates one session for every {DOW_LABELS[dayOfWeek]} between the term's start and end dates.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-32 w-full rounded-xl bg-blue-500/[0.04]" />
+      ) : !dates || dates.length === 0 ? (
+        <p className="text-[13px] text-white/25 text-center py-8">No sessions yet — generate them from the form above.</p>
+      ) : (
+        <div className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-blue-500/[0.06]">
+                <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Date</th>
+                <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Day</th>
+                <th className="text-left px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Time</th>
+                <th className="text-center px-4 py-2.5 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Capacity</th>
+                <th className="w-12"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {dates.map(d => {
+                const dt = new Date(d.date + "T00:00:00");
+                return (
+                  <tr key={d.id} className="border-b border-white/[0.03] last:border-b-0 hover:bg-white/[0.01]">
+                    <td className="px-4 py-2.5 text-sm text-white">{d.date}</td>
+                    <td className="px-4 py-2.5 text-sm text-white/60">{DOW_LABELS[dt.getDay()]}</td>
+                    <td className="px-4 py-2.5 text-sm text-white/80 font-mono">{d.startTime ?? "—"}–{d.endTime ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-sm text-white/60 text-center">{d.capacityFullDay ?? "—"}</td>
+                    <td className="px-2 py-2.5">
+                      <button
+                        onClick={() => { if (confirm("Remove this session?")) deleteMutation.mutate(d.id); }}
+                        className="text-red-400/60 hover:text-red-400 p-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Class-mode pricing tab — single 'Term price' input (no morning/afternoon
+// nonsense). Saves to programs.term_price_cents directly via PATCH on the
+// camp record so it round-trips through the existing endpoint.
+function ClassPricingTab({ campId, camp }: { campId: number; camp: any }) {
+  const { toast } = useToast();
+  const [price, setPrice] = useState(
+    camp.termPriceCents ? (camp.termPriceCents / 100).toFixed(2) : ""
+  );
+  const [sessionCount, setSessionCount] = useState(String(camp.sessionCount ?? 10));
+  const [pricingModel, setPricingModel] = useState<string>(camp.pricingModel ?? "term_prorated");
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const cents = price ? Math.round(parseFloat(price) * 100) : null;
+      await apiRequest("PATCH", `/api/admin/camps/${campId}`, {
+        termPriceCents: cents,
+        sessionCount: parseInt(sessionCount) || null,
+        pricingModel,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
+      toast({ title: "Pricing saved" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-5 max-w-xl">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Term price (NZD)</label>
+          <div className="relative">
+            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+            <Input type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} placeholder="200.00" className="pl-9 text-white/80 rounded-xl" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Sessions per term</label>
+          <Input type="number" value={sessionCount} onChange={e => setSessionCount(e.target.value)} placeholder="10" className="text-white/80 rounded-xl" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Pricing model</label>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { value: "term_prorated", label: "Pro-rated", desc: "Discount as the term progresses" },
+            { value: "flat", label: "Flat", desc: "Same price always" },
+          ].map(m => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => setPricingModel(m.value)}
+              className={`p-3 rounded-lg text-left transition border ${
+                pricingModel === m.value
+                  ? "bg-blue-500/15 border-blue-500/40"
+                  : "bg-white/[0.02] border-white/5 hover:bg-white/[0.04]"
+              }`}
+            >
+              <div className="text-sm font-semibold text-white">{m.label}</div>
+              <div className="text-xs text-white/50 mt-0.5">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+        {pricingModel === "term_prorated" && price && sessionCount && (
+          <div className="text-[11px] text-white/40 mt-2">
+            If a parent registers with 5 of {sessionCount} sessions remaining, they'd pay <strong className="text-emerald-400">${(parseFloat(price) * 5 / parseInt(sessionCount)).toFixed(2)}</strong> instead of ${parseFloat(price).toFixed(2)}.
+          </div>
+        )}
+      </div>
+
+      <Button onClick={() => save.mutate()} disabled={save.isPending} className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 rounded-xl h-9 text-[13px]">
+        <Save className="w-4 h-4 mr-1.5" /> Save pricing
+      </Button>
+    </div>
+  );
+}
+
 function DatesTab({ campId }: { campId: number }) {
   const { data: dates, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/camps", campId, "dates"],
@@ -1192,8 +1415,8 @@ export default function AdminCampDetail() {
       <div className="rounded-2xl glass-card p-3 sm:p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {tab === "sessions" && <SessionsTab campId={campId} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
-        {tab === "dates" && <DatesTab campId={campId} />}
-        {tab === "pricing" && <PricingTab campId={campId} />}
+        {tab === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
+        {tab === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}
         {tab === "discounts" && <DiscountsTab campId={campId} />}
         {tab === "email" && <EmailTab campId={campId} />}
         {tab === "performance" && <PerformanceTab campId={campId} />}
