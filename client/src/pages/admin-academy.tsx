@@ -264,6 +264,21 @@ export default function AdminAcademy() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 border-b border-white/5 animate-fade-in-up" style={{ animationDelay: '90ms', opacity: 0 }}>
+        <button
+          className="px-4 py-2.5 text-sm font-medium text-white border-b-2 border-blue-500 -mb-px"
+        >
+          Programs
+        </button>
+        <button
+          onClick={() => navigate("/admin/terms")}
+          className="px-4 py-2.5 text-sm font-medium text-white/50 hover:text-white/80 border-b-2 border-transparent -mb-px"
+          data-testid="tab-academy-term-dates"
+        >
+          Term Dates
+        </button>
+      </div>
+
       <div className="relative animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
         <Input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search programs..." className="pl-10 premium-input text-white/80 rounded-xl h-10" data-testid="input-search-academy" />

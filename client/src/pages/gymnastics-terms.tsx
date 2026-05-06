@@ -270,15 +270,17 @@ export default function GymnasticsTerms() {
     return items;
   };
 
-  // The /admin/programs route only exists for the gymnastics workspace, so
-  // hide the "All Programs / Term Dates" tab strip on workspaces that
-  // don't have an All Programs page (e.g. Christchurch United, where the
-  // sidebar reaches Terms directly).
-  const showProgramsTabs = currentOrg?.slug === "united-gymnastics";
-  const pageTitle = showProgramsTabs ? "Programs" : "Terms";
-  const pageSubtitle = showProgramsTabs
+  // Tab strip varies by workspace. Gymnastics has a dedicated /admin/programs
+  // page so it shows "All Programs / Term Dates". CUFC reaches Terms via the
+  // Academy page, so we mirror that pairing here ("Programs / Term Dates")
+  // with the inactive Programs tab linking back to /admin/academy.
+  const isGymnastics = currentOrg?.slug === "united-gymnastics";
+  const showProgramsTabs = true;
+  const programsHref = isGymnastics ? "/admin/programs" : "/admin/academy";
+  const pageTitle = isGymnastics ? "Programs" : "Academy";
+  const pageSubtitle = isGymnastics
     ? "Classes, camps, workshops, and the term calendar they run against."
-    : "School terms and holiday windows for this workspace. Programs and camps can be scheduled against these.";
+    : "Academy programs and the term calendar they run against.";
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -299,10 +301,10 @@ export default function GymnasticsTerms() {
       {showProgramsTabs && (
         <div className="flex items-center gap-1 border-b border-white/5">
           <button
-            onClick={() => setLocation("/admin/programs")}
+            onClick={() => setLocation(programsHref)}
             className="px-4 py-2.5 text-sm font-medium text-white/50 hover:text-white/80 border-b-2 border-transparent -mb-px"
           >
-            All Programs
+            {isGymnastics ? "All Programs" : "Programs"}
           </button>
           <button
             onClick={() => setLocation("/admin/terms")}
