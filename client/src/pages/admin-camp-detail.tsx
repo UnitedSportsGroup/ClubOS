@@ -1888,11 +1888,6 @@ export default function AdminCampDetail() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const { currentOrg } = useWorkspace();
-  // Where 'back' goes depends on the workspace. The camp-detail page is
-  // re-used across CUFC camps, gymnastics programs, and any future workspace
-  // — each workspace has a different list landing route. Camp / academy
-  // workspaces use /admin/camps; gymnastics uses /admin/programs.
-  const listPath = currentOrg?.slug === "united-gymnastics" ? "/admin/programs" : "/admin/camps";
 
   const { data: camp, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/camps", campId],
@@ -1902,6 +1897,18 @@ export default function AdminCampDetail() {
       return res.json();
     },
   });
+
+  // Where 'back' goes depends on the workspace AND the program type, since
+  // CUFC has a separate /admin/academy list for type === "academy" and
+  // /admin/camps for everything else (holiday_camp etc.). Gymnastics uses
+  // a single /admin/programs list. Default to /admin/camps until the camp
+  // record is fetched so the back button is never undefined.
+  const listPath =
+    currentOrg?.slug === "united-gymnastics"
+      ? "/admin/programs"
+      : camp?.type === "academy"
+        ? "/admin/academy"
+        : "/admin/camps";
 
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
