@@ -23,9 +23,15 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
   const [capacity, setCapacity] = useState(String(camp.capacity || ""));
   const [isActive, setIsActive] = useState(camp.isActive);
 
-  const isTermMode = camp.scheduleType === "term";
+  // Local mode — starts with whatever's saved, can be flipped in-place so an
+  // existing holiday camp can be converted to a term program without
+  // delete/recreate. Saving with mode=term promotes scheduleType.
+  type Mode = "holiday" | "term";
+  const initialMode: Mode = camp.scheduleType === "term" ? "term" : "holiday";
+  const [mode, setMode] = useState<Mode>(initialMode);
+  const isTermMode = mode === "term";
 
-  // Term-binding state — only used when scheduleType === "term".
+  // Term-binding state — only used when mode === "term".
   const [termId, setTermId] = useState<string>(camp.termId ? String(camp.termId) : "");
   const [termPrice, setTermPrice] = useState<string>(
     camp.termPriceCents ? (camp.termPriceCents / 100).toFixed(2) : ""
@@ -50,22 +56,51 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
       isActive,
     };
     if (isTermMode) {
+      // Promote to term mode (or keep it). Backend will auto-fill startDate/
+      // endDate from the linked term if they're not already set.
+      payload.scheduleType = "term";
+      payload.pricingModel = camp.pricingModel ?? "term_prorated";
       payload.termId = termId ? parseInt(termId) : null;
       payload.termPriceCents = termPrice ? Math.round(parseFloat(termPrice) * 100) : null;
       payload.sessionCount = sessionCount ? parseInt(sessionCount) : null;
+    } else if (initialMode === "term") {
+      // Demoting term → holiday: clear the binding so the holiday-camp
+      // tabs render correctly.
+      payload.scheduleType = null;
+      payload.termId = null;
+      payload.pricingModel = "flat";
     }
     onUpdate(payload);
   };
 
   return (
     <div className="space-y-4">
-      {/* Mode badge — read-only indicator of how this program is scheduled. */}
-      <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${isTermMode ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-blue-500/40 bg-blue-500/10 text-blue-200"}`}>
-          {isTermMode ? "Term Program" : "Holiday Camp"}
-        </span>
-        {isTermMode && (
-          <span className="text-[11px] text-white/30">Sessions auto-generated from a weekly schedule</span>
+      {/* Mode toggle — flip between holiday camp and term program. Surfaces
+          existing programs to be converted in place without delete/recreate. */}
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-white/40 mb-2">Program mode</div>
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+          <button
+            type="button"
+            onClick={() => setMode("holiday")}
+            className={`text-[12px] font-semibold py-2 rounded-md transition-colors ${mode === "holiday" ? "bg-blue-500/20 text-blue-200 border border-blue-500/40" : "text-white/40 hover:text-white/60"}`}
+            data-testid="overview-mode-holiday"
+          >
+            Holiday Camp
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("term")}
+            className={`text-[12px] font-semibold py-2 rounded-md transition-colors ${mode === "term" ? "bg-amber-400/20 text-amber-200 border border-amber-400/50" : "text-white/40 hover:text-white/60"}`}
+            data-testid="overview-mode-term"
+          >
+            Term Program
+          </button>
+        </div>
+        {mode !== initialMode && (
+          <div className="mt-2 text-[11px] text-amber-300/70">
+            ⚠ Mode change will be applied when you click Save Changes. {mode === "term" ? "After saving, set the weekly schedule on the Schedule tab." : "Existing sessions will not be deleted automatically."}
+          </div>
         )}
       </div>
 
@@ -1892,10 +1927,11 @@ export default function AdminCampDetail() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const isTermProgram = camp?.scheduleType === "term";
   const tabs = [
     { key: "sessions", label: "Sessions", icon: BarChart3 },
     { key: "content", label: "Content", icon: FileText },
-    { key: "dates", label: "Dates & Capacity", icon: Calendar },
+    { key: "dates", label: isTermProgram ? "Schedule" : "Dates & Capacity", icon: Calendar },
     { key: "pricing", label: "Pricing", icon: DollarSign },
     { key: "discounts", label: "Discounts", icon: Percent },
     { key: "email", label: "Email Template", icon: Settings },
