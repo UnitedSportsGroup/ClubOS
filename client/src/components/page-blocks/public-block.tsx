@@ -6,6 +6,7 @@ import type {
   PageBlock,
   StatsBlockProps, FeaturesBlockProps, CtaBlockProps,
   ImageTextBlockProps, VideoBlockProps, TestimonialsBlockProps, LogosBlockProps,
+  CoachesBlockProps, MapBlockProps, CustomHtmlBlockProps,
 } from "@/lib/page-blocks";
 import { useEffect } from "react";
 
@@ -32,6 +33,12 @@ export function PublicBlock({ block, primaryButtonHref }: { block: PageBlock; pr
       return <TestimonialsBlock props={block.props as TestimonialsBlockProps} />;
     case "logos":
       return <LogosBlock props={block.props as LogosBlockProps} />;
+    case "coaches":
+      return <CoachesBlock props={block.props as CoachesBlockProps} />;
+    case "map":
+      return <MapBlock props={block.props as MapBlockProps} />;
+    case "custom_html":
+      return <CustomHtmlBlock props={block.props as CustomHtmlBlockProps} />;
     default:
       return null;
   }
@@ -277,6 +284,122 @@ function TestimonialsBlock({ props }: { props: TestimonialsBlockProps }) {
             </div>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Coaches Grid ───────────────────────────────────────────────────────
+function CoachesBlock({ props }: { props: CoachesBlockProps }) {
+  const cols = props.items?.length === 2 ? 'sm:grid-cols-2' : props.items?.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3';
+  return (
+    <section className="py-12 sm:py-20 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        {(props.eyebrow || props.title || props.subtitle) && (
+          <div className="text-center mb-10">
+            {props.eyebrow && (
+              <div className="text-[10px] uppercase tracking-[0.25em] font-semibold mb-2" style={{ color: BRAND.blue }}>
+                {props.eyebrow}
+              </div>
+            )}
+            {props.title && (
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }}>
+                {props.title}
+              </h2>
+            )}
+            {props.subtitle && (
+              <p className="text-[14px] sm:text-[16px] mt-3 max-w-2xl mx-auto text-slate-500">
+                {props.subtitle}
+              </p>
+            )}
+          </div>
+        )}
+        <div className={`grid grid-cols-1 ${cols} gap-5`}>
+          {props.items?.map((coach, i) => (
+            <div key={i} className="rounded-2xl bg-slate-50 border border-slate-100 overflow-hidden">
+              {coach.photoUrl ? (
+                <img src={coach.photoUrl} alt={coach.name} className="w-full aspect-[4/5] object-cover" />
+              ) : (
+                <div className="w-full aspect-[4/5] bg-slate-200 flex items-center justify-center text-slate-400 text-3xl font-bold">
+                  {coach.name?.[0] ?? "?"}
+                </div>
+              )}
+              <div className="p-4 sm:p-5">
+                <div className="text-[15px] sm:text-[16px] font-bold mb-0.5" style={{ color: BRAND.darkBlue }}>
+                  {coach.name}
+                </div>
+                {coach.role && (
+                  <div className="text-[12px] uppercase tracking-wider font-semibold mb-2" style={{ color: BRAND.blue }}>
+                    {coach.role}
+                  </div>
+                )}
+                {coach.bio && (
+                  <p className="text-[13px] sm:text-[14px] leading-relaxed text-slate-600">
+                    {coach.bio}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Map / Location ─────────────────────────────────────────────────────
+function MapBlock({ props }: { props: MapBlockProps }) {
+  // Accept any of: full <iframe ...> snippet, an embed URL, or a plain
+  // address. Plain addresses fall back to a generic Google Maps embed.
+  const src = (() => {
+    if (!props.embedUrl && !props.address) return null;
+    if (props.embedUrl) {
+      const m = props.embedUrl.match(/src="([^"]+)"/);
+      if (m) return m[1];
+      return props.embedUrl;
+    }
+    return `https://www.google.com/maps?q=${encodeURIComponent(props.address!)}&output=embed`;
+  })();
+  return (
+    <section className="py-12 sm:py-16 bg-white">
+      <div className="max-w-5xl mx-auto px-6">
+        {(props.title || props.address) && (
+          <div className="text-center mb-6">
+            {props.title && (
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight mb-1" style={{ color: BRAND.darkBlue }}>
+                {props.title}
+              </h2>
+            )}
+            {props.address && <p className="text-[13px] sm:text-[14px] text-slate-500">{props.address}</p>}
+          </div>
+        )}
+        {src ? (
+          <div className="rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+            <iframe
+              src={src}
+              style={{ height: props.height ?? 360, width: "100%", border: 0 }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-slate-100 h-[280px] flex items-center justify-center text-slate-400 text-sm">
+            (No address or map URL set)
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── Custom HTML ────────────────────────────────────────────────────────
+function CustomHtmlBlock({ props }: { props: CustomHtmlBlockProps }) {
+  const max = props.maxWidth === "narrow" ? "max-w-2xl" : props.maxWidth === "full" ? "max-w-none" : "max-w-5xl";
+  return (
+    <section className="py-12 sm:py-16 bg-white">
+      <div className={`${max} mx-auto px-6`}>
+        <div dangerouslySetInnerHTML={{ __html: props.html ?? "" }} />
       </div>
     </section>
   );

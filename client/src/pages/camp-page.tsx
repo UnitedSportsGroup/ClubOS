@@ -254,10 +254,12 @@ export default function CampPage() {
     }
   }, [data]);
 
-  // Lazy-load Wistia per video id so we don't ship the wrong video's
-  // jsonp when the program has its own Wistia id set on it.
-  const heroVideoId = data?.camp?.heroVideoId || "0l469en6m5";
+  // Hero media: image wins over video when both are set. Otherwise fall back
+  // to the default Wistia id so legacy camps keep their video.
+  const heroImage = data?.camp?.heroImage || "";
+  const heroVideoId = heroImage ? null : (data?.camp?.heroVideoId || "0l469en6m5");
   useEffect(() => {
+    if (!heroVideoId) return;
     const wistiaScript = document.createElement("script");
     wistiaScript.src = `https://fast.wistia.com/embed/medias/${heroVideoId}.jsonp`;
     wistiaScript.async = true;
@@ -388,9 +390,14 @@ export default function CampPage() {
               {activeVariants.heroSubheadline?.value || camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football."}
             </p>
 
-            {/* Hero media — Wistia video if heroVideoId set, otherwise heroImage,
-                otherwise nothing (clean hero with just text + CTA). */}
-            {heroVideoId ? (
+            {/* Hero media — image wins over video. */}
+            {heroImage ? (
+              <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
+                <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <img src={heroImage} alt={camp.name} className="w-full aspect-video object-cover" />
+                </div>
+              </div>
+            ) : heroVideoId ? (
               <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
@@ -402,12 +409,6 @@ export default function CampPage() {
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ) : camp.heroImage ? (
-              <div className="w-full max-w-[680px] mb-6 animate-[fadeInUp_0.9s_ease-out]">
-                <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <img src={camp.heroImage} alt={camp.name} className="w-full h-auto object-cover" />
                 </div>
               </div>
             ) : null}

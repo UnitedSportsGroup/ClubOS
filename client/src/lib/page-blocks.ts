@@ -10,7 +10,7 @@
 //   4. Render it in PublicBlock + EditableBlock components
 //   5. Add an entry to BLOCK_PALETTE for the 'Add block' menu
 
-export type BlockType = "stats" | "features" | "cta" | "image_text" | "video" | "testimonials" | "logos";
+export type BlockType = "stats" | "features" | "cta" | "image_text" | "video" | "testimonials" | "logos" | "coaches" | "map" | "custom_html";
 
 export interface StatsBlockProps {
   eyebrow?: string;             // small uppercase line above the stats
@@ -59,6 +59,30 @@ export interface LogosBlockProps {
   items: { src: string; alt?: string; href?: string }[];
 }
 
+export interface CoachesBlockProps {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  items: { name: string; role?: string; bio?: string; photoUrl?: string }[];
+}
+
+export interface MapBlockProps {
+  title?: string;
+  address?: string;
+  // Either an embed src (Google Maps share → embed iframe URL) OR raw lat/lng;
+  // we keep it as a single string so the editor stays simple.
+  embedUrl?: string;
+  height?: number;
+}
+
+export interface CustomHtmlBlockProps {
+  html: string;
+  // Stored on the block itself — not edited per-instance unless the user
+  // overrides. Allows the admin to constrain a custom block to a max width
+  // (e.g. for embeds).
+  maxWidth?: "narrow" | "wide" | "full";
+}
+
 export interface PageBlock<T = any> {
   id: string;
   type: BlockType;
@@ -73,6 +97,9 @@ export const BLOCK_PALETTE: Array<{ type: BlockType; label: string; description:
   { type: "video",        label: "Video",           description: "Embed a Wistia video with optional caption",          icon: "🎬" },
   { type: "testimonials", label: "Testimonials",    description: "3-card grid of parent / customer quotes",             icon: "💬" },
   { type: "logos",        label: "Logo Strip",      description: "Sponsor / partner / press logos in a horizontal strip", icon: "🏷️" },
+  { type: "coaches",      label: "Coach Cards",     description: "Photo + name + role + bio grid — meet-the-team",       icon: "👋" },
+  { type: "map",          label: "Map / Location",  description: "Embedded map for the venue — Google Maps share URL",   icon: "📍" },
+  { type: "custom_html",  label: "Custom HTML",     description: "Paste raw HTML — embeds, scripts, anything custom",    icon: "🧩" },
 ];
 
 let _idCounter = Date.now();
@@ -173,6 +200,41 @@ export function createDefaultBlock(type: BlockType): PageBlock {
             { src: "/logos/united-sports-centre.png", alt: "United Sports Centre" },
           ],
         } as LogosBlockProps,
+      };
+    case "coaches":
+      return {
+        id: newBlockId(),
+        type: "coaches",
+        props: {
+          eyebrow: "MEET THE TEAM",
+          title: "Coaches who know your kid's name",
+          subtitle: "Same coach every week. NZ-qualified. Real teaching, not babysitting.",
+          items: [
+            { name: "Coach Name", role: "Head Coach — Recreational", bio: "10 years coaching, NZ Gymnastics Level 2.", photoUrl: "" },
+            { name: "Coach Name", role: "Beginner Stream Lead",      bio: "Former competitive gymnast, loves the 5–7 age group.", photoUrl: "" },
+            { name: "Coach Name", role: "Saturday Sessions",         bio: "Patient, calm, parent-favourite for first-timers.", photoUrl: "" },
+          ],
+        } as CoachesBlockProps,
+      };
+    case "map":
+      return {
+        id: newBlockId(),
+        type: "map",
+        props: {
+          title: "Find us",
+          address: "United Sports Centre, Hornby, Christchurch",
+          embedUrl: "",
+          height: 360,
+        } as MapBlockProps,
+      };
+    case "custom_html":
+      return {
+        id: newBlockId(),
+        type: "custom_html",
+        props: {
+          html: "<!-- Paste your embed or HTML here -->\n<div style=\"text-align:center; padding: 2rem; color: #888;\">Your custom HTML will render here.</div>",
+          maxWidth: "wide",
+        } as CustomHtmlBlockProps,
       };
   }
 }

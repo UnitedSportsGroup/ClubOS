@@ -16,6 +16,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { AiCopyButton } from "@/components/ui/ai-copy-button";
 import { AiPageBriefButton, type PageDraft } from "@/components/ui/ai-page-brief-button";
 import { BlocksEditor } from "@/components/page-blocks/blocks-editor";
+import { ImagePicker } from "@/components/ui/image-picker";
 import type { PageBlock } from "@/lib/page-blocks";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 
@@ -375,6 +376,7 @@ export default function AdminEditPage() {
   const [heroSubheadline, setHeroSubheadline] = useState("");
   const [primaryCta, setPrimaryCta] = useState("Book Now");
   const [heroVideoId, setHeroVideoId] = useState("");
+  const [heroImage, setHeroImage] = useState("");
   const [faqItems, setFaqItems] = useState<{ q: string; a: string }[]>([]);
   const [content, setContent] = useState<PageContent>(getDefaultContent());
   const [customBlocks, setCustomBlocks] = useState<PageBlock[]>([]);
@@ -386,6 +388,7 @@ export default function AdminEditPage() {
     setHeroSubheadline(camp.heroSubheadline || camp.descriptionShort || "Fun, engaging football camps for young players. Build confidence, make friends, and fall in love with football.");
     setPrimaryCta(camp.primaryCta || "Book Now");
     setHeroVideoId(camp.heroVideoId || "");
+    setHeroImage(camp.heroImage || "");
     setCustomBlocks(Array.isArray(camp.customBlocksJson) ? camp.customBlocksJson : []);
     let faq: { q: string; a: string }[] = [];
     try { faq = camp.faqJson ? JSON.parse(camp.faqJson) : []; } catch {}
@@ -426,6 +429,7 @@ export default function AdminEditPage() {
       heroSubheadline,
       primaryCta,
       heroVideoId: heroVideoId || null,
+      heroImage: heroImage || null,
       faqJson: JSON.stringify(faqItems),
       pageContentJson: JSON.stringify(content),
       customBlocksJson: customBlocks,
@@ -615,27 +619,40 @@ export default function AdminEditPage() {
               </div>
               <div className="w-full max-w-[680px] mb-3 group/video relative">
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/40" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
-                    <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
-                      <div className={`wistia_embed wistia_async_${previewVideoId} seo=true videoFoam=true`} style={{ height: '100%', position: 'relative', width: '100%' }}>
-                        <div className="wistia_swatch" style={{ height: '100%', left: 0, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, transition: 'opacity 200ms', width: '100%' }}>
-                          <img src={`https://fast.wistia.com/embed/medias/${previewVideoId}/swatch`} style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
+                  {heroImage ? (
+                    <img src={heroImage} alt={heroHeadline || "Hero"} className="w-full aspect-video object-cover" />
+                  ) : (
+                    <div className="wistia_responsive_padding" style={{ padding: '56.25% 0 0 0', position: 'relative' }}>
+                      <div className="wistia_responsive_wrapper" style={{ height: '100%', left: 0, position: 'absolute', top: 0, width: '100%' }}>
+                        <div className={`wistia_embed wistia_async_${previewVideoId} seo=true videoFoam=true`} style={{ height: '100%', position: 'relative', width: '100%' }}>
+                          <div className="wistia_swatch" style={{ height: '100%', left: 0, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, transition: 'opacity 200ms', width: '100%' }}>
+                            <img src={`https://fast.wistia.com/embed/medias/${previewVideoId}/swatch`} style={{ filter: 'blur(5px)', height: '100%', objectFit: 'contain', width: '100%' }} alt="" />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
-                {/* Wistia video id editor — appears on hover */}
-                <div className="opacity-0 group-hover/video:opacity-100 transition-opacity absolute -bottom-3 left-1/2 -translate-x-1/2 translate-y-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 shadow-xl flex items-center gap-2 z-10">
-                  <label className="text-[10px] uppercase tracking-wider text-white/50">Wistia ID</label>
-                  <input
-                    type="text"
-                    value={heroVideoId}
-                    onChange={e => { setHeroVideoId(e.target.value.trim()); markChanged(); }}
-                    placeholder={heroVideoId ? "" : "0l469en6m5 (default)"}
-                    className="bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-[12px] text-white/80 font-mono w-44 focus:outline-none focus:border-blue-500/50"
-                  />
-                  <a href="https://fast.wistia.com/projects" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400/70 hover:text-blue-400">Find IDs ↗</a>
+                {/* Hero media editor — appears on hover. Image always wins over video when set. */}
+                <div className="opacity-0 group-hover/video:opacity-100 transition-opacity absolute -bottom-3 left-1/2 -translate-x-1/2 translate-y-full bg-slate-900 border border-white/10 rounded-xl p-3 shadow-xl flex flex-col gap-2 z-10 w-[480px] max-w-[92vw]">
+                  <div className="text-[10px] uppercase tracking-wider text-white/50 font-semibold">Hero media <span className="normal-case text-white/30">— image overrides video if both are set</span></div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="rounded-md bg-white/[0.02] border border-white/[0.06] p-2">
+                      <ImagePicker label="Hero image" value={heroImage} onChange={(url) => { setHeroImage(url); markChanged(); }} />
+                    </div>
+                    <div className="rounded-md bg-white/[0.02] border border-white/[0.06] p-2 flex items-center gap-2">
+                      <label className="text-[10px] uppercase tracking-wider text-white/50 whitespace-nowrap">Wistia ID</label>
+                      <input
+                        type="text"
+                        value={heroVideoId}
+                        onChange={e => { setHeroVideoId(e.target.value.trim()); markChanged(); }}
+                        placeholder={heroVideoId ? "" : "0l469en6m5 (default)"}
+                        className="flex-1 bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-[12px] text-white/80 font-mono focus:outline-none focus:border-blue-500/50"
+                        disabled={!!heroImage}
+                      />
+                      <a href="https://fast.wistia.com/projects" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400/70 hover:text-blue-400 whitespace-nowrap">Find IDs ↗</a>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div>
