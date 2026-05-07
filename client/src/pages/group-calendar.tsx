@@ -990,10 +990,19 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
 }) {
   const eventsByDay = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {};
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const localKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     events.forEach(e => {
-      const key = new Date(e.startTime).toISOString().split("T")[0];
-      if (!map[key]) map[key] = [];
-      map[key].push(e);
+      const start = new Date(e.startTime);
+      const end = new Date(e.endTime);
+      const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      while (cursor <= last) {
+        const key = localKey(cursor);
+        if (!map[key]) map[key] = [];
+        map[key].push(e);
+        cursor.setDate(cursor.getDate() + 1);
+      }
     });
     return map;
   }, [events]);
@@ -1066,36 +1075,145 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
   );
 }
 
+// Lane (vertical row) constants for the multi-day bar layer.
+const MONTH_LANE_HEIGHT = 18;
+const MONTH_LANE_GAP = 2;
+const MONTH_DAY_NUM_OFFSET = 28; // px from top of cell where bar layer starts (below day number)
+
 function MonthView({ days, events, currentDate, today, onDayClick, onEventClick }: {
   days: Date[]; events: CalendarEvent[]; currentDate: Date; today: Date;
   onDayClick: (d: Date) => void; onEventClick: (e: CalendarEvent) => void;
 }) {
+  const weeks: Date[][] = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+
   return (
     <div className="h-full flex flex-col">
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
         {["MON","TUE","WED","THU","FRI","SAT","SUN"].map(d => <div key={d} className="text-center text-[10px] text-white/30 font-medium py-2 uppercase tracking-wider">{d}</div>)}
       </div>
-      <div className="grid grid-cols-7 flex-1 auto-rows-fr">
-        {days.map((day, i) => {
+      <div className="flex-1 grid auto-rows-fr" style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
+        {weeks.map((week, wi) => (
+          <MonthWeekRow key={wi} week={week} events={events} currentDate={currentDate} today={today} onDayClick={onDayClick} onEventClick={onEventClick} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MonthWeekRow({ week, events, currentDate, today, onDayClick, onEventClick }: {
+  week: Date[]; events: CalendarEvent[]; currentDate: Date; today: Date;
+  onDayClick: (d: Date) => void; onEventClick: (e: CalendarEvent) => void;
+}) {
+  const weekStart = new Date(week[0]); weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(week[6]); weekEnd.setHours(23, 59, 59, 999);
+
+  // Day index within the week for a given date — clamped to [0, 6]. Computes
+  // off the start-of-day so DST shifts can't move the bar off by a column.
+  const colOf = (d: Date) => {
+    const day0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diff = Math.round((day0.getTime() - weekStart.getTime()) / 86400000);
+    return Math.max(0, Math.min(6, diff));
+  };
+
+  // All events that overlap this week (both all-day and timed).
+  const weekEvents = events.filter(e => {
+    const s = new Date(e.startTime);
+    const en = new Date(e.endTime);
+    return s <= weekEnd && en >= weekStart;
+  });
+
+  // All-day events become continuous bars across columns.
+  const allDayEvents = weekEvents.filter(e => e.allDay).sort((a, b) => {
+    const aS = new Date(a.startTime).getTime();
+    const bS = new Date(b.startTime).getTime();
+    if (aS !== bS) return aS - bS;
+    const aLen = new Date(a.endTime).getTime() - aS;
+    const bLen = new Date(b.endTime).getTime() - bS;
+    return bLen - aLen; // longer first when starting on the same day
+  });
+
+  type Bar = { event: CalendarEvent; startCol: number; endCol: number; lane: number };
+  const bars: Bar[] = [];
+  const laneRanges: Array<Array<[number, number]>> = [];
+  for (const e of allDayEvents) {
+    const startCol = colOf(new Date(e.startTime));
+    const endCol = colOf(new Date(e.endTime));
+    let lane = 0;
+    while (true) {
+      const occupied = (laneRanges[lane] || []).some(([s, en]) => !(endCol < s || startCol > en));
+      if (!occupied) break;
+      lane++;
+    }
+    if (!laneRanges[lane]) laneRanges[lane] = [];
+    laneRanges[lane].push([startCol, endCol]);
+    bars.push({ event: e, startCol, endCol, lane });
+  }
+  const laneCount = laneRanges.length;
+  const barLayerHeight = laneCount > 0 ? laneCount * (MONTH_LANE_HEIGHT + MONTH_LANE_GAP) : 0;
+
+  // Timed events stay anchored to the day they start (or fall on).
+  const timedByDay = week.map(day =>
+    weekEvents
+      .filter(e => !e.allDay)
+      .filter(e => {
+        const s = new Date(e.startTime);
+        const en = new Date(e.endTime);
+        return isSameDay(s, day) || isSameDay(en, day) || (s < day && en > day);
+      })
+  );
+
+  return (
+    <div className="relative border-b border-white/[0.04]">
+      <div className="grid grid-cols-7 h-full">
+        {week.map((day, di) => {
           const isCurrentMonth = day.getMonth() === currentDate.getMonth();
           const isToday = isSameDay(day, today);
-          const dayEvents = events.filter(e => isSameDay(new Date(e.startTime), day));
-          const allDayEvts = dayEvents.filter(e => e.allDay);
-          const timedEvts = dayEvents.filter(e => !e.allDay);
+          const timed = timedByDay[di];
           return (
-            <div key={i} className={`border-b border-r border-white/[0.04] p-1 min-h-[80px] cursor-pointer hover:bg-white/[0.02] transition-colors overflow-hidden ${!isCurrentMonth ? "opacity-30" : ""}`} onClick={() => onDayClick(day)}>
-              <div className={`text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
-              <div className="space-y-0.5 overflow-hidden">
-                {allDayEvts.map(event => (
-                  <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity font-medium" style={{ backgroundColor: `${event.color}30`, color: event.color }} data-testid={`event-${event.id}`}>{event.title}{event.amount && <span className="ml-1 text-amber-400/80">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}</span>}</div>
-                ))}
-                {timedEvts.slice(0, 3).map(event => (
+            <div key={di} onClick={() => onDayClick(day)} className={`relative border-r border-white/[0.04] cursor-pointer hover:bg-white/[0.02] transition-colors min-h-[100px] overflow-hidden ${!isCurrentMonth ? "opacity-30" : ""}`}>
+              <div className={`text-xs font-medium m-1 w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-blue-600 text-white" : "text-white/50"}`}>{day.getDate()}</div>
+              <div style={{ height: barLayerHeight }} />
+              <div className="px-1 space-y-0.5 overflow-hidden">
+                {timed.slice(0, 2).map(event => (
                   <div key={event.id} onClick={(e) => { e.stopPropagation(); onEventClick(event); }} className="text-[10px] px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity" style={{ backgroundColor: `${event.color}25`, color: event.color, borderLeft: `2px solid ${event.color}` }} data-testid={`event-${event.id}`}>
                     {formatTime(new Date(event.startTime))} {event.title}
                   </div>
                 ))}
-                {timedEvts.length > 3 && <div className="text-[9px] text-white/30 px-1">+{timedEvts.length - 3} more</div>}
+                {timed.length > 2 && <div className="text-[9px] text-white/30 px-1">+{timed.length - 2} more</div>}
               </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="absolute left-0 right-0 pointer-events-none" style={{ top: MONTH_DAY_NUM_OFFSET, height: barLayerHeight }}>
+        {bars.map(({ event, startCol, endCol, lane }) => {
+          const startsBeforeWeek = new Date(event.startTime) < weekStart;
+          const endsAfterWeek = new Date(event.endTime) > weekEnd;
+          return (
+            <div
+              key={`${event.id}-${lane}`}
+              onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+              className="absolute text-[10px] px-1.5 py-0.5 truncate cursor-pointer hover:opacity-90 transition-opacity font-medium pointer-events-auto flex items-center"
+              style={{
+                top: lane * (MONTH_LANE_HEIGHT + MONTH_LANE_GAP),
+                left: `calc(${(startCol / 7) * 100}% + 2px)`,
+                width: `calc(${((endCol - startCol + 1) / 7) * 100}% - 4px)`,
+                height: MONTH_LANE_HEIGHT,
+                backgroundColor: `${event.color}30`,
+                color: event.color,
+                borderLeft: startsBeforeWeek ? "none" : `3px solid ${event.color}`,
+                borderTopLeftRadius: startsBeforeWeek ? 0 : 4,
+                borderBottomLeftRadius: startsBeforeWeek ? 0 : 4,
+                borderTopRightRadius: endsAfterWeek ? 0 : 4,
+                borderBottomRightRadius: endsAfterWeek ? 0 : 4,
+              }}
+              data-testid={`event-${event.id}`}
+            >
+              <span className="truncate">
+                {event.title}
+                {event.amount && <span className="ml-1 text-amber-400/80">${parseFloat(event.amount).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}</span>}
+              </span>
             </div>
           );
         })}
