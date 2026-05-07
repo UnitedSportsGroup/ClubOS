@@ -535,9 +535,26 @@ export default function AdminEditPage() {
               }}
             />
             {camp.slug && (
-              <a href={`/${camp.slug}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[11px] text-blue-400/60 hover:text-blue-400 transition-colors" data-testid="link-preview-page">
+              <button
+                onClick={async () => {
+                  // If there are unsaved changes, save first so the preview reflects them.
+                  if (hasChanges) {
+                    try {
+                      await saveMutation.mutateAsync();
+                    } catch {
+                      // Mutation surfaces its own toast; bail.
+                      return;
+                    }
+                  }
+                  window.open(`/${camp.slug}`, "_blank", "noopener,noreferrer");
+                }}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-[12px] font-semibold text-white/80 hover:text-white transition"
+                data-testid="link-preview-page"
+                title={hasChanges ? "Save & open the published page in a new tab" : "Open the published page in a new tab"}
+              >
                 <Eye className="w-3.5 h-3.5" /> Preview
-              </a>
+                {hasChanges && <span className="text-[10px] text-blue-300/80 ml-0.5">(saves first)</span>}
+              </button>
             )}
             <span className="text-[11px] text-white/30">{hasChanges ? "Unsaved changes" : "All changes saved"}</span>
             <Button onClick={() => saveMutation.mutate()} disabled={!hasChanges || saveMutation.isPending}

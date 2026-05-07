@@ -10,7 +10,13 @@
 //   4. Render it in PublicBlock + EditableBlock components
 //   5. Add an entry to BLOCK_PALETTE for the 'Add block' menu
 
-export type BlockType = "stats" | "features" | "cta" | "image_text" | "video" | "testimonials" | "logos" | "coaches" | "map" | "custom_html";
+export type BlockType = "stats" | "features" | "cta" | "image_text" | "video" | "testimonials" | "logos" | "coaches" | "map" | "custom_html" | "gallery" | "pricing" | "newsletter";
+
+// Optional per-block style overrides. `auto` (or omitted) means the block
+// uses its built-in defaults — we only apply overrides when the admin sets
+// them. Padding maps to vertical padding only; the heaviest is for headline
+// sections, the lightest is for tight stacks.
+export type BlockPadding = "compact" | "normal" | "spacious";
 
 export interface StatsBlockProps {
   eyebrow?: string;             // small uppercase line above the stats
@@ -83,10 +89,47 @@ export interface CustomHtmlBlockProps {
   maxWidth?: "narrow" | "wide" | "full";
 }
 
+export interface GalleryBlockProps {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  layout?: "grid" | "masonry";
+  items: { url: string; caption?: string; alt?: string }[];
+}
+
+export interface PricingTierBlockProps {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  items: {
+    name: string;
+    price: string;            // free-form so admins can write "$295" or "From $50/wk"
+    period?: string;          // e.g. "per term"
+    features: string[];       // bullet list
+    buttonText?: string;
+    buttonHref?: string;
+    highlighted?: boolean;    // bumps tier into the brand-blue spotlight card
+    badge?: string;           // optional ribbon copy ("Most popular")
+  }[];
+}
+
+export interface NewsletterBlockProps {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  buttonText?: string;
+  successMessage?: string;
+  // Optional list/audience identifier. Forwarded to the server endpoint so
+  // we can route to a Mailchimp/Beehiiv list later. For v1 we just store
+  // captures in the registrations log.
+  listId?: string;
+}
+
 export interface PageBlock<T = any> {
   id: string;
   type: BlockType;
   props: T;
+  padding?: BlockPadding;
 }
 
 export const BLOCK_PALETTE: Array<{ type: BlockType; label: string; description: string; icon: string }> = [
@@ -98,9 +141,24 @@ export const BLOCK_PALETTE: Array<{ type: BlockType; label: string; description:
   { type: "testimonials", label: "Testimonials",    description: "3-card grid of parent / customer quotes",             icon: "💬" },
   { type: "logos",        label: "Logo Strip",      description: "Sponsor / partner / press logos in a horizontal strip", icon: "🏷️" },
   { type: "coaches",      label: "Coach Cards",     description: "Photo + name + role + bio grid — meet-the-team",       icon: "👋" },
+  { type: "gallery",      label: "Photo Gallery",   description: "Image grid — venue, sessions, kids in action",         icon: "🖼️" },
+  { type: "pricing",      label: "Pricing Tiers",   description: "Side-by-side pricing cards — packages or membership",  icon: "💰" },
+  { type: "newsletter",   label: "Newsletter Signup", description: "Email capture form — wait list, drops, updates",     icon: "✉️" },
   { type: "map",          label: "Map / Location",  description: "Embedded map for the venue — Google Maps share URL",   icon: "📍" },
   { type: "custom_html",  label: "Custom HTML",     description: "Paste raw HTML — embeds, scripts, anything custom",    icon: "🧩" },
 ];
+
+// Map block padding values to actual Tailwind classes. Used by every
+// renderer so a single source of truth controls vertical rhythm.
+export const PADDING_CLASS: Record<BlockPadding, string> = {
+  compact: "py-8 sm:py-12",
+  normal: "py-12 sm:py-20",
+  spacious: "py-20 sm:py-28",
+};
+
+export function paddingClass(p?: BlockPadding, fallback: BlockPadding = "normal"): string {
+  return PADDING_CLASS[p ?? fallback];
+}
 
 let _idCounter = Date.now();
 export function newBlockId(): string {
@@ -235,6 +293,53 @@ export function createDefaultBlock(type: BlockType): PageBlock {
           html: "<!-- Paste your embed or HTML here -->\n<div style=\"text-align:center; padding: 2rem; color: #888;\">Your custom HTML will render here.</div>",
           maxWidth: "wide",
         } as CustomHtmlBlockProps,
+      };
+    case "gallery":
+      return {
+        id: newBlockId(),
+        type: "gallery",
+        props: {
+          eyebrow: "INSIDE THE GYM",
+          title: "What sessions actually look like",
+          subtitle: "",
+          layout: "grid",
+          items: [
+            { url: "", caption: "" },
+            { url: "", caption: "" },
+            { url: "", caption: "" },
+            { url: "", caption: "" },
+            { url: "", caption: "" },
+            { url: "", caption: "" },
+          ],
+        } as GalleryBlockProps,
+      };
+    case "pricing":
+      return {
+        id: newBlockId(),
+        type: "pricing",
+        props: {
+          eyebrow: "PRICING",
+          title: "Simple. Transparent. On the page.",
+          subtitle: "Sibling discount applied automatically. No surprises at checkout.",
+          items: [
+            { name: "Saturday Class", price: "$350", period: "per term", features: ["10 sessions", "60 minutes", "All ages 4–6", "Saturday morning"], buttonText: "Book Saturday" },
+            { name: "Combo (Both)",   price: "$565", period: "per term", features: ["20 sessions across the week", "75 mins per class", "Best value", "Sibling discount applies"], buttonText: "Book Combo", highlighted: true, badge: "Most popular" },
+            { name: "Thursday Class", price: "$295", period: "per term", features: ["8 sessions", "60 minutes", "All ages 4–6", "Thursday afternoon"], buttonText: "Book Thursday" },
+          ],
+        } as PricingTierBlockProps,
+      };
+    case "newsletter":
+      return {
+        id: newBlockId(),
+        type: "newsletter",
+        props: {
+          eyebrow: "GET ON THE LIST",
+          title: "Term 3 enrolments open soon",
+          subtitle: "Drop your email and we'll let you know the moment booking opens. No spam, no daily club updates — just enrolment news.",
+          buttonText: "Notify me",
+          successMessage: "You're on the list. We'll be in touch.",
+          listId: "default",
+        } as NewsletterBlockProps,
       };
   }
 }

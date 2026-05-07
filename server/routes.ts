@@ -762,6 +762,47 @@ export async function registerRoutes(
   // a live pro-rated price ('$200 → $100, 5 of 10 sessions remaining').
   // Server is the source of truth; client uses this endpoint for display
   // and we re-validate the same value before charging Stripe.
+  // Newsletter / wait-list capture from the Newsletter block on program pages.
+  // For v1 we just log and email the workspace owner — no table yet. When a
+  // pattern emerges we can add a real subscribers table.
+  app.post("/api/public/newsletter", async (req, res) => {
+    try {
+      const email = String(req.body?.email ?? "").trim().toLowerCase();
+      const name = String(req.body?.name ?? "").trim();
+      const listId = String(req.body?.listId ?? "default").trim();
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        return res.status(400).json({ message: "Please enter a valid email." });
+      }
+      const referer = req.get("referer") || "";
+      const userAgent = req.get("user-agent") || "";
+      console.log(`[newsletter] capture: ${email} (${name || "no name"}) list=${listId} from=${referer}`);
+      try {
+        const { sendEmail } = await import("./email");
+        await sendEmail({
+          to: process.env.NEWSLETTER_NOTIFY_TO || "danielmeyn963@gmail.com",
+          subject: `New newsletter signup: ${email}`,
+          html: `
+            <p>A new email was captured from a program landing page.</p>
+            <ul>
+              <li><strong>Email:</strong> ${email}</li>
+              ${name ? `<li><strong>Name:</strong> ${name}</li>` : ""}
+              <li><strong>List:</strong> ${listId}</li>
+              <li><strong>Page:</strong> ${referer || "(unknown)"}</li>
+              <li><strong>User-Agent:</strong> ${userAgent}</li>
+            </ul>
+          `,
+        });
+      } catch (e) {
+        console.warn("[newsletter] email notify failed:", e);
+        // Don't fail the request if the notification fails — we already logged it.
+      }
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[newsletter] error:", error);
+      res.status(500).json({ message: error.message || "Couldn't sign up — please try again." });
+    }
+  });
+
   app.get("/api/public/program-quote/:slug", async (req, res) => {
     try {
       const programs = await storage.getPrograms();

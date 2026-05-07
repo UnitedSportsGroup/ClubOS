@@ -3,12 +3,14 @@
 // the editor between the FAQ and footer.
 
 import type {
-  PageBlock,
+  PageBlock, BlockPadding,
   StatsBlockProps, FeaturesBlockProps, CtaBlockProps,
   ImageTextBlockProps, VideoBlockProps, TestimonialsBlockProps, LogosBlockProps,
   CoachesBlockProps, MapBlockProps, CustomHtmlBlockProps,
+  GalleryBlockProps, PricingTierBlockProps, NewsletterBlockProps,
 } from "@/lib/page-blocks";
-import { useEffect } from "react";
+import { paddingClass } from "@/lib/page-blocks";
+import { useEffect, useState } from "react";
 
 const BRAND = {
   blue: "#22399B",
@@ -18,35 +20,42 @@ const BRAND = {
 };
 
 export function PublicBlock({ block, primaryButtonHref }: { block: PageBlock; primaryButtonHref?: string }) {
+  const pad = block.padding;
   switch (block.type) {
     case "stats":
-      return <StatsBlock props={block.props as StatsBlockProps} />;
+      return <StatsBlock props={block.props as StatsBlockProps} pad={pad} />;
     case "features":
-      return <FeaturesBlock props={block.props as FeaturesBlockProps} />;
+      return <FeaturesBlock props={block.props as FeaturesBlockProps} pad={pad} />;
     case "cta":
-      return <CtaBlock props={block.props as CtaBlockProps} fallbackHref={primaryButtonHref} />;
+      return <CtaBlock props={block.props as CtaBlockProps} pad={pad} fallbackHref={primaryButtonHref} />;
     case "image_text":
-      return <ImageTextBlock props={block.props as ImageTextBlockProps} fallbackHref={primaryButtonHref} />;
+      return <ImageTextBlock props={block.props as ImageTextBlockProps} pad={pad} fallbackHref={primaryButtonHref} />;
     case "video":
-      return <VideoBlock props={block.props as VideoBlockProps} />;
+      return <VideoBlock props={block.props as VideoBlockProps} pad={pad} />;
     case "testimonials":
-      return <TestimonialsBlock props={block.props as TestimonialsBlockProps} />;
+      return <TestimonialsBlock props={block.props as TestimonialsBlockProps} pad={pad} />;
     case "logos":
-      return <LogosBlock props={block.props as LogosBlockProps} />;
+      return <LogosBlock props={block.props as LogosBlockProps} pad={pad} />;
     case "coaches":
-      return <CoachesBlock props={block.props as CoachesBlockProps} />;
+      return <CoachesBlock props={block.props as CoachesBlockProps} pad={pad} />;
     case "map":
-      return <MapBlock props={block.props as MapBlockProps} />;
+      return <MapBlock props={block.props as MapBlockProps} pad={pad} />;
     case "custom_html":
-      return <CustomHtmlBlock props={block.props as CustomHtmlBlockProps} />;
+      return <CustomHtmlBlock props={block.props as CustomHtmlBlockProps} pad={pad} />;
+    case "gallery":
+      return <GalleryBlock props={block.props as GalleryBlockProps} pad={pad} />;
+    case "pricing":
+      return <PricingBlock props={block.props as PricingTierBlockProps} pad={pad} fallbackHref={primaryButtonHref} />;
+    case "newsletter":
+      return <NewsletterBlock props={block.props as NewsletterBlockProps} pad={pad} />;
     default:
       return null;
   }
 }
 
-function StatsBlock({ props }: { props: StatsBlockProps }) {
+function StatsBlock({ props, pad }: { props: StatsBlockProps; pad?: BlockPadding }) {
   return (
-    <section className="py-12 sm:py-16" style={{ background: BRAND.darkBlue }}>
+    <section className={pad ? paddingClass(pad) : "py-12 sm:py-16"} style={{ background: BRAND.darkBlue }}>
       <div className="max-w-5xl mx-auto px-6">
         {props.eyebrow && (
           <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.25em] font-semibold text-center mb-2" style={{ color: BRAND.gold }}>
@@ -75,9 +84,9 @@ function StatsBlock({ props }: { props: StatsBlockProps }) {
   );
 }
 
-function FeaturesBlock({ props }: { props: FeaturesBlockProps }) {
+function FeaturesBlock({ props, pad }: { props: FeaturesBlockProps; pad?: BlockPadding }) {
   return (
-    <section className="py-12 sm:py-20 bg-white">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-white`}>
       <div className="max-w-5xl mx-auto px-6">
         {(props.eyebrow || props.title || props.subtitle) && (
           <div className="text-center mb-10">
@@ -115,10 +124,10 @@ function FeaturesBlock({ props }: { props: FeaturesBlockProps }) {
   );
 }
 
-function CtaBlock({ props, fallbackHref }: { props: CtaBlockProps; fallbackHref?: string }) {
+function CtaBlock({ props, fallbackHref, pad }: { props: CtaBlockProps; fallbackHref?: string; pad?: BlockPadding }) {
   const href = props.buttonHref || fallbackHref || "#";
   return (
-    <section className="py-12 sm:py-16" style={{ background: BRAND.blue }}>
+    <section className={pad ? paddingClass(pad) : "py-12 sm:py-16"} style={{ background: BRAND.blue }}>
       <div className="max-w-3xl mx-auto px-6 text-center">
         <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight mb-3" style={{ color: BRAND.white }}>
           {props.headline}
@@ -143,11 +152,11 @@ function CtaBlock({ props, fallbackHref }: { props: CtaBlockProps; fallbackHref?
 }
 
 // ── Image + Text ───────────────────────────────────────────────────────
-function ImageTextBlock({ props, fallbackHref }: { props: ImageTextBlockProps; fallbackHref?: string }) {
+function ImageTextBlock({ props, fallbackHref, pad }: { props: ImageTextBlockProps; fallbackHref?: string; pad?: BlockPadding }) {
   const isLeft = props.imagePosition === "left";
   const href = props.buttonHref || fallbackHref || "";
   return (
-    <section className="py-12 sm:py-20 bg-white">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-white`}>
       <div className="max-w-5xl mx-auto px-6">
         <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center ${isLeft ? "" : "lg:[&>*:first-child]:order-2"}`}>
           {props.imageUrl ? (
@@ -191,7 +200,7 @@ function ImageTextBlock({ props, fallbackHref }: { props: ImageTextBlockProps; f
 }
 
 // ── Video ──────────────────────────────────────────────────────────────
-function VideoBlock({ props }: { props: VideoBlockProps }) {
+function VideoBlock({ props, pad }: { props: VideoBlockProps; pad?: BlockPadding }) {
   // Lazy-load Wistia jsonp once per video id (matches the hero video pattern).
   useEffect(() => {
     if (!props.wistiaId) return;
@@ -205,7 +214,7 @@ function VideoBlock({ props }: { props: VideoBlockProps }) {
   if (!props.wistiaId && !props.youtubeUrl) return null;
 
   return (
-    <section className="py-12 sm:py-16" style={{ background: BRAND.darkBlue }}>
+    <section className={pad ? paddingClass(pad) : "py-12 sm:py-16"} style={{ background: BRAND.darkBlue }}>
       <div className="max-w-3xl mx-auto px-6">
         <div className="rounded-2xl overflow-hidden shadow-2xl shadow-black/40 border border-white/10">
           {props.wistiaId ? (
@@ -246,9 +255,9 @@ function youtubeEmbed(url: string): string {
 }
 
 // ── Testimonials ───────────────────────────────────────────────────────
-function TestimonialsBlock({ props }: { props: TestimonialsBlockProps }) {
+function TestimonialsBlock({ props, pad }: { props: TestimonialsBlockProps; pad?: BlockPadding }) {
   return (
-    <section className="py-12 sm:py-20 bg-slate-50">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-slate-50`}>
       <div className="max-w-6xl mx-auto px-6">
         {(props.eyebrow || props.title) && (
           <div className="text-center mb-10">
@@ -290,10 +299,10 @@ function TestimonialsBlock({ props }: { props: TestimonialsBlockProps }) {
 }
 
 // ── Coaches Grid ───────────────────────────────────────────────────────
-function CoachesBlock({ props }: { props: CoachesBlockProps }) {
+function CoachesBlock({ props, pad }: { props: CoachesBlockProps; pad?: BlockPadding }) {
   const cols = props.items?.length === 2 ? 'sm:grid-cols-2' : props.items?.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3';
   return (
-    <section className="py-12 sm:py-20 bg-white">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-white`}>
       <div className="max-w-6xl mx-auto px-6">
         {(props.eyebrow || props.title || props.subtitle) && (
           <div className="text-center mb-10">
@@ -348,7 +357,7 @@ function CoachesBlock({ props }: { props: CoachesBlockProps }) {
 }
 
 // ── Map / Location ─────────────────────────────────────────────────────
-function MapBlock({ props }: { props: MapBlockProps }) {
+function MapBlock({ props, pad }: { props: MapBlockProps; pad?: BlockPadding }) {
   // Accept any of: full <iframe ...> snippet, an embed URL, or a plain
   // address. Plain addresses fall back to a generic Google Maps embed.
   const src = (() => {
@@ -361,7 +370,7 @@ function MapBlock({ props }: { props: MapBlockProps }) {
     return `https://www.google.com/maps?q=${encodeURIComponent(props.address!)}&output=embed`;
   })();
   return (
-    <section className="py-12 sm:py-16 bg-white">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-16"} bg-white`}>
       <div className="max-w-5xl mx-auto px-6">
         {(props.title || props.address) && (
           <div className="text-center mb-6">
@@ -394,10 +403,10 @@ function MapBlock({ props }: { props: MapBlockProps }) {
 }
 
 // ── Custom HTML ────────────────────────────────────────────────────────
-function CustomHtmlBlock({ props }: { props: CustomHtmlBlockProps }) {
+function CustomHtmlBlock({ props, pad }: { props: CustomHtmlBlockProps; pad?: BlockPadding }) {
   const max = props.maxWidth === "narrow" ? "max-w-2xl" : props.maxWidth === "full" ? "max-w-none" : "max-w-5xl";
   return (
-    <section className="py-12 sm:py-16 bg-white">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-16"} bg-white`}>
       <div className={`${max} mx-auto px-6`}>
         <div dangerouslySetInnerHTML={{ __html: props.html ?? "" }} />
       </div>
@@ -406,9 +415,234 @@ function CustomHtmlBlock({ props }: { props: CustomHtmlBlockProps }) {
 }
 
 // ── Logo Strip ─────────────────────────────────────────────────────────
-function LogosBlock({ props }: { props: LogosBlockProps }) {
+// ── Gallery ────────────────────────────────────────────────────────────
+function GalleryBlock({ props, pad }: { props: GalleryBlockProps; pad?: BlockPadding }) {
+  const items = (props.items ?? []).filter(i => i.url);
+  if (items.length === 0) return null;
   return (
-    <section className="py-10 sm:py-12 bg-white border-y border-slate-100">
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-white`}>
+      <div className="max-w-6xl mx-auto px-6">
+        {(props.eyebrow || props.title || props.subtitle) && (
+          <div className="text-center mb-8">
+            {props.eyebrow && (
+              <div className="text-[10px] uppercase tracking-[0.25em] font-semibold mb-2" style={{ color: BRAND.blue }}>
+                {props.eyebrow}
+              </div>
+            )}
+            {props.title && (
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }}>
+                {props.title}
+              </h2>
+            )}
+            {props.subtitle && (
+              <p className="text-[14px] sm:text-[16px] mt-3 max-w-2xl mx-auto text-slate-500">
+                {props.subtitle}
+              </p>
+            )}
+          </div>
+        )}
+        {props.layout === "masonry" ? (
+          <div className="columns-2 sm:columns-3 gap-3">
+            {items.map((item, i) => (
+              <figure key={i} className="mb-3 break-inside-avoid">
+                <img src={item.url} alt={item.alt ?? item.caption ?? ""} className="w-full rounded-xl" loading="lazy" />
+                {item.caption && <figcaption className="text-[11px] mt-1.5 text-slate-400 italic">{item.caption}</figcaption>}
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+            {items.map((item, i) => (
+              <figure key={i}>
+                <img src={item.url} alt={item.alt ?? item.caption ?? ""} className="w-full aspect-square object-cover rounded-xl" loading="lazy" />
+                {item.caption && <figcaption className="text-[11px] mt-1.5 text-slate-400 italic">{item.caption}</figcaption>}
+              </figure>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── Pricing tiers ──────────────────────────────────────────────────────
+function PricingBlock({ props, pad, fallbackHref }: { props: PricingTierBlockProps; pad?: BlockPadding; fallbackHref?: string }) {
+  const items = props.items ?? [];
+  const cols = items.length === 2 ? "sm:grid-cols-2" : items.length === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3";
+  return (
+    <section className={`${pad ? paddingClass(pad) : "py-12 sm:py-20"} bg-slate-50`}>
+      <div className="max-w-6xl mx-auto px-6">
+        {(props.eyebrow || props.title || props.subtitle) && (
+          <div className="text-center mb-10">
+            {props.eyebrow && (
+              <div className="text-[10px] uppercase tracking-[0.25em] font-semibold mb-2" style={{ color: BRAND.blue }}>
+                {props.eyebrow}
+              </div>
+            )}
+            {props.title && (
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight" style={{ color: BRAND.darkBlue }}>
+                {props.title}
+              </h2>
+            )}
+            {props.subtitle && (
+              <p className="text-[14px] sm:text-[16px] mt-3 max-w-2xl mx-auto text-slate-500">
+                {props.subtitle}
+              </p>
+            )}
+          </div>
+        )}
+        <div className={`grid grid-cols-1 ${cols} gap-4 sm:gap-5 items-stretch`}>
+          {items.map((tier, i) => {
+            const href = tier.buttonHref || fallbackHref || "#";
+            const isHighlight = !!tier.highlighted;
+            return (
+              <div
+                key={i}
+                className={`relative rounded-2xl p-6 sm:p-7 flex flex-col ${isHighlight
+                  ? "shadow-2xl border-2"
+                  : "bg-white border border-slate-100 shadow-sm"}`}
+                style={isHighlight ? { background: BRAND.darkBlue, borderColor: BRAND.gold, color: BRAND.white } : undefined}
+              >
+                {tier.badge && (
+                  <div
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-[0.2em] font-bold px-3 py-1 rounded-full"
+                    style={isHighlight ? { background: BRAND.gold, color: BRAND.darkBlue } : { background: BRAND.blue, color: BRAND.white }}
+                  >
+                    {tier.badge}
+                  </div>
+                )}
+                <div className={`text-[14px] uppercase tracking-wider font-semibold mb-2 ${isHighlight ? "" : ""}`} style={{ color: isHighlight ? BRAND.gold : BRAND.blue }}>
+                  {tier.name}
+                </div>
+                <div className="flex items-baseline gap-1.5 mb-4">
+                  <span className="text-3xl sm:text-4xl font-black tracking-tight" style={{ color: isHighlight ? BRAND.white : BRAND.darkBlue }}>
+                    {tier.price}
+                  </span>
+                  {tier.period && (
+                    <span className={`text-[12px] sm:text-[13px] ${isHighlight ? "text-white/60" : "text-slate-400"}`}>
+                      {tier.period}
+                    </span>
+                  )}
+                </div>
+                <ul className="space-y-2 mb-6 flex-1">
+                  {tier.features?.map((f, fi) => (
+                    <li key={fi} className={`flex items-start gap-2 text-[13px] sm:text-[14px] ${isHighlight ? "text-white/85" : "text-slate-600"}`}>
+                      <span className={`mt-1 inline-block w-1.5 h-1.5 rounded-full flex-shrink-0`} style={{ background: isHighlight ? BRAND.gold : BRAND.blue }} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                {tier.buttonText && (
+                  <a
+                    href={href}
+                    className={`inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition ${isHighlight
+                      ? "hover:scale-[1.02]"
+                      : "bg-slate-900 hover:bg-slate-800 text-white"}`}
+                    style={isHighlight ? { background: BRAND.gold, color: BRAND.darkBlue } : undefined}
+                  >
+                    {tier.buttonText} →
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Newsletter signup ──────────────────────────────────────────────────
+function NewsletterBlock({ props, pad }: { props: NewsletterBlockProps; pad?: BlockPadding }) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/public/newsletter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), name: name.trim() || undefined, listId: props.listId || "default" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Couldn't sign up — please try again.");
+      }
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className={pad ? paddingClass(pad) : "py-12 sm:py-20"} style={{ background: BRAND.darkBlue }}>
+      <div className="max-w-2xl mx-auto px-6 text-center">
+        {props.eyebrow && (
+          <div className="text-[10px] uppercase tracking-[0.25em] font-semibold mb-2" style={{ color: BRAND.gold }}>
+            {props.eyebrow}
+          </div>
+        )}
+        {props.title && (
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight mb-3" style={{ color: BRAND.white }}>
+            {props.title}
+          </h2>
+        )}
+        {props.subtitle && (
+          <p className="text-[14px] sm:text-[16px] mb-6 max-w-xl mx-auto" style={{ color: 'rgba(251,251,252,0.7)' }}>
+            {props.subtitle}
+          </p>
+        )}
+        {submitted ? (
+          <div className="rounded-xl bg-white/10 border border-white/20 px-6 py-5 text-[14px]" style={{ color: BRAND.white }}>
+            ✓ {props.successMessage || "You're on the list. We'll be in touch."}
+          </div>
+        ) : (
+          <form onSubmit={submit} className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="First name (optional)"
+              className="flex-1 px-4 py-2.5 rounded-full bg-white/[0.08] border border-white/15 text-white placeholder:text-white/40 text-sm focus:outline-none focus:border-white/40"
+              autoComplete="given-name"
+            />
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@email.com"
+              className="flex-1 px-4 py-2.5 rounded-full bg-white/[0.08] border border-white/15 text-white placeholder:text-white/40 text-sm focus:outline-none focus:border-white/40"
+              autoComplete="email"
+            />
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-6 py-2.5 rounded-full font-bold text-sm transition hover:scale-[1.02] disabled:opacity-60"
+              style={{ background: BRAND.gold, color: BRAND.darkBlue }}
+            >
+              {submitting ? "…" : (props.buttonText || "Subscribe")}
+            </button>
+          </form>
+        )}
+        {error && <div className="mt-3 text-[12px] text-red-300">{error}</div>}
+      </div>
+    </section>
+  );
+}
+
+function LogosBlock({ props, pad }: { props: LogosBlockProps; pad?: BlockPadding }) {
+  return (
+    <section className={`${pad ? paddingClass(pad) : "py-10 sm:py-12"} bg-white border-y border-slate-100`}>
       <div className="max-w-5xl mx-auto px-6">
         {props.eyebrow && (
           <div className="text-[10px] uppercase tracking-[0.25em] font-semibold text-center mb-6 text-slate-400">
