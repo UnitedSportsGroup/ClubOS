@@ -1,11 +1,11 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, type InsertCalendarCategory } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, sql, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { requireAuth, requireSuperAdmin, verifyPassword, hashPassword } from "./auth";
+import { requireAuth, requireSuperAdmin, requireTab, verifyPassword, hashPassword } from "./auth";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
@@ -171,7 +171,7 @@ export async function registerRoutes(
         lastName: user.lastName,
         globalRole: user.role,
         active: user.active,
-        memberships: memberships.map(m => ({ orgId: m.id, orgName: m.name, orgSlug: m.slug, role: m.userRole })),
+        memberships: memberships.map(m => ({ orgId: m.id, orgName: m.name, orgSlug: m.slug, role: m.userRole, tabs: m.userTabs })),
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -180,9 +180,9 @@ export async function registerRoutes(
 
   // Create a user + add memberships in one call. This is the primary
   // onboarding endpoint. Body:
-  //   { email, firstName, lastName, password, globalRole, memberships: [{orgId, role}] }
-  // The user gets globalRole 'admin' by default (NOT super_admin), then
-  // their actual access is governed by which workspaces they're in.
+  //   { email, firstName, lastName, password, globalRole, memberships: [{orgId, role, tabs?}] }
+  // tabs is an optional whitelist of tab slugs (see shared/tabs.ts). null/omitted
+  // means full access (legacy default). Empty array means no tabs visible.
   app.post("/api/admin/team", requireSuperAdmin, async (req, res) => {
     try {
       const { email, firstName, lastName, password, globalRole, memberships, sendWelcomeEmail } = req.body;
@@ -200,6 +200,9 @@ export async function registerRoutes(
       for (const m of memberships) {
         if (!m.orgId || !m.role) return res.status(400).json({ message: "Each membership needs orgId and role" });
         if (!validRoles.includes(m.role)) return res.status(400).json({ message: `Invalid workspace role: ${m.role}` });
+        if (m.tabs !== undefined && m.tabs !== null && !Array.isArray(m.tabs)) {
+          return res.status(400).json({ message: "tabs must be null or array of strings" });
+        }
       }
       const existing = await storage.getUserByEmail(email);
       if (existing) return res.status(409).json({ message: "A user with this email already exists" });
@@ -211,7 +214,7 @@ export async function registerRoutes(
         active: true,
       });
       for (const m of memberships) {
-        await storage.addUserToOrganization(user.id, m.orgId, m.role);
+        await storage.addUserToOrganization(user.id, m.orgId, m.role, m.tabs ?? null);
       }
 
       // Optional welcome email — fire-and-forget
@@ -223,7 +226,7 @@ export async function registerRoutes(
       res.json({
         id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName,
         globalRole: user.role, active: user.active,
-        memberships: (await storage.getUserOrganizations(user.id)).map(o => ({ orgId: o.id, orgName: o.name, orgSlug: o.slug, role: o.userRole })),
+        memberships: (await storage.getUserOrganizations(user.id)).map(o => ({ orgId: o.id, orgName: o.name, orgSlug: o.slug, role: o.userRole, tabs: o.userTabs })),
       });
     } catch (error: any) {
       console.error("[Team create] failed:", error);
@@ -235,9 +238,12 @@ export async function registerRoutes(
   app.post("/api/admin/team/:id/memberships", requireSuperAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
-      const { orgId, role } = req.body;
+      const { orgId, role, tabs } = req.body;
       if (!orgId || !role) return res.status(400).json({ message: "orgId and role required" });
-      const created = await storage.addUserToOrganization(userId, orgId, role);
+      if (tabs !== undefined && tabs !== null && !Array.isArray(tabs)) {
+        return res.status(400).json({ message: "tabs must be null or array of strings" });
+      }
+      const created = await storage.addUserToOrganization(userId, orgId, role, tabs ?? null);
       res.json(created);
     } catch (error: any) {
       // duplicate membership
@@ -252,9 +258,17 @@ export async function registerRoutes(
     try {
       const userId = parseInt(req.params.id);
       const orgId = parseInt(req.params.orgId);
-      const { role } = req.body;
-      if (!role) return res.status(400).json({ message: "role required" });
-      const updated = await storage.updateUserOrgRole(userId, orgId, role);
+      const { role, tabs } = req.body;
+      if (role === undefined && tabs === undefined) {
+        return res.status(400).json({ message: "role or tabs required" });
+      }
+      if (tabs !== undefined && tabs !== null && !Array.isArray(tabs)) {
+        return res.status(400).json({ message: "tabs must be null or array of strings" });
+      }
+      const updated = await storage.updateUserOrgMembership(userId, orgId, {
+        ...(role !== undefined ? { role } : {}),
+        ...(tabs !== undefined ? { tabs } : {}),
+      });
       if (!updated) return res.status(404).json({ message: "Membership not found" });
       res.json(updated);
     } catch (error: any) {
@@ -1978,7 +1992,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/settings", requireAuth, async (_req, res) => {
+  app.get("/api/admin/settings", requireAuth, requireTab("settings"), async (_req, res) => {
     try {
       const s = await storage.getSettings();
       res.json(s);
@@ -1987,7 +2001,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/admin/settings", requireAuth, async (req, res) => {
+  app.put("/api/admin/settings", requireAuth, requireTab("settings"), async (req, res) => {
     try {
       const entries = Object.entries(req.body).map(([key, value]) => ({ key, value: String(value) }));
       await storage.upsertSettings(entries);
@@ -4574,7 +4588,7 @@ export async function registerRoutes(
     res.json({ cnameTarget });
   });
 
-  app.get("/api/admin/domains", requireAuth, async (req, res) => {
+  app.get("/api/admin/domains", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -4587,7 +4601,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/domains", requireAuth, async (req, res) => {
+  app.post("/api/admin/domains", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const { organizationId, domain } = req.body;
       if (!organizationId || !domain) return res.status(400).json({ message: "organizationId and domain required" });
@@ -4606,7 +4620,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/domains/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/domains/:id", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
@@ -4623,7 +4637,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/domains/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/domains/:id", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
@@ -4681,7 +4695,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/domains/:id/auto-configure", requireAuth, async (req, res) => {
+  app.post("/api/admin/domains/:id/auto-configure", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
@@ -4753,7 +4767,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/domains/:id/dns-status", requireAuth, async (req, res) => {
+  app.get("/api/admin/domains/:id/dns-status", requireAuth, requireTab("domains"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const domains = await db.select().from(customDomains).where(eq(customDomains.id, id));
@@ -4904,7 +4918,7 @@ export async function registerRoutes(
   // is a free-form text[] (slugs of orgs the task touches), so a USG-level
   // task can carry ['cufc','sponsorship'] and surface in the right filters.
 
-  app.get("/api/admin/projects/boards", requireAuth, async (req, res) => {
+  app.get("/api/admin/projects/boards", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -4927,7 +4941,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/admin/projects/boards", requireAuth, async (req, res) => {
+  app.post("/api/admin/projects/boards", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const orgId = parseInt(req.body?.organizationId);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -4953,7 +4967,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.patch("/api/admin/projects/boards/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/projects/boards/:id", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(projectBoards).where(eq(projectBoards.id, id));
@@ -4970,7 +4984,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.delete("/api/admin/projects/boards/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/projects/boards/:id", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(projectBoards).where(eq(projectBoards.id, id));
@@ -4982,7 +4996,7 @@ export async function registerRoutes(
   });
 
   // ── Tasks ────────────────────────────────────────────────────────────────
-  app.get("/api/admin/projects/tasks", requireAuth, async (req, res) => {
+  app.get("/api/admin/projects/tasks", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5004,7 +5018,7 @@ export async function registerRoutes(
 
   // "My tasks" — every task owned by the requesting user, across all boards
   // they have access to. Used by the home view + daily brief integration.
-  app.get("/api/admin/projects/tasks/mine", requireAuth, async (req, res) => {
+  app.get("/api/admin/projects/tasks/mine", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const userId = req.session.userId!;
       const userOrgs = await storage.getUserOrganizations(userId);
@@ -5017,7 +5031,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/admin/projects/tasks", requireAuth, async (req, res) => {
+  app.post("/api/admin/projects/tasks", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const orgId = parseInt(req.body?.organizationId);
       const boardId = parseInt(req.body?.boardId);
@@ -5033,10 +5047,22 @@ export async function registerRoutes(
           .orderBy(asc(projectGroups.displayOrder)).limit(1);
         if (firstGroup) groupId = firstGroup.id;
       }
+      // Subtask: validate parent belongs to same org/board so a subtask can't
+      // be smuggled onto someone else's task.
+      let parentId: number | null = null;
+      if (req.body?.parentId) {
+        parentId = parseInt(req.body.parentId);
+        const [parent] = await db.select().from(projectTasks).where(eq(projectTasks.id, parentId));
+        if (!parent || parent.organizationId !== orgId || parent.boardId !== boardId) {
+          return res.status(400).json({ message: "Invalid parentId" });
+        }
+        if (parent.parentId) return res.status(400).json({ message: "Subtasks can't have subtasks" });
+      }
       const [task] = await db.insert(projectTasks).values({
         organizationId: orgId,
         boardId,
         groupId,
+        parentId,
         title,
         description: req.body?.description || null,
         priority: req.body?.priority || "medium",
@@ -5049,7 +5075,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.patch("/api/admin/projects/tasks/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/projects/tasks/:id", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(projectTasks).where(eq(projectTasks.id, id));
@@ -5076,7 +5102,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.delete("/api/admin/projects/tasks/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/projects/tasks/:id", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(projectTasks).where(eq(projectTasks.id, id));
@@ -5089,7 +5115,7 @@ export async function registerRoutes(
 
   // Lightweight team list — every user with access to a given org. Used by
   // the assignee dropdown in the task editor.
-  app.get("/api/admin/projects/team", requireAuth, async (req, res) => {
+  app.get("/api/admin/projects/team", requireAuth, requireTab("projects"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5117,7 +5143,7 @@ export async function registerRoutes(
     onboarded: 100, active: 100,
   };
 
-  app.get("/api/admin/sponsorship/deals", requireAuth, async (req, res) => {
+  app.get("/api/admin/sponsorship/deals", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5135,7 +5161,7 @@ export async function registerRoutes(
   });
 
   // Pipeline summary — KPI strip up top of the sponsorship dashboard.
-  app.get("/api/admin/sponsorship/summary", requireAuth, async (req, res) => {
+  app.get("/api/admin/sponsorship/summary", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5170,7 +5196,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/admin/sponsorship/deals", requireAuth, async (req, res) => {
+  app.post("/api/admin/sponsorship/deals", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.body?.organizationId);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5209,7 +5235,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.patch("/api/admin/sponsorship/deals/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/sponsorship/deals/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
@@ -5283,7 +5309,7 @@ export async function registerRoutes(
   // Manual trigger: instantiate the onboarding template for a deal even
   // if it didn't transition through the auto-fire path (e.g. for the 65
   // imported Pipedrive deals that are already past "won" but missing onboarding).
-  app.post("/api/admin/sponsorship/deals/:id/apply-onboarding", requireAuth, async (req, res) => {
+  app.post("/api/admin/sponsorship/deals/:id/apply-onboarding", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
@@ -5323,7 +5349,7 @@ export async function registerRoutes(
   });
 
   // Onboarding template CRUD (org-scoped)
-  app.get("/api/admin/sponsorship/onboarding-templates", requireAuth, async (req, res) => {
+  app.get("/api/admin/sponsorship/onboarding-templates", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5335,7 +5361,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/admin/sponsorship/onboarding-templates", requireAuth, async (req, res) => {
+  app.post("/api/admin/sponsorship/onboarding-templates", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.body?.organizationId);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5354,7 +5380,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.patch("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipOnboardingTemplates).where(eq(sponsorshipOnboardingTemplates.id, id));
@@ -5369,7 +5395,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.delete("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/sponsorship/onboarding-templates/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipOnboardingTemplates).where(eq(sponsorshipOnboardingTemplates.id, id));
@@ -5383,7 +5409,7 @@ export async function registerRoutes(
   // Cross-deal deliverables — every deliverable across every deal in an org,
   // with the parent deal info inlined. Powers the Deliverables + Onboarding
   // tabs on the sponsorship page.
-  app.get("/api/admin/sponsorship/deliverables-all", requireAuth, async (req, res) => {
+  app.get("/api/admin/sponsorship/deliverables-all", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
@@ -5401,7 +5427,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.delete("/api/admin/sponsorship/deals/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/sponsorship/deals/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, id));
@@ -5423,7 +5449,7 @@ export async function registerRoutes(
     return deal;
   }
 
-  app.get("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, async (req, res) => {
+  app.get("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const dealId = parseInt(req.params.dealId);
       const deal = await dealForUser(req, dealId);
@@ -5435,7 +5461,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
-  app.post("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, async (req, res) => {
+  app.post("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const dealId = parseInt(req.params.dealId);
       const deal = await dealForUser(req, dealId);
@@ -5460,7 +5486,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.patch("/api/admin/sponsorship/deliverables/:id", requireAuth, async (req, res) => {
+  app.patch("/api/admin/sponsorship/deliverables/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
@@ -5484,7 +5510,7 @@ export async function registerRoutes(
     } catch (error: any) { res.status(400).json({ message: error.message }); }
   });
 
-  app.delete("/api/admin/sponsorship/deliverables/:id", requireAuth, async (req, res) => {
+  app.delete("/api/admin/sponsorship/deliverables/:id", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
@@ -5799,6 +5825,161 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // ── Event invitees (RSVP) ───────────────────────────────────────────────────
+  // List guests on an event
+  app.get("/api/admin/calendar-events/:id/invitees", requireAuth, async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const rows = await db.select().from(eventInvitees).where(eq(eventInvitees.eventId, eventId)).orderBy(asc(eventInvitees.invitedAt));
+      // Strip rsvp_token from non-organizer responses for safety — but for the admin
+      // who created the event, we leave it (used for link previews).
+      res.json(rows.map(r => ({ ...r, rsvpToken: undefined })));
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Add one or more guests. Body: { invitees: [{ email, name?, userId? }, ...], sendEmail?: boolean }
+  app.post("/api/admin/calendar-events/:id/invitees", requireAuth, async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const [event] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, eventId));
+      if (!event) return res.status(404).json({ message: "Event not found" });
+      const list: Array<{ email: string; name?: string; userId?: number }> = Array.isArray(req.body?.invitees) ? req.body.invitees : [];
+      const sendEmails = req.body?.sendEmail !== false;
+      if (list.length === 0) return res.status(400).json({ message: "invitees array required" });
+
+      const { generateRsvpToken, sendInvitationEmail } = await import("./calendar-invites");
+      const created: any[] = [];
+      for (const it of list) {
+        const email = String(it.email || "").trim().toLowerCase();
+        if (!email || !email.includes("@")) continue;
+        // Skip duplicates on same event
+        const existing = await db.select().from(eventInvitees).where(and(eq(eventInvitees.eventId, eventId), eq(eventInvitees.email, email)));
+        if (existing.length > 0) { created.push(existing[0]); continue; }
+
+        const [row] = await db.insert(eventInvitees).values({
+          eventId,
+          email,
+          name: it.name || null,
+          userId: it.userId ?? null,
+          rsvpStatus: "pending",
+          rsvpToken: generateRsvpToken(),
+          invitedBy: req.session.userId!,
+        }).returning();
+        created.push(row);
+        if (sendEmails) {
+          // Fire-and-forget — don't block the response on Resend latency.
+          sendInvitationEmail(eventId, row.id).catch(err => console.error("[Invite] send failed:", err));
+        }
+      }
+      res.json(created);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Remove a guest
+  app.delete("/api/admin/calendar-events/:id/invitees/:invId", requireAuth, async (req, res) => {
+    try {
+      const invId = parseInt(req.params.invId);
+      await db.delete(eventInvitees).where(eq(eventInvitees.id, invId));
+      res.json({ ok: true });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Resend invitation email to a specific guest
+  app.post("/api/admin/calendar-events/:id/invitees/:invId/resend", requireAuth, async (req, res) => {
+    try {
+      const invId = parseInt(req.params.invId);
+      const [inv] = await db.select().from(eventInvitees).where(eq(eventInvitees.id, invId));
+      if (!inv) return res.status(404).json({ message: "Invitee not found" });
+      const { sendInvitationEmail } = await import("./calendar-invites");
+      const ok = await sendInvitationEmail(inv.eventId, invId);
+      res.json({ ok });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Public RSVP endpoint — accepts rsvpToken from email link, no auth required.
+  // Body: { status: "accepted" | "tentative" | "declined" }
+  app.post("/api/calendar/rsvp/:token", async (req, res) => {
+    try {
+      const token = req.params.token;
+      const status = String(req.body?.status || "");
+      if (!["accepted", "tentative", "declined"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const [row] = await db.select().from(eventInvitees).where(eq(eventInvitees.rsvpToken, token));
+      if (!row) return res.status(404).json({ message: "Invitation not found" });
+      await db.update(eventInvitees).set({ rsvpStatus: status, respondedAt: new Date() }).where(eq(eventInvitees.id, row.id));
+      // Return a sanitised view of the event + invitee so the public page can confirm.
+      const [event] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, row.eventId));
+      res.json({
+        ok: true,
+        status,
+        event: event ? {
+          title: event.title,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          location: event.location,
+          allDay: event.allDay,
+        } : null,
+        inviteeName: row.name,
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Public GET — used by the public RSVP page to render the event details
+  // before the user clicks accept/decline.
+  app.get("/api/calendar/rsvp/:token", async (req, res) => {
+    try {
+      const [row] = await db.select().from(eventInvitees).where(eq(eventInvitees.rsvpToken, req.params.token));
+      if (!row) return res.status(404).json({ message: "Invitation not found" });
+      const [event] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, row.eventId));
+      if (!event) return res.status(404).json({ message: "Event not found" });
+      res.json({
+        currentStatus: row.rsvpStatus,
+        inviteeName: row.name,
+        inviteeEmail: row.email,
+        event: {
+          title: event.title,
+          description: event.description,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          location: event.location,
+          allDay: event.allDay,
+        },
+      });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // ── Event reminders ─────────────────────────────────────────────────────────
+  // List reminders on an event
+  app.get("/api/admin/calendar-events/:id/reminders", requireAuth, async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const rows = await db.select().from(eventReminders).where(eq(eventReminders.eventId, eventId)).orderBy(asc(eventReminders.offsetMinutes));
+      res.json(rows);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
+  // Replace the full reminder list for an event in one call. Body:
+  // { reminders: [{ offsetMinutes: 60, channel: "email" }, ...] }
+  // Simpler than per-row CRUD — the UI holds all of them and PUTs the new list.
+  app.put("/api/admin/calendar-events/:id/reminders", requireAuth, async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const list: Array<{ offsetMinutes: number; channel?: string }> = Array.isArray(req.body?.reminders) ? req.body.reminders : [];
+      // Wipe pending (unsent) reminders only — preserves history of already-sent ones.
+      await db.delete(eventReminders).where(and(eq(eventReminders.eventId, eventId), isNull(eventReminders.sentAt)));
+      const inserted: any[] = [];
+      for (const r of list) {
+        const offset = parseInt(r.offsetMinutes as any);
+        if (!Number.isFinite(offset) || offset < 0) continue;
+        const channel = (r.channel === "sms" || r.channel === "push") ? r.channel : "email";
+        const [row] = await db.insert(eventReminders).values({ eventId, offsetMinutes: offset, channel }).returning();
+        inserted.push(row);
+      }
+      res.json(inserted);
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
   app.get("/api/admin/analytics/order-timing", requireAuth, async (req, res) => {

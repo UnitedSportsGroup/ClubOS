@@ -76,9 +76,11 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
-  getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>>;
-  addUserToOrganization(userId: number, organizationId: number, role?: string): Promise<UserOrganization>;
+  getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string; tabs: string[] | null }> }>>;
+  addUserToOrganization(userId: number, organizationId: number, role?: string, tabs?: string[] | null): Promise<UserOrganization>;
   updateUserOrgRole(userId: number, organizationId: number, role: string): Promise<UserOrganization | undefined>;
+  updateUserOrgTabs(userId: number, organizationId: number, tabs: string[] | null): Promise<UserOrganization | undefined>;
+  updateUserOrgMembership(userId: number, organizationId: number, updates: { role?: string; tabs?: string[] | null }): Promise<UserOrganization | undefined>;
   removeUserFromOrganization(userId: number, organizationId: number): Promise<void>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, data: Partial<InsertUser>): Promise<User | undefined>;
@@ -119,7 +121,7 @@ export interface IStorage {
   getProgramDiscounts(programId: number): Promise<ProgramDiscount[]>;
   setProgramDiscounts(programId: number, discounts: { minBookings: number; discountPercent: string }[]): Promise<ProgramDiscount[]>;
 
-  getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]>;
+  getUserOrganizations(userId: number): Promise<(Organization & { userRole: string; userTabs: string[] | null })[]>;
 
   getFacilities(orgId: number): Promise<Facility[]>;
   getFacility(id: number): Promise<Facility | undefined>;
@@ -417,20 +419,21 @@ export class DatabaseStorage implements IStorage {
   // For the team management page — every user with their per-workspace
   // memberships flattened. One DB round-trip via a left join so we don't
   // N+1 across users.
-  async getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>> {
+  async getAllUsersWithMemberships(): Promise<Array<User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string; tabs: string[] | null }> }>> {
     const rows = await db.select({
       user: users,
       orgId: organizations.id,
       orgName: organizations.name,
       orgSlug: organizations.slug,
       orgRole: userOrganizations.role,
+      orgTabs: userOrganizations.tabs,
     })
       .from(users)
       .leftJoin(userOrganizations, eq(users.id, userOrganizations.userId))
       .leftJoin(organizations, eq(userOrganizations.organizationId, organizations.id))
       .orderBy(asc(users.firstName), asc(users.lastName));
 
-    const map = new Map<number, User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string }> }>();
+    const map = new Map<number, User & { memberships: Array<{ orgId: number; orgName: string; orgSlug: string; role: string; tabs: string[] | null }> }>();
     for (const row of rows) {
       const u = row.user;
       if (!map.has(u.id)) {
@@ -442,14 +445,15 @@ export class DatabaseStorage implements IStorage {
           orgName: row.orgName!,
           orgSlug: row.orgSlug!,
           role: row.orgRole!,
+          tabs: row.orgTabs ?? null,
         });
       }
     }
     return Array.from(map.values());
   }
 
-  async addUserToOrganization(userId: number, organizationId: number, role: string = "admin"): Promise<UserOrganization> {
-    const [created] = await db.insert(userOrganizations).values({ userId, organizationId, role: role as any }).returning();
+  async addUserToOrganization(userId: number, organizationId: number, role: string = "admin", tabs: string[] | null = null): Promise<UserOrganization> {
+    const [created] = await db.insert(userOrganizations).values({ userId, organizationId, role: role as any, tabs }).returning();
     return created;
   }
 
@@ -461,20 +465,41 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async updateUserOrgTabs(userId: number, organizationId: number, tabs: string[] | null): Promise<UserOrganization | undefined> {
+    const [updated] = await db.update(userOrganizations)
+      .set({ tabs })
+      .where(and(eq(userOrganizations.userId, userId), eq(userOrganizations.organizationId, organizationId)))
+      .returning();
+    return updated;
+  }
+
+  async updateUserOrgMembership(userId: number, organizationId: number, updates: { role?: string; tabs?: string[] | null }): Promise<UserOrganization | undefined> {
+    const set: any = {};
+    if (updates.role !== undefined) set.role = updates.role;
+    if (updates.tabs !== undefined) set.tabs = updates.tabs;
+    if (Object.keys(set).length === 0) return undefined;
+    const [updated] = await db.update(userOrganizations)
+      .set(set)
+      .where(and(eq(userOrganizations.userId, userId), eq(userOrganizations.organizationId, organizationId)))
+      .returning();
+    return updated;
+  }
+
   async removeUserFromOrganization(userId: number, organizationId: number): Promise<void> {
     await db.delete(userOrganizations)
       .where(and(eq(userOrganizations.userId, userId), eq(userOrganizations.organizationId, organizationId)));
   }
 
-  async getUserOrganizations(userId: number): Promise<(Organization & { userRole: string })[]> {
+  async getUserOrganizations(userId: number): Promise<(Organization & { userRole: string; userTabs: string[] | null })[]> {
     const rows = await db.select({
       org: organizations,
       userRole: userOrganizations.role,
+      userTabs: userOrganizations.tabs,
     }).from(userOrganizations)
       .innerJoin(organizations, eq(userOrganizations.organizationId, organizations.id))
       .where(eq(userOrganizations.userId, userId))
       .orderBy(asc(organizations.name));
-    return rows.map(r => ({ ...r.org, userRole: r.userRole }));
+    return rows.map(r => ({ ...r.org, userRole: r.userRole, userTabs: (r.userTabs as string[] | null) ?? null }));
   }
 
   async createUser(user: InsertUser): Promise<User> {

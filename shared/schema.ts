@@ -26,6 +26,10 @@ export const userOrganizations = pgTable("user_organizations", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   role: roleEnum("role").notNull().default("admin"),
+  // Tab access whitelist. null = full access (legacy/admin behaviour).
+  // [] = no tabs (effectively no access in workspace).
+  // ["calendar", "projects"] = whitelist of tab slugs (see shared/tabs.ts).
+  tabs: jsonb("tabs").$type<string[] | null>(),
 });
 
 export const users = pgTable("users", {
@@ -1014,6 +1018,45 @@ export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
 
+// Per-event guest list. A guest is either an internal user (userId set) or
+// an external invitee with just an email. RSVP token is opaque random — the
+// public RSVP page (no auth) uses it to identify which row to update.
+export const eventInvitees = pgTable("event_invitees", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  eventId: integer("event_id").notNull().references(() => calendarEvents.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email").notNull(),
+  name: text("name"),
+  // pending | accepted | tentative | declined
+  rsvpStatus: text("rsvp_status").notNull().default("pending"),
+  rsvpToken: text("rsvp_token").notNull().unique(),
+  invitedBy: integer("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow().notNull(),
+  respondedAt: timestamp("responded_at"),
+  inviteEmailSentAt: timestamp("invite_email_sent_at"),
+});
+
+// Reminders fire N minutes before an event's startTime. One event can have
+// multiple. The cron sweeper picks up rows where (event.startTime - offset)
+// has passed and sentAt is null. Channel is "email" for v1; "sms" / "push"
+// to follow when Twilio / app are wired in.
+export const eventReminders = pgTable("event_reminders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  eventId: integer("event_id").notNull().references(() => calendarEvents.id, { onDelete: "cascade" }),
+  // Minutes before startTime. e.g. 10, 30, 60, 720 (12h), 1440 (24h), 10080 (1w)
+  offsetMinutes: integer("offset_minutes").notNull(),
+  channel: text("channel").notNull().default("email"), // email | sms | push
+  sentAt: timestamp("sent_at"),                         // null until dispatched
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEventInviteeSchema = createInsertSchema(eventInvitees).omit({ id: true, invitedAt: true });
+export const insertEventReminderSchema = createInsertSchema(eventReminders).omit({ id: true, createdAt: true });
+export type InsertEventInvitee = z.infer<typeof insertEventInviteeSchema>;
+export type InsertEventReminder = z.infer<typeof insertEventReminderSchema>;
+export type EventInvitee = typeof eventInvitees.$inferSelect;
+export type EventReminder = typeof eventReminders.$inferSelect;
+
 // Per-organization calendar categories (a.k.a. sub-calendars) — admins can create their own.
 // Each event references one via the existing calendarEvents.calendarType slug.
 export const calendarCategories = pgTable("calendar_categories", {
@@ -1070,6 +1113,11 @@ export const projectTasks = pgTable("project_tasks", {
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   boardId: integer("board_id").notNull().references(() => projectBoards.id, { onDelete: "cascade" }),
   groupId: integer("group_id").references(() => projectGroups.id, { onDelete: "set null" }),
+  // Self-ref. Null = top-level task. Set = subtask whose lifecycle follows
+  // its parent (cascade delete). Subtasks keep every other column independent
+  // — their own owner, due date, status, brand tags — so they show up in
+  // My Tasks / Calendar as first-class items.
+  parentId: integer("parent_id").references((): any => projectTasks.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   priority: taskPriorityEnum("priority").notNull().default("medium"),

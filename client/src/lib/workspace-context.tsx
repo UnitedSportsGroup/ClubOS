@@ -7,6 +7,9 @@ type Org = {
   logoUrl: string | null;
   active: boolean;
   userRole: string;
+  // Tab whitelist for the current user in this workspace.
+  // null = full access (legacy default). Array = explicit whitelist.
+  userTabs: string[] | null;
 };
 
 type WorkspaceContextType = {

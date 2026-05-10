@@ -7,6 +7,14 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Reads the current workspace slug from localStorage (set by workspace-context).
+// Sent on every request so the server can scope tab-permission checks.
+function workspaceHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const slug = localStorage.getItem("clubos_workspace");
+  return slug ? { "X-Workspace-Slug": slug } : {};
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -14,7 +22,10 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      ...workspaceHeaders(),
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -31,6 +42,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: workspaceHeaders(),
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

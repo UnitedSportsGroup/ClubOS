@@ -9,8 +9,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { tabsForOrgSlug, type TabDef } from "@shared/tabs";
 
-interface Membership { orgId: number; orgName: string; orgSlug: string; role: string; }
+interface Membership { orgId: number; orgName: string; orgSlug: string; role: string; tabs: string[] | null; }
 interface TeamMember {
   id: number;
   email: string;
@@ -45,6 +46,11 @@ function generateTempPassword(): string {
   return `${adj[Math.floor(Math.random() * adj.length)]}-${noun[Math.floor(Math.random() * noun.length)]}-${num}`;
 }
 
+// Per-workspace draft state for the Add Member modal.
+// tabs is the explicit whitelist (null only when role is admin/manager — those
+// roles imply full access regardless of tabs column).
+type DraftMembership = { role: string; tabs: string[] };
+
 function AddMemberModal({
   open, onClose, organizations,
 }: { open: boolean; onClose: () => void; organizations: Org[] }) {
@@ -54,12 +60,21 @@ function AddMemberModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState(generateTempPassword());
   const [globalRole, setGlobalRole] = useState("admin");
-  const [memberships, setMemberships] = useState<Record<number, string>>({});
+  const [memberships, setMemberships] = useState<Record<number, DraftMembership>>({});
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
 
   const create = useMutation({
     mutationFn: async () => {
-      const membershipsArr = Object.entries(memberships).map(([orgId, role]) => ({ orgId: parseInt(orgId), role }));
+      // Send tabs as null when the role grants full access (admin/manager) —
+      // matches server-side canAccessTab semantics. Otherwise send the array.
+      const membershipsArr = Object.entries(memberships).map(([orgId, draft]) => {
+        const fullAccessRole = draft.role === "admin" || draft.role === "manager";
+        return {
+          orgId: parseInt(orgId),
+          role: draft.role,
+          tabs: fullAccessRole ? null : draft.tabs,
+        };
+      });
       const res = await apiRequest("POST", "/api/admin/team", {
         email, firstName, lastName, password, globalRole,
         memberships: membershipsArr,
@@ -124,10 +139,13 @@ function AddMemberModal({
             <h4 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3 flex items-center gap-2">
               <Building2 className="w-3.5 h-3.5" /> Workspace access
             </h4>
-            <p className="text-xs text-white/50 mb-3">Tick the workspaces this person can access. Pick a role per workspace — different workspaces can have different permissions.</p>
+            <p className="text-xs text-white/50 mb-3">Tick a workspace, pick a role, then choose exactly which tabs this person can see. Admin and Manager roles get full access regardless.</p>
             <div className="space-y-2">
               {organizations.map(org => {
-                const isSelected = memberships[org.id] !== undefined;
+                const draft = memberships[org.id];
+                const isSelected = draft !== undefined;
+                const allTabs = tabsForOrgSlug(org.slug);
+                const fullAccessRole = draft?.role === "admin" || draft?.role === "manager";
                 return (
                   <div
                     key={org.id}
@@ -140,8 +158,12 @@ function AddMemberModal({
                         type="checkbox"
                         checked={isSelected}
                         onChange={(e) => {
-                          if (e.target.checked) setMemberships({ ...memberships, [org.id]: "admin" });
-                          else {
+                          if (e.target.checked) {
+                            // Default per Daniel's choice: no tabs ticked. They must
+                            // explicitly grant access. Role defaults to team_member
+                            // (least-privilege) rather than admin.
+                            setMemberships({ ...memberships, [org.id]: { role: "team_member", tabs: [] } });
+                          } else {
                             const { [org.id]: _, ...rest } = memberships;
                             setMemberships(rest);
                           }
@@ -154,22 +176,84 @@ function AddMemberModal({
                       </div>
                       <div className="flex-1 text-sm text-white">{org.name}</div>
                     </label>
-                    {isSelected && (
-                      <div className="mt-3 ml-7 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {WORKSPACE_ROLES.map(r => (
-                          <button
-                            key={r.value}
-                            type="button"
-                            onClick={() => setMemberships({ ...memberships, [org.id]: r.value })}
-                            className={`px-3 py-2 rounded-md text-xs text-left transition ${
-                              memberships[org.id] === r.value
-                                ? "bg-blue-600 text-white"
-                                : "bg-white/[0.04] text-white/60 hover:bg-white/[0.08]"
-                            }`}
-                          >
-                            {r.label}
-                          </button>
-                        ))}
+                    {isSelected && draft && (
+                      <div className="mt-3 ml-7 space-y-3">
+                        {/* Role picker */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {WORKSPACE_ROLES.map(r => (
+                            <button
+                              key={r.value}
+                              type="button"
+                              onClick={() => setMemberships({ ...memberships, [org.id]: { ...draft, role: r.value } })}
+                              className={`px-3 py-2 rounded-md text-xs text-left transition ${
+                                draft.role === r.value
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-white/[0.04] text-white/60 hover:bg-white/[0.08]"
+                              }`}
+                            >
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Tab access */}
+                        <div className="rounded-md bg-black/20 border border-white/[0.06] p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[11px] uppercase tracking-wider font-semibold text-white/50">
+                              Tab access
+                            </p>
+                            {!fullAccessRole && (
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setMemberships({ ...memberships, [org.id]: { ...draft, tabs: allTabs.map((t: TabDef) => t.slug) } })}
+                                  className="text-[10px] text-blue-400 hover:text-blue-300"
+                                >
+                                  Select all
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setMemberships({ ...memberships, [org.id]: { ...draft, tabs: [] } })}
+                                  className="text-[10px] text-white/40 hover:text-white/60"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {fullAccessRole ? (
+                            <p className="text-[11px] text-amber-300/80">
+                              Admin and Manager roles see all tabs — tab selection isn't applied. Pick a different role above to scope access.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {allTabs.map((tab: TabDef) => {
+                                const checked = draft.tabs.includes(tab.slug);
+                                return (
+                                  <label
+                                    key={tab.slug}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded text-[12px] cursor-pointer transition ${
+                                      checked ? "bg-blue-500/10 text-white" : "text-white/50 hover:bg-white/[0.04]"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const nextTabs = e.target.checked
+                                          ? [...draft.tabs, tab.slug]
+                                          : draft.tabs.filter(t => t !== tab.slug);
+                                        setMemberships({ ...memberships, [org.id]: { ...draft, tabs: nextTabs } });
+                                      }}
+                                    />
+                                    <span className="flex-1 truncate">{tab.title}</span>
+                                    {tab.secondary && <span className="text-[9px] text-white/30 uppercase">admin</span>}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -233,8 +317,8 @@ function ManageMembershipsModal({
   const memberId = member?.id;
 
   const addMembership = useMutation({
-    mutationFn: async ({ orgId, role }: { orgId: number; role: string }) => {
-      const res = await apiRequest("POST", `/api/admin/team/${memberId}/memberships`, { orgId, role });
+    mutationFn: async ({ orgId, role, tabs }: { orgId: number; role: string; tabs: string[] | null }) => {
+      const res = await apiRequest("POST", `/api/admin/team/${memberId}/memberships`, { orgId, role, tabs });
       return res.json();
     },
     onSuccess: () => {
@@ -244,14 +328,16 @@ function ManageMembershipsModal({
     onError: (e: Error) => toast({ title: "Couldn't add", description: e.message, variant: "destructive" }),
   });
 
-  const updateRole = useMutation({
-    mutationFn: async ({ orgId, role }: { orgId: number; role: string }) => {
-      const res = await apiRequest("PATCH", `/api/admin/team/${memberId}/memberships/${orgId}`, { role });
+  const updateMembership = useMutation({
+    mutationFn: async ({ orgId, role, tabs }: { orgId: number; role?: string; tabs?: string[] | null }) => {
+      const body: any = {};
+      if (role !== undefined) body.role = role;
+      if (tabs !== undefined) body.tabs = tabs;
+      const res = await apiRequest("PATCH", `/api/admin/team/${memberId}/memberships/${orgId}`, body);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/team"] });
-      toast({ title: "Role updated" });
     },
     onError: (e: Error) => toast({ title: "Couldn't update", description: e.message, variant: "destructive" }),
   });
@@ -331,29 +417,105 @@ function ManageMembershipsModal({
               </div>
             ) : (
               <div className="space-y-2">
-                {member.memberships.map(m => (
-                  <div key={m.orgId} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 flex items-center gap-3">
-                    <Building2 className="w-4 h-4 text-white/40" />
-                    <div className="flex-1 text-sm text-white">{m.orgName}</div>
-                    <select
-                      value={m.role}
-                      onChange={e => updateRole.mutate({ orgId: m.orgId, role: e.target.value })}
-                      className="bg-white/[0.04] border border-white/10 text-white/80 text-xs rounded-md px-2 py-1"
-                    >
-                      {WORKSPACE_ROLES.map(r => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Remove ${member.firstName} from ${m.orgName}?`)) removeMembership.mutate(m.orgId);
-                      }}
-                      className="text-red-400/70 hover:text-red-400"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+                {member.memberships.map(m => {
+                  const allTabs = tabsForOrgSlug(m.orgSlug);
+                  const fullAccessRole = m.role === "admin" || m.role === "manager";
+                  const currentTabs: string[] = m.tabs ?? [];
+                  const isLegacy = m.tabs === null && !fullAccessRole;
+                  return (
+                    <div key={m.orgId} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <Building2 className="w-4 h-4 text-white/40" />
+                        <div className="flex-1 text-sm text-white">{m.orgName}</div>
+                        <select
+                          value={m.role}
+                          onChange={e => updateMembership.mutate({ orgId: m.orgId, role: e.target.value })}
+                          className="bg-white/[0.04] border border-white/10 text-white/80 text-xs rounded-md px-2 py-1"
+                        >
+                          {WORKSPACE_ROLES.map(r => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remove ${member.firstName} from ${m.orgName}?`)) removeMembership.mutate(m.orgId);
+                          }}
+                          className="text-red-400/70 hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="rounded-md bg-black/20 border border-white/[0.06] p-2.5">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] uppercase tracking-wider font-semibold text-white/50">Tab access</p>
+                          {!fullAccessRole && (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => updateMembership.mutate({ orgId: m.orgId, tabs: allTabs.map((t: TabDef) => t.slug) })}
+                                className="text-[10px] text-blue-400 hover:text-blue-300"
+                              >
+                                All
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateMembership.mutate({ orgId: m.orgId, tabs: [] })}
+                                className="text-[10px] text-white/40 hover:text-white/60"
+                              >
+                                None
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {fullAccessRole ? (
+                          <p className="text-[11px] text-amber-300/70">
+                            {m.role === "admin" ? "Admin" : "Manager"} role grants full access to all tabs.
+                          </p>
+                        ) : isLegacy ? (
+                          <div className="flex items-center gap-2">
+                            <p className="text-[11px] text-amber-300/80 flex-1">
+                              Currently has <strong>full access</strong> (legacy — no scope set). Click "All" to lock in, or pick specific tabs below.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => updateMembership.mutate({ orgId: m.orgId, tabs: [] })}
+                              className="text-[10px] text-blue-400 hover:text-blue-300"
+                            >
+                              Scope down
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-1">
+                            {allTabs.map((tab: TabDef) => {
+                              const checked = currentTabs.includes(tab.slug);
+                              return (
+                                <label
+                                  key={tab.slug}
+                                  className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] cursor-pointer transition ${
+                                    checked ? "bg-blue-500/10 text-white" : "text-white/50 hover:bg-white/[0.04]"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const nextTabs = e.target.checked
+                                        ? [...currentTabs, tab.slug]
+                                        : currentTabs.filter(t => t !== tab.slug);
+                                      updateMembership.mutate({ orgId: m.orgId, tabs: nextTabs });
+                                    }}
+                                  />
+                                  <span className="flex-1 truncate">{tab.title}</span>
+                                  {tab.secondary && <span className="text-[8px] text-white/30 uppercase">admin</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -365,12 +527,12 @@ function ManageMembershipsModal({
                 {availableOrgs.map(org => (
                   <button
                     key={org.id}
-                    onClick={() => addMembership.mutate({ orgId: org.id, role: "admin" })}
+                    onClick={() => addMembership.mutate({ orgId: org.id, role: "team_member", tabs: [] })}
                     className="w-full rounded-lg border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] p-3 flex items-center gap-3 text-left"
                   >
                     <Building2 className="w-4 h-4 text-white/40" />
                     <div className="flex-1 text-sm text-white">{org.name}</div>
-                    <span className="text-xs text-blue-400">+ Add as Admin</span>
+                    <span className="text-xs text-blue-400">+ Add (no tabs yet)</span>
                   </button>
                 ))}
               </div>

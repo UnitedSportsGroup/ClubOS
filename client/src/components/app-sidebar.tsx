@@ -42,11 +42,15 @@ import {
   FileText,
   Send,
   ExternalLink,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/lib/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
+import { canAccessTab } from "@shared/tabs";
 
 type Org = {
   id: number;
@@ -55,110 +59,113 @@ type Org = {
   logoUrl: string | null;
   active: boolean;
   userRole: string;
+  userTabs: string[] | null;
 };
 
+// Each nav item carries a `tab` slug matching shared/tabs.ts. The sidebar
+// filters items at render time based on the user's userTabs whitelist.
 const campsNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Camps", url: "/admin/camps", icon: Tent },
-  { title: "Academy", url: "/admin/academy", icon: GraduationCap },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "camps", title: "Camps", url: "/admin/camps", icon: Tent },
+  { tab: "academy", title: "Academy", url: "/admin/academy", icon: GraduationCap },
   // Terms intentionally NOT in the sidebar — it's reachable as a sub-tab
   // from the Academy page (Programs / Term Dates), matching the gymnastics
   // workspace's All Programs / Term Dates pattern.
-  { title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
-  { title: "Contacts", url: "/admin/contacts", icon: Users },
-  { title: "Mailer", url: "/admin/mailer", icon: Mail },
-  { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
-  { title: "Discounts", url: "/admin/discounts", icon: Tag },
+  { tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
+  { tab: "contacts", title: "Contacts", url: "/admin/contacts", icon: Users },
+  { tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail },
+  { tab: "analytics", title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
+  { tab: "discounts", title: "Discounts", url: "/admin/discounts", icon: Tag },
 ];
 
 const venueNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Bookings Calendar", url: "/admin/calendar", icon: Calendar },
-  { title: "Website", url: "/admin/website", icon: Globe },
-  { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
-  { title: "Facilities", url: "/admin/facilities", icon: Shield },
-  { title: "Add-ons", url: "/admin/addons", icon: Puzzle },
-  { title: "People & Access", url: "/admin/people", icon: Users },
-  { title: "Payments", url: "/admin/payments", icon: CreditCard },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "calendar", title: "Bookings Calendar", url: "/admin/calendar", icon: Calendar },
+  { tab: "website", title: "Website", url: "/admin/website", icon: Globe },
+  { tab: "analytics", title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
+  { tab: "facilities", title: "Facilities", url: "/admin/facilities", icon: Shield },
+  { tab: "addons", title: "Add-ons", url: "/admin/addons", icon: Puzzle },
+  { tab: "people", title: "People & Access", url: "/admin/people", icon: Users },
+  { tab: "payments", title: "Payments", url: "/admin/payments", icon: CreditCard },
 ];
 
 const campsSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
 const leagueNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Competitions", url: "/admin/competitions", icon: Trophy },
-  { title: "Teams", url: "/admin/teams", icon: UsersRound },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "competitions", title: "Competitions", url: "/admin/competitions", icon: Trophy },
+  { tab: "teams", title: "Teams", url: "/admin/teams", icon: UsersRound },
 ];
 
 const venueSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/venue-settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/venue-settings", icon: Settings },
 ];
 
 const leagueSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/league-settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/league-settings", icon: Settings },
 ];
 
 const tournamentNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Tournaments", url: "/admin/tournaments", icon: Award },
-  { title: "Clubs", url: "/admin/clubs", icon: Shield },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "tournaments", title: "Tournaments", url: "/admin/tournaments", icon: Award },
+  { tab: "clubs", title: "Clubs", url: "/admin/clubs", icon: Shield },
 ];
 
 const tournamentSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/tournament-settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/tournament-settings", icon: Settings },
 ];
 
 const gymnasticsNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Programs", url: "/admin/programs", icon: GraduationCap },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "programs", title: "Programs", url: "/admin/programs", icon: GraduationCap },
 ];
 
 const gymnasticsSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/gymnastics-settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/gymnastics-settings", icon: Settings },
 ];
 
 const groupNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Calendar", url: "/admin/calendar", icon: Calendar },
-  { title: "Projects", url: "/admin/projects", icon: ClipboardCheck },
-  { title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "calendar", title: "Calendar", url: "/admin/calendar", icon: Calendar },
+  { tab: "projects", title: "Projects", url: "/admin/projects", icon: ClipboardCheck },
+  { tab: "sponsorship", title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
 ];
 
 const groupSecondary = [
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
 const printsNav = [
-  { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { title: "Jobs", url: "/admin/print-jobs", icon: FolderKanban },
-  { title: "Orders", url: "/admin/print-orders", icon: ShoppingCart },
-  { title: "Materials", url: "/admin/print-materials", icon: FileText },
-  { title: "CRM", url: "/admin/print-crm", icon: Users },
-  { title: "Projects", url: "/admin/print-projects", icon: FolderKanban },
-  { title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
-  { title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
-  { title: "Email Sender", url: "/admin/print-email", icon: Send },
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  { tab: "jobs", title: "Jobs", url: "/admin/print-jobs", icon: FolderKanban },
+  { tab: "orders", title: "Orders", url: "/admin/print-orders", icon: ShoppingCart },
+  { tab: "materials", title: "Materials", url: "/admin/print-materials", icon: FileText },
+  { tab: "crm", title: "CRM", url: "/admin/print-crm", icon: Users },
+  { tab: "projects", title: "Projects", url: "/admin/print-projects", icon: FolderKanban },
+  { tab: "analytics", title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
+  { tab: "landing", title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
+  { tab: "email", title: "Email Sender", url: "/admin/print-email", icon: Send },
 ];
 
 const printsSecondary = [
-  { title: "Integrations", url: "/admin/integrations", icon: Globe },
-  { title: "Team", url: "/admin/team", icon: Users },
-  { title: "Domains", url: "/admin/domains", icon: Globe },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  { tab: "integrations", title: "Integrations", url: "/admin/integrations", icon: Globe },
+  { tab: "team", title: "Team", url: "/admin/team", icon: Users },
+  { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
+  { tab: "settings", title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
 function PreviewPublicSiteLink({ orgId, orgSlug }: { orgId: number; orgSlug: string }) {
@@ -314,6 +321,7 @@ function getWorkspaceInitials(slug: string | undefined) {
 export function AppSidebar() {
   const [location] = useLocation();
   const { currentOrg } = useWorkspace();
+  const { resolved: themeResolved, toggle: toggleTheme } = useTheme();
   const { data: user } = useQuery<{ firstName: string; lastName: string; role: string }>({ queryKey: ["/api/auth/me"] });
 
   const isVenue = isVenueWorkspace(currentOrg?.slug);
@@ -322,8 +330,20 @@ export function AppSidebar() {
   const isGymnastics = isGymnasticsWorkspace(currentOrg?.slug);
   const isGroup = isGroupWorkspace(currentOrg?.slug);
   const isPrints = isPrintsWorkspace(currentOrg?.slug);
-  const mainNav = isPrints ? printsNav : isGroup ? groupNav : isGymnastics ? gymnasticsNav : isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
-  const secondaryNav = isPrints ? printsSecondary : isGroup ? groupSecondary : isGymnastics ? gymnasticsSecondary : isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
+  const allMainNav = isPrints ? printsNav : isGroup ? groupNav : isGymnastics ? gymnasticsNav : isTournament ? tournamentNav : isLeague ? leagueNav : isVenue ? venueNav : campsNav;
+  const allSecondaryNav = isPrints ? printsSecondary : isGroup ? groupSecondary : isGymnastics ? gymnasticsSecondary : isTournament ? tournamentSecondary : isLeague ? leagueSecondary : isVenue ? venueSecondary : campsSecondary;
+
+  // Filter nav by the user's tab whitelist for this workspace.
+  // canAccessTab handles the bypass cases (super_admin, admin/manager role,
+  // null tabs = full access for legacy memberships).
+  const navFilter = (item: { tab: string }) => canAccessTab({
+    globalRole: user?.role,
+    membershipRole: currentOrg?.userRole,
+    membershipTabs: currentOrg?.userTabs,
+    tabSlug: item.tab,
+  });
+  const mainNav = allMainNav.filter(navFilter);
+  const secondaryNav = allSecondaryNav.filter(navFilter);
 
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout"),
@@ -430,6 +450,19 @@ export function AppSidebar() {
             </span>
             <span className="text-[10px] text-blue-400/30 capitalize">{user?.role?.replace(/_/g, " ") || ""}</span>
           </div>
+          <button
+            onClick={toggleTheme}
+            className="w-7 h-7 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-blue-500/10 hover:border-blue-500/20 transition-all cursor-pointer"
+            data-testid="button-toggle-theme"
+            title={themeResolved === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle theme"
+          >
+            {themeResolved === "dark" ? (
+              <Sun className="w-3.5 h-3.5 text-amber-300" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-blue-600" />
+            )}
+          </button>
           <button
             onClick={() => logoutMutation.mutate()}
             className="w-7 h-7 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-red-500/10 hover:border-red-500/20 transition-all cursor-pointer"
