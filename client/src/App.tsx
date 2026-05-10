@@ -3,6 +3,8 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/lib/theme-provider";
+import RsvpPage from "@/pages/rsvp";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
@@ -257,10 +259,10 @@ function AdminLayout() {
   return (
     <AuthGuard>
       <SidebarProvider style={style as React.CSSProperties}>
-        <div className="flex h-screen w-full overflow-hidden" style={{ background: '#02060E' }}>
+        <div className="flex h-screen w-full overflow-hidden bg-background">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-3 sm:gap-4 px-3 sm:px-6 h-14 border-b border-blue-500/[0.06] flex-shrink-0 backdrop-blur-2xl" style={{ background: 'rgba(2,6,14,0.7)' }}>
+            <header className="flex items-center justify-between gap-3 sm:gap-4 px-3 sm:px-6 h-14 border-b border-blue-500/[0.06] flex-shrink-0 backdrop-blur-2xl admin-header">
               <div className="flex items-center gap-3">
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white/30 hover:text-white/50 transition-colors duration-300" />
               </div>
@@ -298,7 +300,8 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider>
         {isAdminLogin ? (
           <AdminLogin />
         ) : isAdminEditPage ? (
@@ -327,6 +330,7 @@ function App() {
             </Route>
             <Route path="/terms" component={TermsPage} />
             <Route path="/privacy" component={PrivacyPage} />
+            <Route path="/calendar/rsvp/:token" component={RsvpPage} />
             <Route path="/book" component={VenueBookPage} />
             <Route path="/book/success" component={VenueBookSuccess} />
             <Route path="/print" component={PrintHub} />
@@ -346,6 +350,7 @@ function App() {
         )}
         <Toaster />
       </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

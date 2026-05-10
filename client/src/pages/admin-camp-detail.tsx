@@ -107,7 +107,7 @@ function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => v
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="sm:col-span-2 space-y-1.5">
-          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Camp Name</label>
+          <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Program Name</label>
           <Input value={name} onChange={e => setName(e.target.value)} className="premium-input text-white/80 rounded-xl" data-testid="input-camp-name" />
         </div>
         <div className="sm:col-span-2 space-y-1.5">
@@ -203,6 +203,10 @@ type ScheduleSlot = {
 
 const DOW_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DOW_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
+// Visual order: Monday-first (NZ / international convention). Underlying
+// `daysOfWeek: number[]` still stores 0=Sun..6=Sat to match JS Date.getDay()
+// — only the chip render order changes.
+const DOW_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function newSlot(partial: Partial<ScheduleSlot> = {}): ScheduleSlot {
   return {
@@ -366,15 +370,15 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
               <div>
                 <label className="text-[10px] text-white/40 uppercase">Days of week</label>
                 <div className="flex gap-1.5 mt-1">
-                  {DOW_SHORT.map((d, i) => (
+                  {DOW_DISPLAY_ORDER.map(dayIndex => (
                     <button
                       type="button"
-                      key={i}
-                      onClick={() => toggleDay(slot.id, i)}
-                      className={`flex-1 h-9 rounded-lg text-[12px] font-bold transition-colors ${slot.daysOfWeek.includes(i) ? "bg-blue-500/30 border border-blue-400 text-white" : "bg-white/[0.03] border border-white/[0.06] text-white/35 hover:text-white/60"}`}
-                      data-testid={`slot-${idx}-day-${i}`}
+                      key={dayIndex}
+                      onClick={() => toggleDay(slot.id, dayIndex)}
+                      className={`flex-1 h-9 rounded-lg text-[12px] font-bold transition-colors ${slot.daysOfWeek.includes(dayIndex) ? "bg-blue-500/30 border border-blue-400 text-white" : "bg-white/[0.03] border border-white/[0.06] text-white/35 hover:text-white/60"}`}
+                      data-testid={`slot-${idx}-day-${dayIndex}`}
                     >
-                      {d}
+                      {DOW_SHORT[dayIndex]}
                     </button>
                   ))}
                 </div>
@@ -1119,7 +1123,7 @@ function ContentTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => vo
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Short Description</label>
-          <textarea value={descriptionShort} onChange={e => setDescriptionShort(e.target.value)} className="w-full h-16 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" placeholder="One-liner for camp listing cards" data-testid="input-description-short" />
+          <textarea value={descriptionShort} onChange={e => setDescriptionShort(e.target.value)} className="w-full h-16 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-blue-500/30 resize-none" placeholder="One-liner for program listing cards" data-testid="input-description-short" />
         </div>
         <div className="space-y-1.5">
           <label className="text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Long Description</label>
@@ -1918,7 +1922,7 @@ export default function AdminCampDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
-      toast({ title: "Camp updated" });
+      toast({ title: "Program updated" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -1929,7 +1933,7 @@ export default function AdminCampDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/camps"] });
-      toast({ title: "Camp deleted" });
+      toast({ title: "Program deleted" });
       navigate(listPath);
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -1958,7 +1962,7 @@ export default function AdminCampDetail() {
   if (!camp) {
     return (
       <div className="p-8 max-w-5xl mx-auto">
-        <p className="text-white/40">Camp not found</p>
+        <p className="text-white/40">Program not found</p>
       </div>
     );
   }
@@ -2002,7 +2006,7 @@ export default function AdminCampDetail() {
             className="rounded-xl h-8 text-[12px] border-red-500/30 text-red-400/80 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
             data-testid="button-delete-camp"
           >
-            <Trash2 className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Delete Camp</span>
+            <Trash2 className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Delete Program</span>
           </Button>
         </div>
       </div>
@@ -2055,7 +2059,7 @@ export default function AdminCampDetail() {
                   <Settings className="w-4 h-4 text-blue-400/70" />
                 </div>
                 <div>
-                  <h3 className="text-[14px] font-semibold text-white/80">Edit Camp</h3>
+                  <h3 className="text-[14px] font-semibold text-white/80">Edit Program</h3>
                   <p className="text-[11px] text-blue-400/35">Update camp settings</p>
                 </div>
               </div>
@@ -2087,7 +2091,7 @@ export default function AdminCampDetail() {
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
               <div>
-                <h3 className="text-[15px] font-semibold text-white/90">Delete Camp</h3>
+                <h3 className="text-[15px] font-semibold text-white/90">Delete Program</h3>
                 <p className="text-[12px] text-white/40">This action cannot be undone</p>
               </div>
             </div>
@@ -2109,7 +2113,7 @@ export default function AdminCampDetail() {
                 className="rounded-xl h-9 text-[12px] bg-red-600 hover:bg-red-500 text-white border-0 cursor-pointer"
                 data-testid="button-confirm-delete"
               >
-                {deleteMutation.isPending ? "Deleting..." : "Yes, Delete Camp"}
+                {deleteMutation.isPending ? "Deleting..." : "Yes, Delete Program"}
               </Button>
             </div>
           </div>

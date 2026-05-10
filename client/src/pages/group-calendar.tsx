@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
-  Trash2, Edit, Repeat, DollarSign, Pencil
+  Trash2, Edit, Repeat, DollarSign, Pencil, Users, Bell
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -77,6 +77,20 @@ function formatMinutes(m: number): string {
 
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// All-day events use the end-exclusive convention: start=Oct 12 00:00,
+// end=Oct 13 00:00 means "all of Oct 12". When deciding which day(s) the
+// event renders on, treat the end as the previous instant so a single-day
+// all-day event doesn't bleed into the next day. Timed events keep their
+// stored end-time as-is.
+function inclusiveEnd(e: { allDay?: boolean; endTime: string | Date }): Date {
+  const en = new Date(e.endTime as any);
+  if (!e.allDay) return en;
+  if (en.getHours() === 0 && en.getMinutes() === 0 && en.getSeconds() === 0 && en.getMilliseconds() === 0) {
+    return new Date(en.getTime() - 1);
+  }
+  return en;
 }
 
 function toLocalDate(d: Date): string {
@@ -183,6 +197,26 @@ export default function GroupCalendar() {
   const [showCustomRepeat, setShowCustomRepeat] = useState(false);
   const [formAmount, setFormAmount] = useState("");
 
+  // Guest list + reminders for the event modal. Both flushed to the server
+  // after the event itself saves successfully.
+  type DraftInvitee = { email: string; name?: string; userId?: number; existingId?: number; rsvpStatus?: string };
+  type DraftReminder = { id: string; offsetMinutes: number };
+  const [formInvitees, setFormInvitees] = useState<DraftInvitee[]>([]);
+  const [formReminders, setFormReminders] = useState<DraftReminder[]>([]);
+  const [guestInput, setGuestInput] = useState("");
+
+  // Team list for guest autocomplete (org-scoped users with email)
+  const { data: teamList = [] } = useQuery<Array<{ id: number; first_name: string; last_name: string; email: string }>>({
+    queryKey: ["/api/admin/projects/team", currentOrg?.id],
+    queryFn: async () => {
+      if (!currentOrg?.id) return [];
+      const r = await fetch(`/api/admin/projects/team?organizationId=${currentOrg.id}`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!currentOrg?.id,
+  });
+
   const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const quickTitleRef = useRef<HTMLInputElement>(null);
@@ -219,12 +253,16 @@ export default function GroupCalendar() {
       const res = await apiRequest("POST", "/api/admin/calendar-events", data);
       return res.json();
     },
-    onSuccess: (result: any) => {
+    onSuccess: async (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
+      // For single-event creates, attach invitees + reminders to the new event.
+      // For recurring (where result.events is an array), apply to every occurrence.
+      const targetIds: number[] = result?.events ? result.events.map((e: any) => e.id) : (result?.id ? [result.id] : []);
+      for (const id of targetIds) await syncInviteesAndReminders(id);
       if (result?.created && result.created > 1) {
-        toast({ title: `${result.created} events created` });
+        toast({ title: `${result.created} events created`, description: formInvitees.length > 0 ? "Invitations sent" : undefined });
       } else {
-        toast({ title: "Event created" });
+        toast({ title: "Event created", description: formInvitees.length > 0 ? "Invitations sent" : undefined });
       }
       closeModal();
       closeDraft();
@@ -237,8 +275,9 @@ export default function GroupCalendar() {
       const res = await apiRequest("PATCH", `/api/admin/calendar-events/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/calendar-events"] });
+      if (result?.id) await syncInviteesAndReminders(result.id);
       toast({ title: "Event updated" });
       closeModal();
       setSelectedEvent(null);
@@ -405,6 +444,10 @@ export default function GroupCalendar() {
     setFormRepeatUntil("");
     setShowCustomRepeat(false);
     setFormAmount("");
+    // Default reminder for new events: 30 minutes before. Matches Google's default.
+    setFormInvitees([]);
+    setFormReminders([{ id: crypto.randomUUID(), offsetMinutes: 30 }]);
+    setGuestInput("");
     setShowModal(true);
   }
 
@@ -428,8 +471,54 @@ export default function GroupCalendar() {
     setFormRepeatUntil("");
     setShowCustomRepeat(false);
     setFormAmount(event.amount ? String(event.amount) : "");
+    // Pull existing invitees + reminders from the server for this event.
+    fetch(`/api/admin/calendar-events/${event.id}/invitees`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: any[]) => setFormInvitees(rows.map(r => ({
+        existingId: r.id, email: r.email, name: r.name, userId: r.userId, rsvpStatus: r.rsvpStatus,
+      }))))
+      .catch(() => setFormInvitees([]));
+    fetch(`/api/admin/calendar-events/${event.id}/reminders`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: any[]) => setFormReminders(rows
+        .filter(r => !r.sentAt) // hide already-sent reminders from the editor
+        .map(r => ({ id: String(r.id), offsetMinutes: r.offsetMinutes }))))
+      .catch(() => setFormReminders([]));
+    setGuestInput("");
     setShowModal(true);
     setSelectedEvent(null);
+  }
+
+  // Sync guests + reminders for the given event ID. Called after the event
+  // itself saves (create or update).
+  async function syncInviteesAndReminders(eventId: number) {
+    // Diff invitees: keep existing + add new + remove deleted.
+    const existingIds = new Set(formInvitees.filter(i => i.existingId).map(i => i.existingId));
+    const newOnes = formInvitees.filter(i => !i.existingId);
+    if (newOnes.length > 0) {
+      try {
+        await apiRequest("POST", `/api/admin/calendar-events/${eventId}/invitees`, {
+          invitees: newOnes.map(i => ({ email: i.email, name: i.name, userId: i.userId })),
+          sendEmail: true,
+        });
+      } catch (e: any) { toast({ title: "Couldn't invite some guests", description: e.message, variant: "destructive" }); }
+    }
+    // Remove guests the user removed from the form. Do this after fetching
+    // current server state so we don't double-delete.
+    try {
+      const rows = await fetch(`/api/admin/calendar-events/${eventId}/invitees`, { credentials: "include" }).then(r => r.ok ? r.json() : []);
+      for (const row of rows) {
+        if (!existingIds.has(row.id) && !newOnes.some(n => n.email === row.email)) {
+          await apiRequest("DELETE", `/api/admin/calendar-events/${eventId}/invitees/${row.id}`);
+        }
+      }
+    } catch {}
+    // Reminders: PUT replaces the full pending list in one call.
+    try {
+      await apiRequest("PUT", `/api/admin/calendar-events/${eventId}/reminders`, {
+        reminders: formReminders.map(r => ({ offsetMinutes: r.offsetMinutes, channel: "email" })),
+      });
+    } catch (e: any) { toast({ title: "Couldn't save reminders", description: e.message, variant: "destructive" }); }
   }
 
   function closeModal() {
@@ -522,7 +611,7 @@ export default function GroupCalendar() {
   function getEventsForDay(day: Date) {
     return filteredEvents.filter(e => {
       const start = new Date(e.startTime);
-      const end = new Date(e.endTime);
+      const end = inclusiveEnd(e);
       return isSameDay(start, day) || isSameDay(end, day) || (start < day && end > day);
     });
   }
@@ -552,7 +641,7 @@ export default function GroupCalendar() {
 
   return (
     <div className="flex h-full" onClick={() => { if (showQuickCreate && !draftEvent) closeDraft(); }}>
-      <div className="w-56 flex-shrink-0 border-r border-white/[0.06] p-4 space-y-5 overflow-y-auto" style={{ background: 'rgba(2,6,14,0.5)' }}>
+      <div className="w-56 flex-shrink-0 border-r border-white/[0.06] p-4 space-y-5 overflow-y-auto" style={{ background: 'var(--cal-chrome)' }}>
         <Button onClick={() => openCreateModal()} className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2" data-testid="button-create-event">
           <Plus className="w-4 h-4" /> Create
         </Button>
@@ -619,7 +708,7 @@ export default function GroupCalendar() {
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]" style={{ background: 'rgba(2,6,14,0.5)' }}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]" style={{ background: 'var(--cal-chrome)' }}>
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={goToday} className="border-white/10 text-white/60 text-xs rounded-xl h-8" data-testid="button-today">Today</Button>
             <div className="flex items-center gap-1">
@@ -804,6 +893,118 @@ export default function GroupCalendar() {
             )}
 
             <Textarea placeholder="Add description" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="premium-input text-white/70 text-sm rounded-xl min-h-[60px]" data-testid="input-event-description" />
+
+            {/* ── Guests ─────────────────────────────────────────────────── */}
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
+                <Users className="w-3.5 h-3.5" /> Guests
+                {formInvitees.length > 0 && <span className="text-[10px] text-white/30 font-normal">· {formInvitees.length}</span>}
+              </div>
+              {formInvitees.length > 0 && (
+                <div className="space-y-1">
+                  {formInvitees.map((inv, i) => (
+                    <div key={`${inv.email}-${i}`} className="flex items-center gap-2 px-2 py-1 rounded-md bg-white/[0.02] border border-white/[0.04] text-xs">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-[9px] font-semibold text-blue-300 flex-shrink-0">
+                        {(inv.name || inv.email)[0].toUpperCase()}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="truncate text-white/85">{inv.name || inv.email}</div>
+                        {inv.name && <div className="text-[10px] text-white/30 truncate">{inv.email}</div>}
+                      </div>
+                      {inv.rsvpStatus && inv.rsvpStatus !== "pending" && (
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{
+                          background: inv.rsvpStatus === "accepted" ? "rgba(16,185,129,0.15)" : inv.rsvpStatus === "tentative" ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)",
+                          color: inv.rsvpStatus === "accepted" ? "#10b981" : inv.rsvpStatus === "tentative" ? "#f59e0b" : "#ef4444",
+                        }}>{inv.rsvpStatus}</span>
+                      )}
+                      <button type="button" onClick={() => setFormInvitees(prev => prev.filter((_, idx) => idx !== i))} className="text-white/30 hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Input
+                value={guestInput}
+                onChange={e => setGuestInput(e.target.value)}
+                onKeyDown={e => {
+                  if ((e.key === "Enter" || e.key === ",") && guestInput.trim()) {
+                    e.preventDefault();
+                    const v = guestInput.trim().toLowerCase();
+                    // Match a team member by email or name fragment
+                    const member = teamList.find(m => m.email.toLowerCase() === v || `${m.first_name} ${m.last_name}`.toLowerCase() === v);
+                    if (member) {
+                      if (!formInvitees.some(i => i.email === member.email.toLowerCase())) {
+                        setFormInvitees(prev => [...prev, { email: member.email.toLowerCase(), name: `${member.first_name} ${member.last_name}`, userId: member.id }]);
+                      }
+                    } else if (v.includes("@")) {
+                      if (!formInvitees.some(i => i.email === v)) {
+                        setFormInvitees(prev => [...prev, { email: v }]);
+                      }
+                    }
+                    setGuestInput("");
+                  }
+                }}
+                placeholder="Add guest by email or name…"
+                className="premium-input text-white/70 text-xs rounded-lg h-8"
+                data-testid="input-guest-add"
+              />
+              {guestInput.trim().length >= 2 && (() => {
+                const q = guestInput.trim().toLowerCase();
+                const matches = teamList.filter(m =>
+                  m.email.toLowerCase().includes(q) || `${m.first_name} ${m.last_name}`.toLowerCase().includes(q)
+                ).filter(m => !formInvitees.some(i => i.email === m.email.toLowerCase())).slice(0, 5);
+                if (matches.length === 0) return null;
+                return (
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {matches.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setFormInvitees(prev => [...prev, { email: m.email.toLowerCase(), name: `${m.first_name} ${m.last_name}`, userId: m.id }]);
+                          setGuestInput("");
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded-md hover:bg-white/[0.04] flex items-center gap-2 text-xs"
+                      >
+                        <span className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[9px] font-semibold text-white/70">
+                          {m.first_name[0]}{m.last_name[0]}
+                        </span>
+                        <span className="text-white/85">{m.first_name} {m.last_name}</span>
+                        <span className="text-[10px] text-white/30 ml-auto">{m.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* ── Reminders ──────────────────────────────────────────────── */}
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
+                <Bell className="w-3.5 h-3.5" /> Reminders
+                {formReminders.length > 0 && <span className="text-[10px] text-white/30 font-normal">· {formReminders.length}</span>}
+              </div>
+              {formReminders.length === 0 && (
+                <p className="text-[11px] text-white/30 italic">No reminders set</p>
+              )}
+              {formReminders.map((rem, i) => (
+                <ReminderRow
+                  key={rem.id}
+                  offsetMinutes={rem.offsetMinutes}
+                  onChange={(min) => setFormReminders(prev => prev.map((r, idx) => idx === i ? { ...r, offsetMinutes: min } : r))}
+                  onRemove={() => setFormReminders(prev => prev.filter((_, idx) => idx !== i))}
+                />
+              ))}
+              <button
+                type="button"
+                onClick={() => setFormReminders(prev => [...prev, { id: crypto.randomUUID(), offsetMinutes: 60 }])}
+                className="text-[11px] flex items-center gap-1 text-blue-300 hover:text-blue-200 px-2 py-1 rounded hover:bg-blue-500/[0.08]"
+              >
+                <Plus className="w-3 h-3" /> Add reminder
+              </button>
+            </div>
+
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!formTitle.trim() || createMutation.isPending || updateMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1" data-testid="button-save-event">
                 {(createMutation.isPending || updateMutation.isPending) ? "Saving..." : "Save"}
@@ -1010,7 +1211,7 @@ function YearView({ year, events, today, onDayClick, onEventClick }: {
   return (
     <div className="h-full overflow-auto" data-testid="year-view">
       <table className="w-full border-collapse table-fixed min-w-[1200px]">
-        <thead className="sticky top-0 z-10" style={{ background: 'rgba(2,6,14,0.95)' }}>
+        <thead className="sticky top-0 z-10" style={{ background: 'var(--cal-header-1)' }}>
           <tr className="border-b border-white/[0.06]">
             <th className="w-[48px] py-2 px-1 text-center text-[10px] text-white/20 font-medium" />
             {MONTH_NAMES.map(m => (
@@ -1119,7 +1320,7 @@ function MonthWeekRow({ week, events, currentDate, today, onDayClick, onEventCli
   // All events that overlap this week (both all-day and timed).
   const weekEvents = events.filter(e => {
     const s = new Date(e.startTime);
-    const en = new Date(e.endTime);
+    const en = inclusiveEnd(e);
     return s <= weekEnd && en >= weekStart;
   });
 
@@ -1128,8 +1329,8 @@ function MonthWeekRow({ week, events, currentDate, today, onDayClick, onEventCli
     const aS = new Date(a.startTime).getTime();
     const bS = new Date(b.startTime).getTime();
     if (aS !== bS) return aS - bS;
-    const aLen = new Date(a.endTime).getTime() - aS;
-    const bLen = new Date(b.endTime).getTime() - bS;
+    const aLen = inclusiveEnd(a).getTime() - aS;
+    const bLen = inclusiveEnd(b).getTime() - bS;
     return bLen - aLen; // longer first when starting on the same day
   });
 
@@ -1138,7 +1339,7 @@ function MonthWeekRow({ week, events, currentDate, today, onDayClick, onEventCli
   const laneRanges: Array<Array<[number, number]>> = [];
   for (const e of allDayEvents) {
     const startCol = colOf(new Date(e.startTime));
-    const endCol = colOf(new Date(e.endTime));
+    const endCol = colOf(inclusiveEnd(e));
     let lane = 0;
     while (true) {
       const occupied = (laneRanges[lane] || []).some(([s, en]) => !(endCol < s || startCol > en));
@@ -1306,7 +1507,7 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
     return days.map(day => {
       const dayEvents = events.filter(e => {
         const s = new Date(e.startTime);
-        const en = new Date(e.endTime);
+        const en = inclusiveEnd(e);
         return isSameDay(s, day) || isSameDay(en, day) || (s < day && en > new Date(day.getTime() + 86400000));
       });
       return { timed: getTimedEvents(dayEvents), allDay: getAllDayEvents(dayEvents) };
@@ -1363,7 +1564,7 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
 
   return (
     <div className="flex flex-col h-full">
-      <div className={`grid border-b border-white/[0.06] sticky top-0 z-10`} style={{ background: 'rgba(2,6,14,0.95)', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
+      <div className={`grid border-b border-white/[0.06] sticky top-0 z-10`} style={{ background: 'var(--cal-header-1)', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
         <div />
         {days.map((d, i) => {
           const isToday = isSameDay(d, today);
@@ -1377,7 +1578,7 @@ function TimeGridView({ mode, days, events, today, hours, getEventStyle, getTime
       </div>
 
       {hasAnyAllDay && (
-        <div className={`grid border-b border-white/[0.06] sticky z-[9]`} style={{ background: 'rgba(2,6,14,0.9)', top: '68px', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
+        <div className={`grid border-b border-white/[0.06] sticky z-[9]`} style={{ background: 'var(--cal-header-2)', top: '68px', gridTemplateColumns: `60px repeat(${colCount}, 1fr)` }}>
           <div className="flex items-center justify-end pr-2"><span className="text-[9px] text-white/20 uppercase">all day</span></div>
           {days.map((_, i) => (
             <div key={i} className="border-l border-white/[0.04] min-h-[28px] overflow-hidden">
@@ -1508,3 +1709,53 @@ function DraftEventBlock({ draft, onResize, gridRef, hours }: {
     </div>
   );
 }
+
+
+// ── Reminder editor row (Google-style: number + unit + remove) ──────────────
+function ReminderRow({ offsetMinutes, onChange, onRemove }: {
+  offsetMinutes: number;
+  onChange: (minutes: number) => void;
+  onRemove: () => void;
+}) {
+  // Decompose total minutes into a {value, unit} pair so the dropdowns can
+  // render the same value the user picked. e.g. 1440 → 1 day, 60 → 1 hour.
+  const [value, unit] = (() => {
+    if (offsetMinutes >= 10080 && offsetMinutes % 10080 === 0) return [offsetMinutes / 10080, 'weeks'] as const;
+    if (offsetMinutes >= 1440 && offsetMinutes % 1440 === 0) return [offsetMinutes / 1440, 'days'] as const;
+    if (offsetMinutes >= 60 && offsetMinutes % 60 === 0) return [offsetMinutes / 60, 'hours'] as const;
+    return [offsetMinutes, 'minutes'] as const;
+  })();
+
+  const setValue = (newValue: number, newUnit: 'minutes'|'hours'|'days'|'weeks') => {
+    const mult = newUnit === 'weeks' ? 10080 : newUnit === 'days' ? 1440 : newUnit === 'hours' ? 60 : 1;
+    onChange(Math.max(0, Math.floor(newValue)) * mult);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-white/40 w-12">Email</span>
+      <Input
+        type="number"
+        min={0}
+        value={value}
+        onChange={e => setValue(parseInt(e.target.value) || 0, unit)}
+        className="premium-input text-white/80 text-xs h-7 w-14 text-center rounded-md"
+      />
+      <select
+        value={unit}
+        onChange={e => setValue(value, e.target.value as any)}
+        className="h-7 rounded-md bg-white/[0.04] border border-white/10 px-2 text-[11px] text-white/80"
+      >
+        <option value="minutes">{value === 1 ? 'minute' : 'minutes'}</option>
+        <option value="hours">{value === 1 ? 'hour' : 'hours'}</option>
+        <option value="days">{value === 1 ? 'day' : 'days'}</option>
+        <option value="weeks">{value === 1 ? 'week' : 'weeks'}</option>
+      </select>
+      <span className="text-[10px] text-white/30">before</span>
+      <button type="button" onClick={onRemove} className="ml-auto text-white/30 hover:text-red-400">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+

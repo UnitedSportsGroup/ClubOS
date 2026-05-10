@@ -2,6 +2,12 @@ import { storage } from "./storage";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 
+export interface EmailAttachment {
+  filename: string;
+  content: string;       // base64-encoded
+  contentType?: string;  // e.g. "text/calendar; charset=utf-8; method=REQUEST"
+}
+
 interface EmailParams {
   to: string;
   from: string;
@@ -11,6 +17,7 @@ interface EmailParams {
   text?: string;
   campId?: number;
   registrationId?: number;
+  attachments?: EmailAttachment[];
 }
 
 // Strip HTML to a plain-text approximation. Used as a fallback when callers
@@ -56,6 +63,11 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
         subject: params.subject,
         html: params.html,
         text: params.text ?? htmlToText(params.html),
+        attachments: params.attachments?.map(a => ({
+          filename: a.filename,
+          content: a.content,
+          content_type: a.contentType,
+        })),
       }),
     });
 

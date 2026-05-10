@@ -79,7 +79,7 @@ export function DatePickerInput({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-auto p-0 bg-[#02060E] border border-white/10 rounded-xl shadow-2xl"
+        className="w-auto p-0 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl"
       >
         <Calendar
           mode="single"

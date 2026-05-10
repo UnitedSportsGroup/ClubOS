@@ -44,48 +44,57 @@
   }
 }
 
+/* ── Light theme (default) ──────────────────────────────────────────────────
+   On-brand: CUFC blue stays the primary accent. Backgrounds are clean
+   off-white/cream so logos and tags pop. Borders are subtle. Text uses
+   high-contrast near-black for readability. */
 :root {
-  --button-outline: rgba(255,255,255, .08);
-  --badge-outline: rgba(255,255,255, .06);
-  --opaque-button-border-intensity: 8;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .08);
-  --background: 222 47% 4%;
-  --foreground: 210 40% 96%;
-  --border: 222 40% 12%;
-  --card: 222 44% 7%;
-  --card-foreground: 210 40% 96%;
-  --card-border: 222 40% 11%;
-  --sidebar: 222 50% 5%;
-  --sidebar-foreground: 215 20% 65%;
-  --sidebar-border: 222 40% 10%;
+  --button-outline: rgba(0,0,0, .08);
+  --badge-outline: rgba(0,0,0, .08);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .04);
+  --elevate-2: rgba(0,0,0, .07);
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --border: 220 14% 91%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 220 14% 91%;
+  --sidebar: 220 14% 97%;
+  --sidebar-foreground: 222 25% 32%;
+  --sidebar-border: 220 14% 90%;
   --sidebar-primary: 217 91% 50%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 222 40% 10%;
-  --sidebar-accent-foreground: 210 20% 85%;
+  --sidebar-accent: 220 14% 93%;
+  --sidebar-accent-foreground: 222 47% 18%;
   --sidebar-ring: 217 91% 50%;
-  --popover: 222 44% 7%;
-  --popover-foreground: 210 40% 96%;
-  --popover-border: 222 40% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 220 14% 88%;
   --primary: 217 91% 50%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 222 30% 12%;
-  --secondary-foreground: 210 20% 85%;
-  --muted: 222 30% 10%;
-  --muted-foreground: 215 15% 50%;
-  --accent: 222 35% 11%;
-  --accent-foreground: 210 20% 85%;
+  --secondary: 220 14% 95%;
+  --secondary-foreground: 222 47% 18%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 42%;
+  --accent: 220 14% 95%;
+  --accent-foreground: 222 47% 18%;
   --destructive: 0 72% 50%;
   --destructive-foreground: 0 0% 100%;
-  --input: 222 35% 15%;
+  --input: 220 14% 88%;
   --ring: 217 91% 50%;
-  --chart-1: 217 91% 55%;
-  --chart-2: 160 60% 45%;
-  --chart-3: 280 65% 60%;
-  --chart-4: 30 90% 55%;
-  --chart-5: 340 70% 55%;
-  --gold: 42 87% 55%;
+  --chart-1: 217 91% 50%;
+  --chart-2: 160 60% 38%;
+  --chart-3: 280 60% 50%;
+  --chart-4: 30 85% 50%;
+  --chart-5: 340 70% 50%;
+  --gold: 42 87% 50%;
   --gold-foreground: 42 10% 10%;
+  /* Calendar chrome — sticky day headers, sidebar, time-grid headers.
+     Light mode: translucent off-white. Dark mode override below. */
+  --cal-chrome: rgba(255, 255, 255, 0.6);
+  --cal-header-1: rgba(255, 255, 255, 0.95);
+  --cal-header-2: rgba(255, 255, 255, 0.9);
   --font-sans: Inter, system-ui, -apple-system, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -157,6 +166,10 @@
   --chart-3: 280 65% 60%;
   --chart-4: 30 90% 55%;
   --chart-5: 340 70% 55%;
+  /* Dark-mode calendar chrome — keeps the existing premium dark-blue look */
+  --cal-chrome: rgba(2, 6, 14, 0.5);
+  --cal-header-1: rgba(2, 6, 14, 0.95);
+  --cal-header-2: rgba(2, 6, 14, 0.9);
 
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -174,6 +187,277 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+/* ── Light-mode polyfill for hardcoded white-on-dark utilities ───────────────
+   The codebase was built dark-first with thousands of `text-white/X`,
+   `bg-white/X`, `border-white/X` utilities. Refactoring all of them to
+   theme tokens is a separate piece of work. In the meantime, when light
+   mode is active we re-map those utilities to dark-on-light equivalents
+   so the UI stays readable. The hierarchy (more opacity = stronger ink)
+   is preserved. Pure `text-white` (no opacity modifier) stays white so
+   white-on-blue button text continues to work. */
+/* Opacity curve in light mode is steeper than in dark mode. White text on
+   dark looks fine at 30% opacity; dark text on white needs ~60% just to
+   be readable. We compress everything below 50% upward and floor low
+   values around 0.55 so labels never disappear into the page. */
+html:not(.dark) .text-white\/0 { color: rgb(15 23 42 / 0) !important; }
+html:not(.dark) .text-white\/10 { color: rgb(15 23 42 / 0.50) !important; }
+html:not(.dark) .text-white\/15 { color: rgb(15 23 42 / 0.55) !important; }
+html:not(.dark) .text-white\/20 { color: rgb(15 23 42 / 0.58) !important; }
+html:not(.dark) .text-white\/25 { color: rgb(15 23 42 / 0.62) !important; }
+html:not(.dark) .text-white\/30 { color: rgb(15 23 42 / 0.66) !important; }
+html:not(.dark) .text-white\/35 { color: rgb(15 23 42 / 0.70) !important; }
+html:not(.dark) .text-white\/40 { color: rgb(15 23 42 / 0.74) !important; }
+html:not(.dark) .text-white\/45 { color: rgb(15 23 42 / 0.78) !important; }
+html:not(.dark) .text-white\/50 { color: rgb(15 23 42 / 0.82) !important; }
+html:not(.dark) .text-white\/55 { color: rgb(15 23 42 / 0.85) !important; }
+html:not(.dark) .text-white\/60 { color: rgb(15 23 42 / 0.88) !important; }
+html:not(.dark) .text-white\/65 { color: rgb(15 23 42 / 0.90) !important; }
+html:not(.dark) .text-white\/70 { color: rgb(15 23 42 / 0.92) !important; }
+html:not(.dark) .text-white\/75 { color: rgb(15 23 42 / 0.94) !important; }
+html:not(.dark) .text-white\/80 { color: rgb(15 23 42 / 0.96) !important; }
+html:not(.dark) .text-white\/85 { color: rgb(15 23 42 / 0.97) !important; }
+html:not(.dark) .text-white\/90 { color: rgb(15 23 42 / 0.98) !important; }
+
+html:not(.dark) .bg-white\/5 { background-color: rgb(15 23 42 / 0.04) !important; }
+html:not(.dark) .bg-white\/10 { background-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .bg-white\/15 { background-color: rgb(15 23 42 / 0.08) !important; }
+html:not(.dark) .bg-white\/20 { background-color: rgb(15 23 42 / 0.10) !important; }
+html:not(.dark) .bg-white\/95 { background-color: rgb(255 255 255 / 0.95) !important; }
+html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
+html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.02) !important; }
+html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.025) !important; }
+html:not(.dark) .bg-white\/\[0\.03\] { background-color: rgb(15 23 42 / 0.035) !important; }
+html:not(.dark) .bg-white\/\[0\.04\] { background-color: rgb(15 23 42 / 0.04) !important; }
+html:not(.dark) .bg-white\/\[0\.05\] { background-color: rgb(15 23 42 / 0.05) !important; }
+html:not(.dark) .bg-white\/\[0\.06\] { background-color: rgb(15 23 42 / 0.05) !important; }
+html:not(.dark) .bg-white\/\[0\.08\] { background-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .bg-white\/\[0\.1\] { background-color: rgb(15 23 42 / 0.07) !important; }
+html:not(.dark) .bg-white\/\[0\.12\] { background-color: rgb(15 23 42 / 0.08) !important; }
+
+html:not(.dark) .border-white\/5 { border-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .border-white\/10 { border-color: rgb(15 23 42 / 0.10) !important; }
+html:not(.dark) .border-white\/15 { border-color: rgb(15 23 42 / 0.12) !important; }
+html:not(.dark) .border-white\/20 { border-color: rgb(15 23 42 / 0.14) !important; }
+html:not(.dark) .border-white\/40 { border-color: rgb(15 23 42 / 0.20) !important; }
+html:not(.dark) .border-white\/\[0\.02\] { border-color: rgb(15 23 42 / 0.04) !important; }
+html:not(.dark) .border-white\/\[0\.03\] { border-color: rgb(15 23 42 / 0.05) !important; }
+html:not(.dark) .border-white\/\[0\.04\] { border-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .border-white\/\[0\.05\] { border-color: rgb(15 23 42 / 0.07) !important; }
+html:not(.dark) .border-white\/\[0\.06\] { border-color: rgb(15 23 42 / 0.08) !important; }
+html:not(.dark) .border-white\/\[0\.08\] { border-color: rgb(15 23 42 / 0.10) !important; }
+html:not(.dark) .border-white\/\[0\.12\] { border-color: rgb(15 23 42 / 0.14) !important; }
+
+/* Hover states with these utilities also need to flip */
+html:not(.dark) .hover\:bg-white\/5:hover { background-color: rgb(15 23 42 / 0.04) !important; }
+html:not(.dark) .hover\:bg-white\/10:hover { background-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(15 23 42 / 0.03) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.03\]:hover { background-color: rgb(15 23 42 / 0.04) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.04\]:hover { background-color: rgb(15 23 42 / 0.05) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(15 23 42 / 0.06) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover { background-color: rgb(15 23 42 / 0.07) !important; }
+html:not(.dark) .hover\:text-white:hover { color: rgb(15 23 42) !important; }
+html:not(.dark) .hover\:border-white\/15:hover { border-color: rgb(15 23 42 / 0.18) !important; }
+html:not(.dark) .hover\:border-white\/20:hover { border-color: rgb(15 23 42 / 0.20) !important; }
+
+/* Modal panel — a dark-blue-black hex appears in a number of modals; in
+   light mode it should be a clean white card. */
+html:not(.dark) [class*="bg-\[\#0a0e1a\]"] { background-color: rgb(255 255 255) !important; }
+
+/* App-wide chrome: sidebar, header, page background. The dark theme uses
+   hex literals (#02060E) and gradient-mesh radial blues; in light mode we
+   want clean off-white surfaces with just a hint of brand blue. */
+html:not(.dark) .sidebar-gradient {
+  background: linear-gradient(180deg, rgba(3, 86, 197, 0.04) 0%, hsl(220 14% 98%) 40%, rgba(3, 86, 197, 0.03) 100%) !important;
+}
+html:not(.dark) .gradient-mesh {
+  background:
+    radial-gradient(ellipse 80% 60% at 10% -10%, rgba(3, 86, 197, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 110%, rgba(3, 86, 197, 0.04) 0%, transparent 60%),
+    hsl(0 0% 100%) !important;
+}
+html.dark .admin-header {
+  background: rgba(2,6,14,0.7);
+}
+html:not(.dark) .admin-header {
+  background: rgba(255,255,255,0.85);
+  border-bottom-color: hsl(220 14% 90%);
+}
+
+/* text-white surgery — in light mode, plain `text-white` (no opacity) is
+   used both on colored buttons (where it must stay white) and on values
+   sitting on dark cards (where it must flip to dark to be readable on
+   the now-light card). Default to dark; restore white when an ancestor
+   or the same element has a coloured / gradient / dark background. */
+html:not(.dark) .text-white { color: rgb(15 23 42) !important; }
+html:not(.dark) [class*="bg-blue-"].text-white,
+html:not(.dark) [class*="bg-blue-"] .text-white,
+html:not(.dark) [class*="bg-red-"].text-white,
+html:not(.dark) [class*="bg-red-"] .text-white,
+html:not(.dark) [class*="bg-green-"].text-white,
+html:not(.dark) [class*="bg-green-"] .text-white,
+html:not(.dark) [class*="bg-emerald-"].text-white,
+html:not(.dark) [class*="bg-emerald-"] .text-white,
+html:not(.dark) [class*="bg-amber-"].text-white,
+html:not(.dark) [class*="bg-amber-"] .text-white,
+html:not(.dark) [class*="bg-orange-"].text-white,
+html:not(.dark) [class*="bg-orange-"] .text-white,
+html:not(.dark) [class*="bg-rose-"].text-white,
+html:not(.dark) [class*="bg-rose-"] .text-white,
+html:not(.dark) [class*="bg-pink-"].text-white,
+html:not(.dark) [class*="bg-pink-"] .text-white,
+html:not(.dark) [class*="bg-purple-"].text-white,
+html:not(.dark) [class*="bg-purple-"] .text-white,
+html:not(.dark) [class*="bg-violet-"].text-white,
+html:not(.dark) [class*="bg-violet-"] .text-white,
+html:not(.dark) [class*="bg-indigo-"].text-white,
+html:not(.dark) [class*="bg-indigo-"] .text-white,
+html:not(.dark) [class*="bg-cyan-"].text-white,
+html:not(.dark) [class*="bg-cyan-"] .text-white,
+html:not(.dark) [class*="bg-yellow-"].text-white,
+html:not(.dark) [class*="bg-yellow-"] .text-white,
+html:not(.dark) [class*="bg-zinc-7"].text-white,
+html:not(.dark) [class*="bg-zinc-8"].text-white,
+html:not(.dark) [class*="bg-zinc-9"].text-white,
+html:not(.dark) [class*="bg-slate-7"].text-white,
+html:not(.dark) [class*="bg-slate-8"].text-white,
+html:not(.dark) [class*="bg-slate-9"].text-white,
+html:not(.dark) [class*="bg-gradient-"].text-white,
+html:not(.dark) [class*="bg-gradient-"] .text-white,
+html:not(.dark) [class*="from-blue-"] .text-white,
+html:not(.dark) [class*="from-red-"] .text-white,
+html:not(.dark) [class*="from-emerald-"] .text-white,
+html:not(.dark) [class*="from-green-"] .text-white,
+html:not(.dark) [class*="from-purple-"] .text-white,
+html:not(.dark) [class*="from-pink-"] .text-white,
+html:not(.dark) .bg-primary .text-white,
+html:not(.dark) .bg-primary.text-white,
+html:not(.dark) .bg-destructive .text-white,
+html:not(.dark) .bg-destructive.text-white {
+  color: white !important;
+}
+
+/* Premium search input — dark-on-dark in dark mode, light-on-light in
+   light mode. */
+html:not(.dark) .premium-input {
+  background: hsl(220 14% 96%);
+  border: 1px solid hsl(220 14% 88%);
+  color: hsl(222 47% 18%);
+}
+html:not(.dark) .premium-input::placeholder {
+  color: hsl(220 9% 50%);
+}
+html:not(.dark) .premium-input:focus {
+  background: hsl(0 0% 100%);
+  border-color: hsl(217 91% 50%);
+}
+
+/* Glass cards / glow borders — in light mode tone these brand-blue
+   tints way down so cards on white surfaces don't look chunky. */
+html:not(.dark) .glass-card {
+  background: linear-gradient(135deg, rgba(3, 86, 197, 0.04) 0%, rgba(255,255,255,0.85) 100%) !important;
+  border: 1px solid rgba(3, 86, 197, 0.10) !important;
+}
+html:not(.dark) .glass-panel {
+  background: linear-gradient(180deg, rgba(3, 86, 197, 0.03) 0%, rgba(255,255,255,0.85) 100%) !important;
+  border: 1px solid rgba(3, 86, 197, 0.08) !important;
+}
+html:not(.dark) .glow-border {
+  border: 1px solid rgba(3, 86, 197, 0.15) !important;
+  box-shadow: 0 0 12px rgba(3, 86, 197, 0.06), 0 0 24px rgba(3, 86, 197, 0.03) !important;
+}
+html:not(.dark) .glow-border-strong {
+  border: 1px solid rgba(3, 86, 197, 0.25) !important;
+  box-shadow: 0 0 16px rgba(3, 86, 197, 0.10), 0 0 32px rgba(3, 86, 197, 0.05) !important;
+}
+
+/* Scrollbar — slightly darker thumb in light mode for visibility */
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: rgba(3, 86, 197, 0.18);
+}
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(3, 86, 197, 0.32);
+}
+
+/* Brand-blue accent text used as labels — `text-blue-300/X` and similar
+   are too light against white backgrounds. Re-saturate AND boost opacity
+   so the standard "muted blue label" reads as a clear navy on white. */
+html:not(.dark) .text-blue-300 { color: hsl(217 91% 38%) !important; }
+html:not(.dark) .text-blue-400 { color: hsl(217 91% 38%) !important; }
+html:not(.dark) .text-blue-500 { color: hsl(217 91% 35%) !important; }
+html:not(.dark) .text-blue-300\/20,
+html:not(.dark) .text-blue-300\/25,
+html:not(.dark) .text-blue-300\/30 { color: hsl(217 60% 45% / 0.85) !important; }
+html:not(.dark) .text-blue-400\/30,
+html:not(.dark) .text-blue-400\/35,
+html:not(.dark) .text-blue-400\/40,
+html:not(.dark) .text-blue-400\/50,
+html:not(.dark) .text-blue-400\/60 { color: hsl(217 91% 38% / 0.9) !important; }
+html:not(.dark) .text-emerald-400 { color: hsl(160 70% 32%) !important; }
+html:not(.dark) .text-emerald-400\/70 { color: hsl(160 70% 32% / 0.95) !important; }
+html:not(.dark) .text-amber-400 { color: hsl(38 90% 38%) !important; }
+html:not(.dark) .text-violet-400 { color: hsl(265 70% 45%) !important; }
+html:not(.dark) .text-rose-400 { color: hsl(350 75% 42%) !important; }
+html:not(.dark) .text-red-400 { color: hsl(0 75% 42%) !important; }
+
+/* Gradient stat cards — original gradient (e.g. from-blue-500/15 to-blue-600/5)
+   is invisible on a white page. In light mode swap to a stronger tinted
+   gradient that pops while staying soft. We target the common `from-X-500`
+   tokens used by the stat cards. */
+html:not(.dark) .from-blue-500\/15.to-blue-600\/5,
+html:not(.dark) [class*="from-blue-500\/15"][class*="to-blue-600\/5"] {
+  background-image: linear-gradient(to bottom right, hsl(217 91% 96%), hsl(217 91% 99%)) !important;
+}
+html:not(.dark) .from-emerald-500\/12.to-emerald-600\/3,
+html:not(.dark) [class*="from-emerald-500\/12"][class*="to-emerald-600\/3"] {
+  background-image: linear-gradient(to bottom right, hsl(160 60% 95%), hsl(160 60% 99%)) !important;
+}
+html:not(.dark) .from-amber-500\/12.to-amber-600\/3,
+html:not(.dark) [class*="from-amber-500\/12"][class*="to-amber-600\/3"] {
+  background-image: linear-gradient(to bottom right, hsl(38 90% 94%), hsl(38 90% 99%)) !important;
+}
+html:not(.dark) .from-violet-500\/12.to-violet-600\/3,
+html:not(.dark) [class*="from-violet-500\/12"][class*="to-violet-600\/3"] {
+  background-image: linear-gradient(to bottom right, hsl(265 70% 96%), hsl(265 70% 99%)) !important;
+}
+
+/* The pastel gradients above are LIGHT — white text inside them is
+   invisible. Override the generic "keep white inside gradient" exception
+   so values like "236" inside stat cards flip to dark navy. Specificity
+   is the same as the generic rule, but this block comes later so it wins. */
+html:not(.dark) [class*="from-blue-500\/15"] .text-white,
+html:not(.dark) [class*="from-blue-500\/15"].text-white,
+html:not(.dark) [class*="from-emerald-500\/12"] .text-white,
+html:not(.dark) [class*="from-emerald-500\/12"].text-white,
+html:not(.dark) [class*="from-amber-500\/12"] .text-white,
+html:not(.dark) [class*="from-amber-500\/12"].text-white,
+html:not(.dark) [class*="from-violet-500\/12"] .text-white,
+html:not(.dark) [class*="from-violet-500\/12"].text-white {
+  color: rgb(15 23 42) !important;
+}
+
+/* Borders on these stat cards — boost saturation so the card edge reads */
+html:not(.dark) .border-blue-500\/20 { border-color: hsl(217 91% 80%) !important; }
+html:not(.dark) .border-blue-500\/25 { border-color: hsl(217 91% 75%) !important; }
+html:not(.dark) .border-emerald-500\/15 { border-color: hsl(160 60% 75%) !important; }
+html:not(.dark) .border-amber-500\/15 { border-color: hsl(38 90% 75%) !important; }
+html:not(.dark) .border-violet-500\/15 { border-color: hsl(265 70% 80%) !important; }
+
+/* Icon tile backgrounds inside stat cards — pump these up too */
+html:not(.dark) .bg-blue-500\/10 { background-color: hsl(217 91% 92%) !important; }
+html:not(.dark) .bg-emerald-500\/10 { background-color: hsl(160 60% 90%) !important; }
+html:not(.dark) .bg-amber-500\/10 { background-color: hsl(38 90% 90%) !important; }
+html:not(.dark) .bg-violet-500\/10 { background-color: hsl(265 70% 92%) !important; }
+html:not(.dark) .bg-emerald-500\/8 { background-color: hsl(160 60% 92%) !important; }
+
+/* Border tokens used inside the sidebar — same blue at 8% opacity is
+   invisible on white; swap to a clear divider. */
+html:not(.dark) .border-blue-500\/\[0\.06\],
+html:not(.dark) .border-blue-500\/\[0\.08\],
+html:not(.dark) .border-blue-500\/\[0\.10\] { border-color: hsl(220 14% 88%) !important; }
+
+/* Divider lines */
+html:not(.dark) [class*="divide-blue-500\/\[0\.04\]"] > * + * { border-color: hsl(220 14% 92%) !important; }
+
 @layer base {
   * {
     @apply border-border;
@@ -182,6 +466,8 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
     letter-spacing: -0.01em;
+  }
+  html.dark body {
     background: #02060E;
   }
 

@@ -55,6 +55,7 @@ interface ProjectTask {
   organizationId: number;
   boardId: number;
   groupId: number | null;
+  parentId: number | null;
   title: string;
   description: string | null;
   priority: "low" | "medium" | "high" | "urgent";
@@ -490,9 +491,24 @@ function KanbanView({
   onMoveToGroup: (taskId: number, groupId: number) => void;
   currentUserId?: number;
 }) {
+  // Kanban shows top-level tasks only — subtasks are accessed by opening the
+  // parent. We still hand the full task array down so each card can show its
+  // subtask progress (e.g. "2/5") without an extra fetch.
+  const subtasksByParent = useMemo(() => {
+    const m = new Map<number, ProjectTask[]>();
+    for (const t of tasks) {
+      if (t.parentId == null) continue;
+      const arr = m.get(t.parentId) || [];
+      arr.push(t);
+      m.set(t.parentId, arr);
+    }
+    return m;
+  }, [tasks]);
+  const doneGroupIds = useMemo(() => new Set(board.groups.filter(g => g.isDone).map(g => g.id)), [board.groups]);
   const tasksByGroup = useMemo(() => {
     const m = new Map<number | null, ProjectTask[]>();
     for (const t of tasks) {
+      if (t.parentId != null) continue; // skip subtasks
       const arr = m.get(t.groupId) || [];
       arr.push(t);
       m.set(t.groupId, arr);
@@ -528,16 +544,22 @@ function KanbanView({
                 >
                   + Add a task
                 </button>
-              ) : items.map(t => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  team={team}
-                  groupIsDone={g.isDone}
-                  onClick={() => onEdit(t)}
-                  highlightOwner={currentUserId === t.ownerId}
-                />
-              ))}
+              ) : items.map(t => {
+                const subs = subtasksByParent.get(t.id) || [];
+                const subsDone = subs.filter(s => s.groupId != null && doneGroupIds.has(s.groupId)).length;
+                return (
+                  <TaskCard
+                    key={t.id}
+                    task={t}
+                    team={team}
+                    groupIsDone={g.isDone}
+                    onClick={() => onEdit(t)}
+                    highlightOwner={currentUserId === t.ownerId}
+                    subtaskTotal={subs.length}
+                    subtaskDone={subsDone}
+                  />
+                );
+              })}
             </div>
           </div>
         );
@@ -547,12 +569,14 @@ function KanbanView({
 }
 
 // ── Task card (used in both kanban and my tasks) ─────────────────────────────
-function TaskCard({ task, team, groupIsDone, onClick, highlightOwner }: {
+function TaskCard({ task, team, groupIsDone, onClick, highlightOwner, subtaskTotal = 0, subtaskDone = 0 }: {
   task: ProjectTask;
   team: TeamMember[];
   groupIsDone?: boolean;
   onClick: () => void;
   highlightOwner?: boolean;
+  subtaskTotal?: number;
+  subtaskDone?: number;
 }) {
   const owner = team.find(m => m.id === task.ownerId);
   const dueDate = task.dueDate ? new Date(task.dueDate + "T00:00:00") : null;
@@ -604,6 +628,17 @@ function TaskCard({ task, team, groupIsDone, onClick, highlightOwner }: {
               <span>{owner.first_name}</span>
             </span>
           ) : <span className="italic">Unassigned</span>}
+          {subtaskTotal > 0 && (
+            <span
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.06]"
+              title={`${subtaskDone} of ${subtaskTotal} subtasks complete`}
+            >
+              <Layers className="w-2.5 h-2.5" />
+              <span className={subtaskDone === subtaskTotal ? "text-emerald-300" : "text-white/60"}>
+                {subtaskDone}/{subtaskTotal}
+              </span>
+            </span>
+          )}
         </div>
         {dueDate && (
           <span className={`text-[10px] flex items-center gap-1 ${overdue ? "text-red-400" : dueSoon ? "text-amber-300" : "text-white/40"}`}>
@@ -731,6 +766,54 @@ function TaskModal({
   onSubmit: (payload: any) => void;
   onDelete?: () => void;
 }) {
+  // Subtasks live in the same task table — fetch every task on this board
+  // whose parentId is the one we're editing. We hit the existing tasks
+  // endpoint and filter client-side; no extra route needed.
+  const { data: allBoardTasks = [] } = useQuery<ProjectTask[]>({
+    queryKey: ["/api/admin/projects/tasks", { orgId, boardId: board.id, forSubtasks: true }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("organizationId", String(orgId));
+      params.set("boardId", String(board.id));
+      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load subtasks");
+      return r.json();
+    },
+    enabled: mode === "edit" && !!task,
+  });
+  const subtasks = useMemo(
+    () => task ? allBoardTasks.filter(t => t.parentId === task.id).sort((a, b) => a.id - b.id) : [],
+    [allBoardTasks, task]
+  );
+
+  const createSubtask = useMutation({
+    mutationFn: async (payload: { title: string; ownerId: number | null; dueDate: string | null; groupId: number | null }) => {
+      const r = await apiRequest("POST", "/api/admin/projects/tasks", {
+        organizationId: orgId,
+        boardId: board.id,
+        parentId: task!.id,
+        groupId: payload.groupId ?? task!.groupId,
+        title: payload.title,
+        ownerId: payload.ownerId,
+        dueDate: payload.dueDate,
+        priority: "medium",
+        brandTags: task!.brandTags,
+      });
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] }),
+  });
+  const patchSubtask = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/admin/projects/tasks/${id}`, patch);
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] }),
+  });
+  const removeSubtask = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/projects/tasks/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/projects/tasks"] }),
+  });
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
   const [priority, setPriority] = useState<ProjectTask["priority"]>(task?.priority || "medium");
@@ -765,7 +848,7 @@ function TaskModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="w-full max-w-xl bg-[#0a0e1a] border border-white/10 rounded-2xl shadow-2xl"
+        className="w-full max-w-2xl bg-[#0a0e1a] border border-white/10 rounded-2xl shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
@@ -840,6 +923,24 @@ function TaskModal({
               })}
             </div>
           </div>
+
+          {mode === "edit" && task && (
+            <SubtasksSection
+              parent={task}
+              parentDueDate={dueDate}
+              subtasks={subtasks}
+              team={team}
+              groups={activeBoard.groups}
+              onCreate={(payload) => createSubtask.mutate(payload)}
+              onPatch={(id, patch) => patchSubtask.mutate({ id, patch })}
+              onDelete={(id) => removeSubtask.mutate(id)}
+            />
+          )}
+          {mode === "create" && (
+            <div className="rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-[11px] text-white/40">
+              Save the task first, then add subtasks with their own owner and deadline.
+            </div>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
           <div>
@@ -857,6 +958,288 @@ function TaskModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Subtasks section (lives inside the task modal) ───────────────────────────
+// Monday-style inline subtask list. Each row mirrors the parent's data shape:
+// title, owner, status (group), due date — fully independent. Editing happens
+// in-place; no nested modal to keep the editing flow fast.
+function SubtasksSection({
+  parent, parentDueDate, subtasks, team, groups, onCreate, onPatch, onDelete,
+}: {
+  parent: ProjectTask;
+  parentDueDate: string;
+  subtasks: ProjectTask[];
+  team: TeamMember[];
+  groups: ProjectGroup[];
+  onCreate: (payload: { title: string; ownerId: number | null; dueDate: string | null; groupId: number | null }) => void;
+  onPatch: (id: number, patch: any) => void;
+  onDelete: (id: number) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftOwnerId, setDraftOwnerId] = useState<number | null>(null);
+  const [draftDueDate, setDraftDueDate] = useState("");
+  const [draftGroupId, setDraftGroupId] = useState<number | null>(parent.groupId);
+
+  const doneIds = useMemo(() => new Set(groups.filter(g => g.isDone).map(g => g.id)), [groups]);
+  const completedCount = subtasks.filter(s => s.groupId != null && doneIds.has(s.groupId)).length;
+
+  const submitDraft = () => {
+    if (!draftTitle.trim()) return;
+    onCreate({
+      title: draftTitle.trim(),
+      ownerId: draftOwnerId,
+      dueDate: draftDueDate || null,
+      groupId: draftGroupId,
+    });
+    setDraftTitle("");
+    setDraftOwnerId(null);
+    setDraftDueDate("");
+    setDraftGroupId(parent.groupId);
+    setAdding(false);
+  };
+
+  // Warn when a subtask falls after the parent's due date — informational
+  // only (we don't block, since teams sometimes intentionally schedule
+  // post-deadline cleanup).
+  const parentDate = parentDueDate ? new Date(parentDueDate + "T00:00:00") : null;
+  const isAfterParent = (s: ProjectTask) => {
+    if (!parentDate || !s.dueDate) return false;
+    return new Date(s.dueDate + "T00:00:00") > parentDate;
+  };
+
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.04]">
+        <div className="flex items-center gap-2">
+          <Layers className="w-3.5 h-3.5 text-white/40" />
+          <span className="text-xs font-semibold text-white/80">Subtasks</span>
+          {subtasks.length > 0 && (
+            <span className="text-[10px] text-white/40">
+              {completedCount}/{subtasks.length} done
+            </span>
+          )}
+        </div>
+        {!adding && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            data-testid="button-add-subtask"
+            className="text-[11px] flex items-center gap-1 text-blue-300 hover:text-blue-200 px-2 py-1 rounded hover:bg-blue-500/[0.08]"
+          >
+            <Plus className="w-3 h-3" /> Add subtask
+          </button>
+        )}
+      </div>
+
+      {/* Column header — only show when there are subtasks or we're adding */}
+      {(subtasks.length > 0 || adding) && (
+        <div className="hidden md:grid grid-cols-[1fr_120px_120px_120px_28px] gap-2 px-3 py-1.5 text-[9px] uppercase tracking-wider text-white/30 border-b border-white/[0.04]">
+          <div>Title</div>
+          <div>Owner</div>
+          <div>Status</div>
+          <div>Due</div>
+          <div></div>
+        </div>
+      )}
+
+      {/* Existing subtasks */}
+      <div className="divide-y divide-white/[0.04]">
+        {subtasks.map(s => (
+          <SubtaskRow
+            key={s.id}
+            subtask={s}
+            team={team}
+            groups={groups}
+            doneIds={doneIds}
+            warnAfterParent={isAfterParent(s)}
+            onPatch={(patch) => onPatch(s.id, patch)}
+            onDelete={() => onDelete(s.id)}
+          />
+        ))}
+        {subtasks.length === 0 && !adding && (
+          <div className="px-3 py-3 text-[11px] text-white/30 italic">
+            No subtasks yet — break this down into smaller pieces with their own owners and deadlines.
+          </div>
+        )}
+      </div>
+
+      {/* Inline add row */}
+      {adding && (
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_120px_120px_28px] gap-2 px-3 py-2 bg-white/[0.02] border-t border-white/[0.04]">
+          <Input
+            value={draftTitle}
+            onChange={e => setDraftTitle(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") submitDraft();
+              if (e.key === "Escape") { setAdding(false); setDraftTitle(""); }
+            }}
+            placeholder="Subtask title…"
+            autoFocus
+            className="bg-white/[0.04] border-white/10 text-white h-8 text-xs"
+            data-testid="input-subtask-title"
+          />
+          <select
+            value={draftOwnerId ?? ""}
+            onChange={e => setDraftOwnerId(e.target.value ? parseInt(e.target.value) : null)}
+            className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-2 text-[11px]"
+          >
+            <option value="">Unassigned</option>
+            {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+          </select>
+          <select
+            value={draftGroupId ?? ""}
+            onChange={e => setDraftGroupId(e.target.value ? parseInt(e.target.value) : null)}
+            className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-2 text-[11px]"
+          >
+            <option value="">—</option>
+            {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <DatePickerInput
+            value={draftDueDate}
+            onChange={e => setDraftDueDate(e.target.value)}
+            className="bg-white/[0.04] border-white/10 text-white h-8 text-xs"
+          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={submitDraft}
+              disabled={!draftTitle.trim()}
+              data-testid="button-save-subtask"
+              className="w-7 h-7 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-30 flex items-center justify-center"
+              title="Save subtask"
+            >
+              <Check className="w-3.5 h-3.5 text-white" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!adding && subtasks.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="w-full text-left px-3 py-2 text-[11px] text-white/30 hover:text-white/60 hover:bg-white/[0.02] border-t border-white/[0.04] flex items-center gap-1.5"
+        >
+          <Plus className="w-3 h-3" /> Add subtask
+        </button>
+      )}
+    </div>
+  );
+}
+
+// One inline row — title is editable on click, owner/status/date are
+// quick-edit dropdowns. Everything writes via PATCH so the parent and
+// surrounding state refresh together.
+function SubtaskRow({
+  subtask, team, groups, doneIds, warnAfterParent, onPatch, onDelete,
+}: {
+  subtask: ProjectTask;
+  team: TeamMember[];
+  groups: ProjectGroup[];
+  doneIds: Set<number>;
+  warnAfterParent: boolean;
+  onPatch: (patch: any) => void;
+  onDelete: () => void;
+}) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(subtask.title);
+  const isDone = subtask.groupId != null && doneIds.has(subtask.groupId);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dueDate = subtask.dueDate ? new Date(subtask.dueDate + "T00:00:00") : null;
+  const overdue = dueDate && !isDone && dueDate < today;
+
+  const commitTitle = () => {
+    const t = titleDraft.trim();
+    if (t && t !== subtask.title) onPatch({ title: t });
+    else setTitleDraft(subtask.title);
+    setEditingTitle(false);
+  };
+
+  // Quick toggle: clicking the checkbox flips between the first non-done
+  // group and the first done group. If neither exists we just no-op.
+  const firstDone = groups.find(g => g.isDone);
+  const firstActive = groups.find(g => !g.isDone);
+  const toggleDone = () => {
+    if (isDone && firstActive) onPatch({ groupId: firstActive.id });
+    else if (!isDone && firstDone) onPatch({ groupId: firstDone.id });
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_120px_120px_28px] gap-2 px-3 py-1.5 items-center hover:bg-white/[0.02]">
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          type="button"
+          onClick={toggleDone}
+          data-testid={`toggle-subtask-${subtask.id}`}
+          className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition ${
+            isDone ? "bg-emerald-500/80 border-emerald-400" : "border-white/20 hover:border-white/40"
+          }`}
+          title={isDone ? "Mark not done" : "Mark done"}
+        >
+          {isDone && <Check className="w-3 h-3 text-white" />}
+        </button>
+        {editingTitle ? (
+          <input
+            value={titleDraft}
+            onChange={e => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={e => {
+              if (e.key === "Enter") commitTitle();
+              if (e.key === "Escape") { setTitleDraft(subtask.title); setEditingTitle(false); }
+            }}
+            autoFocus
+            className="flex-1 min-w-0 bg-white/[0.04] border border-white/10 rounded px-1.5 py-0.5 text-xs text-white outline-none focus:border-blue-500/50"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditingTitle(true)}
+            data-testid={`subtask-title-${subtask.id}`}
+            className={`flex-1 min-w-0 text-left text-xs truncate ${isDone ? "line-through text-white/40" : "text-white/85"} hover:text-white`}
+          >
+            {subtask.title}
+          </button>
+        )}
+      </div>
+      <select
+        value={subtask.ownerId ?? ""}
+        onChange={e => onPatch({ ownerId: e.target.value ? parseInt(e.target.value) : null })}
+        className="h-7 rounded-md bg-transparent border border-white/[0.06] hover:border-white/15 px-1.5 text-[10px] text-white/70"
+      >
+        <option value="">Unassigned</option>
+        {team.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+      </select>
+      <select
+        value={subtask.groupId ?? ""}
+        onChange={e => onPatch({ groupId: e.target.value ? parseInt(e.target.value) : null })}
+        className="h-7 rounded-md bg-transparent border border-white/[0.06] hover:border-white/15 px-1.5 text-[10px]"
+        style={{
+          color: groups.find(g => g.id === subtask.groupId)?.color || "rgba(255,255,255,0.6)",
+        }}
+      >
+        <option value="">—</option>
+        {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+      <DatePickerInput
+        value={subtask.dueDate || ""}
+        onChange={e => onPatch({ dueDate: e.target.value || null })}
+        className={`h-7 text-[10px] bg-transparent border-white/[0.06] hover:border-white/15 ${
+          overdue ? "text-red-400 border-red-500/30" : warnAfterParent ? "text-amber-300 border-amber-500/30" : "text-white/60"
+        }`}
+      />
+      <button
+        type="button"
+        onClick={onDelete}
+        data-testid={`delete-subtask-${subtask.id}`}
+        className="w-7 h-7 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center"
+        title="Delete subtask"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
     </div>
   );
 }
