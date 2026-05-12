@@ -24,7 +24,19 @@ function readStoredMode(): ThemeMode {
   return "system";
 }
 
+// The public booking flow (book.* subdomain or /book route) is hardcoded
+// dark-themed and the shared light-mode polyfill in index.css would flip its
+// white text invisible. Force dark for those surfaces regardless of the
+// visitor's stored preference or OS setting.
+function isPublicDarkSurface(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  const path = window.location.pathname;
+  return host.startsWith("book.") || path === "/book" || path.startsWith("/book/");
+}
+
 function resolveMode(mode: ThemeMode): "light" | "dark" {
+  if (isPublicDarkSurface()) return "dark";
   if (mode === "system") {
     if (typeof window === "undefined") return "dark";
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
