@@ -30,6 +30,24 @@ export default function VenueBookSuccess() {
   const [data, setData] = useState<BookingGroup | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Match venue-book.tsx — force dark theme so the shared light-mode polyfill
+  // doesn't strip white text into invisible dark slate.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains("dark");
+    const prevColorScheme = root.style.colorScheme;
+    const prevDataTheme = root.getAttribute("data-theme");
+    root.classList.add("dark");
+    root.style.colorScheme = "dark";
+    root.setAttribute("data-theme", "dark");
+    return () => {
+      if (!hadDark) root.classList.remove("dark");
+      root.style.colorScheme = prevColorScheme;
+      if (prevDataTheme) root.setAttribute("data-theme", prevDataTheme);
+      else root.removeAttribute("data-theme");
+    };
+  }, []);
+
   useEffect(() => {
     if (!ref) { setLoading(false); return; }
     if (!stashedEmail) { setLoading(false); return; }

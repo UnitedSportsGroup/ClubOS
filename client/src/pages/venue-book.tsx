@@ -256,6 +256,26 @@ export default function VenueBookPage() {
   const [loadingResolve, setLoadingResolve] = useState(true);
   const [errResolve, setErrResolve] = useState<string | null>(null);
 
+  // The public booking flow is hardcoded dark. The shared light-mode polyfill
+  // in index.css flips `text-white` to dark slate when `html` lacks `.dark`,
+  // which makes every label invisible on visitors whose OS defaults to light.
+  // Force `.dark` while this page is mounted; restore on unmount.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains("dark");
+    const prevColorScheme = root.style.colorScheme;
+    const prevDataTheme = root.getAttribute("data-theme");
+    root.classList.add("dark");
+    root.style.colorScheme = "dark";
+    root.setAttribute("data-theme", "dark");
+    return () => {
+      if (!hadDark) root.classList.remove("dark");
+      root.style.colorScheme = prevColorScheme;
+      if (prevDataTheme) root.setAttribute("data-theme", prevDataTheme);
+      else root.removeAttribute("data-theme");
+    };
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
