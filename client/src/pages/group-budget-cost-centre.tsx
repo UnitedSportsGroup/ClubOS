@@ -7,39 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Plus, Trash2, User, Lock, ChevronRight, ChevronDown, Paperclip, Upload, X, FileText, GripVertical } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, useDroppable, type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, pointerWithin, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, DragOverlay, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-// Collision strategy: when the pointer is in the vertical middle 50% of a
-// row, prefer that row's `nest-${id}` droppable. Otherwise (top/bottom 25%
-// of the row, or between rows) fall back to closestCenter so the standard
-// sortable reorder fires. This makes "drop on top of a row to nest" reliably
-// distinguishable from "drop near the edge to reorder".
-const nestAwareCollision: CollisionDetection = (args) => {
-  const pointer = args.pointerCoordinates;
-  if (pointer) {
-    for (const container of args.droppableContainers) {
-      const id = String(container.id);
-      if (!id.startsWith("nest-")) continue;
-      const rect = args.droppableRects.get(container.id);
-      if (!rect) continue;
-      if (pointer.x < rect.left || pointer.x > rect.right) continue;
-      if (pointer.y < rect.top || pointer.y > rect.bottom) continue;
-      const middleStart = rect.top + rect.height * 0.25;
-      const middleEnd = rect.bottom - rect.height * 0.25;
-      if (pointer.y >= middleStart && pointer.y <= middleEnd) {
-        return [{ id: container.id, data: { droppableContainer: container, value: 0 } }];
-      }
-    }
-  }
-  // Filter out nest-* containers so the fallback can do plain reorder
-  // matching against the sortable rows only.
-  return closestCenter({
-    ...args,
-    droppableContainers: args.droppableContainers.filter(c => !String(c.id).startsWith("nest-")),
-  });
-};
 
 interface BudgetLine {
   id: number;
@@ -130,7 +100,6 @@ export default function GroupBudgetCostCentrePage() {
     onError: (e: Error) => toast({ title: "Reorder failed", description: e.message, variant: "destructive" }),
   });
 
-  // Group lines by (section → top-level → children).
   const sections = useMemo(() => {
     if (!data) return [] as { section: string; tops: { top: BudgetLine; children: BudgetLine[] }[] }[];
     const tops = data.lines.filter(l => l.parentLineId == null).sort((a, b) => a.displayOrder - b.displayOrder);
@@ -196,7 +165,6 @@ export default function GroupBudgetCostCentrePage() {
             tops={s.tops}
             centre={centre}
             canEdit={canEdit}
-            allLines={data.lines}
             onUpdateLine={(id, updates) => updateLine.mutate({ id, updates })}
             onDeleteLine={(id) => deleteLine.mutate(id)}
             onCreateLine={(d) => createLine.mutate(d)}
@@ -213,73 +181,92 @@ export default function GroupBudgetCostCentrePage() {
   );
 }
 
-// ── Section block w/ drag-and-drop reorder + nest ──────────────────────────
+// ── Section block ──────────────────────────────────────────────────────────
+// DnD model:
+//   • Each top-level row is BOTH draggable AND a "nest into me" droppable.
+//   • Between rows there are explicit Gap droppables which are the "reorder
+//     into this slot" targets. A row stays in place while you drag; a
+//     DragOverlay renders a floating clone under the cursor. No layout shift.
+//   • Drop on a row → nest. Drop on a gap → reorder. Unambiguous.
 
 function SectionBlock({
-  section, tops, centre, canEdit, allLines,
+  section, tops, centre, canEdit,
   onUpdateLine, onDeleteLine, onCreateLine, onReorder,
 }: {
   section: string;
   tops: { top: BudgetLine; children: BudgetLine[] }[];
   centre: CostCentre;
   canEdit: boolean;
-  allLines: BudgetLine[];
   onUpdateLine: (id: number, updates: Partial<BudgetLine>) => void;
   onDeleteLine: (id: number) => void;
   onCreateLine: (data: Partial<BudgetLine> & { costCentreId: number; kind: "income" | "expense"; name: string }) => void;
   onReorder: (updates: Array<{ id: number; displayOrder: number; parentLineId?: number | null }>) => void;
 }) {
   const subtotal = tops.reduce((sum, t) => sum + t.top.amountCents, 0);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const [activeId, setActiveId] = useState<number | null>(null);
-  const [nestTargetId, setNestTargetId] = useState<number | null>(null);
+  const [overInfo, setOverInfo] = useState<{ kind: "nest"; rowId: number } | { kind: "gap"; index: number } | null>(null);
 
-  const onDragStart = (e: DragStartEvent) => setActiveId(Number(e.active.id));
+  const onDragStart = (e: DragStartEvent) => {
+    setActiveId(Number(e.active.id));
+    setOverInfo(null);
+  };
   const onDragOver = (e: DragOverEvent) => {
-    if (!e.over) { setNestTargetId(null); return; }
+    if (!e.over) { setOverInfo(null); return; }
     const overId = String(e.over.id);
     if (overId.startsWith("nest-")) {
-      const tgt = Number(overId.slice(5));
-      // Can't nest into self or into one's own descendant.
-      if (tgt === activeId) { setNestTargetId(null); return; }
-      setNestTargetId(tgt);
+      const rowId = Number(overId.slice(5));
+      if (rowId === activeId) { setOverInfo(null); return; }
+      setOverInfo({ kind: "nest", rowId });
+    } else if (overId.startsWith("gap-")) {
+      const index = Number(overId.slice(4));
+      setOverInfo({ kind: "gap", index });
     } else {
-      setNestTargetId(null);
+      setOverInfo(null);
     }
   };
   const onDragEnd = (e: DragEndEvent) => {
-    const draggedId = Number(e.active.id);
-    const over = e.over;
+    const draggedId = activeId;
+    const info = overInfo;
     setActiveId(null);
-    const target = nestTargetId;
-    setNestTargetId(null);
+    setOverInfo(null);
+    if (!draggedId || !info || !e.over) return;
 
-    if (!over) return;
-
-    if (target !== null && target !== draggedId) {
-      // NEST: dragged becomes a child of target. New displayOrder = end of target's existing children.
-      const existingChildren = allLines.filter(l => l.parentLineId === target);
+    if (info.kind === "nest") {
+      if (info.rowId === draggedId) return;
+      // Reparent the dragged row to become a child of info.rowId.
+      // Place at end of existing children (large displayOrder).
+      const existingChildren = tops.find(t => t.top.id === info.rowId)?.children ?? [];
       const maxOrder = existingChildren.length ? Math.max(...existingChildren.map(c => c.displayOrder)) : 0;
-      onReorder([{ id: draggedId, displayOrder: maxOrder + 10, parentLineId: target }]);
+      onReorder([{ id: draggedId, displayOrder: maxOrder + 10, parentLineId: info.rowId }]);
       return;
     }
 
-    // REORDER among top-level rows in this section.
-    const overId = String(over.id);
-    if (overId.startsWith("nest-")) return; // already handled above
-    const overNum = Number(over.id);
-    if (!Number.isFinite(overNum) || overNum === draggedId) return;
+    // Gap drop: insert dragged row at slot `index` among top-level rows.
+    // Filter out the dragged row, splice it in, renumber.
     const ids = tops.map(t => t.top.id);
     const fromIdx = ids.indexOf(draggedId);
-    const toIdx = ids.indexOf(overNum);
-    if (fromIdx === -1 || toIdx === -1) return;
+    if (fromIdx === -1) {
+      // Dragged was a child being promoted to top-level — append at slot.
+      const inserted = [...ids];
+      inserted.splice(info.index, 0, draggedId);
+      onReorder([
+        { id: draggedId, displayOrder: (info.index + 1) * 10, parentLineId: null },
+        ...inserted.filter(id => id !== draggedId).map((id, i) => ({ id, displayOrder: (i + 1) * 10 })),
+      ]);
+      return;
+    }
+    let target = info.index;
+    if (target > fromIdx) target -= 1; // adjust for self-removal
+    if (target === fromIdx) return; // no-op
     const reordered = [...ids];
     reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, draggedId);
-    const updates = reordered.map((id, i) => ({ id, displayOrder: (i + 1) * 10 }));
-    onReorder(updates);
+    reordered.splice(target, 0, draggedId);
+    onReorder(reordered.map((id, i) => ({ id, displayOrder: (i + 1) * 10 })));
   };
+
+  const activeRow = activeId != null ? tops.find(t => t.top.id === activeId)?.top : null;
 
   return (
     <section className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
@@ -288,16 +275,17 @@ function SectionBlock({
         <span className="text-xs text-white/40 tabular-nums">{fmtMoney(subtotal)}</span>
       </div>
       <div>
-        <DndContext sensors={sensors} collisionDetection={nestAwareCollision} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
-          <SortableContext items={tops.map(t => t.top.id)} strategy={verticalListSortingStrategy}>
-            {tops.map(({ top, children }) => (
-              <SortableParentRow
-                key={top.id}
+        <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+          <Gap index={0} highlighted={overInfo?.kind === "gap" && overInfo.index === 0} dragging={activeId != null} />
+          {tops.map(({ top, children }, i) => (
+            <div key={top.id}>
+              <NestableParentRow
                 line={top}
                 children={children}
                 canEdit={canEdit}
-                isNestTarget={nestTargetId === top.id}
+                isNestTarget={overInfo?.kind === "nest" && overInfo.rowId === top.id}
                 isBeingDragged={activeId === top.id}
+                anyDragging={activeId != null}
                 onUpdate={(updates) => onUpdateLine(top.id, updates)}
                 onDelete={() => onDeleteLine(top.id)}
                 onAddChild={(name, amount) => onCreateLine({ costCentreId: centre.id, kind: "expense", section: top.section, parentLineId: top.id, name, amountCents: amount })}
@@ -305,8 +293,18 @@ function SectionBlock({
                 onDeleteChild={(id) => onDeleteLine(id)}
                 onReorderChildren={(updates) => onReorder(updates)}
               />
-            ))}
-          </SortableContext>
+              <Gap index={i + 1} highlighted={overInfo?.kind === "gap" && overInfo.index === i + 1} dragging={activeId != null} />
+            </div>
+          ))}
+          <DragOverlay dropAnimation={null}>
+            {activeRow && (
+              <div className="rounded-lg bg-blue-500/[0.10] border border-blue-400/40 shadow-xl px-4 py-2 text-sm text-white/90 inline-flex items-center gap-3 backdrop-blur-md">
+                <GripVertical className="w-3.5 h-3.5 text-white/40" />
+                <span>{activeRow.name}</span>
+                <span className="text-white/50 tabular-nums">{fmtMoney(activeRow.amountCents)}</span>
+              </div>
+            )}
+          </DragOverlay>
         </DndContext>
         {canEdit && (
           <AddTopLineRow
@@ -319,10 +317,26 @@ function SectionBlock({
   );
 }
 
-// ── Sortable parent row (with nest droppable + nested children DnD) ────────
+// ── Gap (reorder drop target between rows) ─────────────────────────────────
 
-function SortableParentRow({
-  line, children, canEdit, isNestTarget, isBeingDragged,
+function Gap({ index, highlighted, dragging }: { index: number; highlighted: boolean; dragging: boolean }) {
+  const { setNodeRef } = useDroppable({ id: `gap-${index}` });
+  // Gap height grows during any drag so users have a real target. Outside
+  // of drag mode it's invisible (0px) so the table stays compact.
+  const height = dragging ? "h-3" : "h-0";
+  return (
+    <div ref={setNodeRef} className={`relative ${height} transition-[height] duration-100`}>
+      {highlighted && (
+        <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 h-[3px] rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.7)]" />
+      )}
+    </div>
+  );
+}
+
+// ── Parent row (draggable, nest-droppable) ─────────────────────────────────
+
+function NestableParentRow({
+  line, children, canEdit, isNestTarget, isBeingDragged, anyDragging,
   onUpdate, onDelete, onAddChild, onUpdateChild, onDeleteChild, onReorderChildren,
 }: {
   line: BudgetLine;
@@ -330,6 +344,7 @@ function SortableParentRow({
   canEdit: boolean;
   isNestTarget: boolean;
   isBeingDragged: boolean;
+  anyDragging: boolean;
   onUpdate: (u: Partial<BudgetLine>) => void;
   onDelete: () => void;
   onAddChild: (name: string, amountCents: number) => void;
@@ -341,28 +356,28 @@ function SortableParentRow({
   const [expanded, setExpanded] = useState(hasChildren);
   const [showAttachments, setShowAttachments] = useState(false);
 
-  const sortable = useSortable({ id: line.id, disabled: !canEdit });
+  const draggable = useDraggable({ id: line.id, disabled: !canEdit });
   const nestDrop = useDroppable({ id: `nest-${line.id}`, disabled: !canEdit });
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-    opacity: isBeingDragged ? 0.4 : 1,
+  // Source row stays in place during drag — DragOverlay handles the float.
+  // Visual: fade the source so it's clear which row is being moved.
+  const rowStyle: React.CSSProperties = {
+    opacity: isBeingDragged ? 0.35 : 1,
   };
 
   const nestClass = isNestTarget
-    ? "ring-2 ring-blue-400 ring-inset bg-blue-500/[0.18] animate-pulse shadow-[0_0_20px_rgba(96,165,250,0.4)]"
+    ? "ring-2 ring-blue-400 bg-blue-500/[0.22] shadow-[0_0_24px_rgba(96,165,250,0.55)]"
     : "";
 
   return (
-    <div ref={sortable.setNodeRef} style={style} className="border-b border-white/[0.02]">
-      <div ref={nestDrop.setNodeRef} className={`relative transition-colors ${nestClass}`}>
+    <div ref={draggable.setNodeRef} style={rowStyle} className="border-b border-white/[0.02]">
+      <div ref={nestDrop.setNodeRef} className={`relative rounded-md transition-colors ${nestClass}`}>
         <LineRow
           line={line}
           canEdit={canEdit}
           depth={0}
           amountIsAuto={hasChildren}
-          dragHandleProps={canEdit ? { ...sortable.attributes, ...sortable.listeners } : undefined}
+          dragHandleProps={canEdit ? { ...draggable.attributes, ...draggable.listeners } : undefined}
           chevron={
             <button
               onClick={() => setExpanded(e => !e)}
@@ -396,7 +411,7 @@ function SortableParentRow({
   );
 }
 
-// ── Children sortable list ─────────────────────────────────────────────────
+// ── Children sortable list (no nesting — just reorder siblings) ────────────
 
 function ChildrenList({ parentId, children, canEdit, onUpdate, onDelete, onReorder }: {
   parentId: number;
@@ -406,7 +421,7 @@ function ChildrenList({ parentId, children, canEdit, onUpdate, onDelete, onReord
   onDelete: (id: number) => void;
   onReorder: (updates: Array<{ id: number; displayOrder: number; parentLineId?: number | null }>) => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
     const ids = children.map(c => c.id);
@@ -419,7 +434,7 @@ function ChildrenList({ parentId, children, canEdit, onUpdate, onDelete, onReord
     onReorder(reordered.map((id, i) => ({ id, displayOrder: (i + 1) * 10 })));
   };
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <SortableContext items={children.map(c => c.id)} strategy={verticalListSortingStrategy}>
         {children.map(c => (
           <SortableChildRow key={c.id} line={c} canEdit={canEdit} onUpdate={(u) => onUpdate(c.id, u)} onDelete={() => onDelete(c.id)} />
@@ -479,8 +494,8 @@ function LineRow({ line, canEdit, depth, amountIsAuto, chevron, dragHandleProps,
     <div className={`grid grid-cols-[20px_20px_1fr_140px_1fr_80px] gap-2 items-center pr-4 py-1.5 ${indentClass} hover:bg-white/[0.015] group/row`}>
       <button
         {...dragHandleProps}
-        className={`w-5 h-5 inline-flex items-center justify-center rounded text-white/15 hover:text-white/60 ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-default"} opacity-0 group-hover/row:opacity-100 transition-opacity`}
-        title="Drag to reorder · drag onto another row to nest"
+        className={`w-5 h-5 inline-flex items-center justify-center rounded text-white/15 hover:text-white/70 ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-default"} opacity-0 group-hover/row:opacity-100 transition-opacity`}
+        title="Drag this row to reorder or nest"
       >
         <GripVertical className="w-3.5 h-3.5" />
       </button>
