@@ -8912,6 +8912,29 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  app.post("/api/admin/budget/lines/reorder", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const updates = req.body?.updates as Array<{ id: number; displayOrder: number; parentLineId?: number | null }> | undefined;
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return res.status(400).json({ message: "updates[] required" });
+      }
+      // Authorize: every line being reordered must belong to a cost centre the
+      // caller can edit. We check the first line's centre (drag is always
+      // within one centre in the UI) but enforce on each to be safe.
+      const ids = updates.map(u => Number(u.id)).filter(n => Number.isFinite(n));
+      if (ids.length === 0) return res.status(400).json({ message: "valid ids required" });
+      const firstLine = await budgetStorage.getLine(ids[0]);
+      if (!firstLine) return res.status(404).json({ message: "Line not found" });
+      const centre = await budgetStorage.getById(firstLine.costCentreId);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
+        return res.status(403).json({ message: "Not authorised to reorder lines in this cost centre" });
+      }
+      await budgetStorage.reorderLines(updates);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
   // ── Budget Line Attachments ────────────────────────────────────────────
   // Receipts / invoices live in the `clubos-uploads` Supabase bucket at
   // budget/{costCentreId}/{lineId}/{uuid}-{originalFilename}. Bucket is

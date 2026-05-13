@@ -163,6 +163,22 @@ export const budgetStorage = {
     return r;
   },
 
+  // Bulk re-write display_order on a set of lines. Used after drag-and-drop.
+  // Caller sends [{id, displayOrder}, ...]; we apply in a single transaction.
+  // If parentLineId is included on a row, we also reparent (used when a child
+  // is dragged out of / into a different parent — Phase 2; for now we accept
+  // it but don't expose cross-parent UX).
+  async reorderLines(updates: Array<{ id: number; displayOrder: number; parentLineId?: number | null }>): Promise<void> {
+    if (updates.length === 0) return;
+    await db.transaction(async (tx) => {
+      for (const u of updates) {
+        const patch: Record<string, unknown> = { displayOrder: u.displayOrder, updatedAt: new Date() };
+        if (u.parentLineId !== undefined) patch.parentLineId = u.parentLineId;
+        await tx.update(budgetLines).set(patch as any).where(eq(budgetLines.id, u.id));
+      }
+    });
+  },
+
   async deleteLine(id: number): Promise<boolean> {
     const existing = await this.getLine(id);
     if (!existing) return false;
