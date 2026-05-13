@@ -170,13 +170,28 @@ export const budgetStorage = {
   // it but don't expose cross-parent UX).
   async reorderLines(updates: Array<{ id: number; displayOrder: number; parentLineId?: number | null }>): Promise<void> {
     if (updates.length === 0) return;
+    // Track every parent that gained or lost children so we can recompute
+    // their totals after the move.
+    const affectedParents = new Set<number>();
     await db.transaction(async (tx) => {
       for (const u of updates) {
+        if (u.parentLineId !== undefined) {
+          // Look up the previous parent so we can recompute it too.
+          const [prev] = await tx
+            .select({ parentLineId: budgetLines.parentLineId })
+            .from(budgetLines)
+            .where(eq(budgetLines.id, u.id));
+          if (prev?.parentLineId != null) affectedParents.add(prev.parentLineId);
+          if (u.parentLineId != null) affectedParents.add(u.parentLineId);
+        }
         const patch: Record<string, unknown> = { displayOrder: u.displayOrder, updatedAt: new Date() };
         if (u.parentLineId !== undefined) patch.parentLineId = u.parentLineId;
         await tx.update(budgetLines).set(patch as any).where(eq(budgetLines.id, u.id));
       }
     });
+    for (const parentId of Array.from(affectedParents)) {
+      await this.recomputeParentTotal(parentId);
+    }
   },
 
   async deleteLine(id: number): Promise<boolean> {
@@ -188,18 +203,25 @@ export const budgetStorage = {
     return r.length > 0;
   },
 
-  // Recompute a parent line's amount_cents from the sum of its children.
-  // Called after any child insert / update / delete.
+  // Recompute a parent line's amount_cents from the sum of its children, then
+  // walk up the parent chain so multi-level totals roll up correctly.
   async recomputeParentTotal(parentId: number): Promise<void> {
-    const [row] = await db
-      .select({ total: sql<number>`COALESCE(SUM(${budgetLines.amountCents}), 0)::int` })
-      .from(budgetLines)
-      .where(eq(budgetLines.parentLineId, parentId));
-    const total = Number(row?.total ?? 0);
-    await db
-      .update(budgetLines)
-      .set({ amountCents: total, updatedAt: new Date() })
-      .where(eq(budgetLines.id, parentId));
+    let current: number | null = parentId;
+    const seen = new Set<number>(); // cycle guard
+    while (current != null && !seen.has(current)) {
+      seen.add(current);
+      const [agg] = await db
+        .select({ total: sql<number>`COALESCE(SUM(${budgetLines.amountCents}), 0)::int` })
+        .from(budgetLines)
+        .where(eq(budgetLines.parentLineId, current));
+      const total = Number(agg?.total ?? 0);
+      const updated: Array<{ parentLineId: number | null }> = await db
+        .update(budgetLines)
+        .set({ amountCents: total, updatedAt: new Date() })
+        .where(eq(budgetLines.id, current))
+        .returning({ parentLineId: budgetLines.parentLineId });
+      current = updated[0]?.parentLineId ?? null;
+    }
   },
 
   // ── Rollup ───────────────────────────────────────────────────────────────
