@@ -124,6 +124,7 @@ export const budgetStorage = {
   async createLine(data: InsertBudgetLine): Promise<BudgetLine> {
     const computed = recomputeIfComputed(data);
     const [r] = await db.insert(budgetLines).values(computed as any).returning();
+    if (r.parentLineId) await this.recomputeParentTotal(r.parentLineId);
     return r;
   },
 
@@ -132,11 +133,20 @@ export const budgetStorage = {
     if (!existing) return undefined;
     const merged = { ...existing, ...updates };
     const computed = recomputeIfComputed(merged);
+
+    // If this line has children, its amount is auto-summed — ignore any
+    // manual amountCents in the update payload.
+    const kids = await db
+      .select({ c: sql<number>`COUNT(*)::int` })
+      .from(budgetLines)
+      .where(eq(budgetLines.parentLineId, id));
+    const hasChildren = (kids[0]?.c ?? 0) > 0;
+
     const [r] = await db
       .update(budgetLines)
       .set({
         ...updates,
-        amountCents: computed.amountCents,
+        ...(hasChildren ? {} : { amountCents: computed.amountCents }),
         updatedAt: new Date(),
         updatedBy: userId,
         // Any in-app edit clears the sheet-sync stamp so the next sync treats
@@ -145,12 +155,35 @@ export const budgetStorage = {
       })
       .where(eq(budgetLines.id, id))
       .returning();
+
+    // If this line is itself a child and its amount changed, roll up to parent.
+    if (r?.parentLineId && !hasChildren) {
+      await this.recomputeParentTotal(r.parentLineId);
+    }
     return r;
   },
 
   async deleteLine(id: number): Promise<boolean> {
+    const existing = await this.getLine(id);
+    if (!existing) return false;
+    const parentId = existing.parentLineId;
     const r = await db.delete(budgetLines).where(eq(budgetLines.id, id)).returning();
+    if (parentId) await this.recomputeParentTotal(parentId);
     return r.length > 0;
+  },
+
+  // Recompute a parent line's amount_cents from the sum of its children.
+  // Called after any child insert / update / delete.
+  async recomputeParentTotal(parentId: number): Promise<void> {
+    const [row] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${budgetLines.amountCents}), 0)::int` })
+      .from(budgetLines)
+      .where(eq(budgetLines.parentLineId, parentId));
+    const total = Number(row?.total ?? 0);
+    await db
+      .update(budgetLines)
+      .set({ amountCents: total, updatedAt: new Date() })
+      .where(eq(budgetLines.id, parentId));
   },
 
   // ── Rollup ───────────────────────────────────────────────────────────────
@@ -245,7 +278,7 @@ export const budgetStorage = {
 // Computed-line amount = unitRateCents × unitsA × unitsB × unitsC (treating
 // nullish dimensions as 1). Anything else is a simple line and uses the
 // caller-supplied amountCents as-is.
-function recomputeIfComputed<T extends Partial<InsertBudgetLine>>(line: T): T {
+function recomputeIfComputed(line: any): any {
   if (line.lineType !== "computed") return line;
   const rate = line.unitRateCents ?? 0;
   const a = line.unitsA != null ? Number(line.unitsA) : 1;

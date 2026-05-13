@@ -1712,6 +1712,9 @@ export const budgetCostCentres = pgTable("budget_cost_centres", {
 export const budgetLines = pgTable("budget_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   costCentreId: integer("cost_centre_id").notNull().references(() => budgetCostCentres.id, { onDelete: "cascade" }),
+  // Self-ref. Null = top-level line. Set = sub-line whose parent sums its
+  // children (Sheet's row-group pattern: one referee → N per-date payments).
+  parentLineId: integer("parent_line_id").references((): any => budgetLines.id, { onDelete: "cascade" }),
   kind: budgetKindEnum("kind").notNull(),
   lineType: budgetLineTypeEnum("line_type").notNull().default("simple"),
   // Section header from the sheet ("Coaching", "Field Hire"). Free-form;

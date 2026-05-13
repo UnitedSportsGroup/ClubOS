@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory } from "@shared/schema";
 import { budgetStorage } from "./budget-storage";
+import { objectStorageClient } from "./replit_integrations/object_storage/objectStorage";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8907,6 +8908,82 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorised to edit this cost centre" });
       }
       await budgetStorage.deleteLine(id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Budget Line Attachments ────────────────────────────────────────────
+  // Receipts / invoices live in the `clubos-uploads` Supabase bucket at
+  // budget/{costCentreId}/{lineId}/{uuid}-{originalFilename}. Bucket is
+  // private; client fetches via short-lived signed URLs.
+  const BUDGET_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "clubos-uploads";
+  const budgetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+  app.get("/api/admin/budget/lines/:id/attachments", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const line = await budgetStorage.getLine(id);
+      if (!line) return res.status(404).json({ message: "Line not found" });
+      const attachments = await budgetStorage.getAttachments(id);
+      res.json(attachments);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/budget/lines/:id/attachments", requireAuth, requireTab("budget"), budgetUpload.single("file"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const line = await budgetStorage.getLine(id);
+      if (!line) return res.status(404).json({ message: "Line not found" });
+      const centre = await budgetStorage.getById(line.costCentreId);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
+        return res.status(403).json({ message: "Not authorised to upload here" });
+      }
+      const file = req.file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storageKey = `budget/${line.costCentreId}/${line.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error: upErr } = await objectStorageClient.storage.from(BUDGET_BUCKET).upload(storageKey, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+      if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
+      const created = await budgetStorage.createAttachment({
+        lineId: line.id,
+        kind: (req.body?.kind as string | undefined) || "receipt",
+        storageKey,
+        originalFilename: file.originalname,
+        contentType: file.mimetype,
+        sizeBytes: file.size,
+        uploadedBy: req.session.userId!,
+        notes: (req.body?.notes as string | undefined) || null,
+      });
+      res.json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/budget/attachments/:id/url", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const list = await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)).limit(1); // ensure auth still valid
+      if (list.length === 0) return res.status(401).json({ message: "Not authenticated" });
+      // Fetch the attachment row directly.
+      const rows = await db.execute<{ storage_key: string }>(sql`SELECT storage_key FROM budget_line_attachments WHERE id = ${id} LIMIT 1`);
+      const row = (rows as any).rows?.[0] ?? (Array.isArray(rows) ? rows[0] : undefined);
+      if (!row) return res.status(404).json({ message: "Attachment not found" });
+      const { data, error } = await objectStorageClient.storage.from(BUDGET_BUCKET).createSignedUrl(row.storage_key, 60 * 60);
+      if (error) throw new Error(error.message);
+      res.json({ url: data.signedUrl });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/budget/attachments/:id", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const removed = await budgetStorage.deleteAttachment(id);
+      if (!removed) return res.status(404).json({ message: "Attachment not found" });
+      // Best-effort storage delete — ignore failure (row gone is the source of truth).
+      await objectStorageClient.storage.from(BUDGET_BUCKET).remove([removed.storageKey]).catch(() => {});
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
