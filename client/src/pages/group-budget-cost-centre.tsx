@@ -7,9 +7,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Plus, Trash2, User, Lock, ChevronRight, ChevronDown, Paperclip, Upload, X, FileText, GripVertical } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, useDroppable, DragOverlay, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, useDroppable, type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+// Collision strategy: when the pointer is in the vertical middle 50% of a
+// row, prefer that row's `nest-${id}` droppable. Otherwise (top/bottom 25%
+// of the row, or between rows) fall back to closestCenter so the standard
+// sortable reorder fires. This makes "drop on top of a row to nest" reliably
+// distinguishable from "drop near the edge to reorder".
+const nestAwareCollision: CollisionDetection = (args) => {
+  const pointer = args.pointerCoordinates;
+  if (pointer) {
+    for (const container of args.droppableContainers) {
+      const id = String(container.id);
+      if (!id.startsWith("nest-")) continue;
+      const rect = args.droppableRects.get(container.id);
+      if (!rect) continue;
+      if (pointer.x < rect.left || pointer.x > rect.right) continue;
+      if (pointer.y < rect.top || pointer.y > rect.bottom) continue;
+      const middleStart = rect.top + rect.height * 0.25;
+      const middleEnd = rect.bottom - rect.height * 0.25;
+      if (pointer.y >= middleStart && pointer.y <= middleEnd) {
+        return [{ id: container.id, data: { droppableContainer: container, value: 0 } }];
+      }
+    }
+  }
+  // Filter out nest-* containers so the fallback can do plain reorder
+  // matching against the sortable rows only.
+  return closestCenter({
+    ...args,
+    droppableContainers: args.droppableContainers.filter(c => !String(c.id).startsWith("nest-")),
+  });
+};
 
 interface BudgetLine {
   id: number;
@@ -258,7 +288,7 @@ function SectionBlock({
         <span className="text-xs text-white/40 tabular-nums">{fmtMoney(subtotal)}</span>
       </div>
       <div>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={nestAwareCollision} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
           <SortableContext items={tops.map(t => t.top.id)} strategy={verticalListSortingStrategy}>
             {tops.map(({ top, children }) => (
               <SortableParentRow
@@ -321,7 +351,7 @@ function SortableParentRow({
   };
 
   const nestClass = isNestTarget
-    ? "ring-2 ring-blue-400/80 ring-inset bg-blue-500/[0.08] animate-pulse"
+    ? "ring-2 ring-blue-400 ring-inset bg-blue-500/[0.18] animate-pulse shadow-[0_0_20px_rgba(96,165,250,0.4)]"
     : "";
 
   return (
