@@ -141,6 +141,7 @@ const groupNav = [
   { tab: "calendar", title: "Calendar", url: "/admin/calendar", icon: Calendar },
   { tab: "projects", title: "Projects", url: "/admin/projects", icon: ClipboardCheck },
   { tab: "sponsorship", title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
+  { tab: "budget", title: "Budget", url: "/admin/budget", icon: CreditCard },
 ];
 
 const groupSecondary = [
