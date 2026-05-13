@@ -1723,9 +1723,9 @@ export const budgetLines = pgTable("budget_lines", {
   amountCents: integer("amount_cents").notNull().default(0),
   // Assumption fields — populated only when lineType = 'computed'.
   unitRateCents: integer("unit_rate_cents"),
-  unitsA: numeric("units_a", { precision: 10, scale: 2 }),
-  unitsB: numeric("units_b", { precision: 10, scale: 2 }),
-  unitsC: numeric("units_c", { precision: 10, scale: 2 }),
+  unitsA: decimal("units_a", { precision: 10, scale: 2 }),
+  unitsB: decimal("units_b", { precision: 10, scale: 2 }),
+  unitsC: decimal("units_c", { precision: 10, scale: 2 }),
   unitLabelA: text("unit_label_a"),
   unitLabelB: text("unit_label_b"),
   unitLabelC: text("unit_label_c"),
