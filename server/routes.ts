@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory } from "@shared/schema";
+import { budgetStorage } from "./budget-storage";
 import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8763,6 +8764,150 @@ export async function registerRoutes(
       }
 
       res.json({ memberships, teams, refAssignments });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Budget Module (USG workspace) ──────────────────────────────────────
+  // All routes gated by requireTab("budget"). Edit ops further restricted to
+  // (super_admin | workspace admin/manager | cost-centre owner).
+
+  const isPrivilegedForCentre = async (userId: number, centre: { ownerId: number | null; organizationId: number }) => {
+    const user = await storage.getUser(userId);
+    if (!user) return false;
+    if (user.role === "super_admin") return true;
+    if (centre.ownerId === userId) return true;
+    const orgs = await storage.getUserOrganizations(userId);
+    const membership = orgs.find(o => o.id === centre.organizationId);
+    return !!membership && (membership.userRole === "admin" || membership.userRole === "manager");
+  };
+
+  app.get("/api/admin/budget/cost-centres", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const slug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find(o => o.slug === slug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const year = Number(req.query.year ?? new Date().getFullYear());
+      const centres = await budgetStorage.list(org.id, year);
+      res.json({ year, centres });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/budget/rollup", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const slug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find(o => o.slug === slug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const year = Number(req.query.year ?? new Date().getFullYear());
+      const data = await budgetStorage.rollup(org.id, year);
+      res.json({ year, ...data });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/budget/cost-centres/:slug", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find(o => o.slug === wsSlug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const year = Number(req.query.year ?? new Date().getFullYear());
+      const centre = await budgetStorage.getBySlug(org.id, req.params.slug, year);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      const lines = await budgetStorage.getLines(centre.id);
+      const canEdit = await isPrivilegedForCentre(req.session.userId!, centre);
+      res.json({ centre, lines, canEdit });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/budget/cost-centres", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || user.role !== "super_admin") {
+        const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+        const orgs = await storage.getUserOrganizations(req.session.userId!);
+        const org = orgs.find(o => o.slug === wsSlug);
+        if (!org || (org.userRole !== "admin" && org.userRole !== "manager")) {
+          return res.status(403).json({ message: "Only admins can create cost centres" });
+        }
+      }
+      const parsed = insertBudgetCostCentreSchema.parse({ ...req.body, createdBy: req.session.userId });
+      const created = await budgetStorage.create(parsed);
+      res.json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/budget/cost-centres/:id", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await budgetStorage.getById(id);
+      if (!existing) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, existing))) {
+        return res.status(403).json({ message: "Not authorised to edit this cost centre" });
+      }
+      const updated = await budgetStorage.update(id, req.body);
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/budget/cost-centres/:id", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await budgetStorage.getById(id);
+      if (!existing) return res.status(404).json({ message: "Cost centre not found" });
+      const user = await storage.getUser(req.session.userId!);
+      if (user?.role !== "super_admin") {
+        const orgs = await storage.getUserOrganizations(req.session.userId!);
+        const org = orgs.find(o => o.id === existing.organizationId);
+        if (!org || (org.userRole !== "admin" && org.userRole !== "manager")) {
+          return res.status(403).json({ message: "Only admins can delete cost centres" });
+        }
+      }
+      await budgetStorage.delete(id);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/budget/lines", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const parsed = insertBudgetLineSchema.parse({ ...req.body, createdBy: req.session.userId, updatedBy: req.session.userId });
+      const centre = await budgetStorage.getById(parsed.costCentreId);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
+        return res.status(403).json({ message: "Not authorised to edit this cost centre" });
+      }
+      const created = await budgetStorage.createLine(parsed);
+      res.json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/budget/lines/:id", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await budgetStorage.getLine(id);
+      if (!existing) return res.status(404).json({ message: "Line not found" });
+      const centre = await budgetStorage.getById(existing.costCentreId);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
+        return res.status(403).json({ message: "Not authorised to edit this cost centre" });
+      }
+      const updated = await budgetStorage.updateLine(id, req.body, req.session.userId!);
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/budget/lines/:id", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const existing = await budgetStorage.getLine(id);
+      if (!existing) return res.status(404).json({ message: "Line not found" });
+      const centre = await budgetStorage.getById(existing.costCentreId);
+      if (!centre) return res.status(404).json({ message: "Cost centre not found" });
+      if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
+        return res.status(403).json({ message: "Not authorised to edit this cost centre" });
+      }
+      await budgetStorage.deleteLine(id);
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

@@ -1678,4 +1678,112 @@ export type InsertObjectAcl = typeof objectAcls.$inferInsert;
 
 export const insertTermSchema = createInsertSchema(terms).omit({ id: true, createdAt: true });
 export type InsertTerm = z.infer<typeof insertTermSchema>;
+
+// ── Budget Module (USG workspace) ────────────────────────────────────────────
+// Per-cost-centre budgets owned by named staff. Lines roll up into org-wide
+// annual + monthly views. One-way Google Sheets sync (Phase 4) stamps
+// `sourceSyncId` on every imported line so user edits can be detected.
+
+export const budgetKindEnum = pgEnum("budget_kind", ["income", "expense"]);
+export const budgetLineTypeEnum = pgEnum("budget_line_type", ["simple", "computed"]);
+
+export const budgetCostCentres = pgTable("budget_cost_centres", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  // Slug used in URLs and as the natural key the sheet sync matches a sheet
+  // tab to a centre row. Unique per (org, year).
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  // Grouping bucket for the rollup. operating | team | shared | tournament.
+  bucket: text("bucket").notNull().default("operating"),
+  ownerId: integer("owner_id").references(() => users.id),
+  year: integer("year").notNull(),
+  // True for centres whose totals are computed live from another table
+  // (e.g. Sponsorship pulled from sponsorshipDeals). UI redirects to the
+  // owning feature instead of showing an editable lines page.
+  isVirtual: boolean("is_virtual").notNull().default(false),
+  notes: text("notes"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const budgetLines = pgTable("budget_lines", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  costCentreId: integer("cost_centre_id").notNull().references(() => budgetCostCentres.id, { onDelete: "cascade" }),
+  kind: budgetKindEnum("kind").notNull(),
+  lineType: budgetLineTypeEnum("line_type").notNull().default("simple"),
+  // Section header from the sheet ("Coaching", "Field Hire"). Free-form;
+  // grouped client-side. Null = ungrouped.
+  section: text("section"),
+  name: text("name").notNull(),
+  // Always populated. For computed lines this is the cached product of the
+  // assumption fields, recomputed on every write.
+  amountCents: integer("amount_cents").notNull().default(0),
+  // Assumption fields — populated only when lineType = 'computed'.
+  unitRateCents: integer("unit_rate_cents"),
+  unitsA: numeric("units_a", { precision: 10, scale: 2 }),
+  unitsB: numeric("units_b", { precision: 10, scale: 2 }),
+  unitsC: numeric("units_c", { precision: 10, scale: 2 }),
+  unitLabelA: text("unit_label_a"),
+  unitLabelB: text("unit_label_b"),
+  unitLabelC: text("unit_label_c"),
+  // 12-int-cents array; null = even split of amountCents across 12 months.
+  // When set, must sum to amountCents (server-validated on write).
+  monthlyPhasing: jsonb("monthly_phasing").$type<number[] | null>(),
+  notes: text("notes"),
+  displayOrder: integer("display_order").notNull().default(0),
+  // Phase 4: set to the budgetSyncRuns.id that last wrote this row from the
+  // sheet. Cleared whenever a user edits in-app — drives conflict detection.
+  sourceSyncId: integer("source_sync_id"),
+  createdBy: integer("created_by").references(() => users.id),
+  updatedBy: integer("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const budgetLineAttachments = pgTable("budget_line_attachments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  lineId: integer("line_id").notNull().references(() => budgetLines.id, { onDelete: "cascade" }),
+  // receipt | invoice | quote | other
+  kind: text("kind").notNull().default("receipt"),
+  storageKey: text("storage_key").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  notes: text("notes"),
+});
+
+export const budgetSyncRuns = pgTable("budget_sync_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  triggeredBy: integer("triggered_by").references(() => users.id),
+  source: text("source").notNull().default("google_sheet"),
+  sourceRef: text("source_ref"),
+  status: text("status").notNull().default("running"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+  rowsAdded: integer("rows_added").notNull().default(0),
+  rowsUpdated: integer("rows_updated").notNull().default(0),
+  rowsSkipped: integer("rows_skipped").notNull().default(0),
+  errorMessage: text("error_message"),
+  diffSummary: jsonb("diff_summary"),
+});
+
+export const insertBudgetCostCentreSchema = createInsertSchema(budgetCostCentres).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBudgetLineSchema = createInsertSchema(budgetLines).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBudgetLineAttachmentSchema = createInsertSchema(budgetLineAttachments).omit({ id: true, uploadedAt: true });
+export const insertBudgetSyncRunSchema = createInsertSchema(budgetSyncRuns).omit({ id: true, startedAt: true });
+
+export type InsertBudgetCostCentre = z.infer<typeof insertBudgetCostCentreSchema>;
+export type BudgetCostCentre = typeof budgetCostCentres.$inferSelect;
+export type InsertBudgetLine = z.infer<typeof insertBudgetLineSchema>;
+export type BudgetLine = typeof budgetLines.$inferSelect;
+export type InsertBudgetLineAttachment = z.infer<typeof insertBudgetLineAttachmentSchema>;
+export type BudgetLineAttachment = typeof budgetLineAttachments.$inferSelect;
+export type InsertBudgetSyncRun = z.infer<typeof insertBudgetSyncRunSchema>;
+export type BudgetSyncRun = typeof budgetSyncRuns.$inferSelect;
 export type Term = typeof terms.$inferSelect;
