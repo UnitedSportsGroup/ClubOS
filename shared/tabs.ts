@@ -139,8 +139,19 @@ export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
 }
 
 /**
+ * Tabs that are locked to super_admin ONLY while the feature is under
+ * construction. Bypasses the usual admin/manager/tabs-array escalations.
+ * When ready to open up, remove the slug here — the rest of the permission
+ * system (workspace role + tabs whitelist) takes over.
+ */
+export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
+  "budget", // Phase 1 construction — staff salaries visible. Daniel only.
+]);
+
+/**
  * Whether a user should see/access a given tab in a workspace.
  * Rules:
+ *   - Locked tabs (SUPER_ADMIN_ONLY_TABS) → only super_admin
  *   - super_admin always sees everything
  *   - admin or manager role → all tabs (full access regardless of tabs column)
  *   - tabs == null → all tabs (legacy default; treat as full access)
@@ -157,6 +168,7 @@ export function canAccessTab({
   membershipTabs?: string[] | null;
   tabSlug: string;
 }): boolean {
+  if (SUPER_ADMIN_ONLY_TABS.has(tabSlug)) return globalRole === "super_admin";
   if (globalRole === "super_admin") return true;
   if (membershipRole === "admin" || membershipRole === "manager") return true;
   if (membershipTabs == null) return true;
