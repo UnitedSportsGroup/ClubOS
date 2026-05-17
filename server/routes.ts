@@ -107,6 +107,122 @@ export async function registerRoutes(
     }
   });
 
+  // Email signup. Self-service account creation for users coming from the
+  // mobile apps (MFL, CIC Youth, etc.). Team registration + payment lives
+  // on the website (join.minifootball.co.nz) — this endpoint is purely
+  // for creating a "follower" account so users can see fixtures, get
+  // assigned as referees, etc.
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const { email, password, firstName, lastName } = req.body ?? {};
+      if (!email || !password || !firstName || !lastName) {
+        return res.status(400).json({ message: "email, password, firstName, lastName required" });
+      }
+      if (typeof password !== "string" || password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      const emailLower = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+        return res.status(400).json({ message: "Invalid email" });
+      }
+      const existing = await storage.getUserByEmail(emailLower);
+      if (existing) {
+        return res.status(409).json({ message: "Account with this email already exists" });
+      }
+      const passwordHash = await hashPassword(password);
+      const [user] = await db.insert(usersTable).values({
+        email: emailLower,
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        password: passwordHash,
+        role: "coach",
+      }).returning();
+      req.session.userId = user.id;
+      res.status(201).json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
+    } catch (e: any) {
+      console.error("[signup]", e);
+      res.status(500).json({ message: e.message || "Signup failed" });
+    }
+  });
+
+  // Apple Sign-In. Mobile clients run AppleAuthentication.signInAsync and
+  // POST the resulting identityToken (+ optional firstName/lastName/email
+  // which Apple ONLY returns on first sign-in). We verify the token against
+  // Apple's JWKS, extract the stable Apple user ID (`sub`), then match
+  // appleId → email → create-new in the same pattern as Google sign-in.
+  //
+  // The optional APPLE_OAUTH_CLIENT_IDS env var lets us pin allowed audiences
+  // (typically the bundle IDs of our apps: nz.cufc.mfl, com.footvault.cicyouth,
+  // etc.). Without it, we still verify signature + issuer but skip audience
+  // strict-check — useful for dev.
+  app.post("/api/auth/apple", async (req, res) => {
+    try {
+      const { identityToken, firstName, lastName, email } = req.body ?? {};
+      if (!identityToken || typeof identityToken !== "string") {
+        return res.status(400).json({ message: "identityToken required" });
+      }
+
+      const { createRemoteJWKSet, jwtVerify } = await import("jose");
+      const JWKS = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+      const expectedAud = (process.env.APPLE_OAUTH_CLIENT_IDS || "")
+        .split(",").map(s => s.trim()).filter(Boolean);
+
+      let payload: any;
+      try {
+        const verified = await jwtVerify(identityToken, JWKS, {
+          issuer: "https://appleid.apple.com",
+          audience: expectedAud.length > 0 ? expectedAud : undefined,
+        });
+        payload = verified.payload;
+      } catch (verr: any) {
+        console.warn("[apple-auth] token verify failed:", verr.message);
+        return res.status(401).json({ message: "Invalid Apple token" });
+      }
+
+      const appleSub = String(payload.sub || "");
+      if (!appleSub) return res.status(401).json({ message: "Apple token missing subject" });
+
+      const appleEmailRaw = payload.email || email || "";
+      const appleEmail = appleEmailRaw ? String(appleEmailRaw).toLowerCase() : "";
+
+      // 1) Match by appleId. 2) Match by email + link. 3) Create new.
+      let [user] = await db.select().from(usersTable).where(eq(usersTable.appleId, appleSub));
+      if (!user && appleEmail) {
+        const [byEmail] = await db.select().from(usersTable).where(eq(usersTable.email, appleEmail));
+        if (byEmail) {
+          [user] = await db.update(usersTable).set({ appleId: appleSub }).where(eq(usersTable.id, byEmail.id)).returning();
+        }
+      }
+      if (!user) {
+        // Apple only returns name on first sign-in. If client passed it through, use
+        // it. Otherwise fall back to "Apple" + "User" — better than crashing.
+        const first = (firstName && String(firstName).trim()) || "Apple";
+        const last = (lastName && String(lastName).trim()) || "User";
+        // The email column is NOT NULL + unique. If Apple gave us no email (rare
+        // but possible if user revoked it), generate a private placeholder so
+        // insert doesn't fail. They can update later via PATCH /api/auth/me.
+        const emailToUse = appleEmail || `apple-${appleSub}@private.appleid`;
+        const placeholderPwd = await hashPassword(`apple-${appleSub}-${Date.now()}-${Math.random()}`);
+        [user] = await db.insert(usersTable).values({
+          email: emailToUse,
+          firstName: first,
+          lastName: last,
+          password: placeholderPwd,
+          appleId: appleSub,
+          role: "coach",
+        }).returning();
+      }
+
+      if (!user.active) return res.status(403).json({ message: "Account disabled" });
+
+      req.session.userId = user.id;
+      res.json({ id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role });
+    } catch (e: any) {
+      console.error("[apple-auth]", e);
+      res.status(500).json({ message: e.message || "Apple sign-in failed" });
+    }
+  });
+
   app.get("/api/auth/me", async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
     const user = await storage.getUser(req.session.userId);
@@ -9042,6 +9158,140 @@ export async function registerRoutes(
       await objectStorageClient.storage.from(BUDGET_BUCKET).remove([removed.storageKey]).catch(() => {});
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Budget × Xero (Phase 5a) ────────────────────────────────────────────
+  // Status, manual sync trigger, and mapping CRUD. OAuth itself reuses the
+  // existing /api/admin/integrations/xero/* flow (server/xero.ts).
+
+  const requireBudgetAdmin = async (req: any, res: any, next: () => void) => {
+    const user = await storage.getUser(req.session.userId!);
+    if (!user) return res.status(401).json({ message: "Not signed in" });
+    if (user.role === "super_admin") return next();
+    const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+    const orgs = await storage.getUserOrganizations(req.session.userId!);
+    const org = orgs.find((o: any) => o.slug === wsSlug);
+    if (!org || (org.userRole !== "admin" && org.userRole !== "manager")) {
+      return res.status(403).json({ message: "Only admins can manage Xero integration" });
+    }
+    next();
+  };
+
+  app.get("/api/admin/budget/xero/status", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find((o: any) => o.slug === wsSlug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const { getOrgIntegration } = await import("./xero");
+      const { budgetXeroStorage } = await import("./budget-xero-storage");
+      const conn = await getOrgIntegration(org.id, "xero");
+      const lastRun = await budgetXeroStorage.lastSyncRun(org.id);
+      res.json({
+        connected: !!conn && conn.isActive,
+        tenantName: conn?.externalName ?? null,
+        connectedAt: conn?.connectedAt ?? null,
+        lastSync: lastRun ? {
+          status: lastRun.status,
+          fromPeriod: lastRun.fromPeriod,
+          toPeriod: lastRun.toPeriod,
+          startedAt: lastRun.startedAt,
+          finishedAt: lastRun.finishedAt,
+          rowsAdded: lastRun.rowsAdded,
+          rowsUpdated: lastRun.rowsUpdated,
+          rowsSkipped: lastRun.rowsSkipped,
+          errorMessage: lastRun.errorMessage,
+        } : null,
+        connectUrl: `/api/admin/integrations/xero/connect?orgId=${org.id}`,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/budget/xero/sync", requireAuth, requireTab("budget"), requireBudgetAdmin, async (req, res) => {
+    try {
+      const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find((o: any) => o.slug === wsSlug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const months = Math.max(1, Math.min(24, Number(req.body?.months ?? 14)));
+
+      const { fetchTrailingMonthlyPnl } = await import("./xero");
+      const { budgetXeroStorage } = await import("./budget-xero-storage");
+
+      // Derive from/to labels for audit
+      const now = new Date();
+      const earliest = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+      const fromPeriod = `${earliest.getUTCFullYear()}-${String(earliest.getUTCMonth() + 1).padStart(2, "0")}`;
+      const toPeriod = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+
+      const run = await budgetXeroStorage.createSyncRun(org.id, req.session.userId!, fromPeriod, toPeriod);
+      try {
+        const { rows, errors } = await fetchTrailingMonthlyPnl({ orgId: org.id, months });
+        let added = 0, updated = 0, skipped = 0;
+        for (const row of rows) {
+          const result = await budgetXeroStorage.upsertActual(org.id, run.id, row);
+          if (result === "added") added++;
+          else if (result === "updated") updated++;
+          else skipped++;
+        }
+        await budgetXeroStorage.finishSyncRun(run.id, {
+          status: errors.length === rows.length && rows.length === 0 ? "failed" : "succeeded",
+          rowsAdded: added,
+          rowsUpdated: updated,
+          rowsSkipped: skipped,
+          errorMessage: errors.length ? errors.join("; ") : undefined,
+        });
+        res.json({ runId: run.id, rowsAdded: added, rowsUpdated: updated, rowsSkipped: skipped, errors });
+      } catch (e: any) {
+        await budgetXeroStorage.finishSyncRun(run.id, { status: "failed", errorMessage: e.message });
+        throw e;
+      }
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // List Xero accounts that have appeared in actuals + their current mapping.
+  // Used by the mapping admin UI (Phase 5b).
+  app.get("/api/admin/budget/xero/accounts", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find((o: any) => o.slug === wsSlug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const year = Number(req.query.year ?? new Date().getFullYear());
+      const { budgetXeroStorage } = await import("./budget-xero-storage");
+      const [accounts, mappings] = await Promise.all([
+        budgetXeroStorage.accountsForYear(org.id, year),
+        budgetXeroStorage.listMappings(org.id, year),
+      ]);
+      const byAccount = new Map(mappings.map(m => [m.xeroAccount, m]));
+      res.json({
+        year,
+        accounts: accounts.map(a => ({
+          ...a,
+          mapping: byAccount.get(a.account) ?? null,
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/admin/budget/xero/mappings", requireAuth, requireTab("budget"), requireBudgetAdmin, async (req, res) => {
+    try {
+      const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find((o: any) => o.slug === wsSlug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const { budgetXeroStorage } = await import("./budget-xero-storage");
+      const created = await budgetXeroStorage.upsertMapping({
+        organizationId: org.id,
+        year: Number(req.body.year),
+        xeroAccount: String(req.body.xeroAccount),
+        costCentreId: req.body.costCentreId != null ? Number(req.body.costCentreId) : null,
+        kind: req.body.kind ?? "expense",
+        notes: req.body.notes ?? null,
+        updatedBy: req.session.userId!,
+      } as any);
+      res.json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   return httpServer;

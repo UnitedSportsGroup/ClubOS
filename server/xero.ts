@@ -20,7 +20,11 @@ import { eq, and } from "drizzle-orm";
 const REDIRECT_URI = process.env.XERO_REDIRECT_URI || "https://app.usg.co.nz/api/integrations/xero/callback";
 const SCOPES = [
   "openid", "profile", "email",
+  // Invoice push (existing — paid print orders)
   "accounting.transactions", "accounting.contacts",
+  // Budget actuals (Phase 5a)
+  "accounting.reports.read",
+  "accounting.settings.read",
   "offline_access",
 ];
 
@@ -238,3 +242,87 @@ export async function pushPaidOrderToXero(order: PrintOrder, items: PrintOrderIt
 
   return { invoiceId: created.invoiceID, invoiceNumber: created.invoiceNumber ?? "" };
 }
+
+// ── P&L collector for the Budget module (Phase 5a) ──────────────────────
+// Pulls monthly Profit & Loss for the trailing N months and returns parsed
+// rows ready to upsert into `xero_actuals`.
+
+export interface PnlRow {
+  period: string;
+  section: string;
+  account: string;
+  amountCents: number;
+}
+
+function parsePnlReport(report: any, periodLabel: string): PnlRow[] {
+  const out: PnlRow[] = [];
+  if (!report) return out;
+  let currentSection = "";
+  function walk(rows: any[]) {
+    for (const row of rows ?? []) {
+      const rowType = row.rowType ?? row.RowType ?? "";
+      const title = row.title ?? row.Title ?? "";
+      if (rowType === "Section") {
+        currentSection = title;
+        walk(row.rows ?? row.Rows ?? []);
+      } else if (rowType === "Row" || rowType === "SummaryRow") {
+        const cells = row.cells ?? row.Cells ?? [];
+        if (cells.length >= 2) {
+          const account = String(cells[0]?.value ?? cells[0]?.Value ?? "").trim();
+          const raw = String(cells[1]?.value ?? cells[1]?.Value ?? "0").replace(/,/g, "").trim();
+          const amount = Number(raw);
+          if (account && Number.isFinite(amount)) {
+            out.push({
+              period: periodLabel,
+              section: currentSection,
+              account,
+              amountCents: Math.round(amount * 100),
+            });
+          }
+        }
+      }
+    }
+  }
+  walk(report.rows ?? report.Rows ?? []);
+  return out;
+}
+
+// Pull the trailing N monthly P&L reports for the org. Walks backwards from
+// the given anchor month (defaults to today), returning all rows flattened.
+export async function fetchTrailingMonthlyPnl(opts: {
+  orgId: number;
+  months: number;
+  anchor?: Date;
+}): Promise<{ rows: PnlRow[]; errors: string[] }> {
+  const { xero, tenantId } = await getXeroForOrg(opts.orgId);
+  const anchor = opts.anchor ?? new Date();
+  const rows: PnlRow[] = [];
+  const errors: string[] = [];
+
+  for (let i = 0; i < opts.months; i++) {
+    let m = anchor.getUTCMonth() + 1 - i;
+    let y = anchor.getUTCFullYear();
+    while (m <= 0) { m += 12; y -= 1; }
+    const fromDate = `${y}-${String(m).padStart(2, "0")}-01`;
+    const last = new Date(y, m, 0).getDate();
+    const toDate = `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    const period = `${y}-${String(m).padStart(2, "0")}`;
+    try {
+      const r = await xero.accountingApi.getReportProfitAndLoss(
+        tenantId,
+        fromDate, toDate,
+        1,            // periods
+        "MONTH",      // timeframe
+        undefined, undefined, undefined, undefined,
+        true,         // standardLayout
+        false,        // paymentsOnly
+      );
+      const report = r.body.reports?.[0];
+      rows.push(...parsePnlReport(report, period));
+    } catch (e: any) {
+      errors.push(`${period}: ${e?.message ?? String(e)}`);
+    }
+  }
+  return { rows, errors };
+}
+

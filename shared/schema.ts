@@ -42,6 +42,10 @@ export const users = pgTable("users", {
   // Google sign-in. Lets us match returning Google users by stable subject ID
   // even if they change email.
   googleId: text("google_id").unique(),
+  // Apple Sign-In — same pattern as googleId. Populated on first Apple
+  // sign-in with the `sub` claim from the verified identity token. Stable
+  // across email changes and "Hide My Email" relay swaps.
+  appleId: text("apple_id").unique(),
   role: roleEnum("role").notNull().default("coach"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1789,4 +1793,73 @@ export type InsertBudgetLineAttachment = z.infer<typeof insertBudgetLineAttachme
 export type BudgetLineAttachment = typeof budgetLineAttachments.$inferSelect;
 export type InsertBudgetSyncRun = z.infer<typeof insertBudgetSyncRunSchema>;
 export type BudgetSyncRun = typeof budgetSyncRuns.$inferSelect;
+
+// ── Xero P&L cache + cost-centre mapping ──────────────────────────────────
+// Reuses the existing `org_integrations` row (provider='xero') for OAuth
+// tokens. These tables sit on top of that to cache monthly actuals and map
+// Xero accounts to budget cost centres.
+
+export const xeroActuals = pgTable("xero_actuals", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  period: text("period").notNull(),     // YYYY-MM
+  section: text("section"),             // "Income" / "Less Operating Expenses" / etc.
+  account: text("account").notNull(),   // Xero account name
+  // Cents, signed. Positive = income inflow OR expense outflow magnitude — we
+  // preserve Xero's sign and rely on `section` + mapping `kind` to interpret.
+  amountCents: integer("amount_cents").notNull(),
+  // Last sync run that wrote this row; cleared if Xero next reports zero
+  // (we keep the row, set amount to 0, so the variance shows correctly).
+  lastSyncId: integer("last_sync_id"),
+  collectedAt: timestamp("collected_at").defaultNow().notNull(),
+}, t => ({
+  uniqPeriodAccount: uniqueIndex("xero_actuals_org_period_account").on(t.organizationId, t.period, t.account),
+}));
+
+export const budgetMappingKindEnum = pgEnum("budget_mapping_kind", ["income", "expense", "ignore"]);
+
+export const budgetAccountMappings = pgTable("budget_account_mappings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  // Xero account name as it appears in P&L. Match is exact.
+  xeroAccount: text("xero_account").notNull(),
+  // null = unmapped (still surfaces in actuals totals but not attributable to
+  // a centre). Set = attribute the actual to this cost centre for the year.
+  costCentreId: integer("cost_centre_id").references(() => budgetCostCentres.id, { onDelete: "set null" }),
+  // 'ignore' = exclude this account from rollups (e.g. inter-account transfers).
+  kind: budgetMappingKindEnum("kind").notNull().default("expense"),
+  notes: text("notes"),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, t => ({
+  uniqAccountYear: uniqueIndex("budget_mappings_org_year_account").on(t.organizationId, t.year, t.xeroAccount),
+}));
+
+export const xeroSyncRuns = pgTable("xero_sync_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  triggeredBy: integer("triggered_by").references(() => users.id),  // null = cron
+  status: text("status").notNull().default("running"),  // running | succeeded | failed
+  fromPeriod: text("from_period"),
+  toPeriod: text("to_period"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+  rowsAdded: integer("rows_added").notNull().default(0),
+  rowsUpdated: integer("rows_updated").notNull().default(0),
+  rowsSkipped: integer("rows_skipped").notNull().default(0),
+  errorMessage: text("error_message"),
+});
+
+export const insertXeroActualSchema = createInsertSchema(xeroActuals).omit({ id: true, collectedAt: true });
+export const insertBudgetAccountMappingSchema = createInsertSchema(budgetAccountMappings).omit({ id: true, updatedAt: true });
+export const insertXeroSyncRunSchema = createInsertSchema(xeroSyncRuns).omit({ id: true, startedAt: true });
+
+export type InsertXeroActual = z.infer<typeof insertXeroActualSchema>;
+export type XeroActual = typeof xeroActuals.$inferSelect;
+export type InsertBudgetAccountMapping = z.infer<typeof insertBudgetAccountMappingSchema>;
+export type BudgetAccountMapping = typeof budgetAccountMappings.$inferSelect;
+export type InsertXeroSyncRun = z.infer<typeof insertXeroSyncRunSchema>;
+export type XeroSyncRun = typeof xeroSyncRuns.$inferSelect;
+
 export type Term = typeof terms.$inferSelect;

@@ -41,6 +41,7 @@ import GroupCalendar from "@/pages/group-calendar";
 import GroupSponsorship from "@/pages/group-sponsorship";
 import GroupProjects from "@/pages/group-projects";
 import GroupBudget from "@/pages/group-budget";
+import GroupBudgetXero from "@/pages/group-budget-xero";
 import GroupBudgetCostCentre from "@/pages/group-budget-cost-centre";
 import AdminAcademy from "@/pages/admin-academy";
 import VenueFacilities from "@/pages/venue-facilities";
@@ -152,6 +153,7 @@ function AdminRouter() {
         <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/budget/cost-centres/:slug" component={GroupBudgetCostCentre} />
+        <Route path="/admin/budget/xero" component={GroupBudgetXero} />
         <Route path="/admin/budget" component={GroupBudget} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />

@@ -121,7 +121,11 @@ export default function GroupBudgetPage() {
       <div className="flex items-baseline justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-white">Budget — {data.year}</h1>
-          <p className="text-sm text-white/50 mt-1">{data.centres.length} cost centres · United Sports Group</p>
+          <p className="text-sm text-white/50 mt-1">
+            {data.centres.length} cost centres · United Sports Group
+            <span className="mx-2">·</span>
+            <Link href="/admin/budget/xero" className="text-blue-300 hover:text-blue-200">Xero actuals</Link>
+          </p>
         </div>
         <div className="flex items-center gap-6 text-right">
           <Stat label="Income" value={fmtMoney(data.totals.incomeCents)} accent="emerald" icon={<TrendingUp className="w-4 h-4" />} />
