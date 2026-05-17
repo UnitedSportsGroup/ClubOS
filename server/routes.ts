@@ -8806,6 +8806,18 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  app.get("/api/admin/budget/rollup-monthly", requireAuth, requireTab("budget"), async (req, res) => {
+    try {
+      const slug = (req.headers["x-workspace-slug"] as string | undefined) || "";
+      const orgs = await storage.getUserOrganizations(req.session.userId!);
+      const org = orgs.find(o => o.slug === slug);
+      if (!org) return res.status(403).json({ message: "No access to this workspace" });
+      const year = Number(req.query.year ?? new Date().getFullYear());
+      const data = await budgetStorage.rollupMonthly(org.id, year);
+      res.json({ year, ...data });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.get("/api/admin/budget/cost-centres/:slug", requireAuth, requireTab("budget"), async (req, res) => {
     try {
       const wsSlug = (req.headers["x-workspace-slug"] as string | undefined) || "";
@@ -8891,6 +8903,27 @@ export async function registerRoutes(
       if (!centre) return res.status(404).json({ message: "Cost centre not found" });
       if (!(await isPrivilegedForCentre(req.session.userId!, centre))) {
         return res.status(403).json({ message: "Not authorised to edit this cost centre" });
+      }
+      if (req.body.monthlyPhasing !== undefined && req.body.monthlyPhasing !== null) {
+        const phasing = req.body.monthlyPhasing;
+        if (!Array.isArray(phasing) || phasing.length !== 12 || phasing.some((n: any) => !Number.isFinite(Number(n)))) {
+          return res.status(400).json({ message: "monthlyPhasing must be an array of 12 numbers" });
+        }
+        const merged: any = { ...existing, ...req.body };
+        let finalAmount = Number(merged.amountCents) || 0;
+        if (merged.lineType === "computed") {
+          const rate = Number(merged.unitRateCents ?? 0);
+          const a = merged.unitsA != null ? Number(merged.unitsA) : 1;
+          const b = merged.unitsB != null ? Number(merged.unitsB) : 1;
+          const c = merged.unitsC != null ? Number(merged.unitsC) : 1;
+          finalAmount = Math.round(rate * a * b * c);
+        }
+        const ints = phasing.map((n: any) => Math.round(Number(n)));
+        const sum = ints.reduce((s: number, n: number) => s + n, 0);
+        if (sum !== finalAmount) {
+          return res.status(400).json({ message: `monthlyPhasing must sum to ${finalAmount} cents, got ${sum}` });
+        }
+        req.body.monthlyPhasing = ints;
       }
       const updated = await budgetStorage.updateLine(id, req.body, req.session.userId!);
       res.json(updated);

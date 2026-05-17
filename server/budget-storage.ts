@@ -38,6 +38,25 @@ export type RollupTotals = {
   netCents: number;
 };
 
+export type MonthlyRollupRow = BudgetCostCentre & {
+  ownerName: string | null;
+  incomeByMonth: number[];   // length 12, cents
+  expenseByMonth: number[];  // length 12, cents
+  totalIncomeCents: number;
+  totalExpenseCents: number;
+  netCents: number;
+};
+
+export type MonthlyRollupTotals = {
+  incomeByMonth: number[];   // length 12
+  expenseByMonth: number[];  // length 12
+  netByMonth: number[];      // length 12
+  cumulativeNetByMonth: number[]; // length 12
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+};
+
 export const budgetStorage = {
   // ── Cost centres ────────────────────────────────────────────────────────
 
@@ -215,9 +234,11 @@ export const budgetStorage = {
         .from(budgetLines)
         .where(eq(budgetLines.parentLineId, current));
       const total = Number(agg?.total ?? 0);
+      // Clear monthlyPhasing on parents: children's phasing is the source
+      // of truth, parents derive from them (in the rollup) by summing leaves.
       const updated: Array<{ parentLineId: number | null }> = await db
         .update(budgetLines)
-        .set({ amountCents: total, updatedAt: new Date() })
+        .set({ amountCents: total, monthlyPhasing: null, updatedAt: new Date() })
         .where(eq(budgetLines.id, current))
         .returning({ parentLineId: budgetLines.parentLineId });
       current = updated[0]?.parentLineId ?? null;
@@ -231,6 +252,8 @@ export const budgetStorage = {
     if (centres.length === 0) return { centres: [], totals: { incomeCents: 0, expenseCents: 0, netCents: 0 } };
 
     const ids = centres.map(c => c.id);
+    // Leaves only — parents auto-sum their children, so including every row
+    // would double-count. A leaf is a line with no children.
     const agg = await db
       .select({
         ccId: budgetLines.costCentreId,
@@ -238,7 +261,10 @@ export const budgetStorage = {
         total: sql<number>`COALESCE(SUM(${budgetLines.amountCents}), 0)::int`,
       })
       .from(budgetLines)
-      .where(inArray(budgetLines.costCentreId, ids))
+      .where(and(
+        inArray(budgetLines.costCentreId, ids),
+        sql`NOT EXISTS (SELECT 1 FROM ${budgetLines} AS child WHERE child.parent_line_id = ${budgetLines.id})`,
+      ))
       .groupBy(budgetLines.costCentreId, budgetLines.kind);
 
     const byId = new Map<number, { income: number; expense: number }>();
@@ -267,6 +293,77 @@ export const budgetStorage = {
       }),
       { incomeCents: 0, expenseCents: 0, netCents: 0 },
     );
+
+    return { centres: rows, totals };
+  },
+
+  async rollupMonthly(orgId: number, year: number): Promise<{ centres: MonthlyRollupRow[]; totals: MonthlyRollupTotals }> {
+    const centres = await this.list(orgId, year);
+    const emptyTotals: MonthlyRollupTotals = {
+      incomeByMonth: zeros12(), expenseByMonth: zeros12(), netByMonth: zeros12(), cumulativeNetByMonth: zeros12(),
+      incomeCents: 0, expenseCents: 0, netCents: 0,
+    };
+    if (centres.length === 0) return { centres: [], totals: emptyTotals };
+
+    const ids = centres.map(c => c.id);
+    // Leaves only — parents are virtual aggregates; the real phasing lives on
+    // the individual leaf lines.
+    const lines = await db
+      .select({
+        ccId: budgetLines.costCentreId,
+        kind: budgetLines.kind,
+        amountCents: budgetLines.amountCents,
+        monthlyPhasing: budgetLines.monthlyPhasing,
+      })
+      .from(budgetLines)
+      .where(and(
+        inArray(budgetLines.costCentreId, ids),
+        sql`NOT EXISTS (SELECT 1 FROM ${budgetLines} AS child WHERE child.parent_line_id = ${budgetLines.id})`,
+      ));
+
+    const byCC = new Map<number, { income: number[]; expense: number[] }>();
+    for (const c of centres) byCC.set(c.id, { income: zeros12(), expense: zeros12() });
+
+    for (const l of lines) {
+      const bucket = byCC.get(l.ccId)!;
+      const target = l.kind === "income" ? bucket.income : bucket.expense;
+      const phased = phaseLine(l.amountCents, l.monthlyPhasing as number[] | null);
+      for (let m = 0; m < 12; m++) target[m] += phased[m];
+    }
+
+    const rows: MonthlyRollupRow[] = centres.map(c => {
+      const b = byCC.get(c.id) ?? { income: zeros12(), expense: zeros12() };
+      const totalIncomeCents = b.income.reduce((s, n) => s + n, 0);
+      const totalExpenseCents = b.expense.reduce((s, n) => s + n, 0);
+      return {
+        ...c,
+        incomeByMonth: b.income,
+        expenseByMonth: b.expense,
+        totalIncomeCents,
+        totalExpenseCents,
+        netCents: totalIncomeCents - totalExpenseCents,
+      };
+    });
+
+    const totals: MonthlyRollupTotals = {
+      incomeByMonth: zeros12(), expenseByMonth: zeros12(), netByMonth: zeros12(), cumulativeNetByMonth: zeros12(),
+      incomeCents: 0, expenseCents: 0, netCents: 0,
+    };
+    for (const r of rows) {
+      for (let m = 0; m < 12; m++) {
+        totals.incomeByMonth[m] += r.incomeByMonth[m];
+        totals.expenseByMonth[m] += r.expenseByMonth[m];
+      }
+    }
+    let cum = 0;
+    for (let m = 0; m < 12; m++) {
+      totals.netByMonth[m] = totals.incomeByMonth[m] - totals.expenseByMonth[m];
+      cum += totals.netByMonth[m];
+      totals.cumulativeNetByMonth[m] = cum;
+    }
+    totals.incomeCents = totals.incomeByMonth.reduce((s, n) => s + n, 0);
+    totals.expenseCents = totals.expenseByMonth.reduce((s, n) => s + n, 0);
+    totals.netCents = totals.incomeCents - totals.expenseCents;
 
     return { centres: rows, totals };
   },
@@ -312,6 +409,27 @@ export const budgetStorage = {
       .limit(limit);
   },
 };
+
+function zeros12(): number[] {
+  return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+}
+
+// Expand a line into a 12-month vector of cents. If monthlyPhasing is set,
+// use it verbatim (server validation guarantees length 12 + sum == amount).
+// Otherwise distribute amountCents evenly, pushing the remainder cents to the
+// earliest months so the sum exactly equals amountCents.
+export function phaseLine(amountCents: number, phasing: number[] | null): number[] {
+  if (phasing && phasing.length === 12) return phasing.map(n => Number(n) || 0);
+  const base = Math.floor(amountCents / 12);
+  let remainder = amountCents - base * 12;
+  const out = new Array(12).fill(base);
+  // Distribute remainder one cent at a time from Jan onwards. Works for
+  // negative amounts too — remainder will be negative in that case.
+  const step = remainder >= 0 ? 1 : -1;
+  remainder = Math.abs(remainder);
+  for (let i = 0; i < remainder; i++) out[i] += step;
+  return out;
+}
 
 // Computed-line amount = unitRateCents × unitsA × unitsB × unitsC (treating
 // nullish dimensions as 1). Anything else is a simple line and uses the

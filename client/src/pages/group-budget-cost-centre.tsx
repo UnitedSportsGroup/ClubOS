@@ -6,8 +6,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Plus, Trash2, User, Lock, ChevronRight, ChevronDown, Paperclip, Upload, X, FileText, GripVertical } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, User, Lock, ChevronRight, ChevronDown, Paperclip, Upload, X, FileText, GripVertical, Calendar } from "lucide-react";
 import { DndContext, pointerWithin, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, DragOverlay, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { MonthlyPhasingDialog } from "@/components/budget/MonthlyPhasingDialog";
 
 interface BudgetLine {
   id: number;
@@ -18,6 +19,7 @@ interface BudgetLine {
   section: string | null;
   name: string;
   amountCents: number;
+  monthlyPhasing: number[] | null;
   notes: string | null;
   displayOrder: number;
 }
@@ -394,6 +396,7 @@ function TreeRow({
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(hasChildren);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [phasingOpen, setPhasingOpen] = useState(false);
 
   const isInDraggedSubtree = activeId === line.id || (activeId != null && descendants.has(line.id));
   const draggable = useDraggable({ id: line.id, disabled: !canEdit });
@@ -435,9 +438,22 @@ function TreeRow({
           onDelete={() => onDelete(line.id)}
           onToggleAttachments={() => setShowAttachments(s => !s)}
           attachmentsOpen={showAttachments}
+          onTogglePhasing={!hasChildren && canEdit ? () => setPhasingOpen(true) : undefined}
+          phased={!!line.monthlyPhasing}
         />
       </div>
       {showAttachments && <AttachmentsPanel lineId={line.id} canEdit={canEdit} indentPx={indentPx + 24} />}
+      {phasingOpen && (
+        <MonthlyPhasingDialog
+          open={phasingOpen}
+          onClose={() => setPhasingOpen(false)}
+          lineId={line.id}
+          lineName={line.name}
+          amountCents={line.amountCents}
+          initialPhasing={line.monthlyPhasing}
+          onSaved={() => {}}
+        />
+      )}
       {expanded && (
         <div className="bg-black/15">
           <Gap parentKey={childrenKey} index={0} highlighted={overInfo?.kind === "gap" && overInfo.parentKey === childrenKey && overInfo.index === 0} dragging={anyDragging} />
@@ -475,7 +491,7 @@ function TreeRow({
 
 // ── Pure presentational row ────────────────────────────────────────────────
 
-function LineRow({ line, canEdit, isChild, amountIsAuto, chevron, dragHandleProps, onUpdate, onDelete, onToggleAttachments, attachmentsOpen }: {
+function LineRow({ line, canEdit, isChild, amountIsAuto, chevron, dragHandleProps, onUpdate, onDelete, onToggleAttachments, attachmentsOpen, onTogglePhasing, phased }: {
   line: BudgetLine;
   canEdit: boolean;
   isChild: boolean;
@@ -486,6 +502,8 @@ function LineRow({ line, canEdit, isChild, amountIsAuto, chevron, dragHandleProp
   onDelete: () => void;
   onToggleAttachments?: () => void;
   attachmentsOpen?: boolean;
+  onTogglePhasing?: () => void;
+  phased?: boolean;
 }) {
   const [name, setName] = useState(line.name);
   const [amount, setAmount] = useState(fmtMoney(line.amountCents));
@@ -498,7 +516,7 @@ function LineRow({ line, canEdit, isChild, amountIsAuto, chevron, dragHandleProp
     onUpdate(u);
   };
   return (
-    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_80px] gap-2 items-center pl-1 pr-4 py-1.5 hover:bg-white/[0.015] group/row">
+    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_96px] gap-2 items-center pl-1 pr-4 py-1.5 hover:bg-white/[0.015] group/row">
       <button
         {...dragHandleProps}
         className={`w-5 h-5 inline-flex items-center justify-center rounded text-white/15 hover:text-white/70 ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-default"} opacity-0 group-hover/row:opacity-100 transition-opacity`}
@@ -533,6 +551,11 @@ function LineRow({ line, canEdit, isChild, amountIsAuto, chevron, dragHandleProp
         className={`bg-transparent border-transparent hover:border-white/[0.08] text-xs h-8 px-2 ${isChild ? "text-white/40" : "text-white/60"}`}
       />
       <div className="flex items-center justify-end gap-1.5">
+        {onTogglePhasing && (
+          <button onClick={onTogglePhasing} className={`p-1 rounded ${phased ? "text-blue-300" : "text-white/30 hover:text-white/70"}`} title={phased ? "Monthly phasing set — click to edit" : "Spread this line across the year"}>
+            <Calendar className="w-3.5 h-3.5" />
+          </button>
+        )}
         {onToggleAttachments && (
           <button onClick={onToggleAttachments} className={`p-1 rounded ${attachmentsOpen ? "text-blue-300" : "text-white/30 hover:text-white/70"}`} title="Receipts / invoices">
             <Paperclip className="w-3.5 h-3.5" />
@@ -558,7 +581,7 @@ function AddTopLineRow({ section, onAdd }: { section: string | null; onAdd: (nam
     setName(""); setAmount("");
   };
   return (
-    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_80px] gap-2 items-center pl-1 pr-4 py-1.5 border-t border-white/[0.04] bg-white/[0.01]">
+    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_96px] gap-2 items-center pl-1 pr-4 py-1.5 border-t border-white/[0.04] bg-white/[0.01]">
       <div />
       <div className="text-white/20"><Plus className="w-3.5 h-3.5" /></div>
       <Input value={name} placeholder="Add a new line…" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} className="bg-transparent border-transparent hover:border-white/[0.08] text-white/90 h-8 px-2" />
@@ -583,7 +606,7 @@ function AddChildRow({ indentPx, onAdd }: { indentPx: number; onAdd: (name: stri
     setName(""); setAmount("");
   };
   return (
-    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_80px] gap-2 items-center pr-4 py-1.5 border-t border-white/[0.02] bg-black/10" style={{ paddingLeft: indentPx }}>
+    <div className="grid grid-cols-[20px_20px_1fr_140px_1fr_96px] gap-2 items-center pr-4 py-1.5 border-t border-white/[0.02] bg-black/10" style={{ paddingLeft: indentPx }}>
       <div />
       <div className="text-white/15"><Plus className="w-3 h-3" /></div>
       <Input value={name} placeholder="Add a sub-line…" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} className="bg-transparent border-transparent hover:border-white/[0.08] text-white/75 text-xs h-7 px-2" />

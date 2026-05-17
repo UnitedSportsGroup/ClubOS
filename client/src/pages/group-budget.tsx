@@ -3,6 +3,25 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, DollarSign, TrendingDown, TrendingUp, User } from "lucide-react";
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine,
+} from "recharts";
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+interface MonthlyRollupResp {
+  year: number;
+  centres: Array<{ id: number; name: string; incomeByMonth: number[]; expenseByMonth: number[] }>;
+  totals: {
+    incomeByMonth: number[];
+    expenseByMonth: number[];
+    netByMonth: number[];
+    cumulativeNetByMonth: number[];
+    incomeCents: number;
+    expenseCents: number;
+    netCents: number;
+  };
+}
 
 interface CostCentreRow {
   id: number;
@@ -41,6 +60,21 @@ export default function GroupBudgetPage() {
   const { data, isLoading, error } = useQuery<RollupResp>({
     queryKey: ["/api/admin/budget/rollup", `?year=${year}`],
   });
+  const monthly = useQuery<MonthlyRollupResp>({
+    queryKey: ["/api/admin/budget/rollup-monthly", `?year=${year}`],
+  });
+
+  const chartData = useMemo(() => {
+    if (!monthly.data) return [];
+    const { totals } = monthly.data;
+    return MONTH_LABELS.map((label, i) => ({
+      month: label,
+      income: totals.incomeByMonth[i] / 100,
+      expense: -totals.expenseByMonth[i] / 100,
+      net: totals.netByMonth[i] / 100,
+      cumulative: totals.cumulativeNetByMonth[i] / 100,
+    }));
+  }, [monthly.data]);
 
   const grouped = useMemo(() => {
     if (!data) return [] as { bucket: string; rows: CostCentreRow[] }[];
@@ -95,6 +129,31 @@ export default function GroupBudgetPage() {
           <Stat label="Net" value={fmtMoney(data.totals.netCents)} accent={data.totals.netCents >= 0 ? "emerald" : "red"} icon={<DollarSign className="w-4 h-4" />} bold />
         </div>
       </div>
+
+      {monthly.data && (
+        <section className="mb-8">
+          <h2 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3">Monthly cash flow — {monthly.data.year}</h2>
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="month" stroke="rgba(255,255,255,0.4)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="rgba(255,255,255,0.4)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} />
+                <Tooltip
+                  contentStyle={{ background: "rgba(15,15,18,0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 11, marginBottom: 4 }}
+                  formatter={(value: number, name: string) => [`$${Math.abs(value).toLocaleString("en-NZ", { maximumFractionDigits: 0 })}`, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }} />
+                <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" />
+                <Bar dataKey="income" name="Income" fill="rgba(52, 211, 153, 0.55)" stackId="cash" />
+                <Bar dataKey="expense" name="Expense" fill="rgba(248, 113, 113, 0.55)" stackId="cash" />
+                <Line type="monotone" dataKey="cumulative" name="Cumulative net" stroke="rgba(96, 165, 250, 0.9)" strokeWidth={2} dot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
 
       <div className="space-y-8">
         {grouped.map(g => {
