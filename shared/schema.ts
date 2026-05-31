@@ -418,6 +418,12 @@ export const facilities = pgTable("facilities", {
   displayOrder: integer("display_order").notNull().default(0),
   pricePerHourCents: integer("price_per_hour_cents").default(0),
   halfFieldPricePerHourCents: integer("half_field_price_per_hour_cents"),
+  // Per-facility iCal calendar token. Public consumers (Home Assistant for
+  // automatic gates/lights, Google Calendar import, etc.) fetch the booking
+  // feed at /api/public/facility-calendar/:token.ics. Nullable until admin
+  // regenerates one. Treat as a capability URL — anyone with the token can
+  // read the booking schedule (no PII included).
+  calendarToken: text("calendar_token").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

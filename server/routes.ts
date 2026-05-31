@@ -8,6 +8,7 @@ import { db } from "./db";
 import { eq, and, sql, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, requireTab, verifyPassword, hashPassword } from "./auth";
+import { sunriseSunsetLocal } from "./solar";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
 import { sendPurchaseEvent } from "./meta-capi";
 import { sendConfirmationEmail } from "./email";
@@ -242,6 +243,237 @@ export async function registerRoutes(
       res.json({ id: updated.id, email: updated.email, firstName: updated.firstName, lastName: updated.lastName, role: updated.role });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Facility iCal feed — public endpoint for Home Assistant integration.
+  // Each facility has its own calendar token (regenerable) → feed URL.
+  // Consumer (HA, Google Calendar, etc.) subscribes via:
+  //   https://app.usg.co.nz/api/public/facility-calendar/<token>.ics
+  // No PII in the feed — events show only as "Booking" with the facility
+  // name as location. The token URL is the capability — anyone with the URL
+  // can read the schedule.
+  // ──────────────────────────────────────────────────────────────────────
+  // ── Feed helpers (shared by the booking feed and the floodlight feed) ──
+  // Floodlights come on this many minutes before dusk / stay on this many
+  // minutes after dawn, so the pitch is lit before it's actually pitch black.
+  const LIGHTS_BUFFER_MIN = 30;
+
+  const hhmmToMin = (t: string): number => {
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const minToHHMM = (min: number): string => {
+    const m = ((Math.round(min) % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  };
+
+  // Human + machine-readable description of which part of the pitch is booked.
+  // Extensible: quarter-pitch codes (e.g. "front_quarter") slot in here once the
+  // booking flow records them — Home Assistant parsing stays forward-compatible.
+  const portionInfo = (halfFull: string | null, halfPosition: string | null) => {
+    if (halfFull === "half") {
+      const pos = halfPosition === "front" || halfPosition === "back" ? halfPosition : null;
+      if (pos) return { code: `${pos}_half`, label: `${pos[0].toUpperCase()}${pos.slice(1)} half`, size: "half" };
+      return { code: "half", label: "Half pitch", size: "half" };
+    }
+    return { code: "full", label: "Full pitch", size: "full" };
+  };
+
+  // Local-time windows during a booking when floodlights are needed. Empty when
+  // the facility has no floodlights or the booking is entirely in daylight.
+  // Dusk/dawn are computed per booking date (season-correct) so a weekly 5–7pm
+  // slot is lit in winter and not in summer, automatically.
+  const lightIntervals = (
+    hasFloodlights: boolean,
+    bookingDate: string,
+    startHHMM: string,
+    endHHMM: string,
+  ): { start: string; end: string }[] => {
+    if (!hasFloodlights) return [];
+    const sun = sunriseSunsetLocal(bookingDate);
+    if (!sun) return [];
+    const s = hhmmToMin(startHHMM);
+    const e = hhmmToMin(endHHMM);
+    if (e <= s) return [];
+    const dawnOff = hhmmToMin(sun.sunrise) + LIGHTS_BUFFER_MIN; // lit until this in the morning
+    const duskOn = hhmmToMin(sun.sunset) - LIGHTS_BUFFER_MIN;   // lit from this in the evening
+    const out: { start: string; end: string }[] = [];
+    if (s < dawnOff) out.push({ start: minToHHMM(s), end: minToHHMM(Math.min(e, dawnOff)) });
+    if (e > duskOn) out.push({ start: minToHHMM(Math.max(s, duskOn)), end: minToHHMM(e) });
+    return out.filter((iv) => hhmmToMin(iv.start) < hhmmToMin(iv.end));
+  };
+
+  app.get("/api/public/facility-calendar/:token.ics", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!token || token.length < 16) return res.status(404).type("text/plain").send("Not found");
+
+      const [facility] = await db.select().from(facilities).where(eq(facilities.calendarToken, token));
+      if (!facility) return res.status(404).type("text/plain").send("Not found");
+
+      // Pull bookings where this facility is the primary OR appears in
+      // additionalFacilityIds (multi-facility bookings). Filter to active
+      // statuses only — pending/cancelled don't trigger gates or lights.
+      // Window: 30 days back through 12 months forward keeps the feed
+      // a sensible size while covering recurring weekly bookings.
+      const today = new Date();
+      const windowStart = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const windowEnd = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000);
+      const windowStartStr = windowStart.toISOString().slice(0, 10);
+      const windowEndStr = windowEnd.toISOString().slice(0, 10);
+
+      const rows = await db.select().from(facilityBookings).where(
+        and(
+          inArray(facilityBookings.status, ["confirmed", "paid"]),
+          sql`${facilityBookings.bookingDate} >= ${windowStartStr}`,
+          sql`${facilityBookings.bookingDate} <= ${windowEndStr}`,
+          sql`(${facilityBookings.facilityId} = ${facility.id} OR ${facility.id} = ANY(${facilityBookings.additionalFacilityIds}))`,
+        )
+      );
+
+      const { default: ical, ICalCalendarMethod, ICalEventStatus } = await import("ical-generator");
+      const cal = ical({
+        name: `${facility.name} — Bookings`,
+        prodId: { company: "United Sports Group", product: "ClubOS Facility Calendar" },
+        timezone: "Pacific/Auckland",
+        method: ICalCalendarMethod.PUBLISH,
+        ttl: 60 * 10, // suggest consumers re-poll every 10 min
+      });
+
+      for (const b of rows) {
+        // bookingDate is "YYYY-MM-DD"; startTime/endTime are "HH:MM" or
+        // "HH:MM:SS" — pad to "HH:MM:SS" for ISO datetime construction.
+        const startTime = b.startTime.length === 5 ? `${b.startTime}:00` : b.startTime;
+        const endTime = b.endTime.length === 5 ? `${b.endTime}:00` : b.endTime;
+
+        const portion = portionInfo(b.halfFull, b.halfPosition);
+        const lit = lightIntervals(facility.floodlights === true, b.bookingDate, b.startTime, b.endTime).length > 0;
+
+        cal.createEvent({
+          // ISO string + timezone on the calendar → ical-generator emits
+          // DTSTART;TZID=Pacific/Auckland:20260523T170000 (correct local time).
+          start: `${b.bookingDate}T${startTime}`,
+          end: `${b.bookingDate}T${endTime}`,
+          timezone: "Pacific/Auckland",
+          // Stable UID across edits so HA detects updates not duplicates.
+          id: `booking-${b.id}@clubos.usg.co.nz`,
+          summary: `${facility.name} — ${portion.label}`,
+          location: facility.name,
+          // Human-readable lines + a machine-parseable [clubos] line so Home
+          // Assistant can template on lights/portion without guessing.
+          description:
+            `${portion.label} of ${facility.name}.\n` +
+            `Floodlights required: ${lit ? "YES" : "NO"}.\n\n` +
+            `[clubos] facility_id=${facility.id}; portion=${portion.code}; size=${portion.size}; lights=${lit ? "yes" : "no"}`,
+          status: ICalEventStatus.CONFIRMED,
+        });
+
+        // Recurring bookings are stored as individual dated rows (the booking
+        // creator expands occurrences up front), so each row is emitted as one
+        // event. We deliberately do NOT apply an RRULE here — doing so would
+        // duplicate every already-materialised occurrence.
+      }
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", `inline; filename="${facility.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics"`);
+      res.setHeader("Cache-Control", "public, max-age=300"); // 5 min CDN cache
+      res.send(cal.toString());
+    } catch (e: any) {
+      console.error("[facility-ical]", e);
+      res.status(500).type("text/plain").send("Internal error");
+    }
+  });
+
+  // Floodlight-only feed: SAME token as the booking feed, different path.
+  // Emits an event ONLY for the dark portion(s) of each booking, so Home
+  // Assistant can drive the lights with a dumb "calendar event active → lights
+  // on" automation — no parsing, no daylight waste. Returns an empty (but
+  // valid) calendar for facilities without floodlights.
+  app.get("/api/public/facility-lights/:token.ics", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!token || token.length < 16) return res.status(404).type("text/plain").send("Not found");
+
+      const [facility] = await db.select().from(facilities).where(eq(facilities.calendarToken, token));
+      if (!facility) return res.status(404).type("text/plain").send("Not found");
+
+      const today = new Date();
+      const windowStartStr = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const windowEndStr = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+      const { default: ical, ICalCalendarMethod, ICalEventStatus } = await import("ical-generator");
+      const cal = ical({
+        name: `${facility.name} — Floodlights`,
+        prodId: { company: "United Sports Group", product: "ClubOS Floodlight Calendar" },
+        timezone: "Pacific/Auckland",
+        method: ICalCalendarMethod.PUBLISH,
+        ttl: 60 * 10,
+      });
+
+      if (facility.floodlights === true) {
+        const rows = await db.select().from(facilityBookings).where(
+          and(
+            inArray(facilityBookings.status, ["confirmed", "paid"]),
+            sql`${facilityBookings.bookingDate} >= ${windowStartStr}`,
+            sql`${facilityBookings.bookingDate} <= ${windowEndStr}`,
+            sql`(${facilityBookings.facilityId} = ${facility.id} OR ${facility.id} = ANY(${facilityBookings.additionalFacilityIds}))`,
+          )
+        );
+
+        for (const b of rows) {
+          const portion = portionInfo(b.halfFull, b.halfPosition);
+          const intervals = lightIntervals(true, b.bookingDate, b.startTime, b.endTime);
+          intervals.forEach((iv, idx) => {
+            cal.createEvent({
+              start: `${b.bookingDate}T${iv.start}:00`,
+              end: `${b.bookingDate}T${iv.end}:00`,
+              timezone: "Pacific/Auckland",
+              id: `lights-${b.id}-${idx}@clubos.usg.co.nz`,
+              summary: `${facility.name} floodlights — ${portion.label}`,
+              location: facility.name,
+              description:
+                `Floodlights ON for a ${portion.label.toLowerCase()} booking at ${facility.name}.\n\n` +
+                `[clubos] facility_id=${facility.id}; portion=${portion.code}; lights=on`,
+              status: ICalEventStatus.CONFIRMED,
+            });
+          });
+        }
+      }
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", `inline; filename="${facility.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-floodlights.ics"`);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.send(cal.toString());
+    } catch (e: any) {
+      console.error("[facility-lights-ical]", e);
+      res.status(500).type("text/plain").send("Internal error");
+    }
+  });
+
+  // Generate or rotate a facility's calendar token. Returns the new token
+  // (caller is responsible for displaying the full URL to the operator).
+  // Admin-only to prevent random users from refreshing tokens.
+  app.post("/api/admin/facilities/:id/regenerate-calendar-token", requireSuperAdmin, async (req, res) => {
+    try {
+      const facilityId = Number(req.params.id);
+      if (!Number.isInteger(facilityId)) return res.status(400).json({ message: "Invalid facility id" });
+      const token = crypto.randomBytes(24).toString("base64url"); // 32-char URL-safe
+      const [updated] = await db.update(facilities)
+        .set({ calendarToken: token })
+        .where(eq(facilities.id, facilityId))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Facility not found" });
+      res.json({
+        id: updated.id,
+        name: updated.name,
+        calendarToken: updated.calendarToken,
+        calendarUrl: `${req.protocol}://${req.get("host")}/api/public/facility-calendar/${updated.calendarToken}.ics`,
+      });
+    } catch (e: any) {
+      console.error("[regen-calendar-token]", e);
+      res.status(500).json({ message: e.message || "Token regeneration failed" });
     }
   });
 
