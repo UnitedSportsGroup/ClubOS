@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -165,10 +166,10 @@ export default function VenueSettingsPage() {
       <Section icon={<Clock className="w-4 h-4" />} title="Hours & scheduling">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Opening time">
-            <Input type="time" value={form.openingTime} onChange={e => setForm({ ...form, openingTime: e.target.value })} data-testid="input-opening" />
+            <TimePickerInput value={form.openingTime} onChange={e => setForm({ ...form, openingTime: e.target.value })} data-testid="input-opening" />
           </Field>
           <Field label="Closing time">
-            <Input type="time" value={form.closingTime} onChange={e => setForm({ ...form, closingTime: e.target.value })} data-testid="input-closing" />
+            <TimePickerInput value={form.closingTime} onChange={e => setForm({ ...form, closingTime: e.target.value })} data-testid="input-closing" />
           </Field>
           <Field label="Slot length (minutes)">
             <Input type="number" min={15} step={15} value={form.slotMinutes} onChange={e => setForm({ ...form, slotMinutes: parseInt(e.target.value) || 30 })} data-testid="input-slot" />

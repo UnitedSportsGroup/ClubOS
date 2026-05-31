@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Award, Users, Calendar, LayoutGrid, Settings2, Plus, Trash2, GripVertical, X, Shield, Clock, MapPin, Pencil, Check, ChevronDown, Goal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tournament, TournamentGroup, TournamentTeam, TournamentGame, TournamentPlayer, TournamentGoal } from "@shared/schema";
@@ -390,8 +391,7 @@ function ScheduleTab({ tournament }: { tournament: Tournament }) {
                 </td>
                 <td className="px-3 py-2.5">
                   {isEditing ? (
-                    <Input
-                      type="time"
+                    <TimePickerInput
                       value={editTime}
                       onChange={e => setEditTime(e.target.value)}
                       className="w-24 h-7 text-xs premium-input text-white"

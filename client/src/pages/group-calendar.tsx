@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from "rea
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -798,11 +799,11 @@ export default function GroupCalendar() {
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-2">
                     <DatePickerInput value={formStartDate} onChange={e => { setFormStartDate(e.target.value); if (!formEndDate || e.target.value > formEndDate) setFormEndDate(e.target.value); }} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-start-date" />
-                    {!formAllDay && <Input type="time" value={formStartTime} onChange={e => setFormStartTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-start-time" />}
+                    {!formAllDay && <TimePickerInput value={formStartTime} onChange={e => setFormStartTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-start-time" />}
                   </div>
                   <div className="flex items-center gap-2">
                     <DatePickerInput value={formEndDate} onChange={e => setFormEndDate(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl flex-1" data-testid="input-event-end-date" />
-                    {!formAllDay && <Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-end-time" />}
+                    {!formAllDay && <TimePickerInput value={formEndTime} onChange={e => setFormEndTime(e.target.value)} className="premium-input text-white/70 text-xs rounded-xl w-[120px]" data-testid="input-event-end-time" />}
                   </div>
                 </div>
               </div>

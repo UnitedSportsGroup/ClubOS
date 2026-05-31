@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -591,8 +592,7 @@ export default function AdminDiscountDetail() {
                 </div>
                 <div>
                   <Label className="text-white/50 text-xs font-medium mb-1.5 block">Start time (NZDT)</Label>
-                  <Input
-                    type="time"
+                  <TimePickerInput
                     value={startTime}
                     onChange={e => setStartTime(e.target.value)}
                     className="premium-input text-white/80 rounded-xl"
@@ -621,8 +621,7 @@ export default function AdminDiscountDetail() {
                   </div>
                   <div>
                     <Label className="text-white/50 text-xs font-medium mb-1.5 block">End time (NZDT)</Label>
-                    <Input
-                      type="time"
+                    <TimePickerInput
                       value={endTime}
                       onChange={e => setEndTime(e.target.value)}
                       className="premium-input text-white/80 rounded-xl"

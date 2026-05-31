@@ -7,6 +7,7 @@ import { Calendar as CalIcon, ChevronLeft, ChevronRight, Plus, X, Trash2 } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FacilityBooking, Facility } from "@shared/schema";
 
@@ -682,11 +683,11 @@ export default function VenueCalendar() {
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Start</label>
-                  <Input type="time" value={newBooking.startTime} onChange={e => setNewBooking({ ...newBooking, startTime: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-start" />
+                  <TimePickerInput value={newBooking.startTime} onChange={e => setNewBooking({ ...newBooking, startTime: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-start" />
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">End</label>
-                  <Input type="time" value={newBooking.endTime} onChange={e => setNewBooking({ ...newBooking, endTime: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-end" />
+                  <TimePickerInput value={newBooking.endTime} onChange={e => setNewBooking({ ...newBooking, endTime: e.target.value })} className="bg-white/5 border-white/10 text-white" data-testid="input-booking-end" />
                 </div>
               </div>
 

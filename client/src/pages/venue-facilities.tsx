@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Shield, Plus, Pencil, Trash2, DollarSign, ChevronDown, LayoutGrid, List, X, Lightbulb, Upload, GripVertical, Star, Image as ImageIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -424,8 +425,7 @@ function PricingRulesEditor({ facilityId, baseRate, halfFull }: { facilityId: nu
           <div className={halfFull ? "grid grid-cols-4 gap-2" : "grid grid-cols-3 gap-2"}>
             <div>
               <label className="text-[10px] text-white/40 mb-1 block">Start</label>
-              <Input
-                type="time"
+              <TimePickerInput
                 value={newRule.startTime}
                 onChange={e => setNewRule({ ...newRule, startTime: e.target.value })}
                 className="bg-white/5 border-white/10 text-white text-xs h-8"
@@ -434,8 +434,7 @@ function PricingRulesEditor({ facilityId, baseRate, halfFull }: { facilityId: nu
             </div>
             <div>
               <label className="text-[10px] text-white/40 mb-1 block">End</label>
-              <Input
-                type="time"
+              <TimePickerInput
                 value={newRule.endTime}
                 onChange={e => setNewRule({ ...newRule, endTime: e.target.value })}
                 className="bg-white/5 border-white/10 text-white text-xs h-8"

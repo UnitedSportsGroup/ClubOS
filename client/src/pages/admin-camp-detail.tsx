@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -390,11 +391,11 @@ function ClassDatesTab({ campId, camp }: { campId: number; camp: any }) {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="space-y-1">
                   <label className="text-[10px] text-white/40 uppercase">Start</label>
-                  <Input type="time" value={slot.startTime} onChange={e => updateSlot(slot.id, { startTime: e.target.value })} className="text-white/80 rounded-lg" />
+                  <TimePickerInput value={slot.startTime} onChange={e => updateSlot(slot.id, { startTime: e.target.value })} className="text-white/80 rounded-lg" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-white/40 uppercase">End</label>
-                  <Input type="time" value={slot.endTime} onChange={e => updateSlot(slot.id, { endTime: e.target.value })} className="text-white/80 rounded-lg" />
+                  <TimePickerInput value={slot.endTime} onChange={e => updateSlot(slot.id, { endTime: e.target.value })} className="text-white/80 rounded-lg" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-white/40 uppercase">Capacity</label>

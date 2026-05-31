@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { Trophy, ArrowLeft, Calendar, BarChart3, Settings, Ticket, Tag, Plus, X, Trash2, Pencil, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { LeagueCompetition, LeagueDivision, LeagueTeam, LeagueGame, LeagueCoupon } from "@shared/schema";
@@ -164,8 +165,8 @@ function GameModal({ competitionId, teams, divisions, game, onClose }: { competi
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="text-xs text-white/40 mb-1 block">Date</label><DatePickerInput value={form.gameDate} onChange={e => setForm(f => ({ ...f, gameDate: e.target.value }))} className="premium-input text-white" data-testid="input-game-date" /></div>
-            <div><label className="text-xs text-white/40 mb-1 block">Start</label><Input type="time" value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="premium-input text-white" /></div>
-            <div><label className="text-xs text-white/40 mb-1 block">End</label><Input type="time" value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="premium-input text-white" /></div>
+            <div><label className="text-xs text-white/40 mb-1 block">Start</label><TimePickerInput value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="premium-input text-white" /></div>
+            <div><label className="text-xs text-white/40 mb-1 block">End</label><TimePickerInput value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="premium-input text-white" /></div>
           </div>
           <div><label className="text-xs text-white/40 mb-1 block">Location</label><Input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="premium-input text-white" /></div>
           <div><label className="text-xs text-white/40 mb-1 block">Status</label>
