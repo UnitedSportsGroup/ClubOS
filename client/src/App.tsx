@@ -32,6 +32,7 @@ import MflLandingPage from "@/pages/mfl-landing-page";
 import MflRegisterPage from "@/pages/mfl-register-page";
 import MflCheckoutPage from "@/pages/mfl-checkout-page";
 import MflSuccessPage from "@/pages/mfl-success-page";
+import MflLegalPage from "@/pages/mfl-legal-page";
 import VenueDashboard from "@/pages/venue-dashboard";
 import VenueCalendar from "@/pages/venue-calendar";
 import VenueAnalytics from "@/pages/venue-analytics";
@@ -355,6 +356,9 @@ function App() {
             <Route path="/league/:slug/register" component={MflRegisterPage} />
             <Route path="/league/:slug/checkout">{() => <MflCheckoutPage mode="deposit" />}</Route>
             <Route path="/league/:slug/success" component={MflSuccessPage} />
+            {/* Literal legal routes must precede /league/:slug (else slug='privacy') */}
+            <Route path="/league/privacy">{() => <MflLegalPage kind="privacy" />}</Route>
+            <Route path="/league/delete-account">{() => <MflLegalPage kind="delete" />}</Route>
             <Route path="/league/:slug" component={MflLandingPage} />
             <Route path="/league" component={MflLandingPage} />
             <Route path="/:slug/book" component={BookingPage} />

@@ -247,6 +247,40 @@ export async function registerRoutes(
     }
   });
 
+  // Self-serve account deletion — required by Apple (5.1.1(v)) and Google Play.
+  // We ANONYMISE rather than hard-delete: a hard delete would cascade and break
+  // historical records (league team contacts, registrations, payments) that the
+  // club still needs. We scrub PII, disconnect social logins, deactivate the
+  // account and destroy the session — the person can no longer sign in and
+  // their personal data is gone, while financial/audit history stays intact.
+  app.delete("/api/auth/me", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const scrubbed = await hashPassword(`deleted-${userId}-${Date.now()}-${Math.random()}`);
+      await db.update(usersTable).set({
+        email: `deleted-${userId}@deleted.invalid`,
+        firstName: "Deleted",
+        lastName: "User",
+        password: scrubbed,
+        googleId: null,
+        appleId: null,
+        active: false,
+      }).where(eq(usersTable.id, userId));
+
+      // express-session always invokes this callback (with `err` on failure),
+      // so the response is guaranteed to be sent exactly once. The DB scrub
+      // above already succeeded; a session-store hiccup shouldn't block the
+      // client — we log it and still clear the cookie + respond OK.
+      req.session.destroy((err) => {
+        if (err) console.error("[delete-account] session destroy error:", err);
+        res.clearCookie("connect.sid");
+        res.json({ ok: true });
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ──────────────────────────────────────────────────────────────────────
   // Facility iCal feed — public endpoint for Home Assistant integration.
   // Each facility has its own calendar token (regenerable) → feed URL.
