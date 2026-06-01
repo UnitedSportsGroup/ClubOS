@@ -1589,6 +1589,64 @@ export class DatabaseStorage implements IStorage {
     await db.delete(leagueGames).where(eq(leagueGames.id, id));
   }
 
+  // The sellable 'league_team' program that wraps a competition's public
+  // registration page (deposit/early-bird/upsells live here). One per comp.
+  async getLeagueRegistrationProgram(competitionId: number): Promise<Program | undefined> {
+    const [p] = await db.select().from(programs)
+      .where(and(eq(programs.leagueCompetitionId, competitionId), eq(programs.type, "league_team")));
+    return p;
+  }
+
+  // Paid/in-progress team registrations for a competition, enriched with the
+  // captain contact, division name and team payment status — for the admin
+  // Registrations view.
+  async getLeagueRegistrations(competitionId: number): Promise<any[]> {
+    const progs = await db.select().from(programs)
+      .where(and(eq(programs.leagueCompetitionId, competitionId), eq(programs.type, "league_team")));
+    const progIds = progs.map(p => p.id);
+    if (progIds.length === 0) return [];
+
+    const rows = await db.select({ reg: registrations, captain: contacts, division: leagueDivisions })
+      .from(registrations)
+      .leftJoin(contacts, eq(registrations.contactId, contacts.id))
+      .leftJoin(leagueDivisions, eq(registrations.leagueDivisionId, leagueDivisions.id))
+      // Real registrations only — exclude abandoned 'pending' carts and cancelled.
+      .where(and(
+        inArray(registrations.programId, progIds),
+        inArray(registrations.status, ["confirmed", "refunded", "partially_refunded", "waitlisted"]),
+      ))
+      .orderBy(desc(registrations.registeredAt));
+
+    const regIds = rows.map(r => r.reg.id);
+    const teams = regIds.length
+      ? await db.select().from(leagueTeams).where(inArray(leagueTeams.registrationId, regIds))
+      : [];
+    const teamByReg = new Map(teams.map(t => [t.registrationId, t]));
+
+    return rows.map(r => ({
+      id: r.reg.id,
+      teamName: r.reg.teamName,
+      status: r.reg.status,
+      divisionName: r.division?.name ?? null,
+      captainName: r.captain ? `${r.captain.firstName} ${r.captain.lastName}` : "",
+      captainEmail: r.captain?.email ?? null,
+      captainPhone: r.captain?.phone ?? null,
+      totalCents: r.reg.totalCents,
+      amountPaid: r.reg.amountPaid,
+      paymentMode: r.reg.paymentMode,
+      depositCents: r.reg.depositCents,
+      balanceCents: r.reg.balanceCents,
+      balanceDueDate: r.reg.balanceDueDate,
+      balanceStatus: r.reg.balanceStatus,
+      paymentStatus: teamByReg.get(r.reg.id)?.paymentStatus ?? (
+        r.reg.status === "confirmed" ? "deposit_paid"
+        : (r.reg.status === "refunded" || r.reg.status === "partially_refunded") ? r.reg.status
+        : "unpaid"
+      ),
+      registeredAt: r.reg.registeredAt,
+    }));
+  }
+
   async getLeagueCoupons(competitionId: number): Promise<LeagueCoupon[]> {
     return db.select().from(leagueCoupons).where(eq(leagueCoupons.competitionId, competitionId)).orderBy(desc(leagueCoupons.createdAt));
   }

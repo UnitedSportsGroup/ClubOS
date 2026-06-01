@@ -28,6 +28,10 @@ import BookingSuccess from "@/pages/booking-success";
 import AttributionSurvey from "@/pages/attribution-survey";
 import BookingCancel from "@/pages/booking-cancel";
 import CheckoutPage from "@/pages/checkout-page";
+import MflLandingPage from "@/pages/mfl-landing-page";
+import MflRegisterPage from "@/pages/mfl-register-page";
+import MflCheckoutPage from "@/pages/mfl-checkout-page";
+import MflSuccessPage from "@/pages/mfl-success-page";
 import VenueDashboard from "@/pages/venue-dashboard";
 import VenueCalendar from "@/pages/venue-calendar";
 import VenueAnalytics from "@/pages/venue-analytics";
@@ -329,8 +333,10 @@ function App() {
                   host.startsWith("app.") || host === "clubos.fly.dev" || host === "localhost";
                 const isVenueHost = host.startsWith("book.");
                 const isPrintHost = host.startsWith("order.") || host.includes("unitedprints.co.nz");
+                const isMflHost = host.includes("minifootball");
                 if (isVenueHost) return <VenueBookPage />;
                 if (isPrintHost) return <PrintHub />;
+                if (isMflHost) return <Redirect to="/league" />;
                 return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
               })()}
             </Route>
@@ -344,6 +350,13 @@ function App() {
             <Route path="/print/checkout" component={PrintCheckout} />
             <Route path="/print/order/:token/upload" component={PrintUpload} />
             <Route path="/print/order/:token" component={PrintOrderStatus} />
+            {/* MFL team registration funnel (join.minifootball.co.nz) */}
+            <Route path="/league/balance/:registrationId">{() => <MflCheckoutPage mode="balance" />}</Route>
+            <Route path="/league/:slug/register" component={MflRegisterPage} />
+            <Route path="/league/:slug/checkout">{() => <MflCheckoutPage mode="deposit" />}</Route>
+            <Route path="/league/:slug/success" component={MflSuccessPage} />
+            <Route path="/league/:slug" component={MflLandingPage} />
+            <Route path="/league" component={MflLandingPage} />
             <Route path="/:slug/book" component={BookingPage} />
             <Route path="/:slug/class-book" component={ClassBookingPage} />
             <Route path="/:slug/checkout" component={CheckoutPage} />

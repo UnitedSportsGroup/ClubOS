@@ -9,9 +9,10 @@ import { eq, and, sql, asc, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin, requireTab, verifyPassword, hashPassword } from "./auth";
 import { sunriseSunsetLocal } from "./solar";
-import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund } from "./stripe";
-import { sendPurchaseEvent } from "./meta-capi";
-import { sendConfirmationEmail } from "./email";
+import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund, getOrCreateCustomer, createOffSessionPaymentIntent } from "./stripe";
+import { sendPurchaseEvent, sendLeadEvent } from "./meta-capi";
+import { sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail } from "./email";
+import { handleLeagueBalanceSuccess, handleLeagueBalanceFailed, claimBalance } from "./league-balance-cron";
 import { buildCICSchedule } from "./tournament-schedule";
 import crypto from "crypto";
 import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from "./replit_integrations/object_storage";
@@ -3760,6 +3761,178 @@ export async function registerRoutes(
     }
   });
 
+  // Paid/in-progress team registrations for a competition (admin Registrations view).
+  app.get("/api/admin/league/competitions/:id/registrations", requireAuth, async (req, res) => {
+    try {
+      const rows = await storage.getLeagueRegistrations(parseInt(req.params.id));
+      res.json(rows);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get the public registration page config (the league_team program) for a competition.
+  app.get("/api/admin/league/competitions/:id/registration-settings", requireAuth, async (req, res) => {
+    try {
+      const program = await storage.getLeagueRegistrationProgram(parseInt(req.params.id));
+      res.json({ program: program || null });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create/update the public registration page config (the league_team program).
+  app.post("/api/admin/league/competitions/:id/registration-settings", requireAuth, async (req, res) => {
+    try {
+      const competitionId = parseInt(req.params.id);
+      const comp = await storage.getLeagueCompetition(competitionId);
+      if (!comp) return res.status(404).json({ message: "Competition not found" });
+
+      const { slug, name, depositCents, earlyBirdDeadline, lateFeeCents, upsellsJson, heroHeadline, heroSubheadline } = req.body || {};
+      const fields: any = {
+        name: name || comp.name,
+        ...(slug !== undefined ? { slug } : {}),
+        depositCents: depositCents != null ? parseInt(String(depositCents)) : null,
+        earlyBirdDeadline: earlyBirdDeadline || null,
+        lateFeeCents: lateFeeCents != null ? parseInt(String(lateFeeCents)) : 0,
+        upsellsJson: Array.isArray(upsellsJson) ? upsellsJson : [],
+        heroHeadline: heroHeadline || null,
+        heroSubheadline: heroSubheadline || null,
+      };
+
+      const existing = await storage.getLeagueRegistrationProgram(competitionId);
+      let program;
+      if (existing) {
+        program = await storage.updateProgram(existing.id, fields);
+      } else {
+        // A slug is required to publish (it's the public URL) — and because
+        // programs.slug is unique per org, requiring it also makes a concurrent
+        // double-create collide on slug (caught below) rather than duplicating.
+        if (!slug || !String(slug).trim()) {
+          return res.status(400).json({ message: "A URL slug is required to publish the registration page." });
+        }
+        program = await storage.createProgram({
+          organizationId: comp.organizationId,
+          type: "league_team",
+          leagueCompetitionId: competitionId,
+          isActive: true,
+          ...fields,
+        } as any);
+      }
+      res.json({ program });
+    } catch (error: any) {
+      // 23505 = unique violation. Either we lost the create race (partial
+      // unique index on competition → another request just made it: update it
+      // instead), or the chosen slug is taken by a different program.
+      if (error?.code === "23505") {
+        const existing = await storage.getLeagueRegistrationProgram(parseInt(req.params.id));
+        if (existing) {
+          const program = await storage.updateProgram(existing.id, {
+            name: req.body?.name,
+            ...(req.body?.slug !== undefined ? { slug: req.body.slug } : {}),
+            depositCents: req.body?.depositCents != null ? parseInt(String(req.body.depositCents)) : null,
+            earlyBirdDeadline: req.body?.earlyBirdDeadline || null,
+            lateFeeCents: req.body?.lateFeeCents != null ? parseInt(String(req.body.lateFeeCents)) : 0,
+            upsellsJson: Array.isArray(req.body?.upsellsJson) ? req.body.upsellsJson : [],
+            heroHeadline: req.body?.heroHeadline || null,
+            heroSubheadline: req.body?.heroSubheadline || null,
+          } as any);
+          return res.json({ program });
+        }
+        return res.status(409).json({ message: "That URL slug is already in use — pick a different one." });
+      }
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Auto-generate a round-robin fixture list for a division.
+  app.post("/api/admin/league/competitions/:id/generate-fixtures", requireAuth, async (req, res) => {
+    try {
+      const competitionId = parseInt(req.params.id);
+      const { divisionId, startDate, startTime, intervalDays = 7, doubleRound = false, replaceExisting = false } = req.body || {};
+      if (!divisionId || !startDate) return res.status(400).json({ message: "divisionId and startDate are required" });
+      const divId = parseInt(String(divisionId));
+
+      const division = await storage.getLeagueDivision(divId);
+      if (!division || division.competitionId !== competitionId) return res.status(400).json({ message: "Invalid division" });
+      const comp = await storage.getLeagueCompetition(competitionId);
+      if (!comp) return res.status(404).json({ message: "Competition not found" });
+
+      // Active teams in this division.
+      const allTeams = await storage.getLeagueTeams(comp.organizationId, competitionId);
+      const teams = allTeams.filter(t => t.divisionId === divId && t.active);
+      if (teams.length < 2) return res.status(400).json({ message: "Need at least 2 teams in this division" });
+
+      // Refuse to clobber existing games unless explicitly replacing (and only
+      // ever delete still-'scheduled' games — never played/final ones).
+      const existingGames = await db.select().from(leagueGames)
+        .where(and(eq(leagueGames.competitionId, competitionId), eq(leagueGames.divisionId, divId)));
+      if (existingGames.length > 0 && !replaceExisting) {
+        return res.status(409).json({ message: `This division already has ${existingGames.length} game(s). Enable "replace" to regenerate.` });
+      }
+      if (replaceExisting && existingGames.length > 0) {
+        await db.delete(leagueGames).where(and(
+          eq(leagueGames.competitionId, competitionId),
+          eq(leagueGames.divisionId, divId),
+          eq(leagueGames.status, "scheduled"),
+        ));
+      }
+
+      // Circle-method round-robin. Pad with a bye for ODD counts so `n` is
+      // always even — this keeps `half = n/2` an integer and guarantees no
+      // self-pairings. Verified complete (each team plays each other once) for
+      // 2–9 teams. Do not "simplify" the rotation without re-checking that.
+      const ids: (number | null)[] = teams.map(t => t.id);
+      if (ids.length % 2 === 1) ids.push(null);
+      const n = ids.length;
+      const roundsCount = n - 1;
+      const half = n / 2;
+      let arr = ids.slice();
+      const rounds: Array<Array<[number, number]>> = [];
+      for (let r = 0; r < roundsCount; r++) {
+        const pairings: Array<[number, number]> = [];
+        for (let i = 0; i < half; i++) {
+          const home = arr[i];
+          const away = arr[n - 1 - i];
+          if (home != null && away != null) {
+            // Alternate home/away by round for fairness.
+            pairings.push(r % 2 === 0 ? [home, away] : [away, home]);
+          }
+        }
+        rounds.push(pairings);
+        arr = [arr[0], arr[n - 1], ...arr.slice(1, n - 1)];
+      }
+      if (doubleRound) {
+        const reverse = rounds.map(rd => rd.map(([h, a]) => [a, h] as [number, number]));
+        rounds.push(...reverse);
+      }
+
+      const base = new Date(startDate + "T12:00:00");
+      let gameNumber = 1;
+      const created: any[] = [];
+      for (let r = 0; r < rounds.length; r++) {
+        const d = new Date(base.getTime() + r * Number(intervalDays) * 86400000);
+        const gameDate = d.toISOString().slice(0, 10);
+        for (const [homeTeamId, awayTeamId] of rounds[r]) {
+          const g = await storage.createLeagueGame({
+            competitionId,
+            divisionId: divId,
+            homeTeamId,
+            awayTeamId,
+            gameNumber: gameNumber++,
+            gameDate,
+            startTime: startTime || null,
+            status: "scheduled",
+          } as any);
+          created.push(g);
+        }
+      }
+      res.json({ created: created.length, rounds: rounds.length });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   // ============ CLUBS (tournament CRM — org-scoped club registry) ============
 
   app.get("/api/admin/clubs", requireAuth, async (req, res) => {
@@ -7104,8 +7277,12 @@ export async function registerRoutes(
 
       if (event.type === "payment_intent.succeeded") {
         const paymentIntent = event.data.object as any;
+        const regType = paymentIntent.metadata?.registrationType;
         const registrationId = parseInt(paymentIntent.metadata?.registrationId);
-        if (registrationId) {
+        if (regType === "league_balance" && registrationId) {
+          // MFL instalment balance collected.
+          await handleLeagueBalanceSuccess(registrationId, paymentIntent.id);
+        } else if (registrationId) {
           await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
         }
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
@@ -7141,6 +7318,11 @@ export async function registerRoutes(
         }
       } else if (event.type === "payment_intent.payment_failed") {
         const paymentIntent = event.data.object as any;
+        const regType = paymentIntent.metadata?.registrationType;
+        const registrationId = parseInt(paymentIntent.metadata?.registrationId);
+        if (regType === "league_balance" && registrationId) {
+          await handleLeagueBalanceFailed(registrationId);
+        }
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
         if (facilityGroupId) {
           try { await storage.cancelFacilityBookingsByGroup(facilityGroupId); } catch (e) { console.error(e); }
@@ -7251,6 +7433,20 @@ export async function registerRoutes(
       if (!registrationId) return res.status(400).json({ message: "registrationId required" });
       const reg = await storage.getRegistration(registrationId);
       if (!reg) return res.status(404).json({ message: "Registration not found" });
+
+      // MFL manual balance payment: a separate PaymentIntent, and the
+      // registration is already 'confirmed' from the deposit — handle this
+      // BEFORE the confirmed short-circuit below.
+      if (paymentIntentId && reg.balancePaymentIntentId && paymentIntentId === reg.balancePaymentIntentId) {
+        if (reg.balanceStatus === "paid") return res.json({ ok: true, alreadyConfirmed: true });
+        const pi = await retrievePaymentIntent(paymentIntentId);
+        if (pi.status === "succeeded") {
+          await handleLeagueBalanceSuccess(reg.id, pi.id);
+          return res.json({ ok: true });
+        }
+        return res.status(400).json({ message: "Payment not completed" });
+      }
+
       if (reg.status === "confirmed") return res.json({ ok: true, alreadyConfirmed: true });
 
       if (reg.stripePaymentIntentId) {
@@ -8998,6 +9194,397 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ===================================================================
+  // MFL public team registration (landing → register → checkout → success)
+  // ===================================================================
+
+  // Resolve a 'league_team' program (the sellable Term-3 offering) scoped to
+  // the MFL org. getProgramBySlug is NOT org-scoped, so we filter explicitly.
+  async function getMflRegistrationProgram(slug: string) {
+    const program = await storage.getProgramBySlug(slug);
+    if (!program || program.type !== "league_team" || program.organizationId !== MFL_ORG_ID || !program.isActive) {
+      return null;
+    }
+    return program;
+  }
+
+  // List the active 'league_team' offerings for the MFL org — used by the MFL
+  // landing root when no specific slug is given (e.g. join.minifootball.co.nz).
+  app.get("/api/public/league/register", async (_req, res) => {
+    try {
+      const all = await storage.getPrograms();
+      const offerings = all
+        .filter((p) => (p as any).type === "league_team" && p.organizationId === MFL_ORG_ID && p.isActive)
+        .map((p) => ({ id: p.id, slug: p.slug, name: p.name, heroImage: p.heroImage, descriptionShort: (p as any).descriptionShort }));
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, MFL_ORG_ID));
+      res.json({
+        organization: org ? { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl } : null,
+        offerings,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Landing/registration page data — program + competition + divisions (with
+  // spots-left) + upsells + early-bird state + deposit.
+  app.get("/api/public/league/register/:slug", async (req, res) => {
+    try {
+      const program = await getMflRegistrationProgram(req.params.slug);
+      if (!program) return res.status(404).json({ message: "Not found" });
+
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, MFL_ORG_ID));
+      const competition = (program as any).leagueCompetitionId
+        ? await storage.getLeagueCompetition((program as any).leagueCompetitionId)
+        : null;
+
+      let divisions: any[] = [];
+      if ((program as any).leagueCompetitionId) {
+        const divs = await storage.getLeagueDivisions((program as any).leagueCompetitionId);
+        const teams = await storage.getLeagueTeams(MFL_ORG_ID, (program as any).leagueCompetitionId);
+        divisions = divs.map((d) => {
+          const teamCount = teams.filter((t) => t.divisionId === d.id && t.active).length;
+          return {
+            id: d.id,
+            name: d.name,
+            dayOfWeek: d.dayOfWeek,
+            ageGroup: d.ageGroup,
+            gender: d.gender,
+            maxTeams: d.maxTeams,
+            teamCostCents: d.teamCostCents,
+            teamCount,
+            spotsLeft: d.maxTeams != null ? Math.max(0, d.maxTeams - teamCount) : null,
+          };
+        });
+      }
+
+      const now = new Date();
+      const deadline = (program as any).earlyBirdDeadline as string | null;
+      const earlyBird = {
+        deadline: deadline || null,
+        lateFeeCents: (program as any).lateFeeCents || 0,
+        active: deadline ? new Date(deadline + "T23:59:59") >= now : false,
+      };
+
+      res.json({
+        program,
+        organization: org ? { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl } : null,
+        competition,
+        divisions,
+        upsells: (program as any).upsellsJson || [],
+        earlyBird,
+        depositCents: (program as any).depositCents ?? null,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Create a pending team registration + deposit PaymentIntent (card saved
+  // on file for the later balance charge). All prices re-validated server-side.
+  app.post("/api/public/league/register", async (req, res) => {
+    try {
+      const { captain, teamName, slug, divisionId, upsells = [], discountCode,
+        utmSource, utmMedium, utmCampaign, fbclid, fbp, fbc, userAgent, leadEventId } = req.body;
+
+      if (!captain?.email || !captain?.firstName || !teamName || !slug || !divisionId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const program = await getMflRegistrationProgram(slug);
+      if (!program) return res.status(404).json({ message: "League not found" });
+
+      const division = await storage.getLeagueDivision(parseInt(String(divisionId)));
+      if (!division || ((program as any).leagueCompetitionId && division.competitionId !== (program as any).leagueCompetitionId)) {
+        return res.status(400).json({ message: "Invalid division" });
+      }
+
+      // Capacity guard (atomic-ish — re-checked at registration time).
+      if (division.maxTeams != null) {
+        const teams = await storage.getLeagueTeams(MFL_ORG_ID, division.competitionId);
+        const count = teams.filter((t) => t.divisionId === division.id && t.active).length;
+        if (count >= division.maxTeams) return res.status(409).json({ message: "This league night is full" });
+      }
+
+      // Captain contact (reuse contacts).
+      let captainContact = await storage.findContactByEmail(captain.email);
+      if (!captainContact) {
+        captainContact = await storage.createContact({
+          type: "guardian", firstName: captain.firstName, lastName: captain.lastName,
+          email: captain.email, phone: captain.phone,
+        });
+      } else {
+        captainContact = (await storage.updateContact(captainContact.id, {
+          firstName: captain.firstName, lastName: captain.lastName, phone: captain.phone,
+        }))!;
+      }
+
+      // Server-authoritative pricing.
+      const baseCents = division.teamCostCents || 0;
+      let subtotalCents = baseCents;
+      const lineItems: { productType: string; priceCents: number; label: string }[] = [
+        { productType: "team_fee", priceCents: baseCents, label: `${division.name} — team entry` },
+      ];
+
+      const upsellDefs: any[] = Array.isArray((program as any).upsellsJson) ? (program as any).upsellsJson : [];
+      for (const u of (Array.isArray(upsells) ? upsells : [])) {
+        const def = upsellDefs.find((d) => d.type === u);
+        if (def && def.priceCents > 0) {
+          subtotalCents += def.priceCents;
+          lineItems.push({ productType: def.type, priceCents: def.priceCents, label: def.label });
+        }
+      }
+
+      const now = new Date();
+      const deadline = (program as any).earlyBirdDeadline as string | null;
+      const pastDeadline = deadline ? new Date(deadline + "T23:59:59") < now : false;
+      const lateFeeCents = (program as any).lateFeeCents || 0;
+      if (pastDeadline && lateFeeCents > 0) {
+        subtotalCents += lateFeeCents;
+        lineItems.push({ productType: "late_fee", priceCents: lateFeeCents, label: "Late registration fee" });
+      }
+
+      // Optional discount code (same rules as camps).
+      let discountCents = 0, appliedDiscountId: number | null = null, appliedDiscountCode: string | null = null;
+      if (discountCode) {
+        const promo = await storage.getDiscountByCode(String(discountCode).trim(), MFL_ORG_ID);
+        if (promo && promo.status !== "disabled") {
+          const startOk = !promo.startDate || new Date(promo.startDate) <= now;
+          const endOk = !promo.endDate || new Date(promo.endDate) >= now;
+          const usageOk = !promo.maxTotalUses || promo.timesUsed < promo.maxTotalUses;
+          if (startOk && endOk && usageOk) {
+            discountCents = promo.valueType === "percentage"
+              ? Math.round(subtotalCents * Number(promo.value) / 100)
+              : Math.round(Number(promo.value) * 100);
+            if (discountCents > subtotalCents) discountCents = subtotalCents;
+            appliedDiscountId = promo.id; appliedDiscountCode = promo.code;
+          }
+        }
+      }
+
+      const totalCents = subtotalCents - discountCents;
+
+      // Instalment split: deposit now, balance ~3 weeks out.
+      const programDeposit = (program as any).depositCents as number | null;
+      const isInstalment = !!programDeposit && programDeposit > 0 && totalCents > programDeposit;
+      const depositCents = isInstalment ? programDeposit! : totalCents;
+      const balanceCents = isInstalment ? totalCents - depositCents : 0;
+      let balanceDueDate: string | null = null;
+      if (isInstalment) {
+        balanceDueDate = new Date(now.getTime() + 21 * 86400000).toISOString().slice(0, 10);
+      }
+
+      const registration = await storage.createRegistration({
+        programId: program.id,
+        contactId: captainContact.id,
+        guardianId: captainContact.id,
+        status: "pending",
+        subtotalCents,
+        discountCents,
+        discountCode: appliedDiscountCode,
+        discountId: appliedDiscountId,
+        totalCents,
+        currency: "NZD",
+        registrationLocation: "online",
+        source: "league_registration",
+        paymentMode: isInstalment ? "installment" : "upfront",
+        leagueDivisionId: division.id,
+        teamName,
+        depositCents,
+        balanceCents,
+        balanceDueDate,
+        balanceStatus: isInstalment ? "scheduled" : "none",
+        utmSource: utmSource || null,
+        utmMedium: utmMedium || null,
+        utmCampaign: utmCampaign || null,
+        fbclid: fbclid || null,
+      } as any);
+
+      await storage.createRegistrationItems(lineItems.map((li) => ({
+        registrationId: registration.id,
+        productType: li.productType,
+        priceCents: li.priceCents,
+        label: li.label,
+      })) as any);
+
+      if (depositCents > 0 && process.env.STRIPE_SECRET_KEY) {
+        const customer = await getOrCreateCustomer({
+          email: captain.email,
+          name: `${captain.firstName} ${captain.lastName}`,
+          phone: captain.phone,
+        });
+        const pi = await createPaymentIntent({
+          registrationId: registration.id,
+          campName: `${program.name} — ${teamName}`,
+          totalCents: depositCents,
+          currency: "NZD",
+          parentEmail: captain.email,
+          customerId: customer.id,
+          setupFutureUsage: isInstalment ? "off_session" : undefined,
+          metadata: {
+            registrationType: "league_team",
+            programId: String(program.id),
+            slug,
+            fbp: fbp || "",
+            fbc: fbc || "",
+            userAgent: userAgent || "",
+          },
+        });
+        await storage.updateRegistration(registration.id, {
+          stripePaymentIntentId: pi.id,
+          stripeCustomerId: customer.id,
+        });
+      }
+
+      // Server-side Lead event mirroring the client pixel Lead (dedup by eventId).
+      if (leadEventId) {
+        sendLeadEvent({
+          registrationId: registration.id,
+          campId: program.id,
+          valueCents: totalCents,
+          currency: "NZD",
+          email: captain.email,
+          phone: captain.phone,
+          firstName: captain.firstName,
+          lastName: captain.lastName,
+          fbp, fbc, userAgent,
+          eventId: leadEventId,
+          contentName: "MFL Term 3 Team Registration",
+          contentIds: [slug],
+        }).catch((e) => console.error("[MFL] Lead CAPI failed:", e));
+      }
+
+      res.status(201).json({
+        registrationId: registration.id,
+        subtotalCents, discountCents, totalCents,
+        depositCents, balanceCents, balanceDueDate,
+        isInstalment,
+        currency: "NZD",
+        requiresPayment: depositCents > 0,
+        slug,
+      });
+    } catch (e: any) {
+      console.error("[MFL register] error:", e);
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  // Checkout data (clientSecret + order summary) for the deposit.
+  app.get("/api/public/league/checkout/:registrationId", async (req, res) => {
+    try {
+      const reg = await storage.getRegistration(parseInt(req.params.registrationId));
+      if (!reg) return res.status(404).json({ message: "Not found" });
+      if (reg.status === "confirmed") return res.status(400).json({ message: "Already confirmed" });
+      if (!reg.stripePaymentIntentId) return res.status(400).json({ message: "No payment intent" });
+
+      // Capacity re-check before payment — the chosen night may have filled up
+      // since this captain started registering. Fail fast so we don't take
+      // money for a full night. (Sub-second simultaneous races are still
+      // possible but rare; refunds cover the residual edge.)
+      if (reg.leagueDivisionId) {
+        const division = await storage.getLeagueDivision(reg.leagueDivisionId);
+        if (division?.maxTeams != null) {
+          const teams = await storage.getLeagueTeams(MFL_ORG_ID, division.competitionId);
+          const count = teams.filter((t) => t.divisionId === division.id && t.active).length;
+          if (count >= division.maxTeams) {
+            return res.status(409).json({ message: "This league night just filled up. Please head back and choose another night." });
+          }
+        }
+      }
+
+      const pi = await retrievePaymentIntent(reg.stripePaymentIntentId);
+      if (!pi.client_secret) return res.status(400).json({ message: "No client secret" });
+      const contact = await storage.getContact(reg.contactId);
+      const program = await storage.getProgram(reg.programId);
+      const items = await storage.getRegistrationItems(reg.id);
+      res.json({
+        clientSecret: pi.client_secret,
+        registrationId: reg.id,
+        teamName: reg.teamName,
+        programName: program?.name || "",
+        slug: program?.slug || "",
+        subtotalCents: reg.subtotalCents,
+        discountCents: reg.discountCents,
+        totalCents: reg.totalCents,
+        depositCents: reg.depositCents,
+        balanceCents: reg.balanceCents,
+        balanceDueDate: reg.balanceDueDate,
+        isInstalment: reg.paymentMode === "installment",
+        amountDueNowCents: reg.depositCents ?? reg.totalCents,
+        currency: reg.currency || "NZD",
+        captainName: contact ? `${contact.firstName} ${contact.lastName}` : "",
+        captainEmail: contact?.email || "",
+        items: (items as any[]).map((i) => ({ label: i.label, priceCents: i.priceCents, productType: i.productType })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Success-page data after the deposit is paid.
+  app.get("/api/public/league/registration/:id", async (req, res) => {
+    try {
+      const reg = await storage.getRegistration(parseInt(req.params.id));
+      if (!reg) return res.status(404).json({ message: "Not found" });
+      const contact = await storage.getContact(reg.contactId);
+      const program = await storage.getProgram(reg.programId);
+      const division = reg.leagueDivisionId ? await storage.getLeagueDivision(reg.leagueDivisionId) : null;
+      res.json({
+        id: reg.id,
+        status: reg.status,
+        teamName: reg.teamName,
+        divisionName: division?.name || null,
+        programName: program?.name,
+        slug: program?.slug,
+        captainName: contact ? `${contact.firstName} ${contact.lastName}` : "",
+        captainEmail: contact?.email,
+        totalCents: reg.totalCents,
+        depositCents: reg.depositCents,
+        balanceCents: reg.balanceCents,
+        balanceDueDate: reg.balanceDueDate,
+        balanceStatus: reg.balanceStatus,
+        isInstalment: reg.paymentMode === "installment",
+        currency: reg.currency || "NZD",
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // On-session PaymentIntent to pay an outstanding balance manually (used when
+  // the scheduled off-session charge fails and the captain clicks the email link).
+  app.post("/api/public/league/balance-intent", async (req, res) => {
+    try {
+      const reg0 = await storage.getRegistration(parseInt(String(req.body?.registrationId)));
+      if (!reg0) return res.status(404).json({ message: "Not found" });
+      if (reg0.paymentMode !== "installment" || !(reg0.balanceCents && reg0.balanceCents > 0)) {
+        return res.status(400).json({ message: "No balance due" });
+      }
+      if (reg0.balanceStatus === "paid") return res.status(400).json({ message: "Balance already paid" });
+
+      // Atomically claim the balance ('charging') so the cron can't also charge
+      // it concurrently. Returns null if it's already mid-charge or paid.
+      const reg = await claimBalance(reg0.id);
+      if (!reg) {
+        return res.status(409).json({ message: "A balance payment is already being processed. Please try again in a few minutes." });
+      }
+
+      const contact = await storage.getContact(reg.contactId);
+      const program = await storage.getProgram(reg.programId);
+      const pi = await createPaymentIntent({
+        registrationId: reg.id,
+        campName: `${program?.name || "Mini Football Leagues"} — balance`,
+        totalCents: reg.balanceCents!,
+        currency: "NZD",
+        parentEmail: contact?.email || "",
+        ...(reg.stripeCustomerId ? { customerId: reg.stripeCustomerId } : {}),
+        metadata: { registrationType: "league_balance", programId: String(reg.programId) },
+        idempotencyKey: `league-balance-manual-${reg.id}-${reg.balanceAttempts ?? 0}`,
+      });
+      await storage.updateRegistration(reg.id, { balancePaymentIntentId: pi.id });
+      res.json({
+        clientSecret: pi.client_secret,
+        registrationId: reg.id,
+        amountCents: reg.balanceCents,
+        currency: "NZD",
+        teamName: reg.teamName,
+        slug: program?.slug || "",
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Score submission by an assigned referee. Auth-gated + checks the
   // requester is the assigned ref before accepting the score.
   app.post("/api/league/games/:id/score", requireAuth, async (req, res) => {
@@ -9705,14 +10292,28 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
   const reg = await storage.getRegistration(registrationId);
   if (!reg || reg.status === "confirmed") return;
 
+  // For MFL instalment registrations only the deposit has been collected at
+  // this point — record the deposit as amount paid, not the full total.
+  const isLeagueTeam = metadata?.registrationType === "league_team";
+  const paidCents = (isLeagueTeam && reg.paymentMode === "installment")
+    ? (reg.depositCents ?? reg.totalCents ?? 0)
+    : (reg.totalCents ?? 0);
+
   await storage.updateRegistration(registrationId, {
     status: "confirmed",
-    amountPaid: ((reg.totalCents ?? 0) / 100).toFixed(2),
+    amountPaid: (paidCents / 100).toFixed(2),
   });
   await storage.assignOrderNumber(registrationId);
 
   if ((reg as any).discountId && reg.discountCents && reg.discountCents > 0) {
     await storage.incrementDiscountUsage((reg as any).discountId, reg.discountCents);
+  }
+
+  // MFL team registration — materialise the league team + send branded email
+  // + fire the Purchase CAPI event, then stop (skip the camp/class paths).
+  if (isLeagueTeam) {
+    await handleLeagueRegistrationSuccess(registrationId, metadata);
+    return;
   }
 
   // Class registrations have a different shape from camp registrations.
@@ -9809,4 +10410,107 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
     ipAddress: undefined,
     eventId,
   }).catch(e => console.error("[Post-payment] Meta CAPI error:", e));
+}
+
+// MFL team registration: on deposit (or full) payment, materialise a leagueTeam
+// linked to the registration so the team shows in the league admin + Expo app,
+// schedule the balance instalment, and fire the branded email + Purchase CAPI.
+// Idempotent — guarded by the existing registrationId→leagueTeam link so it is
+// safe against webhook retries and the /confirm-payment fallback race.
+async function handleLeagueRegistrationSuccess(registrationId: number, metadata?: Record<string, string>) {
+  const reg = await storage.getRegistration(registrationId);
+  if (!reg) return;
+
+  const [existingTeam] = await db.select().from(leagueTeams).where(eq(leagueTeams.registrationId, registrationId));
+  if (existingTeam) return; // already processed
+
+  const program = await storage.getProgram(reg.programId);
+  const captain = await storage.getContact(reg.contactId);
+  if (!program || !captain) return;
+
+  const division = reg.leagueDivisionId ? await storage.getLeagueDivision(reg.leagueDivisionId) : null;
+  const competitionId = (program as any).leagueCompetitionId || division?.competitionId;
+  if (!competitionId) {
+    console.error(`[MFL] No competition linked for program ${program.id} — cannot create team`);
+    return;
+  }
+
+  const isInstalment = reg.paymentMode === "installment" && (reg.balanceCents ?? 0) > 0;
+
+  // Capture the saved card from the deposit PI so the balance can be charged
+  // off-session later. PaymentIntent.customer / .payment_method are string ids
+  // once the intent has succeeded.
+  let customerId = reg.stripeCustomerId ?? null;
+  let paymentMethodId: string | null = null;
+  if (reg.stripePaymentIntentId) {
+    try {
+      const pi = await retrievePaymentIntent(reg.stripePaymentIntentId);
+      customerId = (typeof pi.customer === "string" ? pi.customer : (pi.customer as any)?.id) || customerId;
+      paymentMethodId = (typeof pi.payment_method === "string" ? pi.payment_method : (pi.payment_method as any)?.id) || null;
+    } catch (e) {
+      console.error("[MFL] Failed to retrieve deposit PI for card-on-file:", e);
+    }
+  }
+
+  try {
+    await storage.createLeagueTeam({
+      organizationId: program.organizationId!,
+      competitionId,
+      divisionId: reg.leagueDivisionId ?? null,
+      name: reg.teamName || `Team #${registrationId}`,
+      contactName: `${captain.firstName} ${captain.lastName}`,
+      contactEmail: captain.email,
+      contactPhone: captain.phone,
+      active: true,
+      registrationId,
+      paymentStatus: isInstalment ? "deposit_paid" : "paid_in_full",
+    } as any);
+  } catch (e: any) {
+    // Unique violation on registrationId → a concurrent webhook/confirm-payment
+    // already created this team. Idempotent: another caller owns the rest.
+    if (e?.code === "23505" || /duplicate|unique/i.test(e?.message || "")) return;
+    throw e;
+  }
+
+  await storage.updateRegistration(registrationId, {
+    stripeCustomerId: customerId,
+    stripePaymentMethodId: paymentMethodId,
+    balanceStatus: isInstalment ? "scheduled" : "paid",
+  });
+
+  const fmtNZ = (cents: number) => `$${(cents / 100).toFixed(2)} NZD`;
+  const fmtDate = (d: string | null) =>
+    d ? new Date(d + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long" }) : "";
+
+  sendLeagueConfirmationEmail({
+    registrationId,
+    programId: program.id,
+    captainEmail: captain.email || "",
+    captainName: captain.firstName,
+    teamName: reg.teamName || "Your team",
+    divisionName: division?.name || program.name,
+    depositPaid: fmtNZ(reg.depositCents ?? reg.totalCents ?? 0),
+    balanceDue: fmtNZ(reg.balanceCents ?? 0),
+    balanceDueDate: fmtDate(reg.balanceDueDate ?? null),
+    fullyPaid: !isInstalment,
+  }).catch((e) => console.error("[MFL] confirmation email failed:", e));
+
+  // Server-side Purchase (deposit value = money moved now). Deterministic
+  // eventId so it dedupes with the client-side pixel Purchase on the success page.
+  sendPurchaseEvent({
+    registrationId,
+    campId: program.id,
+    totalCents: reg.depositCents ?? reg.totalCents ?? 0,
+    currency: reg.currency || "NZD",
+    email: captain.email || "",
+    phone: captain.phone || undefined,
+    firstName: captain.firstName,
+    lastName: captain.lastName,
+    fbp: metadata?.fbp || undefined,
+    fbc: metadata?.fbc || undefined,
+    userAgent: metadata?.userAgent || undefined,
+    eventId: `mfl_purchase_${registrationId}`,
+    contentName: "MFL Term 3 Team Registration",
+    contentIds: [program.slug || String(program.id)],
+  }).catch((e) => console.error("[MFL] Purchase CAPI failed:", e));
 }

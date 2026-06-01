@@ -106,6 +106,10 @@ export async function sendPurchaseEvent(params: {
   ipAddress?: string;
   sourceUrl?: string;
   eventId: string;
+  /** Override Facebook content_name (e.g. "MFL Term 3 Team Registration") so this offering is distinguishable in Events Manager. */
+  contentName?: string;
+  /** Override content_ids (defaults to [campId]) — e.g. the program slug for MFL. */
+  contentIds?: string[];
 }): Promise<boolean> {
   return sendServerEvent({
     eventName: "Purchase",
@@ -126,7 +130,55 @@ export async function sendPurchaseEvent(params: {
       value: params.totalCents / 100,
       currency: params.currency,
       content_type: "product",
-      content_ids: [String(params.campId)],
+      content_ids: params.contentIds ?? [String(params.campId)],
+      ...(params.contentName ? { content_name: params.contentName } : {}),
+    },
+  });
+}
+
+/**
+ * Server-side Lead event (e.g. a team captain submitting the MFL registration form
+ * before paying). Mirror the client trackEvent('Lead', ...) eventId for dedup.
+ */
+export async function sendLeadEvent(params: {
+  registrationId?: number;
+  campId?: number;
+  valueCents?: number;
+  currency?: string;
+  email?: string;
+  phone?: string;
+  firstName?: string;
+  lastName?: string;
+  fbp?: string;
+  fbc?: string;
+  userAgent?: string;
+  ipAddress?: string;
+  sourceUrl?: string;
+  eventId: string;
+  contentName?: string;
+  contentIds?: string[];
+}): Promise<boolean> {
+  return sendServerEvent({
+    eventName: "Lead",
+    eventId: params.eventId,
+    eventTime: Math.floor(Date.now() / 1000),
+    email: params.email,
+    phone: params.phone,
+    firstName: params.firstName,
+    lastName: params.lastName,
+    fbp: params.fbp,
+    fbc: params.fbc,
+    userAgent: params.userAgent,
+    ipAddress: params.ipAddress,
+    sourceUrl: params.sourceUrl,
+    campId: params.campId,
+    registrationId: params.registrationId,
+    customData: {
+      ...(params.valueCents != null ? { value: params.valueCents / 100 } : {}),
+      currency: params.currency ?? "NZD",
+      content_type: "product",
+      ...(params.contentIds ? { content_ids: params.contentIds } : {}),
+      ...(params.contentName ? { content_name: params.contentName } : {}),
     },
   });
 }

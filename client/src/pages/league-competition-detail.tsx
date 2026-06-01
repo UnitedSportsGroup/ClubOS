@@ -1,11 +1,11 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { Trophy, ArrowLeft, Calendar, BarChart3, Settings, Ticket, Tag, Plus, X, Trash2, Pencil, ChevronDown } from "lucide-react";
+import { Trophy, ArrowLeft, Calendar, BarChart3, Settings, Ticket, Tag, Plus, X, Trash2, Pencil, ChevronDown, Users, Wand2, ExternalLink, Loader2, Mail, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimePickerInput } from "@/components/ui/time-picker-input";
@@ -20,7 +20,8 @@ const TABS = [
   { id: "schedule", label: "Schedule", icon: Calendar },
   { id: "standings", label: "Standings", icon: BarChart3 },
   { id: "setup", label: "Setup", icon: Settings },
-  { id: "registration", label: "Registration", icon: Ticket },
+  { id: "registrations", label: "Registrations", icon: Users },
+  { id: "registration", label: "Settings", icon: Ticket },
   { id: "coupons", label: "Coupons", icon: Tag },
 ] as const;
 
@@ -195,8 +196,77 @@ function GameModal({ competitionId, teams, divisions, game, onClose }: { competi
   );
 }
 
+// Auto-generate a round-robin fixture list for a division.
+function FixtureGenModal({ competitionId, divisions, teams, onClose }: { competitionId: number; divisions: LeagueDivision[]; teams: LeagueTeam[]; onClose: () => void }) {
+  const { toast } = useToast();
+  const divsWithTeams = divisions.filter(d => teams.filter(t => t.divisionId === d.id && t.active).length >= 2);
+  const [divisionId, setDivisionId] = useState(divsWithTeams[0]?.id?.toString() || "");
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [intervalDays, setIntervalDays] = useState("7");
+  const [doubleRound, setDoubleRound] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(false);
+
+  const teamCount = teams.filter(t => t.divisionId?.toString() === divisionId && t.active).length;
+
+  const genMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/league/competitions/${competitionId}/generate-fixtures`, {
+      divisionId: parseInt(divisionId),
+      startDate, startTime: startTime || null,
+      intervalDays: parseInt(intervalDays) || 7,
+      doubleRound, replaceExisting,
+    }),
+    onSuccess: async (res: any) => {
+      const body = await res.json().catch(() => ({}));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/league/competitions", competitionId, "games"] });
+      toast({ title: `Created ${body.created ?? 0} fixtures across ${body.rounds ?? 0} rounds` });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Could not generate", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-[#0a0e1a] border border-blue-500/15 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-white/5">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2"><Wand2 className="w-4 h-4 text-blue-400" /> Generate Fixtures</h2>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs text-white/40 mb-1 block">Division</label>
+            <Select value={divisionId} onValueChange={setDivisionId}>
+              <SelectTrigger className="premium-input text-white"><SelectValue placeholder="Select division" /></SelectTrigger>
+              <SelectContent>{divsWithTeams.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <p className="text-[11px] text-white/30 mt-1">{teamCount} active team{teamCount !== 1 ? "s" : ""} — a full round-robin is {teamCount > 1 ? teamCount - 1 : 0} round{teamCount - 1 !== 1 ? "s" : ""}{doubleRound ? " ×2" : ""}.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-white/40 mb-1 block">First game date</label><DatePickerInput value={startDate} onChange={e => setStartDate(e.target.value)} className="premium-input text-white" data-testid="input-gen-startdate" /></div>
+            <div><label className="text-xs text-white/40 mb-1 block">Kick-off time</label><TimePickerInput value={startTime} onChange={e => setStartTime(e.target.value)} className="premium-input text-white" /></div>
+          </div>
+          <div><label className="text-xs text-white/40 mb-1 block">Days between rounds</label><Input type="number" value={intervalDays} onChange={e => setIntervalDays(e.target.value)} className="premium-input text-white" /></div>
+          <label className="flex items-center gap-2 text-sm text-white/60 cursor-pointer">
+            <input type="checkbox" checked={doubleRound} onChange={e => setDoubleRound(e.target.checked)} /> Double round-robin (home & away)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-white/60 cursor-pointer">
+            <input type="checkbox" checked={replaceExisting} onChange={e => setReplaceExisting(e.target.checked)} /> Replace existing scheduled games
+          </label>
+        </div>
+        <div className="p-5 border-t border-white/5 flex gap-2 justify-end">
+          <Button variant="ghost" onClick={onClose} className="text-white/40">Cancel</Button>
+          <Button onClick={() => genMut.mutate()} disabled={!divisionId || !startDate || genMut.isPending} className="bg-blue-600 hover:bg-blue-700 text-white gap-2" data-testid="button-run-generate">
+            {genMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} Generate
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScheduleTab({ competitionId, teams, divisions }: { competitionId: number; teams: LeagueTeam[]; divisions: LeagueDivision[] }) {
   const [showGameModal, setShowGameModal] = useState(false);
+  const [showGenModal, setShowGenModal] = useState(false);
   const [editingGame, setEditingGame] = useState<GameWithTeams | undefined>();
   const [divFilter, setDivFilter] = useState("all");
 
@@ -242,9 +312,16 @@ function ScheduleTab({ competitionId, teams, divisions }: { competitionId: numbe
           )}
           <span className="text-xs text-white/30">{filtered.length} game{filtered.length !== 1 ? "s" : ""}</span>
         </div>
-        <Button onClick={() => { setEditingGame(undefined); setShowGameModal(true); }} className="bg-blue-600 hover:bg-blue-700 text-white gap-2" size="sm" data-testid="button-new-game">
-          <Plus className="w-3.5 h-3.5" />Game
-        </Button>
+        <div className="flex items-center gap-2">
+          {divisions.length > 0 && teams.length >= 2 && (
+            <Button onClick={() => setShowGenModal(true)} variant="outline" className="border-white/10 text-white/70 hover:text-white gap-2" size="sm" data-testid="button-generate-fixtures">
+              <Wand2 className="w-3.5 h-3.5" />Generate
+            </Button>
+          )}
+          <Button onClick={() => { setEditingGame(undefined); setShowGameModal(true); }} className="bg-blue-600 hover:bg-blue-700 text-white gap-2" size="sm" data-testid="button-new-game">
+            <Plus className="w-3.5 h-3.5" />Game
+          </Button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -308,6 +385,7 @@ function ScheduleTab({ competitionId, teams, divisions }: { competitionId: numbe
       )}
 
       {showGameModal && <GameModal competitionId={competitionId} teams={teams} divisions={divisions} game={editingGame} onClose={() => { setShowGameModal(false); setEditingGame(undefined); }} />}
+      {showGenModal && <FixtureGenModal competitionId={competitionId} divisions={divisions} teams={teams} onClose={() => setShowGenModal(false)} />}
     </div>
   );
 }
@@ -453,6 +531,230 @@ function SetupTab({ competitionId }: { competitionId: number }) {
   );
 }
 
+type LeagueReg = {
+  id: number; teamName: string | null; status: string; divisionName: string | null;
+  captainName: string; captainEmail: string | null; captainPhone: string | null;
+  totalCents: number | null; amountPaid: string | null; paymentMode: string | null;
+  depositCents: number | null; balanceCents: number | null; balanceDueDate: string | null;
+  balanceStatus: string | null; paymentStatus: string; registeredAt: string;
+};
+
+const PAY_BADGE: Record<string, string> = {
+  paid_in_full: "bg-green-500/15 text-green-400",
+  deposit_paid: "bg-yellow-500/15 text-yellow-400",
+  refunded: "bg-red-500/15 text-red-400",
+  partially_refunded: "bg-orange-500/15 text-orange-400",
+  unpaid: "bg-white/10 text-white/40",
+};
+const PAY_LABEL: Record<string, string> = {
+  paid_in_full: "Paid",
+  deposit_paid: "Deposit",
+  refunded: "Refunded",
+  partially_refunded: "Part. refund",
+  unpaid: "Unpaid",
+};
+
+function RegistrationsTab({ competitionId }: { competitionId: number }) {
+  const { data: regs = [], isLoading } = useQuery<LeagueReg[]>({
+    queryKey: ["/api/admin/league/competitions", competitionId, "registrations"],
+    queryFn: () => fetch(`/api/admin/league/competitions/${competitionId}/registrations`).then(r => r.json()),
+  });
+
+  const paid = regs.filter(r => r.paymentStatus === "paid_in_full").length;
+  const deposit = regs.filter(r => r.paymentStatus === "deposit_paid").length;
+  const balanceOwed = regs.reduce((s, r) => s + (r.balanceStatus && r.balanceStatus !== "paid" ? (r.balanceCents || 0) : 0), 0);
+
+  if (isLoading) return <div className="text-center py-12 text-white/20 text-sm">Loading…</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Teams", value: regs.length },
+          { label: "Paid in full", value: paid },
+          { label: "Deposit only", value: deposit },
+          { label: "Balance owed", value: formatCurrency(balanceOwed, { fromCents: true }) },
+        ].map((s, i) => (
+          <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <p className="text-[10px] uppercase tracking-wider text-white/30">{s.label}</p>
+            <p className="text-lg font-bold text-white mt-0.5">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {regs.length === 0 ? (
+        <div className="text-center py-12 text-white/20">
+          <Users className="w-10 h-10 mx-auto mb-2" />
+          <p className="text-sm">No registrations yet</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] overflow-x-auto">
+          <table className="w-full min-w-[720px]">
+            <thead>
+              <tr className="border-b border-white/5">
+                {["Team", "Night", "Captain", "Status", "Paid", "Balance"].map(h => (
+                  <th key={h} className="text-left text-[10px] text-white/30 uppercase px-4 py-2 font-semibold">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {regs.map(r => (
+                <tr key={r.id} className="border-b border-white/[0.02]" data-testid={`reg-row-${r.id}`}>
+                  <td className="px-4 py-2.5 text-sm text-white/80 font-medium">{r.teamName || `#${r.id}`}</td>
+                  <td className="px-4 py-2.5 text-sm text-white/50">{r.divisionName || "—"}</td>
+                  <td className="px-4 py-2.5 text-sm text-white/60">
+                    <div>{r.captainName}</div>
+                    <div className="flex items-center gap-3 text-[11px] text-white/30 mt-0.5">
+                      {r.captainEmail && <a href={`mailto:${r.captainEmail}`} className="flex items-center gap-1 hover:text-white/50"><Mail className="w-3 h-3" />{r.captainEmail}</a>}
+                      {r.captainPhone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{r.captainPhone}</span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${PAY_BADGE[r.paymentStatus] || PAY_BADGE.unpaid}`}>
+                      {PAY_LABEL[r.paymentStatus] || "Unpaid"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-white/60">${r.amountPaid || "0.00"}</td>
+                  <td className="px-4 py-2.5 text-sm">
+                    {r.paymentMode === "installment" && r.balanceStatus !== "paid" && (r.balanceCents || 0) > 0 ? (
+                      <span className="text-yellow-400/80">
+                        {formatCurrency(r.balanceCents || 0, { fromCents: true })}
+                        {r.balanceDueDate && <span className="text-white/30"> · due {new Date(r.balanceDueDate + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}</span>}
+                        {r.balanceStatus === "failed" && <span className="text-red-400"> · failed</span>}
+                      </span>
+                    ) : <span className="text-white/20">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Configures the public team-registration page (the league_team program):
+// slug, deposit, early-bird late fee, upsells and hero copy.
+function RegSettingsCard({ competitionId, competitionName }: { competitionId: number; competitionName: string }) {
+  const { toast } = useToast();
+  const [slug, setSlug] = useState("");
+  const [deposit, setDeposit] = useState("");          // dollars
+  const [earlyBirdDeadline, setEarlyBirdDeadline] = useState("");
+  const [lateFee, setLateFee] = useState("");          // dollars
+  const [refereePrice, setRefereePrice] = useState(""); // dollars
+  const [photoPrice, setPhotoPrice] = useState("");    // dollars
+  const [headline, setHeadline] = useState("");
+  const [subheadline, setSubheadline] = useState("");
+
+  const { data } = useQuery<{ program: any }>({
+    queryKey: ["/api/admin/league/competitions", competitionId, "registration-settings"],
+    queryFn: () => fetch(`/api/admin/league/competitions/${competitionId}/registration-settings`).then(r => r.json()),
+  });
+  const program = data?.program;
+
+  useEffect(() => {
+    if (!program) return;
+    setSlug(program.slug || "");
+    setDeposit(program.depositCents != null ? String(program.depositCents / 100) : "");
+    setEarlyBirdDeadline(program.earlyBirdDeadline || "");
+    setLateFee(program.lateFeeCents ? String(program.lateFeeCents / 100) : "");
+    setHeadline(program.heroHeadline || "");
+    setSubheadline(program.heroSubheadline || "");
+    const ups: any[] = Array.isArray(program.upsellsJson) ? program.upsellsJson : [];
+    const ref = ups.find(u => u.type === "referee");
+    const photo = ups.find(u => u.type === "photo_pack");
+    setRefereePrice(ref ? String(ref.priceCents / 100) : "");
+    setPhotoPrice(photo ? String(photo.priceCents / 100) : "");
+  }, [program]);
+
+  const toCents = (v: string) => (v && !isNaN(parseFloat(v)) ? Math.round(parseFloat(v) * 100) : 0);
+
+  const saveMut = useMutation({
+    mutationFn: () => {
+      const upsells: any[] = [];
+      if (toCents(refereePrice) > 0) upsells.push({ type: "referee", label: "Qualified referee (season)", priceCents: toCents(refereePrice) });
+      if (toCents(photoPrice) > 0) upsells.push({ type: "photo_pack", label: "Season photo pack", priceCents: toCents(photoPrice) });
+      return apiRequest("POST", `/api/admin/league/competitions/${competitionId}/registration-settings`, {
+        slug: slug.trim() || undefined,
+        name: competitionName,
+        depositCents: deposit ? toCents(deposit) : null,
+        earlyBirdDeadline: earlyBirdDeadline || null,
+        lateFeeCents: toCents(lateFee),
+        upsellsJson: upsells,
+        heroHeadline: headline || null,
+        heroSubheadline: subheadline || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/league/competitions", competitionId, "registration-settings"] });
+      toast({ title: "Public registration page saved" });
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const publicUrl = slug ? `https://join.minifootball.co.nz/league/${slug}` : null;
+
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white">Public Registration Page</h3>
+        {publicUrl && program && (
+          <a href={publicUrl} target="_blank" rel="noreferrer" className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1" data-testid="link-public-page">
+            <ExternalLink className="w-3 h-3" /> View page
+          </a>
+        )}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">URL slug</label>
+          <Input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="term-3-7-aside" className="premium-input text-white" data-testid="input-reg-slug" />
+          {publicUrl && <p className="text-[10px] text-white/25 mt-1 truncate">{publicUrl}</p>}
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Deposit ($, blank = pay in full)</label>
+          <Input value={deposit} onChange={e => setDeposit(e.target.value)} type="number" placeholder="300" className="premium-input text-white" data-testid="input-reg-deposit" />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Early-bird deadline</label>
+          <DatePickerInput value={earlyBirdDeadline} onChange={e => setEarlyBirdDeadline(e.target.value)} className="premium-input text-white" />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Late fee after deadline ($)</label>
+          <Input value={lateFee} onChange={e => setLateFee(e.target.value)} type="number" placeholder="35" className="premium-input text-white" data-testid="input-reg-latefee" />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Referee upsell ($, blank = off)</label>
+          <Input value={refereePrice} onChange={e => setRefereePrice(e.target.value)} type="number" placeholder="80" className="premium-input text-white" data-testid="input-reg-referee" />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Photo pack upsell ($, blank = off)</label>
+          <Input value={photoPrice} onChange={e => setPhotoPrice(e.target.value)} type="number" placeholder="40" className="premium-input text-white" data-testid="input-reg-photo" />
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Hero headline</label>
+          <Input value={headline} onChange={e => setHeadline(e.target.value)} placeholder="Christchurch's #1 Social Football League" className="premium-input text-white" data-testid="input-reg-headline" />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 mb-1 block">Hero subheadline</label>
+          <Input value={subheadline} onChange={e => setSubheadline(e.target.value)} placeholder="Register your team for Term 3 — grab your mates and play every week." className="premium-input text-white" data-testid="input-reg-subheadline" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-white/25">{program ? "Editing live page" : "Not yet published — save to create the page"}</p>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="bg-blue-600 hover:bg-blue-700 text-white gap-2" size="sm" data-testid="button-save-reg-settings">
+          {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Save page
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function RegistrationTab({ competition, divisions }: { competition: LeagueCompetition; divisions: LeagueDivision[] }) {
   const { toast } = useToast();
 
@@ -488,6 +790,8 @@ function RegistrationTab({ competition, divisions }: { competition: LeagueCompet
           ))}
         </div>
       </div>
+
+      <RegSettingsCard competitionId={competition.id} competitionName={competition.name} />
 
       {divisions.length > 0 && (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
@@ -676,6 +980,7 @@ export default function LeagueCompetitionDetail({ params }: { params: { id: stri
         {activeTab === "schedule" && <ScheduleTab competitionId={competitionId} teams={teams} divisions={divisions} />}
         {activeTab === "standings" && <StandingsTab competitionId={competitionId} divisions={divisions} />}
         {activeTab === "setup" && <SetupTab competitionId={competitionId} />}
+        {activeTab === "registrations" && <RegistrationsTab competitionId={competitionId} />}
         {activeTab === "registration" && <RegistrationTab competition={competition} divisions={divisions} />}
         {activeTab === "coupons" && <CouponsTab competitionId={competitionId} />}
       </div>

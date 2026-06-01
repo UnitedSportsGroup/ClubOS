@@ -11,24 +11,84 @@ export interface PaymentIntentParams {
   currency: string;
   parentEmail: string;
   metadata?: Record<string, string>;
+  /** Attach an existing Stripe customer (required when saving the card for later, e.g. instalments). */
+  customerId?: string;
+  /** Set to "off_session" to save the payment method for a future off-session charge (the MFL balance). */
+  setupFutureUsage?: "off_session" | "on_session";
+  /** Optional idempotency key to make retries safe. */
+  idempotencyKey?: string;
 }
 
 export async function createPaymentIntent(params: PaymentIntentParams): Promise<Stripe.PaymentIntent> {
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: params.totalCents,
-    currency: params.currency.toLowerCase(),
-    receipt_email: params.parentEmail,
-    metadata: {
-      registrationId: String(params.registrationId),
-      ...params.metadata,
+  const paymentIntent = await stripe.paymentIntents.create(
+    {
+      amount: params.totalCents,
+      currency: params.currency.toLowerCase(),
+      receipt_email: params.parentEmail,
+      ...(params.customerId ? { customer: params.customerId } : {}),
+      ...(params.setupFutureUsage ? { setup_future_usage: params.setupFutureUsage } : {}),
+      metadata: {
+        registrationId: String(params.registrationId),
+        ...params.metadata,
+      },
+      description: `${params.campName} — Registration #${params.registrationId}`,
+      automatic_payment_methods: {
+        enabled: true,
+      },
     },
-    description: `${params.campName} — Registration #${params.registrationId}`,
-    automatic_payment_methods: {
-      enabled: true,
-    },
-  });
+    params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+  );
 
   return paymentIntent;
+}
+
+/**
+ * Find an existing Stripe customer by email or create a new one. Used so the
+ * deposit PaymentIntent can save a card on file for the later balance charge.
+ */
+export async function getOrCreateCustomer(params: {
+  email: string;
+  name?: string;
+  phone?: string;
+}): Promise<Stripe.Customer> {
+  const existing = await stripe.customers.list({ email: params.email, limit: 1 });
+  if (existing.data.length > 0) {
+    return existing.data[0];
+  }
+  return stripe.customers.create({
+    email: params.email,
+    ...(params.name ? { name: params.name } : {}),
+    ...(params.phone ? { phone: params.phone } : {}),
+  });
+}
+
+/**
+ * Charge a saved payment method off-session (no customer present). Used by the
+ * MFL balance cron to collect the second instalment on the due date.
+ * Throws if the charge requires authentication or is declined — caller handles state.
+ */
+export async function createOffSessionPaymentIntent(params: {
+  customerId: string;
+  paymentMethodId: string;
+  amountCents: number;
+  currency: string;
+  description: string;
+  metadata?: Record<string, string>;
+  idempotencyKey?: string;
+}): Promise<Stripe.PaymentIntent> {
+  return stripe.paymentIntents.create(
+    {
+      amount: params.amountCents,
+      currency: params.currency.toLowerCase(),
+      customer: params.customerId,
+      payment_method: params.paymentMethodId,
+      off_session: true,
+      confirm: true,
+      description: params.description,
+      metadata: params.metadata || {},
+    },
+    params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined,
+  );
 }
 
 export async function retrievePaymentIntent(id: string): Promise<Stripe.PaymentIntent> {

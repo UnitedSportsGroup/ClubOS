@@ -6,7 +6,7 @@ import { z } from "zod";
 export const roleEnum = pgEnum("role_type", ["super_admin", "admin", "team_member", "manager", "coach", "finance", "marketing", "registrar"]);
 export const contactTypeEnum = pgEnum("contact_type", ["player", "guardian", "staff", "volunteer", "sponsor"]);
 export const genderEnum = pgEnum("gender_type", ["male", "female", "other"]);
-export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training"]);
+export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training", "league_team"]);
 export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded", "partially_refunded"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
 export const facilityTypeEnum = pgEnum("facility_type", ["field", "mini_pitch", "meeting_room", "changing_room", "futsal", "court", "other"]);
@@ -156,9 +156,30 @@ export const programs = pgTable("programs", {
   // (e.g. when a term's date range changes) without re-typing the schedule.
   weeklyPatternJson: text("weekly_pattern_json"),
 
+  // --- MFL team-registration (type = 'league_team') ---
+  // A league_team program is the sellable "register your team" offering that
+  // wraps a single league competition. The captain picks a division (night/
+  // format) inside the registration form; division pricing lives on
+  // leagueDivisions.teamCostCents. These columns are null for camps/academy.
+  leagueCompetitionId: integer("league_competition_id").references(() => leagueCompetitions.id, { onDelete: "set null" }),
+  // Early-bird urgency: after this date a late fee is added to the order.
+  earlyBirdDeadline: date("early_bird_deadline"),
+  lateFeeCents: integer("late_fee_cents").default(0),
+  // Optional checkout upsells: JSON array [{ type, label, priceCents }]
+  // e.g. [{type:'referee',label:'Qualified referee (season)',priceCents:8000}].
+  upsellsJson: jsonb("upsells_json").default(sql`'[]'::jsonb`),
+  // Instalment: deposit taken now; balance charged off-session on the due date.
+  depositCents: integer("deposit_cents"),
+
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+// Note: "one league_team program per competition" is enforced at the
+// application layer (the settings-upsert requires a slug, and programs.slug is
+// already unique per org — so a concurrent double-create collides on slug and
+// the handler re-fetches + updates instead). A typed Drizzle unique index on
+// leagueCompetitionId can't be used here because that column forward-references
+// leagueCompetitions (defined later), which breaks schema type inference.
 
 // Program options — priced packages a customer can pick from on the public
 // landing page. One Beginner program can have:
@@ -264,8 +285,28 @@ export const registrations = pgTable("registrations", {
   // Class registrations may pick a specific program option (e.g. Beginner
   // Thursday vs Beginner Combo) and a payment mode (upfront vs weekly sub).
   programOptionId: integer("program_option_id"),
-  paymentMode: text("payment_mode"),  // 'upfront' | 'weekly'
+  paymentMode: text("payment_mode"),  // 'upfront' | 'weekly' | 'installment'
   stripeSubscriptionId: text("stripe_subscription_id"),
+
+  // --- MFL team registration ---
+  // The division (league night/format) the captain bought into, and the team
+  // name typed at registration. The leagueTeam row is materialised on payment.
+  leagueDivisionId: integer("league_division_id").references(() => leagueDivisions.id, { onDelete: "set null" }),
+  teamName: text("team_name"),
+  // Instalment state (paymentMode = 'installment'): deposit now + off-session
+  // balance charge on balanceDueDate. balanceStatus drives the balance cron.
+  depositCents: integer("deposit_cents"),
+  balanceCents: integer("balance_cents"),
+  balanceDueDate: date("balance_due_date"),
+  balanceStatus: text("balance_status").default("none"),  // 'none'|'scheduled'|'charging'|'paid'|'failed'
+  balancePaymentIntentId: text("balance_payment_intent_id"),
+  balanceAttempts: integer("balance_attempts").default(0),
+  // Set when a balance charge is claimed ('charging'). Used to detect and
+  // recover stale charges after a lost/late Stripe webhook.
+  balanceChargeStartedAt: timestamp("balance_charge_started_at"),
+  // Card-on-file for the off-session balance charge.
+  stripeCustomerId: text("stripe_customer_id"),
+  stripePaymentMethodId: text("stripe_payment_method_id"),
   refundedAt: timestamp("refunded_at"),
   refundedAmountCents: integer("refunded_amount_cents"),
   refundReason: text("refund_reason"),
@@ -331,9 +372,15 @@ export const childMedical = pgTable("child_medical", {
 export const registrationItems = pgTable("registration_items", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   registrationId: integer("registration_id").notNull().references(() => registrations.id, { onDelete: "cascade" }),
-  childId: integer("child_id").notNull().references(() => children.id),
-  campDateId: integer("camp_date_id").notNull().references(() => campDates.id),
-  productType: text("product_type").notNull(),
+  // childId/campDateId are camp-specific (one line per child per camp day) and
+  // are NULL for non-camp line items such as MFL upsells and late fees, which
+  // carry their own priceCents + label instead.
+  childId: integer("child_id").references(() => children.id),
+  campDateId: integer("camp_date_id").references(() => campDates.id),
+  productType: text("product_type").notNull(),  // camps: MORNING|AFTERNOON|FULL_DAY · MFL: team_fee|referee|photo_pack|late_fee
+  // Self-contained price + label for non-camp line items (MFL add-ons/fees).
+  priceCents: integer("price_cents"),
+  label: text("label"),
   refundedAmountCents: integer("refunded_amount_cents"),
 });
 
@@ -563,8 +610,18 @@ export const leagueTeams = pgTable("league_teams", {
   primaryColor: text("primary_color"),
   secondaryColor: text("secondary_color"),
   active: boolean("active").notNull().default(true),
+  // Links a self-service paid registration to this team. NULL = admin-created
+  // team (the existing manual flow). paymentStatus surfaces deposit vs paid in
+  // the league admin and the Expo app.
+  registrationId: integer("registration_id").references(() => registrations.id, { onDelete: "set null" }),
+  paymentStatus: text("payment_status").default("unpaid"),  // 'unpaid'|'deposit_paid'|'paid_in_full'
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // One paid registration → at most one team. NULLs (admin-created teams) are
+  // distinct in Postgres unique indexes, so manual teams are unaffected. This
+  // is the DB-level guard against the webhook/confirm-payment duplicate race.
+  uniqueRegistration: uniqueIndex("league_teams_registration_id_unique").on(t.registrationId),
+}));
 
 export const leagueGames = pgTable("league_games", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
