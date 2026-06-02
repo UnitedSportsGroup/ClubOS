@@ -3101,6 +3101,33 @@ export async function registerRoutes(
     }
   });
 
+  // "Now" in New Zealand (Pacific/Auckland) as plain strings, for comparing
+  // directly against a booking's date (YYYY-MM-DD) and slot start (HH:mm). The
+  // app server runs in UTC on Fly.io, so we convert explicitly rather than
+  // trust the process timezone.
+  function nzNowStrings(): { today: string; hhmm: string } {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Pacific/Auckland",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+    const hh = get("hour") === "24" ? "00" : get("hour");
+    return { today: `${get("year")}-${get("month")}-${get("day")}`, hhmm: `${hh}:${get("minute")}` };
+  }
+
+  // Reject any booking whose slot has already started (or whose date is in the
+  // past) in NZ time. Defence-in-depth behind the client greying-out past slots
+  // — stops a stale tab or a hand-crafted request from reserving a past slot.
+  function assertItemsBookable(items: { date: string; startTime: string }[]) {
+    const { today, hhmm } = nzNowStrings();
+    for (const it of items) {
+      if (it.date < today || (it.date === today && it.startTime <= hhmm)) {
+        throw new Error("That time has already passed (NZ time). Please choose a future slot.");
+      }
+    }
+  }
+
   const bookingItemSchema = z.object({
     facilityId: z.number().int().positive(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -3204,6 +3231,7 @@ export async function registerRoutes(
       if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
 
       const parsed = checkoutSchema.parse(req.body);
+      assertItemsBookable(parsed.items);
       const quote = await buildQuote(orgId, parsed.items);
 
       const groupId = `vbg_${crypto.randomBytes(8).toString("hex")}`;
@@ -3336,6 +3364,7 @@ export async function registerRoutes(
       if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
 
       const parsed = checkoutSchema.parse(req.body);
+      assertItemsBookable(parsed.items);
       if (parsed.items.length < 2) {
         return res.status(400).json({ message: "Subscription bookings need at least 2 dates" });
       }

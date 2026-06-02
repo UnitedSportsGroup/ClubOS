@@ -164,16 +164,34 @@ function fmtTime(t: string) {
   return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-function todayISO() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
+// Current calendar date + wall-clock time in New Zealand (Pacific/Auckland),
+// independent of the visitor's device timezone. United Sports Centre runs on
+// NZ time, so "today" and "now" for availability must always be NZ. The old
+// new Date().setHours(0,0,0,0).toISOString() version returned *yesterday* for
+// anyone east of UTC (incl. NZ itself), because local midnight converts back a
+// day in UTC — which is why a past date (June 1) was selectable on June 2.
+function nzNow(): { today: string; hhmm: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+  const hh = get("hour") === "24" ? "00" : get("hour"); // some engines render midnight as 24
+  return { today: `${get("year")}-${get("month")}-${get("day")}`, hhmm: `${hh}:${get("minute")}` };
 }
 
+function todayISO() {
+  return nzNow().today;
+}
+
+// Add (or subtract) whole days to a YYYY-MM-DD string using local calendar
+// fields only. Never round-trips through toISOString(), which would shift the
+// result by a day for any timezone east of UTC.
 function addDays(iso: string, n: number) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function genTimeSlots(opening: string, closing: string, slotMin: number): string[] {
@@ -826,6 +844,14 @@ function ConfigureFacility({
     setEndTime(null);
   };
 
+  // Grey out time slots that have already passed in NZ time when the chosen
+  // date is today. The grid is shared across all selected dates but is keyed
+  // off the primary `date`, which can only be today or later (calendar min is
+  // NZ today). A slot is past once its start is at or before the current NZ
+  // time, so the very slot you're in (e.g. 13:00 at 13:21) is no longer bookable.
+  const { today: nzToday, hhmm: nzHHMM } = nzNow();
+  const isPastSlot = (slot: string) => date === nzToday && slot <= nzHHMM;
+
   const heroImages = facilityImages(facility);
 
   return (
@@ -903,6 +929,7 @@ function ConfigureFacility({
             endTime={endTime}
             onSelect={handleSlotClick}
             isBusy={(s, e) => allDates.some(d => isSlotConflicted(d, s, e))}
+            isPast={isPastSlot}
             brand={brand}
             priceFor={(s) => pricePerHourForSlot(facility, date, s, halfFull)}
           />
@@ -1313,13 +1340,14 @@ function CalendarPicker({
 // Each slot also shows its per-hour rate so customers can compare peak/off-peak
 // at a glance, like flights/hotels showing per-day prices.
 function TimeSlotGrid({
-  slots, startTime, endTime, onSelect, isBusy, brand, priceFor,
+  slots, startTime, endTime, onSelect, isBusy, isPast, brand, priceFor,
 }: {
   slots: string[];
   startTime: string | null;
   endTime: string | null;
   onSelect: (slot: string) => void;
   isBusy: (s: string, e: string) => boolean;
+  isPast?: (slot: string) => boolean;
   brand: string;
   priceFor: (slot: string) => number;
 }) {
@@ -1329,22 +1357,29 @@ function TimeSlotGrid({
         {slots.map((s, i) => {
           const next = slots[i + 1] || s;
           const slotBusy = isBusy(s, next);
+          const slotPast = isPast?.(s) ?? false;
           const isStart = s === startTime;
           const inBooking = !!(startTime && (
             (endTime && s >= startTime && s < endTime) ||
             (!endTime && isStart)
           ));
           const isEndMarker = s === endTime;
+          // A past slot can never be part of an active selection (its start is
+          // before "now"), so disabling it outright is safe.
+          const unavailable = (slotBusy || slotPast) && !inBooking && !isEndMarker;
           const rate = priceFor(s);
           return (
             <button
               key={s}
               onClick={() => onSelect(s)}
-              disabled={slotBusy && !inBooking && !isEndMarker}
+              disabled={unavailable}
               data-testid={`slot-${s}`}
+              title={slotPast && !slotBusy ? "This time has already passed" : undefined}
               className={`h-12 rounded-md text-xs font-medium transition-all duration-150 border flex flex-col items-center justify-center gap-0 ${
-                slotBusy && !inBooking && !isEndMarker
-                  ? "text-white/15 line-through cursor-not-allowed border-transparent bg-white/[0.02]"
+                unavailable
+                  ? slotPast && !slotBusy
+                    ? "text-white/15 cursor-not-allowed border-transparent bg-white/[0.02]"
+                    : "text-white/15 line-through cursor-not-allowed border-transparent bg-white/[0.02]"
                   : inBooking
                     ? "text-white border-transparent"
                     : isEndMarker
@@ -1364,7 +1399,7 @@ function TimeSlotGrid({
             >
               <span className="leading-tight">{s}</span>
               {rate > 0 && (
-                <span className={`text-[9px] leading-tight ${slotBusy && !inBooking && !isEndMarker ? "text-white/10" : "text-white/40"}`}>
+                <span className={`text-[9px] leading-tight ${unavailable ? "text-white/10" : "text-white/40"}`}>
                   ${rate.toFixed(0)}
                 </span>
               )}
