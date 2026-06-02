@@ -170,6 +170,12 @@ export const programs = pgTable("programs", {
   upsellsJson: jsonb("upsells_json").default(sql`'[]'::jsonb`),
   // Instalment: deposit taken now; balance charged off-session on the due date.
   depositCents: integer("deposit_cents"),
+  // Payment plan for the league_team offering:
+  //   'installment'    = deposit now + ONE balance charge on balanceDueDate.
+  //   'deposit_weekly' = deposit now (covers the final weeks) + `numWeeklyPayments`
+  //                      weekly auto-charges anchored to the competition start.
+  paymentPlan: text("payment_plan").default("installment"),
+  numWeeklyPayments: integer("num_weekly_payments").default(8),
 
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -307,6 +313,13 @@ export const registrations = pgTable("registrations", {
   // Card-on-file for the off-session balance charge.
   stripeCustomerId: text("stripe_customer_id"),
   stripePaymentMethodId: text("stripe_payment_method_id"),
+  // Deposit-weekly plan (paymentMode = 'deposit_weekly'): the saved card is
+  // billed weeklyAmountCents per week via a Stripe subscription. weeksPaid is
+  // advanced by the invoice.paid webhook; when it reaches weeksTotal the
+  // registration is fully paid (deposit + all weeks).
+  weeklyAmountCents: integer("weekly_amount_cents"),
+  weeksPaid: integer("weeks_paid").default(0),
+  weeksTotal: integer("weeks_total"),
   refundedAt: timestamp("refunded_at"),
   refundedAmountCents: integer("refunded_amount_cents"),
   refundReason: text("refund_reason"),

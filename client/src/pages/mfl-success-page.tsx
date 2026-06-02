@@ -84,7 +84,15 @@ export default function MflSuccessPage() {
                 <Row label="Team" value={reg.teamName || "—"} />
                 {reg.divisionName && <Row label="Night" value={reg.divisionName} />}
                 <Row label="Booking no." value={`#${reg.id}`} />
-                {reg.isInstalment && reg.balanceStatus !== "paid" ? (
+                {reg.paymentMode === "deposit_weekly" && reg.balanceStatus !== "paid" ? (
+                  <>
+                    <Row label="Deposit paid" value={`${formatCurrency(reg.depositCents || 0, { fromCents: true })} NZD`} gold />
+                    <div className="rounded-xl px-4 py-3 mt-1 text-[13px] flex items-start gap-2" style={{ background: `${BRAND.gold}14`, color: BRAND.gold }}>
+                      <CreditCard className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>Then {formatCurrency(reg.weeklyAmountCents || 0, { fromCents: true })}/week, auto-charged for {reg.weeksTotal} weeks once the season starts{(reg.weeksPaid ?? 0) > 0 ? ` (${reg.weeksPaid}/${reg.weeksTotal} paid)` : ""}. Your deposit covers the final weeks.</span>
+                    </div>
+                  </>
+                ) : reg.isInstalment && reg.balanceStatus !== "paid" ? (
                   <>
                     <Row label="Deposit paid" value={`${formatCurrency(reg.depositCents || 0, { fromCents: true })} NZD`} gold />
                     <div className="rounded-xl px-4 py-3 mt-1 text-[13px] flex items-start gap-2" style={{ background: `${BRAND.gold}14`, color: BRAND.gold }}>

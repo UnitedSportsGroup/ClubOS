@@ -31,6 +31,9 @@ interface CheckoutData {
   balanceCents: number;
   balanceDueDate: string | null;
   isInstalment: boolean;
+  paymentMode?: string;
+  weeklyAmountCents?: number | null;
+  weeksTotal?: number | null;
   amountDueNowCents: number;
   currency: string;
   captainName: string;
@@ -194,10 +197,15 @@ export default function MflCheckoutPage({ mode = "deposit" }: { mode?: "deposit"
             <div key={i} className="flex justify-between text-sm"><span style={{ color: BRAND.muted }}>{it.label}</span><span>{formatCurrency(it.priceCents || 0, { fromCents: true })}</span></div>
           ))}
           <div className="flex justify-between font-bold pt-2.5 border-t" style={{ borderColor: BRAND.border }}>
-            <span>{mode === "deposit" && data.isInstalment ? "Due today (deposit)" : "Total (incl. GST)"}</span>
+            <span>{mode === "deposit" && (data.isInstalment || data.paymentMode === "deposit_weekly") ? "Due today (deposit)" : "Total (incl. GST)"}</span>
             <span style={{ color: BRAND.gold }}>{formatCurrency(data.amountDueNowCents, { fromCents: true })} NZD</span>
           </div>
-          {mode === "deposit" && data.isInstalment && (
+          {mode === "deposit" && data.paymentMode === "deposit_weekly" && (data.weeklyAmountCents ?? 0) > 0 && (
+            <p className="text-[12px]" style={{ color: BRAND.dim }}>
+              Then {formatCurrency(data.weeklyAmountCents!, { fromCents: true })}/week, auto-charged for {data.weeksTotal} weeks once the season starts. Your deposit covers the final weeks.
+            </p>
+          )}
+          {mode === "deposit" && data.isInstalment && data.paymentMode !== "deposit_weekly" && (
             <p className="text-[12px]" style={{ color: BRAND.dim }}>
               {formatCurrency(data.balanceCents, { fromCents: true })} balance auto-charged{data.balanceDueDate ? ` on ${new Date(data.balanceDueDate + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long" })}` : " ~3 weeks in"}.
             </p>

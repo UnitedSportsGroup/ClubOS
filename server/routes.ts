@@ -3851,7 +3851,8 @@ export async function registerRoutes(
       const comp = await storage.getLeagueCompetition(competitionId);
       if (!comp) return res.status(404).json({ message: "Competition not found" });
 
-      const { slug, name, depositCents, earlyBirdDeadline, lateFeeCents, upsellsJson, heroHeadline, heroSubheadline } = req.body || {};
+      const { slug, name, depositCents, earlyBirdDeadline, lateFeeCents, upsellsJson, heroHeadline, heroSubheadline, paymentPlan, numWeeklyPayments } = req.body || {};
+      const cleanPlan = paymentPlan === "deposit_weekly" ? "deposit_weekly" : "installment";
       const fields: any = {
         name: name || comp.name,
         ...(slug !== undefined ? { slug } : {}),
@@ -3861,6 +3862,8 @@ export async function registerRoutes(
         upsellsJson: Array.isArray(upsellsJson) ? upsellsJson : [],
         heroHeadline: heroHeadline || null,
         heroSubheadline: heroSubheadline || null,
+        paymentPlan: cleanPlan,
+        numWeeklyPayments: numWeeklyPayments != null ? Math.max(1, parseInt(String(numWeeklyPayments))) : 8,
       };
 
       const existing = await storage.getLeagueRegistrationProgram(competitionId);
@@ -3899,6 +3902,8 @@ export async function registerRoutes(
             upsellsJson: Array.isArray(req.body?.upsellsJson) ? req.body.upsellsJson : [],
             heroHeadline: req.body?.heroHeadline || null,
             heroSubheadline: req.body?.heroSubheadline || null,
+            paymentPlan: req.body?.paymentPlan === "deposit_weekly" ? "deposit_weekly" : "installment",
+            numWeeklyPayments: req.body?.numWeeklyPayments != null ? Math.max(1, parseInt(String(req.body.numWeeklyPayments))) : 8,
           } as any);
           return res.json({ program });
         }
@@ -7418,7 +7423,24 @@ export async function registerRoutes(
         const invoice = event.data.object as any;
         const subId: string | undefined = invoice.subscription;
         const billingReason: string = invoice.billing_reason || "";
-        if (subId && billingReason !== "subscription_create") {
+
+        // League deposit-weekly: a weekly charge succeeded → advance weeks_paid.
+        // Idempotent (counts paid invoices from Stripe). $0 trial invoices are
+        // ignored via amount_paid. Handled separately from the facility path.
+        let handledLeagueWeekly = false;
+        if (subId && (invoice.amount_paid || 0) > 0) {
+          try {
+            const lreg = await findLeagueWeeklyReg(subId);
+            if (lreg) {
+              handledLeagueWeekly = true;
+              await advanceLeagueWeekly(lreg, subId);
+            }
+          } catch (e) {
+            console.error("[Stripe Webhook] league weekly invoice.paid failed:", e);
+          }
+        }
+
+        if (!handledLeagueWeekly && subId && billingReason !== "subscription_create") {
           try {
             const pending = await db.select().from(facilityBookings)
               .where(and(
@@ -7449,6 +7471,20 @@ export async function registerRoutes(
         // exhausted, or by our own cancel_at fence). Cancel any remaining
         // pending bookings for this subscription. Already-paid bookings stay.
         const sub = event.data.object as any;
+
+        // League deposit-weekly: if the plan ended before being fully paid (card
+        // died / retries exhausted), flag the balance failed for admin
+        // follow-up. A fully-paid sub we cancelled ourselves is already 'paid'.
+        try {
+          const lreg = await findLeagueWeeklyReg(sub.id);
+          if (lreg && lreg.balanceStatus !== "paid") {
+            await storage.updateRegistration(lreg.id, { balanceStatus: "failed" } as any);
+            console.warn(`[MFL weekly] reg ${lreg.id} subscription ${sub.id} ended unpaid → balanceStatus=failed`);
+          }
+        } catch (e) {
+          console.error("[Stripe Webhook] league weekly subscription.deleted failed:", e);
+        }
+
         try {
           const updated = await db.update(facilityBookings)
             .set({ status: "cancelled" })
@@ -9335,6 +9371,8 @@ export async function registerRoutes(
         upsells: (program as any).upsellsJson || [],
         earlyBird,
         depositCents: (program as any).depositCents ?? null,
+        paymentPlan: (program as any).paymentPlan || "installment",
+        numWeeklyPayments: (program as any).numWeeklyPayments ?? 8,
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -9423,15 +9461,35 @@ export async function registerRoutes(
 
       const totalCents = subtotalCents - discountCents;
 
-      // Instalment split: deposit now, balance ~3 weeks out.
+      // Payment plan. deposit_weekly = deposit now + weekly subscription (set
+      // up after the deposit succeeds); installment = deposit now + ONE balance
+      // charge ~3 weeks out; upfront = pay the full total now.
       const programDeposit = (program as any).depositCents as number | null;
-      const isInstalment = !!programDeposit && programDeposit > 0 && totalCents > programDeposit;
-      const depositCents = isInstalment ? programDeposit! : totalCents;
-      const balanceCents = isInstalment ? totalCents - depositCents : 0;
+      const paymentPlan = ((program as any).paymentPlan as string) || "installment";
+      const numWeeks = ((program as any).numWeeklyPayments as number) || 8;
+      const hasDeposit = !!programDeposit && programDeposit > 0 && totalCents > programDeposit;
+      const isWeeklyPlan = hasDeposit && paymentPlan === "deposit_weekly" && numWeeks > 0;
+      const isInstalment = hasDeposit && !isWeeklyPlan;
+
+      let depositCents = hasDeposit ? programDeposit! : totalCents;
       let balanceDueDate: string | null = null;
-      if (isInstalment) {
+      let weeklyAmountCents: number | null = null;
+      let weeksTotal: number | null = null;
+      if (isWeeklyPlan) {
+        // Even weekly charge; the deposit then absorbs any rounding remainder so
+        // the captain pays the division price to the cent (deposit + every weekly
+        // charge == total exactly). For the $500/$600 divisions this leaves the
+        // deposit at exactly $120; for discounted/odd totals it shifts ≤ a few
+        // cents. The weekly subscription is anchored to term start and created
+        // once the deposit succeeds.
+        weeklyAmountCents = Math.round((totalCents - programDeposit!) / numWeeks);
+        weeksTotal = numWeeks;
+        depositCents = totalCents - weeklyAmountCents * numWeeks;
+      } else if (isInstalment) {
         balanceDueDate = new Date(now.getTime() + 21 * 86400000).toISOString().slice(0, 10);
       }
+      const balanceCents = hasDeposit ? totalCents - depositCents : 0;
+      const paymentMode = isWeeklyPlan ? "deposit_weekly" : isInstalment ? "installment" : "upfront";
 
       const registration = await storage.createRegistration({
         programId: program.id,
@@ -9446,13 +9504,16 @@ export async function registerRoutes(
         currency: "NZD",
         registrationLocation: "online",
         source: "league_registration",
-        paymentMode: isInstalment ? "installment" : "upfront",
+        paymentMode,
         leagueDivisionId: division.id,
         teamName,
         depositCents,
         balanceCents,
         balanceDueDate,
         balanceStatus: isInstalment ? "scheduled" : "none",
+        weeklyAmountCents,
+        weeksTotal,
+        weeksPaid: 0,
         utmSource: utmSource || null,
         utmMedium: utmMedium || null,
         utmCampaign: utmCampaign || null,
@@ -9479,7 +9540,7 @@ export async function registerRoutes(
           currency: "NZD",
           parentEmail: captain.email,
           customerId: customer.id,
-          setupFutureUsage: isInstalment ? "off_session" : undefined,
+          setupFutureUsage: (isInstalment || isWeeklyPlan) ? "off_session" : undefined,
           metadata: {
             registrationType: "league_team",
             programId: String(program.id),
@@ -9518,6 +9579,10 @@ export async function registerRoutes(
         subtotalCents, discountCents, totalCents,
         depositCents, balanceCents, balanceDueDate,
         isInstalment,
+        paymentMode,
+        isWeeklyPlan,
+        weeklyAmountCents,
+        weeksTotal,
         currency: "NZD",
         requiresPayment: depositCents > 0,
         slug,
@@ -9569,6 +9634,9 @@ export async function registerRoutes(
         balanceCents: reg.balanceCents,
         balanceDueDate: reg.balanceDueDate,
         isInstalment: reg.paymentMode === "installment",
+        paymentMode: reg.paymentMode,
+        weeklyAmountCents: reg.weeklyAmountCents,
+        weeksTotal: reg.weeksTotal,
         amountDueNowCents: reg.depositCents ?? reg.totalCents,
         currency: reg.currency || "NZD",
         captainName: contact ? `${contact.firstName} ${contact.lastName}` : "",
@@ -9601,6 +9669,10 @@ export async function registerRoutes(
         balanceDueDate: reg.balanceDueDate,
         balanceStatus: reg.balanceStatus,
         isInstalment: reg.paymentMode === "installment",
+        paymentMode: reg.paymentMode,
+        weeklyAmountCents: reg.weeklyAmountCents,
+        weeksTotal: reg.weeksTotal,
+        weeksPaid: reg.weeksPaid,
         currency: reg.currency || "NZD",
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -10480,6 +10552,124 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
 // schedule the balance instalment, and fire the branded email + Purchase CAPI.
 // Idempotent — guarded by the existing registrationId→leagueTeam link so it is
 // safe against webhook retries and the /confirm-payment fallback race.
+// Stand up the weekly Stripe subscription for a deposit_weekly league
+// registration once the deposit has cleared. The saved card is billed
+// `weeklyAmountCents` every week for `weeksTotal` cycles, with the first charge
+// anchored to the competition start date (the deposit has already covered the
+// final weeks). The invoice.paid webhook advances weeks_paid and cancels the
+// subscription precisely when fully paid; cancel_at is a generous backstop.
+async function createLeagueWeeklySubscription(opts: {
+  reg: any; program: any; customerId: string; paymentMethodId: string; competitionId: number;
+}) {
+  const { reg, program, customerId, paymentMethodId, competitionId } = opts;
+  const weeklyCents = reg.weeklyAmountCents ?? 0;
+  const weeksTotal = reg.weeksTotal ?? 0;
+  if (weeklyCents <= 0 || weeksTotal <= 0) return;
+
+  const { stripe } = await import("./stripe");
+  const comp = await storage.getLeagueCompetition(competitionId);
+  const nowSec = Math.floor(Date.now() / 1000);
+  // First weekly charge at term start; if the term has no start yet or has
+  // already begun, start one week out (Stripe needs trial_end ≥ ~now).
+  let trialEnd = nowSec + 7 * 86400;
+  if (comp?.startDate) {
+    const startSec = Math.floor(new Date(comp.startDate + "T00:00:00Z").getTime() / 1000);
+    trialEnd = Math.max(startSec, nowSec + 2 * 86400);
+  }
+  // The precise stop is the invoice.paid webhook, which cancels the moment
+  // weeksTotal successful charges land (so it's correct even when failed
+  // charges shift the schedule). cancel_at is only a safety net for the case
+  // where webhooks are down for the whole run — kept tight (+2 weeks slack) so
+  // a dead-webhook worst case overcharges by at most ~2 weeks, not months.
+  const cancelAt = trialEnd + (weeksTotal + 2) * 7 * 86400;
+
+  const subscription = await stripe.subscriptions.create({
+    customer: customerId,
+    items: [{ price_data: {
+      currency: "nzd",
+      product_data: { name: `${program.name} — weekly (${reg.teamName || "team"})` },
+      unit_amount: weeklyCents,
+      recurring: { interval: "week" },
+    } }],
+    default_payment_method: paymentMethodId,
+    trial_end: trialEnd,
+    cancel_at: cancelAt,
+    proration_behavior: "none",
+    metadata: {
+      registrationType: "league_weekly",
+      registrationId: String(reg.id),
+      programId: String(program.id),
+    },
+  });
+  await storage.updateRegistration(reg.id, { stripeSubscriptionId: subscription.id } as any);
+  console.log(`[MFL weekly] reg ${reg.id}: subscription ${subscription.id} — $${(weeklyCents / 100).toFixed(2)}/wk × ${weeksTotal}, first charge ${new Date(trialEnd * 1000).toISOString().slice(0, 10)}`);
+}
+
+// Advance a deposit_weekly registration when a weekly invoice is paid. Counts
+// paid invoices straight from Stripe so it's idempotent against event resends.
+// On the final week it marks the registration fully paid, cancels the
+// subscription, and flips the team to paid_in_full.
+async function advanceLeagueWeekly(reg: any, subId: string) {
+  const { stripe } = await import("./stripe");
+  const invs = await stripe.invoices.list({ subscription: subId, status: "paid", limit: 100 });
+  const weeklyCents = reg.weeklyAmountCents ?? 0;
+  // Derive weeks paid from money actually collected (sum ÷ weekly), not a raw
+  // invoice count — robust against the $0 trial-create invoice and any odd
+  // adjustment/proration invoice, so weeks_paid always reflects real dollars.
+  const totalWeeklyPaidCents = invs.data.reduce((s: number, i: any) => s + (i.amount_paid || 0), 0);
+  const weeksPaid = weeklyCents > 0
+    ? Math.round(totalWeeklyPaidCents / weeklyCents)
+    : invs.data.filter((i: any) => (i.amount_paid || 0) > 0).length;
+  const weeksTotal = reg.weeksTotal ?? 0;
+  const depositCents = reg.depositCents ?? 0;
+  const fullyPaid = weeksTotal > 0 && weeksPaid >= weeksTotal;
+  const amountPaidCents = depositCents + weeksPaid * weeklyCents;
+
+  await storage.updateRegistration(reg.id, {
+    weeksPaid,
+    amountPaid: (amountPaidCents / 100).toFixed(2),
+    ...(fullyPaid ? { balanceStatus: "paid" } : {}),
+  } as any);
+
+  if (fullyPaid) {
+    try { await stripe.subscriptions.cancel(subId); } catch { /* cancel_at backstop covers it */ }
+    try {
+      const [team] = await db.select().from(leagueTeams).where(eq(leagueTeams.registrationId, reg.id));
+      if (team) await db.update(leagueTeams).set({ paymentStatus: "paid_in_full" }).where(eq(leagueTeams.id, team.id));
+    } catch (e) { console.error("[MFL weekly] team paid_in_full update failed:", e); }
+    console.log(`[MFL weekly] reg ${reg.id} fully paid (${weeksPaid}/${weeksTotal}); subscription ${subId} cancelled`);
+  } else {
+    console.log(`[MFL weekly] reg ${reg.id}: week ${weeksPaid}/${weeksTotal} paid`);
+  }
+}
+
+// Resolve the deposit_weekly registration behind a Stripe subscription id.
+// Primary lookup is the saved stripeSubscriptionId; if that's missing (the id
+// failed to persist after the subscription was created), recover via the
+// registrationId stamped in the subscription metadata and self-heal the link —
+// so weekly tracking + the precise cancel keep working even if the save failed.
+async function findLeagueWeeklyReg(subId: string): Promise<any | null> {
+  if (!subId) return null;
+  let [lreg] = await db.select().from(registrations).where(eq(registrations.stripeSubscriptionId, subId));
+  if (!lreg) {
+    try {
+      const { stripe } = await import("./stripe");
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const rid = parseInt((sub.metadata as any)?.registrationId || "");
+      if (rid) {
+        const r = await storage.getRegistration(rid);
+        if (r && (r as any).paymentMode === "deposit_weekly") {
+          if (!(r as any).stripeSubscriptionId) {
+            await storage.updateRegistration(rid, { stripeSubscriptionId: subId } as any);
+          }
+          lreg = r as any;
+        }
+      }
+    } catch (e) { console.error("[MFL weekly] metadata recovery failed:", e); }
+  }
+  return lreg && (lreg as any).paymentMode === "deposit_weekly" ? lreg : null;
+}
+
 async function handleLeagueRegistrationSuccess(registrationId: number, metadata?: Record<string, string>) {
   const reg = await storage.getRegistration(registrationId);
   if (!reg) return;
@@ -10499,6 +10689,8 @@ async function handleLeagueRegistrationSuccess(registrationId: number, metadata?
   }
 
   const isInstalment = reg.paymentMode === "installment" && (reg.balanceCents ?? 0) > 0;
+  const isDepositWeekly = reg.paymentMode === "deposit_weekly" && (reg.weeksTotal ?? 0) > 0;
+  const hasPendingBalance = isInstalment || isDepositWeekly;
 
   // Capture the saved card from the deposit PI so the balance can be charged
   // off-session later. PaymentIntent.customer / .payment_method are string ids
@@ -10526,7 +10718,7 @@ async function handleLeagueRegistrationSuccess(registrationId: number, metadata?
       contactPhone: captain.phone,
       active: true,
       registrationId,
-      paymentStatus: isInstalment ? "deposit_paid" : "paid_in_full",
+      paymentStatus: hasPendingBalance ? "deposit_paid" : "paid_in_full",
     } as any);
   } catch (e: any) {
     // Unique violation on registrationId → a concurrent webhook/confirm-payment
@@ -10538,8 +10730,30 @@ async function handleLeagueRegistrationSuccess(registrationId: number, metadata?
   await storage.updateRegistration(registrationId, {
     stripeCustomerId: customerId,
     stripePaymentMethodId: paymentMethodId,
-    balanceStatus: isInstalment ? "scheduled" : "paid",
+    balanceStatus: hasPendingBalance ? "scheduled" : "paid",
   });
+
+  // deposit_weekly: stand up the weekly Stripe subscription on the saved card,
+  // anchored to the competition start. Guarded against a webhook re-fire making
+  // a second subscription. Failure here is non-fatal — the team is already
+  // materialised and an admin can retry; we just log it.
+  if (isDepositWeekly && customerId && paymentMethodId) {
+    // Re-read fresh state so a concurrent webhook that already stood up the
+    // subscription doesn't cause a second one (the team-creation gate above
+    // already serialises most of this; this closes the residual window).
+    const fresh = await storage.getRegistration(registrationId);
+    if (!fresh?.stripeSubscriptionId) {
+      try {
+        await createLeagueWeeklySubscription({ reg, program, customerId, paymentMethodId, competitionId });
+      } catch (e) {
+        console.error(`[MFL weekly] subscription setup failed for reg ${registrationId}:`, e);
+        // Deposit is collected but weekly billing didn't start — surface it for
+        // admin follow-up. If a subscription WAS created but the id-save failed,
+        // the invoice.paid webhook recovers it via metadata and overwrites this.
+        try { await storage.updateRegistration(registrationId, { balanceStatus: "failed" } as any); } catch {}
+      }
+    }
+  }
 
   const fmtNZ = (cents: number) => `$${(cents / 100).toFixed(2)} NZD`;
   const fmtDate = (d: string | null) =>

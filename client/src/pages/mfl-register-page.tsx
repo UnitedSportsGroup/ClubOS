@@ -56,7 +56,7 @@ export default function MflRegisterPage() {
   const division = useMemo(() => data?.divisions?.find((d: any) => d.id === divisionId) || null, [data, divisionId]);
   const upsellDefs: any[] = data?.upsells || [];
 
-  const { subtotalCents, lateFeeCents, depositCents, balanceCents, isInstalment } = useMemo(() => {
+  const { subtotalCents, lateFeeCents, depositCents, balanceCents, isInstalment, isWeekly, weeklyAmountCents, weeksTotal } = useMemo(() => {
     const base = division?.teamCostCents || 0;
     let subtotal = base;
     for (const u of selectedUpsells) {
@@ -65,13 +65,21 @@ export default function MflRegisterPage() {
     }
     const lateFee = data?.earlyBird && !data.earlyBird.active ? (data.earlyBird.lateFeeCents || 0) : 0;
     subtotal += lateFee;
-    const deposit = data?.depositCents && data.depositCents > 0 && subtotal > data.depositCents ? data.depositCents : subtotal;
+    const hasDeposit = !!data?.depositCents && data.depositCents > 0 && subtotal > data.depositCents;
+    const weekly = data?.paymentPlan === "deposit_weekly" && hasDeposit;
+    const numWeeks = data?.numWeeklyPayments || 8;
+    // Mirror the server: even weekly charge, deposit absorbs the remainder.
+    const weeklyAmt = weekly ? Math.round((subtotal - data.depositCents) / numWeeks) : 0;
+    const deposit = weekly ? subtotal - weeklyAmt * numWeeks : (hasDeposit ? data.depositCents : subtotal);
     return {
       subtotalCents: subtotal,
       lateFeeCents: lateFee,
       depositCents: deposit,
       balanceCents: subtotal - deposit,
-      isInstalment: subtotal > deposit,
+      isInstalment: !weekly && subtotal > deposit,
+      isWeekly: weekly,
+      weeklyAmountCents: weeklyAmt,
+      weeksTotal: numWeeks,
     };
   }, [division, selectedUpsells, data, upsellDefs]);
 
@@ -236,6 +244,11 @@ export default function MflRegisterPage() {
             <div className="flex justify-between font-bold pt-2.5 border-t" style={{ borderColor: BRAND.border }}>
               <span>Total (incl. GST)</span><span>{formatCurrency(subtotalCents, { fromCents: true })} NZD</span>
             </div>
+            {isWeekly && (
+              <div className="rounded-xl px-4 py-3 mt-1 text-[13px]" style={{ background: `${BRAND.gold}14`, color: BRAND.gold }}>
+                Pay <strong>{formatCurrency(depositCents, { fromCents: true })}</strong> deposit now to lock your spot · then <strong>{formatCurrency(weeklyAmountCents, { fromCents: true })}/week</strong> for {weeksTotal} weeks once the season starts. Your deposit covers the final weeks.
+              </div>
+            )}
             {isInstalment && (
               <div className="rounded-xl px-4 py-3 mt-1 text-[13px]" style={{ background: `${BRAND.gold}14`, color: BRAND.gold }}>
                 Pay <strong>{formatCurrency(depositCents, { fromCents: true })}</strong> deposit now to lock your spot · {formatCurrency(balanceCents, { fromCents: true })} balance auto-charged ~3 weeks in.
