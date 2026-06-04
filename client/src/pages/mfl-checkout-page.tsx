@@ -3,11 +3,15 @@ import { useRoute, Link, useLocation } from "wouter";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Lock, ShieldCheck, Loader2 } from "lucide-react";
+import { ArrowLeft, Lock, ShieldCheck, Loader2, AlertCircle } from "lucide-react";
 import { trackEvent } from "@/lib/meta-pixel";
 import { formatCurrency } from "@/lib/format";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
+// Only initialise Stripe if the publishable key was actually baked into the
+// build. If it's missing (e.g. a deploy without the VITE_ build-arg) we render
+// a clear message instead of a silent blank PaymentElement.
+const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
 const BRAND = {
   black: "#000000", bg: "#0a0a0a", card: "#141414", cardSoft: "#1c1c1c", border: "#2a2a2a",
@@ -47,6 +51,8 @@ function PaymentForm({ data, slug, mode }: { data: CheckoutData; slug: string; m
   const [, setLocation] = useLocation();
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);       // PaymentElement has rendered its fields
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,13 +113,31 @@ function PaymentForm({ data, slug, mode }: { data: CheckoutData; slug: string; m
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="rounded-2xl p-6" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}` }}>
-        <PaymentElement options={{ layout: "tabs", defaultValues: { billingDetails: { email: data.captainEmail, name: data.captainName } } }} />
+      <div className="rounded-2xl p-5 sm:p-6" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}`, minHeight: 96 }}>
+        {/* Spinner until Stripe's card fields have actually rendered, so there's
+            never a silent blank box. */}
+        {!ready && !loadError && (
+          <div className="flex items-center justify-center gap-2 py-6 text-sm" style={{ color: BRAND.muted }}>
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading secure payment…
+          </div>
+        )}
+        {loadError && (
+          <div className="flex items-start gap-2 text-sm" style={{ color: "#fca5a5" }}>
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {loadError}
+          </div>
+        )}
+        <div style={{ display: ready ? "block" : "none" }}>
+          <PaymentElement
+            options={{ layout: "tabs", defaultValues: { billingDetails: { email: data.captainEmail, name: data.captainName } } }}
+            onReady={() => setReady(true)}
+            onLoadError={(e: any) => setLoadError(e?.error?.message || "Couldn't load the payment form. Refresh and try again, or contact us.")}
+          />
+        </div>
       </div>
 
       {error && <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "rgba(220,38,38,0.12)", color: "#fca5a5", border: "1px solid rgba(220,38,38,0.3)" }}>{error}</div>}
 
-      <button type="submit" disabled={!stripe || processing}
+      <button type="submit" disabled={!stripe || !ready || processing}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-full font-bold text-[16px] disabled:opacity-60"
         style={{ background: BRAND.gold, color: BRAND.black }} data-testid="button-pay">
         {processing ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : <><Lock className="w-4 h-4" /> Pay {formatCurrency(dueCents, { fromCents: true })} NZD</>}
@@ -213,32 +237,53 @@ export default function MflCheckoutPage({ mode = "deposit" }: { mode?: "deposit"
         </div>
 
         <div className="mt-6">
-          <Elements
-            stripe={stripePromise}
-            options={{
-              clientSecret: data.clientSecret,
-              appearance: {
-                theme: "night",
-                variables: {
-                  colorPrimary: BRAND.gold,
-                  colorBackground: BRAND.cardSoft,
-                  colorText: BRAND.white,
-                  colorDanger: "#ef4444",
-                  fontFamily: "Inter Tight, system-ui, sans-serif",
-                  spacingUnit: "4px",
-                  borderRadius: "12px",
-                  fontSizeBase: "15px",
+          {!stripePromise ? (
+            <div className="rounded-2xl p-5 flex items-start gap-3 text-sm" style={{ background: BRAND.card, border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5" }}>
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold" style={{ color: BRAND.white }}>Payment is temporarily unavailable</p>
+                <p className="mt-1" style={{ color: BRAND.muted }}>We couldn't start a secure payment session. Please try again shortly, or email minifootball@cufc.co.nz and we'll sort your spot.</p>
+              </div>
+            </div>
+          ) : (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret: data.clientSecret,
+                // Pinned dark theme with explicit high-contrast colours so the
+                // fields are always readable on our black page — and never
+                // auto-switch to an unreadable scheme based on the OS setting.
+                appearance: {
+                  theme: "night",
+                  variables: {
+                    colorPrimary: BRAND.gold,
+                    colorBackground: BRAND.cardSoft,
+                    colorText: "#ffffff",
+                    colorTextSecondary: "rgba(255,255,255,0.7)",
+                    colorTextPlaceholder: "rgba(255,255,255,0.45)",
+                    colorIcon: "rgba(255,255,255,0.7)",
+                    colorDanger: "#ef4444",
+                    fontFamily: "Inter Tight, system-ui, sans-serif",
+                    spacingUnit: "4px",
+                    borderRadius: "12px",
+                    fontSizeBase: "15px",
+                  },
+                  rules: {
+                    ".Input": { border: `1px solid ${BRAND.border}`, backgroundColor: "#0f0f0f", color: "#ffffff" },
+                    ".Input:focus": { border: `1px solid ${BRAND.gold}`, boxShadow: `0 0 0 1px ${BRAND.gold}` },
+                    ".Input::placeholder": { color: "rgba(255,255,255,0.4)" },
+                    ".Label": { color: "rgba(255,255,255,0.7)", fontWeight: "500" },
+                    ".Tab": { border: `1px solid ${BRAND.border}`, backgroundColor: "#0f0f0f", color: "#ffffff" },
+                    ".Tab:hover": { color: "#ffffff" },
+                    ".Tab--selected": { border: `1px solid ${BRAND.gold}`, color: "#ffffff" },
+                    ".TabLabel": { color: "#ffffff" },
+                  },
                 },
-                rules: {
-                  ".Input": { border: `1px solid ${BRAND.border}`, backgroundColor: BRAND.bg },
-                  ".Tab": { border: `1px solid ${BRAND.border}` },
-                  ".Tab--selected": { border: `1px solid ${BRAND.gold}` },
-                },
-              },
-            }}
-          >
-            <PaymentForm data={data} slug={slug} mode={mode} />
-          </Elements>
+              }}
+            >
+              <PaymentForm data={data} slug={slug} mode={mode} />
+            </Elements>
+          )}
         </div>
       </main>
     </div>
