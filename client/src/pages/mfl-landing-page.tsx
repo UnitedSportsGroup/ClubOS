@@ -38,13 +38,15 @@ interface RegisterData {
   upsells: { type: string; label: string; priceCents: number }[];
   earlyBird: { deadline: string | null; lateFeeCents: number; active: boolean };
   depositCents: number | null;
+  paymentPlan?: string;
+  numWeeklyPayments?: number;
 }
 
 const FAQS = [
   { q: "Who can enter a team?", a: "Anyone! Grab your mates, your workmates, your five-a-side regulars — one person registers as the team captain and you're in." },
   { q: "How many players do I need?", a: "7-a-side runs with 7 on the pitch (bring subs!), 5-a-side needs 5. You can register with a partial squad and fill spots as you go." },
   { q: "What does it cost?", a: "7-a-side is $600 per team for the term, 5-a-side is $500. That's for the whole team across the full season — split it between your players however you like." },
-  { q: "Can I pay in instalments?", a: "Yes. Lock your spot with a $300 deposit today and we'll automatically take the balance about three weeks into the term." },
+  { q: "Can I pay in instalments?", a: "Yes — that's how it works. Lock your spot with a $120 deposit today, then we spread the rest into automatic weekly payments across the season. Your deposit covers the final weeks, so there's no big bill up front." },
   { q: "When does it run?", a: "Games run weeknights at our Christchurch facility. Pick your night when you register — see the options below." },
 ];
 
@@ -135,7 +137,12 @@ export default function MflLandingPage() {
     );
   }
 
-  const { program, organization, divisions, upsells, earlyBird, depositCents } = data;
+  const { program, organization, divisions, upsells, earlyBird, depositCents, paymentPlan, numWeeklyPayments } = data;
+  const isWeeklyPlan = paymentPlan === "deposit_weekly";
+  // Lowest weekly across the nights (varies by 5s/7s), for the "from $X/week" hint.
+  const lowestWeeklyCents = isWeeklyPlan && depositCents && divisions.length
+    ? Math.min(...divisions.map((d) => Math.round((d.teamCostCents - depositCents) / (numWeeklyPayments || 8))))
+    : 0;
   const lowestCents = divisions.length ? Math.min(...divisions.map((d) => d.teamCostCents)) : (program.termPriceCents ?? 0);
   const registerHref = `/league/${slug}/register`;
 
@@ -184,9 +191,13 @@ export default function MflLandingPage() {
               <CreditCard className="w-6 h-6" style={{ color: BRAND.gold }} />
             </div>
             <div>
-              <h3 className="text-lg font-bold">Pay in two — lock your spot today</h3>
+              <h3 className="text-lg font-bold">{isWeeklyPlan ? "Deposit now, then pay weekly" : "Pay in two — lock your spot today"}</h3>
               <p className="text-sm mt-1" style={{ color: BRAND.muted }}>
-                Pay a {formatCurrency(depositCents, { fromCents: true })} deposit now to secure your team. We'll automatically take the balance about three weeks into the term — no chasing your mates for the full amount up front.
+                {isWeeklyPlan ? (
+                  <>Pay a {formatCurrency(depositCents, { fromCents: true })} deposit now to secure your team{lowestWeeklyCents > 0 ? <>, then from <strong>{formatCurrency(lowestWeeklyCents, { fromCents: true })}/week</strong></> : ", then automatic weekly payments"} across the season. Your deposit covers the final weeks — no big bill up front.</>
+                ) : (
+                  <>Pay a {formatCurrency(depositCents, { fromCents: true })} deposit now to secure your team. We'll automatically take the balance about three weeks into the term — no chasing your mates for the full amount up front.</>
+                )}
               </p>
             </div>
           </div>
@@ -199,21 +210,40 @@ export default function MflLandingPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {divisions.map((d) => {
             const full = d.spotsLeft != null && d.spotsLeft <= 0;
+            const weeklyCents = isWeeklyPlan && depositCents ? Math.round((d.teamCostCents - depositCents) / (numWeeklyPayments || 8)) : 0;
             return (
-              <div key={d.id} className="rounded-2xl p-5 flex flex-col" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}`, opacity: full ? 0.55 : 1 }}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold">{d.name}</h3>
-                  <span className="text-[15px] font-bold" style={{ color: BRAND.gold }}>{formatCurrency(d.teamCostCents, { fromCents: true })}</span>
-                </div>
-                <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: BRAND.muted }}>
-                  <Clock className="w-3.5 h-3.5" /> {d.dayOfWeek || "Weeknights"}{d.ageGroup ? ` · ${d.ageGroup}` : ""}
-                </p>
-                {d.spotsLeft != null && (
-                  <p className="text-[12px] mt-3 font-semibold" style={{ color: full ? BRAND.dim : BRAND.gold }}>
-                    {full ? "Full — join the waitlist" : `${d.spotsLeft} spot${d.spotsLeft === 1 ? "" : "s"} left`}
+              <Link key={d.id} href={`${registerHref}?division=${d.id}`}>
+                <a
+                  className="group rounded-2xl p-5 flex flex-col transition-all"
+                  style={{ background: BRAND.card, border: `1px solid ${BRAND.border}`, opacity: full ? 0.7 : 1, cursor: "pointer" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = BRAND.gold; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = BRAND.border; }}
+                  data-testid={`division-card-${d.id}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold">{d.name}</h3>
+                    <span className="text-[15px] font-bold" style={{ color: BRAND.gold }}>{formatCurrency(d.teamCostCents, { fromCents: true })}</span>
+                  </div>
+                  <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: BRAND.muted }}>
+                    <Clock className="w-3.5 h-3.5" /> {d.dayOfWeek || "Weeknights"}{d.ageGroup ? ` · ${d.ageGroup}` : ""}
                   </p>
-                )}
-              </div>
+                  {weeklyCents > 0 && (
+                    <p className="text-[12px] mt-1" style={{ color: BRAND.dim }}>
+                      {formatCurrency(depositCents!, { fromCents: true })} deposit · {formatCurrency(weeklyCents, { fromCents: true })}/week
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between mt-3">
+                    {d.spotsLeft != null ? (
+                      <span className="text-[12px] font-semibold" style={{ color: full ? BRAND.dim : BRAND.gold }}>
+                        {full ? "Full — register for the waitlist" : `${d.spotsLeft} spot${d.spotsLeft === 1 ? "" : "s"} left`}
+                      </span>
+                    ) : <span />}
+                    <span className="text-[13px] font-semibold inline-flex items-center gap-1 opacity-80 group-hover:opacity-100" style={{ color: BRAND.gold }}>
+                      Register <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </a>
+              </Link>
             );
           })}
         </div>

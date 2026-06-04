@@ -46,8 +46,13 @@ export default function MflRegisterPage() {
       .then((r) => { if (!r.ok) throw new Error("not found"); return r.json(); })
       .then((d) => {
         setData(d);
+        // Honour a ?division=<id> pre-selection from the landing-page night
+        // cards; otherwise default to the first night with spots open.
+        const wantedId = parseInt(new URLSearchParams(window.location.search).get("division") || "");
+        const preselect = (d.divisions || []).find((x: any) => x.id === wantedId);
         const firstOpen = (d.divisions || []).find((x: any) => x.spotsLeft == null || x.spotsLeft > 0);
-        if (firstOpen) setDivisionId(firstOpen.id);
+        const pick = preselect || firstOpen;
+        if (pick) setDivisionId(pick.id);
       })
       .catch(() => setError("This league isn't available right now."))
       .finally(() => setLoading(false));
