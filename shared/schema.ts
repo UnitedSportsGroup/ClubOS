@@ -529,6 +529,10 @@ export const facilityBookings = pgTable("facility_bookings", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   paidAt: timestamp("paid_at"),
   bookingGroupId: text("booking_group_id"),
+  // Order-level discount code (e.g. member CUGC50) applied at checkout, and the
+  // per-booking share of the discount in cents. totalCents already reflects it.
+  discountCode: text("discount_code"),
+  discountCents: integer("discount_cents").default(0),
   notes: text("notes"),
   color: text("color"),
   additionalFacilityIds: integer("additional_facility_ids").array(),

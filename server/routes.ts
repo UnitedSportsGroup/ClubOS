@@ -3145,7 +3145,7 @@ export async function registerRoutes(
     { message: "halfPosition (front or back) is required for half bookings", path: ["halfPosition"] }
   );
 
-  async function buildQuote(orgId: number, items: z.infer<typeof bookingItemSchema>[]) {
+  async function buildQuote(orgId: number, items: z.infer<typeof bookingItemSchema>[], discountCode?: string | null) {
     const settings = await storage.getVenueSettings(orgId);
     const gstRate = settings ? parseFloat(settings.gstRatePercent) : 15;
     const facs = await storage.getPublicFacilities(orgId);
@@ -3196,17 +3196,42 @@ export async function registerRoutes(
     // line items as-is; GST is the portion of that total (15/115 ≈ 13.04%), and
     // the ex-GST subtotal is the remainder. This matches NZ retail convention:
     // "Total $X.XX (includes 15% GST $Y.YY)".
-    const totalCents = lineItems.reduce((s, l) => s + l.totalCents, 0);
+    const preDiscountCents = lineItems.reduce((s, l) => s + l.totalCents, 0);
+
+    // Order-level discount code (e.g. member CUGC50). A percentage applies to
+    // the GST-inclusive total; GST is then recomputed on the discounted total.
+    let discountCents = 0;
+    let discount: { id: number; code: string | null; title: string; valueType: string; value: number; amountCents: number } | null = null;
+    if (discountCode && String(discountCode).trim()) {
+      const promo = await storage.getDiscountByCode(String(discountCode).trim(), orgId);
+      const now = new Date();
+      if (promo
+        && (promo as any).status !== "disabled"
+        && (!promo.startDate || new Date(promo.startDate) <= now)
+        && (!promo.endDate || new Date(promo.endDate) >= now)
+        && (!promo.maxTotalUses || ((promo as any).timesUsed ?? 0) < promo.maxTotalUses)) {
+        discountCents = promo.valueType === "percentage"
+          ? Math.round(preDiscountCents * Number(promo.value) / 100)
+          : Math.round(Number(promo.value) * 100);
+        if (discountCents > preDiscountCents) discountCents = preDiscountCents;
+        if (discountCents < 0) discountCents = 0;
+        if (discountCents > 0) {
+          discount = { id: promo.id, code: promo.code, title: promo.title, valueType: promo.valueType, value: Number(promo.value), amountCents: discountCents };
+        }
+      }
+    }
+
+    const totalCents = preDiscountCents - discountCents;
     const gstCents = totalCents - Math.round(totalCents / (1 + gstRate / 100));
     const subtotalCents = totalCents - gstCents;
-    return { lineItems, subtotalCents, gstCents, totalCents, gstRate };
+    return { lineItems, preDiscountCents, discountCents, discount, subtotalCents, gstCents, totalCents, gstRate };
   }
 
   app.post("/api/public/venue/:orgId/bookings/quote", async (req, res) => {
     try {
       const orgId = parseInt(req.params.orgId);
       const items = z.array(bookingItemSchema).min(1).parse(req.body.items);
-      const quote = await buildQuote(orgId, items);
+      const quote = await buildQuote(orgId, items, req.body.discountCode);
       res.json(quote);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -3222,6 +3247,7 @@ export async function registerRoutes(
       club: z.string().optional().default(""),
       notes: z.string().optional().default(""),
     }),
+    discountCode: z.string().optional().nullable(),
   });
 
   app.post("/api/public/venue/:orgId/bookings/checkout", async (req, res) => {
@@ -3232,14 +3258,19 @@ export async function registerRoutes(
 
       const parsed = checkoutSchema.parse(req.body);
       assertItemsBookable(parsed.items);
-      const quote = await buildQuote(orgId, parsed.items);
+      const quote = await buildQuote(orgId, parsed.items, parsed.discountCode);
 
       const groupId = `vbg_${crypto.randomBytes(8).toString("hex")}`;
 
-      // line.totalCents is GST-inclusive. Per-line GST is the inc-GST portion
-      // (15/115 of the total), and the ex-GST subtotal is the remainder.
-      const bookingsToCreate: any[] = quote.lineItems.map((line) => {
-        const lineTotalCents = line.totalCents;
+      // Distribute any order-level discount across the booking lines so the
+      // rows sum to exactly the charged total (the last line absorbs the
+      // rounding remainder). line.totalCents is the pre-discount line total.
+      const factor = quote.preDiscountCents > 0 ? quote.totalCents / quote.preDiscountCents : 1;
+      let running = 0;
+      const bookingsToCreate: any[] = quote.lineItems.map((line, idx) => {
+        const isLast = idx === quote.lineItems.length - 1;
+        const lineTotalCents = isLast ? (quote.totalCents - running) : Math.round(line.totalCents * factor);
+        running += lineTotalCents;
         const lineGstCents = lineTotalCents - Math.round(lineTotalCents / (1 + quote.gstRate / 100));
         const lineSubtotalCents = lineTotalCents - lineGstCents;
         return {
@@ -3253,13 +3284,15 @@ export async function registerRoutes(
           startTime: line.startTime,
           endTime: line.endTime,
           halfFull: line.halfFull,
-          halfPosition: line.halfFull === "half" ? line.halfPosition : null,
+          halfPosition: line.halfPosition,
           addonsJson: line.addons,
           subtotalCents: lineSubtotalCents,
           gstCents: lineGstCents,
           totalCents: lineTotalCents,
           totalAmount: (lineTotalCents / 100).toFixed(2),
           gstAmount: (lineGstCents / 100).toFixed(2),
+          discountCode: quote.discount?.code || null,
+          discountCents: line.totalCents - lineTotalCents,
           status: "pending" as const,
           bookingGroupId: groupId,
           notes: parsed.customer.notes || null,
@@ -3312,6 +3345,13 @@ export async function registerRoutes(
         }
         return await tx.insert(facilityBookings).values(bookingsToCreate).returning();
       });
+
+      // Record the discount use (best-effort; CUGC50 is uncapped so this is for
+      // reporting, not gating).
+      if (quote.discount?.id && quote.discountCents > 0) {
+        try { await storage.incrementDiscountUsage(quote.discount.id, quote.discountCents); }
+        catch (e) { console.error("[Venue] discount usage increment failed:", e); }
+      }
 
       // Stripe payment intent (created after slots are reserved)
       const { stripe } = await import("./stripe");
@@ -3383,7 +3423,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "All recurring bookings must be the same slot" });
       }
 
-      const quote = await buildQuote(orgId, parsed.items);
+      const quote = await buildQuote(orgId, parsed.items, parsed.discountCode);
       const totalCents = quote.totalCents;
       const weeklyCents = Math.round(totalCents / parsed.items.length);
 

@@ -131,6 +131,9 @@ interface Quote {
   gstCents: number;
   totalCents: number;
   gstRate: number;
+  preDiscountCents?: number;
+  discountCents?: number;
+  discount?: { code: string | null; title: string; valueType: string; value: number; amountCents: number } | null;
 }
 
 const FACILITY_TYPE_LABELS: Record<FacilityType, string> = {
@@ -346,6 +349,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
+  const [discountCode, setDiscountCode] = useState("");
 
   const [facilities, setFacilities] = useState<PublicFacility[] | null>(null);
   useEffect(() => {
@@ -374,6 +378,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
               halfPosition: c.halfPosition,
               addons: c.addons,
             })),
+            discountCode: discountCode.trim() || undefined,
           }),
         });
         if (r.ok) setQuote(await r.json());
@@ -381,7 +386,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
         setLoadingQuote(false);
       }
     })();
-  }, [cart, organization.id]);
+  }, [cart, organization.id, discountCode]);
 
   const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.id !== id));
 
@@ -417,6 +422,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
             halfPosition: c.halfPosition,
             addons: c.addons,
           })),
+          discountCode: discountCode.trim() || undefined,
         }),
       });
       const data = await r.json();
@@ -519,6 +525,8 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
             brand={brand}
             onRemove={removeFromCart}
             step={step}
+            discountCode={discountCode}
+            setDiscountCode={setDiscountCode}
             onContinue={() => {
               if (step === "items") setStep("review");
               else if (step === "review") setStep("details");
@@ -1579,7 +1587,7 @@ function PaymentStep({
 
 // ============ Cart sidebar ============
 function CartSummary({
-  cart, quote, loadingQuote, brand, onRemove, step, onContinue,
+  cart, quote, loadingQuote, brand, onRemove, step, discountCode, setDiscountCode, onContinue,
 }: {
   cart: CartItem[];
   quote: Quote | null;
@@ -1587,6 +1595,8 @@ function CartSummary({
   brand: string;
   onRemove: (id: string) => void;
   step: Step;
+  discountCode: string;
+  setDiscountCode: (v: string) => void;
   onContinue: () => void;
 }) {
   const showContinue = step === "items" && cart.length > 0;
@@ -1617,14 +1627,38 @@ function CartSummary({
             ))}
           </div>
           <div className="border-t border-white/[0.06] pt-3 space-y-1.5 text-xs">
+            {/* Promo / member code */}
+            <div className="pb-1">
+              <Input
+                value={discountCode}
+                onChange={e => setDiscountCode(e.target.value.toUpperCase())}
+                placeholder="Promo / member code"
+                className="h-8 text-xs bg-white/[0.04] border-white/10 text-white uppercase placeholder:normal-case placeholder:text-white/30"
+                data-testid="input-promo-code"
+              />
+            </div>
             {loadingQuote ? <Skeleton className="h-4 w-32" /> : quote && (
               <>
+                {quote.discount && (quote.discountCents ?? 0) > 0 && (
+                  <>
+                    <div className="flex justify-between text-white/40 text-[11px]">
+                      <span>Subtotal</span><span className="line-through">{fmtMoney(quote.preDiscountCents ?? quote.totalCents)}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] font-medium" style={{ color: brand }}>
+                      <span>{quote.discount.code}{quote.discount.valueType === "percentage" ? ` (${quote.discount.value}% off)` : ""}</span>
+                      <span data-testid="text-cart-discount">−{fmtMoney(quote.discountCents!)}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between text-white font-semibold text-sm">
                   <span>Total</span><span data-testid="text-cart-total">{fmtMoney(quote.totalCents)}</span>
                 </div>
                 <div className="flex justify-between text-white/40 text-[11px]">
                   <span>Includes {quote.gstRate}% GST</span><span>{fmtMoney(quote.gstCents)}</span>
                 </div>
+                {discountCode.trim().length > 0 && !quote.discount && (
+                  <div className="text-[11px] text-amber-400/80" data-testid="text-promo-invalid">That code isn't valid for this booking.</div>
+                )}
               </>
             )}
           </div>
