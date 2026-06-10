@@ -15,6 +15,7 @@ import {
   ChevronLeft, ChevronRight, Shield, Minus,
 } from "lucide-react";
 import { FacilityCarousel } from "@/components/FacilityCarousel";
+import { cellsOverlap, QUARTER_POSITIONS, type FieldSize } from "@shared/field-cells";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -34,6 +35,8 @@ interface PricingRule {
   startTime: string | null;
   endTime: string | null;
   pricePerHour: string;
+  halfFieldPricePerHour?: string | null;
+  quarterFieldPricePerHour?: string | null;
   isDefault: boolean | null;
 }
 
@@ -56,10 +59,12 @@ interface PublicFacility {
   imageUrl: string | null;
   imageUrls: string[] | null;
   halfFull: boolean | null;
+  quarterField: boolean | null;
   floodlights: boolean | null;
   bufferMinutes: number | null;
   pricePerHourCents: number | null;
   halfFieldPricePerHourCents: number | null;
+  quarterFieldPricePerHourCents: number | null;
   pricingRules: PricingRule[];
   addons: Addon[];
 }
@@ -93,7 +98,7 @@ interface AvailabilitySlot {
   startTime: string;
   endTime: string;
   halfFull: string | null;
-  halfPosition: "front" | "back" | null;
+  halfPosition: string | null;
   status: string;
 }
 
@@ -103,8 +108,8 @@ interface CartItem {
   date: string;
   startTime: string;
   endTime: string;
-  halfFull: "half" | "full" | null;
-  halfPosition: "front" | "back" | null;
+  halfFull: FieldSize | null;
+  halfPosition: string | null;
   addons: { addonId: number; qty: number }[];
   // Tag carried from the configure panel so checkout knows which Stripe path
   // to use. All items in a single recurring batch share the same group key.
@@ -119,7 +124,7 @@ interface QuoteLine {
   startTime: string;
   endTime: string;
   halfFull: string | null;
-  halfPosition: "front" | "back" | null;
+  halfPosition: string | null;
   hours: number;
   baseCents: number;
   addons: { addonId: number; name: string; unit: string; qty: number; priceCents: number }[];
@@ -142,6 +147,13 @@ const FACILITY_TYPE_LABELS: Record<FacilityType, string> = {
 };
 
 const fmtMoney = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+// Human label for a booking's size + sub-position, e.g. "front half", "quarter Q3".
+function fieldSizeLabel(halfFull: string | null | undefined, halfPosition: string | null | undefined): string {
+  if (halfFull === "half") return halfPosition ? `${halfPosition} half` : "half";
+  if (halfFull === "quarter") return halfPosition ? `quarter ${halfPosition.toUpperCase()}` : "quarter";
+  return "";
+}
 
 function getOrgSlug(): string | undefined {
   const url = new URL(window.location.href);
@@ -218,7 +230,7 @@ function pricePerHourForSlot(
   facility: PublicFacility,
   date: string,
   slot: string,
-  halfFull: "half" | "full",
+  halfFull: FieldSize,
 ): number {
   const dayOfWeek = new Date(date + "T00:00:00").getDay();
   const rule = facility.pricingRules.find(r =>
@@ -226,46 +238,35 @@ function pricePerHourForSlot(
     r.startTime && r.endTime &&
     slot >= r.startTime && slot < r.endTime
   );
-  if (rule) {
-    if (halfFull === "half" && rule.halfFieldPricePerHour != null) {
-      return parseFloat(rule.halfFieldPricePerHour);
-    }
-    const fullRate = parseFloat(rule.pricePerHour);
-    if (halfFull === "half") {
-      return facility.halfFieldPricePerHourCents != null
-        ? facility.halfFieldPricePerHourCents / 100
-        : fullRate / 2;
-    }
-    return fullRate;
-  }
-  // Fallback to facility base rate.
+  const fullRate = rule ? parseFloat(rule.pricePerHour) : (facility.pricePerHourCents ?? 0) / 100;
   if (halfFull === "half") {
-    return facility.halfFieldPricePerHourCents != null
-      ? facility.halfFieldPricePerHourCents / 100
-      : (facility.pricePerHourCents ?? 0) / 200;
+    if (rule?.halfFieldPricePerHour != null) return parseFloat(rule.halfFieldPricePerHour);
+    return facility.halfFieldPricePerHourCents != null ? facility.halfFieldPricePerHourCents / 100 : fullRate / 2;
   }
-  return (facility.pricePerHourCents ?? 0) / 100;
+  if (halfFull === "quarter") {
+    // Mirrors the server: rule quarter → facility quarter → half/2 → full/4.
+    if (rule?.quarterFieldPricePerHour != null) return parseFloat(rule.quarterFieldPricePerHour);
+    if (facility.quarterFieldPricePerHourCents != null) return facility.quarterFieldPricePerHourCents / 100;
+    if (rule?.halfFieldPricePerHour != null) return parseFloat(rule.halfFieldPricePerHour) / 2;
+    if (facility.halfFieldPricePerHourCents != null) return facility.halfFieldPricePerHourCents / 200;
+    return fullRate / 4;
+  }
+  return fullRate;
 }
 
 // "From $X" — the lowest hourly rate you can get on this facility at any
 // time, in the cheapest mode (half if available, full otherwise). Used as
 // a hint on the facility cards so customers know what they're walking into.
 function cheapestRateForFacility(facility: PublicFacility): number | null {
-  const cheapHalf = facility.halfFull;
   const candidates: number[] = [];
   for (const r of facility.pricingRules) {
-    if (cheapHalf && r.halfFieldPricePerHour != null) {
-      candidates.push(parseFloat(r.halfFieldPricePerHour));
-    } else {
-      candidates.push(parseFloat(r.pricePerHour));
-    }
+    if (facility.quarterField && r.quarterFieldPricePerHour != null) candidates.push(parseFloat(r.quarterFieldPricePerHour));
+    else if (facility.halfFull && r.halfFieldPricePerHour != null) candidates.push(parseFloat(r.halfFieldPricePerHour));
+    else candidates.push(parseFloat(r.pricePerHour));
   }
-  if (cheapHalf && facility.halfFieldPricePerHourCents != null) {
-    candidates.push(facility.halfFieldPricePerHourCents / 100);
-  }
-  if (facility.pricePerHourCents) {
-    candidates.push(facility.pricePerHourCents / 100);
-  }
+  if (facility.quarterField && facility.quarterFieldPricePerHourCents != null) candidates.push(facility.quarterFieldPricePerHourCents / 100);
+  if (facility.halfFull && facility.halfFieldPricePerHourCents != null) candidates.push(facility.halfFieldPricePerHourCents / 100);
+  if (facility.pricePerHourCents) candidates.push(facility.pricePerHourCents / 100);
   if (candidates.length === 0) return null;
   return Math.min(...candidates);
 }
@@ -715,8 +716,9 @@ function ConfigureFacility({
   // Null start means "waiting for first tap"; null end means "waiting for end tap".
   const [startTime, setStartTime] = useState<string | null>(null);
   const [endTime, setEndTime] = useState<string | null>(null);
-  const [halfFull, setHalfFull] = useState<"half" | "full">(facility.halfFull ? "half" : "full");
+  const [halfFull, setHalfFull] = useState<FieldSize>(facility.halfFull ? "half" : "full");
   const [halfPosition, setHalfPosition] = useState<"front" | "back">("front");
+  const [quarterPos, setQuarterPos] = useState<"q1" | "q2" | "q3" | "q4">("q1");
   const [selectedAddons, setSelectedAddons] = useState<Record<number, number>>({});
   const [multiDay, setMultiDay] = useState(false);
   const [extraDates, setExtraDates] = useState<string[]>([]);
@@ -766,23 +768,20 @@ function ConfigureFacility({
     })();
   }, [facility.id, facility.organizationId, allDates.join(",")]);
 
-  // Half-field conflict matrix: full vs anything = conflict; two halves only conflict
-  // if they're on the same side (front × front, back × back).
-  const wantHalf = facility.halfFull && halfFull === "half";
-  const wantPos: "front" | "back" | null = wantHalf ? halfPosition : null;
-  const halfBlocks = (existingHalf: string | null, existingPos: "front" | "back" | null | string | undefined) => {
-    if (existingHalf !== "half" || !wantHalf) return true;
-    // Legacy/migrated bookings without a known half position block both halves.
-    if (!existingPos || !wantPos) return true;
-    return existingPos === wantPos;
-  };
+  // Full/half/quarter conflict via the shared cell model (the same code the
+  // server uses at checkout): two bookings collide iff they share a pitch cell.
+  // wantPos is the sub-position being booked — front/back for a half, q1–q4 for
+  // a quarter, none for a full pitch.
+  const wantPos = halfFull === "half" ? halfPosition : halfFull === "quarter" ? quarterPos : null;
+  const blocks = (existingHalf: string | null, existingPos: string | null | undefined) =>
+    cellsOverlap(existingHalf, existingPos, halfFull, wantPos);
   const cartConflicts = (d: string, s: string, e: string) =>
     cart.some(c =>
       c.facility.id === facility.id &&
       c.date === d &&
       c.startTime < e &&
       c.endTime > s &&
-      halfBlocks(c.halfFull, c.halfPosition)
+      blocks(c.halfFull, c.halfPosition)
     );
 
   const isSlotConflicted = (d: string, s: string, e: string) =>
@@ -790,7 +789,7 @@ function ConfigureFacility({
       b.date === d &&
       b.startTime < e &&
       b.endTime > s &&
-      halfBlocks(b.halfFull, b.halfPosition)
+      blocks(b.halfFull, b.halfPosition)
     ) || cartConflicts(d, s, e);
 
   const conflictDates = startTime && endTime
@@ -816,8 +815,8 @@ function ConfigureFacility({
       date: d,
       startTime,
       endTime,
-      halfFull: facility.halfFull ? halfFull : null,
-      halfPosition: facility.halfFull && halfFull === "half" ? halfPosition : null,
+      halfFull: (facility.halfFull || facility.quarterField) ? halfFull : null,
+      halfPosition: halfFull === "half" ? halfPosition : halfFull === "quarter" ? quarterPos : null,
       addons: Object.entries(selectedAddons).filter(([, q]) => q > 0).map(([id, q]) => ({ addonId: parseInt(id), qty: q })),
       paymentMode: recurring ? paymentMode : undefined,
       recurringGroupKey,
@@ -961,11 +960,13 @@ function ConfigureFacility({
         </div>
       </div>
 
-      {facility.halfFull && (
+      {(facility.halfFull || facility.quarterField) && (
         <div className="mb-4">
           <Label className="text-xs text-white/60 mb-1.5 block">Field size</Label>
           <div className="flex gap-2">
-            {(["full", "half"] as const).map(opt => (
+            {(["full", "half", "quarter"] as FieldSize[])
+              .filter(opt => opt === "full" || (opt === "half" && facility.halfFull) || (opt === "quarter" && facility.quarterField))
+              .map(opt => (
               <button
                 key={opt}
                 onClick={() => setHalfFull(opt)}
@@ -1002,6 +1003,29 @@ function ConfigureFacility({
                 ))}
               </div>
               <p className="text-[10px] text-white/40 mt-1.5">Booking one half leaves the other half free for someone else.</p>
+            </div>
+          )}
+          {halfFull === "quarter" && (
+            <div className="mt-3">
+              <Label className="text-xs text-white/60 mb-1.5 block">Which quarter?</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {QUARTER_POSITIONS.map(q => (
+                  <button
+                    key={q.value}
+                    onClick={() => setQuarterPos(q.value)}
+                    data-testid={`button-quarter-${q.value}`}
+                    className="px-3 py-2 rounded-lg text-sm border transition"
+                    style={{
+                      borderColor: quarterPos === q.value ? brand : "rgba(255,255,255,0.1)",
+                      background: quarterPos === q.value ? `${brand}25` : "transparent",
+                      color: quarterPos === q.value ? "white" : "rgba(255,255,255,0.7)",
+                    }}
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-white/40 mt-1.5">Q1–Q2 are the front half, Q3–Q4 the back half. Booking one quarter leaves the rest free.</p>
             </div>
           )}
         </div>
@@ -1447,7 +1471,7 @@ function ReviewStep({
         {cart.map(c => (
           <div key={c.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 flex items-start justify-between gap-4" data-testid={`cart-item-${c.id}`}>
             <div className="min-w-0">
-              <div className="font-medium">{c.facility.name} {c.halfFull && <span className="text-xs text-white/40">({c.halfFull === "half" && c.halfPosition ? `${c.halfPosition} half` : c.halfFull})</span>}</div>
+              <div className="font-medium">{c.facility.name} {c.halfFull && c.halfFull !== "full" && <span className="text-xs text-white/40">({fieldSizeLabel(c.halfFull, c.halfPosition) || c.halfFull})</span>}</div>
               <div className="text-xs text-white/60 mt-0.5">{fmtDateLong(c.date)} · {fmtTime(c.startTime)} – {fmtTime(c.endTime)}</div>
               {c.addons.length > 0 && (
                 <div className="text-[11px] text-white/40 mt-1">
@@ -1614,7 +1638,7 @@ function CartSummary({
             {cart.map(c => (
               <div key={c.id} className="text-xs rounded-lg bg-white/[0.03] p-2.5 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-white/90 truncate">{c.facility.name}{c.halfFull === "half" ? ` (${c.halfPosition ? `${c.halfPosition} half` : "half"})` : ""}</div>
+                  <div className="text-white/90 truncate">{c.facility.name}{fieldSizeLabel(c.halfFull, c.halfPosition) ? ` (${fieldSizeLabel(c.halfFull, c.halfPosition)})` : ""}</div>
                   <div className="text-white/40 mt-0.5">{fmtDateLong(c.date)}</div>
                   <div className="text-white/40">{fmtTime(c.startTime)}–{fmtTime(c.endTime)}</div>
                 </div>

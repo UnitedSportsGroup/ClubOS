@@ -116,7 +116,7 @@ export default function VenueBookSuccess() {
                       <li key={i} className="text-sm flex items-start gap-2" data-testid={`success-booking-${i}`}>
                         <Calendar className="w-3.5 h-3.5 mt-1 text-white/40 shrink-0" />
                         <div className="min-w-0">
-                          <div className="text-white/90">{b.facilityName} {b.halfFull === "half" && <span className="text-white/40 text-xs">(Half)</span>}</div>
+                          <div className="text-white/90">{b.facilityName} {b.halfFull === "half" && <span className="text-white/40 text-xs">({b.halfPosition ? `${b.halfPosition} ` : ""}half)</span>}{b.halfFull === "quarter" && <span className="text-white/40 text-xs">(quarter {b.halfPosition?.toUpperCase()})</span>}</div>
                           <div className="text-xs text-white/50">{fmtDateLong(b.bookingDate)} · {fmtTime(b.startTime)}–{fmtTime(b.endTime)}</div>
                           <div className="text-xs text-white/60 mt-0.5">{fmtMoney(b.totalCents || 0)}</div>
                         </div>

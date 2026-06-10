@@ -14,6 +14,7 @@ import { sendPurchaseEvent, sendLeadEvent } from "./meta-capi";
 import { sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail } from "./email";
 import { handleLeagueBalanceSuccess, handleLeagueBalanceFailed, claimBalance } from "./league-balance-cron";
 import { buildCICSchedule } from "./tournament-schedule";
+import { cellsOverlap } from "@shared/field-cells";
 import crypto from "crypto";
 import { ObjectStorageService, ObjectNotFoundError, setObjectAclPolicy } from "./replit_integrations/object_storage";
 import multer from "multer";
@@ -312,6 +313,11 @@ export async function registerRoutes(
       const pos = halfPosition === "front" || halfPosition === "back" ? halfPosition : null;
       if (pos) return { code: `${pos}_half`, label: `${pos[0].toUpperCase()}${pos.slice(1)} half`, size: "half" };
       return { code: "half", label: "Half pitch", size: "half" };
+    }
+    if (halfFull === "quarter") {
+      const pos = ["q1", "q2", "q3", "q4"].includes(halfPosition || "") ? halfPosition! : null;
+      if (pos) return { code: `${pos}_quarter`, label: `Quarter ${pos.toUpperCase()}`, size: "quarter" };
+      return { code: "quarter", label: "Quarter pitch", size: "quarter" };
     }
     return { code: "full", label: "Full pitch", size: "full" };
   };
@@ -2958,8 +2964,8 @@ export async function registerRoutes(
 
   function calcItemPriceCents(
     item: { date: string; startTime: string; endTime: string; halfFull?: string | null },
-    facility: { pricePerHourCents: number | null; halfFieldPricePerHourCents: number | null },
-    rules: { dayOfWeek: number | null; startTime: string | null; endTime: string | null; pricePerHour: string; isDefault: boolean | null }[]
+    facility: { pricePerHourCents: number | null; halfFieldPricePerHourCents: number | null; quarterFieldPricePerHourCents?: number | null },
+    rules: { dayOfWeek: number | null; startTime: string | null; endTime: string | null; pricePerHour: string; halfFieldPricePerHour?: string | null; quarterFieldPricePerHour?: string | null; isDefault: boolean | null }[]
   ): number {
     const [sh, sm] = item.startTime.split(":").map(Number);
     const [eh, em] = item.endTime.split(":").map(Number);
@@ -2977,11 +2983,15 @@ export async function registerRoutes(
     );
 
     let halfPricePerHourCents: number | null = null;
+    let quarterPricePerHourCents: number | null = null;
 
     if (specific) {
       pricePerHourCents = Math.round(parseFloat(specific.pricePerHour) * 100);
       if (specific.halfFieldPricePerHour != null) {
         halfPricePerHourCents = Math.round(parseFloat(specific.halfFieldPricePerHour) * 100);
+      }
+      if (specific.quarterFieldPricePerHour != null) {
+        quarterPricePerHourCents = Math.round(parseFloat(specific.quarterFieldPricePerHour) * 100);
       }
     } else {
       const def = rules.find(r => r.isDefault);
@@ -2989,6 +2999,9 @@ export async function registerRoutes(
         pricePerHourCents = Math.round(parseFloat(def.pricePerHour) * 100);
         if (def.halfFieldPricePerHour != null) {
           halfPricePerHourCents = Math.round(parseFloat(def.halfFieldPricePerHour) * 100);
+        }
+        if (def.quarterFieldPricePerHour != null) {
+          quarterPricePerHourCents = Math.round(parseFloat(def.quarterFieldPricePerHour) * 100);
         }
       } else {
         pricePerHourCents = facility.pricePerHourCents || 0;
@@ -3005,6 +3018,19 @@ export async function registerRoutes(
         baseCents = Math.round(facility.halfFieldPricePerHourCents * hours);
       } else {
         baseCents = Math.round(baseCents / 2);
+      }
+    } else if (item.halfFull === "quarter") {
+      // Resolution order: rule quarter → facility quarter → half/2 → 25% of full.
+      if (quarterPricePerHourCents != null) {
+        baseCents = Math.round(quarterPricePerHourCents * hours);
+      } else if (facility.quarterFieldPricePerHourCents != null) {
+        baseCents = Math.round(facility.quarterFieldPricePerHourCents * hours);
+      } else if (halfPricePerHourCents != null) {
+        baseCents = Math.round(halfPricePerHourCents * hours / 2);
+      } else if (facility.halfFieldPricePerHourCents != null) {
+        baseCents = Math.round(facility.halfFieldPricePerHourCents * hours / 2);
+      } else {
+        baseCents = Math.round(baseCents / 4);
       }
     }
     return baseCents;
@@ -3133,9 +3159,9 @@ export async function registerRoutes(
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     startTime: z.string().regex(/^\d{2}:\d{2}$/),
     endTime: z.string().regex(/^\d{2}:\d{2}$/),
-    halfFull: z.enum(["half", "full"]).nullable().optional(),
-    // For half bookings: which half. Required when halfFull === 'half'; ignored otherwise.
-    halfPosition: z.enum(["front", "back"]).nullable().optional(),
+    halfFull: z.enum(["half", "full", "quarter"]).nullable().optional(),
+    // For half bookings: front|back. For quarter bookings: q1|q2|q3|q4.
+    halfPosition: z.enum(["front", "back", "q1", "q2", "q3", "q4"]).nullable().optional(),
     addons: z.array(z.object({
       addonId: z.number().int().positive(),
       qty: z.number().int().positive().default(1),
@@ -3143,6 +3169,9 @@ export async function registerRoutes(
   }).refine(
     (v) => v.halfFull !== "half" || (v.halfPosition === "front" || v.halfPosition === "back"),
     { message: "halfPosition (front or back) is required for half bookings", path: ["halfPosition"] }
+  ).refine(
+    (v) => v.halfFull !== "quarter" || (["q1", "q2", "q3", "q4"] as const).includes(v.halfPosition as any),
+    { message: "halfPosition (q1–q4) is required for quarter bookings", path: ["halfPosition"] }
   );
 
   async function buildQuote(orgId: number, items: z.infer<typeof bookingItemSchema>[], discountCode?: string | null) {
@@ -3184,7 +3213,7 @@ export async function registerRoutes(
         startTime: item.startTime,
         endTime: item.endTime,
         halfFull: item.halfFull || null,
-        halfPosition: item.halfFull === "half" ? (item.halfPosition || null) : null,
+        halfPosition: (item.halfFull === "half" || item.halfFull === "quarter") ? (item.halfPosition || null) : null,
         hours,
         baseCents,
         addons: addonLines,
@@ -3266,12 +3295,16 @@ export async function registerRoutes(
       // rows sum to exactly the charged total (the last line absorbs the
       // rounding remainder). line.totalCents is the pre-discount line total.
       const factor = quote.preDiscountCents > 0 ? quote.totalCents / quote.preDiscountCents : 1;
-      let running = 0;
+      const lineCount = quote.lineItems.length;
+      let runningTotal = 0, runningGst = 0;
       const bookingsToCreate: any[] = quote.lineItems.map((line, idx) => {
-        const isLast = idx === quote.lineItems.length - 1;
-        const lineTotalCents = isLast ? (quote.totalCents - running) : Math.round(line.totalCents * factor);
-        running += lineTotalCents;
-        const lineGstCents = lineTotalCents - Math.round(lineTotalCents / (1 + quote.gstRate / 100));
+        const isLast = idx === lineCount - 1;
+        const lineTotalCents = isLast ? (quote.totalCents - runningTotal) : Math.round(line.totalCents * factor);
+        runningTotal += lineTotalCents;
+        // Distribute the order-level GST so per-line GST sums to quote.gstCents
+        // exactly (last line absorbs the rounding remainder).
+        const lineGstCents = isLast ? (quote.gstCents - runningGst) : Math.round(quote.gstCents * lineTotalCents / (quote.totalCents || 1));
+        runningGst += lineGstCents;
         const lineSubtotalCents = lineTotalCents - lineGstCents;
         return {
           organizationId: orgId,
@@ -3324,22 +3357,14 @@ export async function registerRoutes(
             const conflict = existing.find(e => {
               if (e.bookingDate !== it.date) return false;
               if (!(e.startTime < it.endTime && e.endTime > it.startTime)) return false;
-              // Half-field conflict matrix:
-              // - any FULL booking conflicts with anything overlapping
-              // - two HALF bookings only coexist if both have a known half_position
-              //   AND they're on opposite sides. A null half_position (legacy /
-              //   migrated bookings from before front-back tracking existed)
-              //   is treated as "blocks both halves" — safer than risking a
-              //   double-book until the booking is manually classified.
-              const eIsHalf = e.halfFull === "half";
-              const nIsHalf = it.halfFull === "half";
-              if (!eIsHalf || !nIsHalf) return true;
-              if (!e.halfPosition || !it.halfPosition) return true;
-              return e.halfPosition === it.halfPosition;
+              // Full/half/quarter conflict via the shared cell model: two
+              // bookings collide iff they share any of the pitch's 4 cells.
+              return cellsOverlap(e.halfFull, e.halfPosition, it.halfFull, it.halfPosition);
             });
             if (conflict) {
-              const half = it.halfFull === "half" ? ` ${it.halfPosition} half` : "";
-              throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}${half}`);
+              const part = it.halfFull === "half" ? ` ${it.halfPosition} half`
+                : it.halfFull === "quarter" ? ` quarter ${it.halfPosition}` : "";
+              throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}${part}`);
             }
           }
         }
@@ -3447,7 +3472,7 @@ export async function registerRoutes(
           startTime: line.startTime,
           endTime: line.endTime,
           halfFull: line.halfFull,
-          halfPosition: line.halfFull === "half" ? line.halfPosition : null,
+          halfPosition: (line.halfFull === "half" || line.halfFull === "quarter") ? line.halfPosition : null,
           addonsJson: line.addons,
           subtotalCents: lineSubtotalCents,
           gstCents: lineGstCents,
@@ -3477,14 +3502,11 @@ export async function registerRoutes(
           const conflict = existing.find(e => {
             if (e.bookingDate !== it.date) return false;
             if (!(e.startTime < it.endTime && e.endTime > it.startTime)) return false;
-            const eIsHalf = e.halfFull === "half";
-            const nIsHalf = it.halfFull === "half";
-            if (!eIsHalf || !nIsHalf) return true;
-            if (!e.halfPosition || !it.halfPosition) return true;
-            return e.halfPosition === it.halfPosition;
+            return cellsOverlap(e.halfFull, e.halfPosition, it.halfFull, it.halfPosition);
           });
           if (conflict) {
-            const half = it.halfFull === "half" ? ` ${it.halfPosition} half` : "";
+            const half = it.halfFull === "half" ? ` ${it.halfPosition} half`
+              : it.halfFull === "quarter" ? ` quarter ${it.halfPosition}` : "";
             throw new Error(`Slot already booked: ${it.date} ${it.startTime}-${it.endTime}${half}`);
           }
         }
@@ -7403,7 +7425,7 @@ export async function registerRoutes(
               const totalCents = updated.reduce((s, b) => s + (b.totalCents || 0), 0);
               const lines = await Promise.all(updated.map(async b => {
                 const f = await storage.getFacility(b.facilityId);
-                return `<li>${f?.name || 'Facility'} — ${b.bookingDate} ${b.startTime}–${b.endTime}${b.halfFull === 'half' ? ' (Half)' : ''}</li>`;
+                return `<li>${f?.name || 'Facility'} — ${b.bookingDate} ${b.startTime}–${b.endTime}${b.halfFull === 'half' ? ` (${b.halfPosition ? b.halfPosition + ' ' : ''}half)` : b.halfFull === 'quarter' ? ` (quarter ${(b.halfPosition || '').toUpperCase()})` : ''}</li>`;
               }));
               try {
                 const { sendEmail } = await import("./email");

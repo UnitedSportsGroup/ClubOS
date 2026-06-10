@@ -478,6 +478,9 @@ export const facilities = pgTable("facilities", {
   displayOrder: integer("display_order").notNull().default(0),
   pricePerHourCents: integer("price_per_hour_cents").default(0),
   halfFieldPricePerHourCents: integer("half_field_price_per_hour_cents"),
+  // Whether this pitch can be booked as a quarter, and the quarter base rate.
+  quarterField: boolean("quarter_field").default(false),
+  quarterFieldPricePerHourCents: integer("quarter_field_price_per_hour_cents"),
   // Per-facility iCal calendar token. Public consumers (Home Assistant for
   // automatic gates/lights, Google Calendar import, etc.) fetch the booking
   // feed at /api/public/facility-calendar/:token.ics. Nullable until admin
@@ -496,6 +499,7 @@ export const facilityPricingRules = pgTable("facility_pricing_rules", {
   endTime: text("end_time"),
   pricePerHour: decimal("price_per_hour", { precision: 10, scale: 2 }).notNull(),
   halfFieldPricePerHour: decimal("half_field_price_per_hour", { precision: 10, scale: 2 }),
+  quarterFieldPricePerHour: decimal("quarter_field_price_per_hour", { precision: 10, scale: 2 }),
   isDefault: boolean("is_default").default(false),
 });
 

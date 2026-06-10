@@ -363,6 +363,9 @@ export default function VenueCalendar() {
                             {b.halfFull === "half" && (
                               <span className="opacity-70 ml-1">· {b.halfPosition ? `${b.halfPosition} half` : "half"}</span>
                             )}
+                            {b.halfFull === "quarter" && (
+                              <span className="opacity-70 ml-1">· quarter {b.halfPosition?.toUpperCase() || ""}</span>
+                            )}
                             {b.customerName && <span className="opacity-60 ml-2">· {b.customerName}</span>}
                           </div>
                         );
@@ -413,6 +416,8 @@ export default function VenueCalendar() {
                         // Customer name is what the operator actually scans for.
                         const halfTag = b.halfFull === "half"
                           ? ` (${b.halfPosition ? b.halfPosition[0].toUpperCase() : "½"})`
+                          : b.halfFull === "quarter"
+                          ? ` (${b.halfPosition ? b.halfPosition.toUpperCase() : "¼"})`
                           : "";
                         const label = b.customerName
                           ? `${b.startTime} ${b.customerName}${halfTag}`
@@ -505,6 +510,9 @@ export default function VenueCalendar() {
                 {b.facility?.name || "Booking"}
                 {b.halfFull === "half" && (
                   <span className="text-white/50 ml-1">· {b.halfPosition ? `${b.halfPosition} half` : "half"}</span>
+                )}
+                {b.halfFull === "quarter" && (
+                  <span className="text-white/50 ml-1">· quarter {b.halfPosition?.toUpperCase() || ""}</span>
                 )}
               </div>
               <div className="text-xs text-white/40 truncate">{b.customerName}</div>
