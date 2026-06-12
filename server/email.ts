@@ -281,6 +281,256 @@ export async function sendLeagueBalancePaidEmail(params: {
   });
 }
 
+// ---------------------------------------------------------------------------
+// United Sports Centre — member booking-request emails (dark navy + indigo,
+// matching the book.unitedsportscentre.com booking site).
+// ---------------------------------------------------------------------------
+
+const USC_FROM = "United Sports Centre <bookings@unitedsportscentre.com>";
+const USC_REPLY_TO = "info@cufc.co.nz";
+const USC_BRAND = "#6366f1";
+const USC_LOGO_URL = "https://book.unitedsportscentre.com/logos/united-sports-group.png";
+
+function uscShell(opts: { heading: string; sub?: string; bodyHtml: string; accent?: string }): string {
+  const accent = opts.accent || USC_BRAND;
+  return `
+  <div style="background:#0a0e1a; padding:24px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <div style="max-width:600px; margin:0 auto;">
+      <div style="background:linear-gradient(180deg, #11162a, #0d1222); padding:36px 32px 28px; border-radius:16px 16px 0 0; text-align:center; border:1px solid rgba(255,255,255,0.08); border-bottom:2px solid ${accent};">
+        <img src="${USC_LOGO_URL}" alt="United Sports Centre" height="44" style="height:44px; width:auto; margin:0 0 16px;" />
+        <h1 style="color:#ffffff; margin:0; font-size:24px; letter-spacing:0.3px;">${opts.heading}</h1>
+        <p style="color:${accent}; margin:10px 0 0; font-size:12px; text-transform:uppercase; letter-spacing:2px; font-weight:600;">${opts.sub || "United Sports Centre"}</p>
+      </div>
+      <div style="background:#0d1222; padding:32px; border:1px solid rgba(255,255,255,0.08); border-top:0; border-radius:0 0 16px 16px; color:#e6e8f0;">
+        ${opts.bodyHtml}
+      </div>
+      <p style="text-align:center; color:#5a6078; font-size:11px; margin:18px 0 0; line-height:1.6;">
+        United Sports Centre · Operated by Christchurch United Football Club<br/>
+        Questions? Email <a href="mailto:info@cufc.co.nz" style="color:#8b8fa8; text-decoration:underline;">info@cufc.co.nz</a>
+      </p>
+    </div>
+  </div>`;
+}
+
+function uscRow(label: string, value: string, emphasise = false): string {
+  return `<tr${emphasise ? ' style="border-top:1px solid rgba(255,255,255,0.08);"' : ""}>
+    <td style="color:#8b8fa8; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; padding:${emphasise ? "12px 0 7px" : "7px 0"}; vertical-align:top;">${label}</td>
+    <td style="color:${emphasise ? USC_BRAND : "#ffffff"}; font-size:${emphasise ? "16px" : "14px"}; font-weight:${emphasise ? "600" : "400"}; padding:${emphasise ? "12px 0 7px" : "7px 0"}; text-align:right;">${value}</td>
+  </tr>`;
+}
+
+function uscCard(rows: string): string {
+  return `<div style="background:#080c18; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; margin:0 0 8px;">
+    <table style="width:100%; border-collapse:collapse;">${rows}</table>
+  </div>`;
+}
+
+/** Staff notification — a new member booking request needs review. */
+export async function sendBookingRequestNotificationEmail(params: {
+  to: string;
+  requestId: number;
+  memberName: string;
+  memberEmail: string;
+  memberPhone: string;
+  facilityName: string;
+  sizeLabel: string | null;
+  dateLong: string;
+  timeRange: string;
+  reviewUrl: string;
+}): Promise<boolean> {
+  const rows = [
+    uscRow("Member", params.memberName),
+    uscRow("Email", params.memberEmail),
+    uscRow("Phone", params.memberPhone),
+    uscRow("Facility", params.facilityName + (params.sizeLabel ? ` (${params.sizeLabel})` : "")),
+    uscRow("Date", params.dateLong),
+    uscRow("Time", params.timeRange, true),
+  ].join("");
+
+  const bodyHtml = `
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 20px;">
+      A club member has requested a facility booking. They've agreed to the facility waiver —
+      review and approve or decline the request in ClubOS.
+    </p>
+    ${uscCard(rows)}
+    <p style="text-align:center; margin:24px 0 4px;">
+      <a href="${params.reviewUrl}" style="display:inline-block; background:${USC_BRAND}; color:#ffffff; font-weight:600; font-size:14px; text-decoration:none; padding:14px 30px; border-radius:9999px;">Review request</a>
+    </p>`;
+
+  return sendEmail({
+    to: params.to,
+    from: USC_FROM,
+    replyTo: params.memberEmail,
+    subject: `New booking request — ${params.facilityName}, ${params.dateLong} ${params.timeRange}`,
+    html: uscShell({ heading: "New Member Booking Request", sub: `Request #${params.requestId}`, bodyHtml }),
+  });
+}
+
+/** Member confirmation — their request was approved and the slot is theirs. */
+export async function sendBookingRequestConfirmedEmail(params: {
+  to: string;
+  memberName: string;
+  facilityName: string;
+  sizeLabel: string | null;
+  dateLong: string;
+  timeRange: string;
+  requestId: number;
+}): Promise<boolean> {
+  const rows = [
+    uscRow("Facility", params.facilityName + (params.sizeLabel ? ` (${params.sizeLabel})` : "")),
+    uscRow("Date", params.dateLong),
+    uscRow("Time", params.timeRange, true),
+  ].join("");
+
+  const bodyHtml = `
+    <p style="color:#e6e8f0; font-size:16px; margin:0 0 16px;">Hi ${params.memberName},</p>
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 24px;">
+      Great news — your booking request has been <strong style="color:${USC_BRAND};">approved</strong>.
+      Your slot at the United Sports Centre is confirmed:
+    </p>
+    ${uscCard(rows)}
+    <div style="background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.25); border-radius:12px; padding:14px 16px; margin:16px 0 0;">
+      <p style="color:#bfc3d4; font-size:12px; line-height:1.6; margin:0;">
+        <strong style="color:#ffffff;">Before you arrive:</strong> wear footwear suitable for the surface,
+        and please leave the facility as you found it. This booking is covered by the Facility Use Terms
+        &amp; Liability Waiver you agreed to when requesting. Need to cancel or change? Email
+        <a href="mailto:info@cufc.co.nz" style="color:${USC_BRAND};">info@cufc.co.nz</a> at least 24 hours before your slot.
+      </p>
+    </div>
+    <p style="color:#8b8fa8; font-size:13px; line-height:1.6; margin:24px 0 0;">
+      See you at the centre! <span style="color:#5a6078;">(Booking reference: MBR-${params.requestId})</span>
+    </p>`;
+
+  return sendEmail({
+    to: params.to,
+    from: USC_FROM,
+    replyTo: USC_REPLY_TO,
+    subject: `Booking confirmed — ${params.facilityName}, ${params.dateLong} ${params.timeRange}`,
+    html: uscShell({ heading: "Booking Confirmed", sub: "Member Booking", bodyHtml }),
+  });
+}
+
+/** Confirmation for a booking created by staff in the admin calendar.
+ *  Handles single bookings, multi-facility bookings, and recurring series
+ *  (one email listing the dates, not one email per occurrence). */
+export async function sendManualBookingConfirmationEmail(params: {
+  to: string;
+  customerName: string;
+  facilityNames: string[];
+  dateLongs: string[];   // pre-formatted, sorted, e.g. "Friday, 12 June 2026"
+  timeRange: string;
+  amountLabel?: string | null;
+}): Promise<boolean> {
+  const MAX_DATES = 12;
+  const shownDates = params.dateLongs.slice(0, MAX_DATES);
+  const moreCount = params.dateLongs.length - shownDates.length;
+
+  const rows = [
+    uscRow(params.facilityNames.length > 1 ? "Facilities" : "Facility", params.facilityNames.join("<br/>")),
+    params.dateLongs.length === 1
+      ? uscRow("Date", params.dateLongs[0])
+      : uscRow(`Dates (${params.dateLongs.length})`, shownDates.join("<br/>") + (moreCount > 0 ? `<br/>+ ${moreCount} more` : "")),
+    uscRow("Time", params.timeRange, true),
+    ...(params.amountLabel ? [uscRow("Amount", params.amountLabel)] : []),
+  ].join("");
+
+  const bodyHtml = `
+    <p style="color:#e6e8f0; font-size:16px; margin:0 0 16px;">Hi ${params.customerName},</p>
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 24px;">
+      Your booking at the United Sports Centre is <strong style="color:${USC_BRAND};">confirmed</strong>. Here are the details:
+    </p>
+    ${uscCard(rows)}
+    <p style="color:#8b8fa8; font-size:13px; line-height:1.6; margin:24px 0 0;">
+      Need to change or cancel? Reply to this email or contact
+      <a href="mailto:info@cufc.co.nz" style="color:${USC_BRAND};">info@cufc.co.nz</a> at least 24 hours before your booking. See you at the centre!
+    </p>`;
+
+  const subjectDate = params.dateLongs.length === 1 ? params.dateLongs[0] : `${params.dateLongs.length} sessions`;
+  return sendEmail({
+    to: params.to,
+    from: USC_FROM,
+    replyTo: USC_REPLY_TO,
+    subject: `Booking confirmed — ${params.facilityNames[0]}, ${subjectDate}`,
+    html: uscShell({ heading: "Booking Confirmed", sub: "United Sports Centre", bodyHtml }),
+  });
+}
+
+/** Cancellation notice — staff removed a booking from the admin calendar and
+ *  chose to notify the customer. Covers single bookings and whole series. */
+export async function sendBookingCancellationEmail(params: {
+  to: string;
+  customerName: string;
+  facilityNames: string[];
+  dateLongs: string[];   // pre-formatted, sorted
+  timeRange: string;
+}): Promise<boolean> {
+  const MAX_DATES = 12;
+  const shownDates = params.dateLongs.slice(0, MAX_DATES);
+  const moreCount = params.dateLongs.length - shownDates.length;
+
+  const rows = [
+    uscRow(params.facilityNames.length > 1 ? "Facilities" : "Facility", params.facilityNames.join("<br/>")),
+    params.dateLongs.length === 1
+      ? uscRow("Date", params.dateLongs[0])
+      : uscRow(`Dates (${params.dateLongs.length})`, shownDates.join("<br/>") + (moreCount > 0 ? `<br/>+ ${moreCount} more` : "")),
+    uscRow("Time", params.timeRange, true),
+  ].join("");
+
+  const bodyHtml = `
+    <p style="color:#e6e8f0; font-size:16px; margin:0 0 16px;">Hi ${params.customerName},</p>
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 24px;">
+      Unfortunately the following booking${params.dateLongs.length > 1 ? "s have" : " has"} been
+      <strong style="color:#ef4444;">cancelled</strong>:
+    </p>
+    ${uscCard(rows)}
+    <p style="color:#8b8fa8; font-size:13px; line-height:1.6; margin:24px 0 0;">
+      If you've already paid, our team will be in touch about a refund. If this is unexpected or
+      you'd like to rebook, reply to this email or contact
+      <a href="mailto:info@cufc.co.nz" style="color:${USC_BRAND};">info@cufc.co.nz</a> — sorry for any inconvenience.
+    </p>`;
+
+  const subjectDate = params.dateLongs.length === 1 ? params.dateLongs[0] : `${params.dateLongs.length} sessions`;
+  return sendEmail({
+    to: params.to,
+    from: USC_FROM,
+    replyTo: USC_REPLY_TO,
+    subject: `Booking cancelled — ${params.facilityNames[0]}, ${subjectDate}`,
+    html: uscShell({ heading: "Booking Cancelled", sub: "United Sports Centre", bodyHtml, accent: "#ef4444" }),
+  });
+}
+
+/** Member notice — their request couldn't be accommodated. */
+export async function sendBookingRequestDeclinedEmail(params: {
+  to: string;
+  memberName: string;
+  facilityName: string;
+  dateLong: string;
+  timeRange: string;
+  reason?: string | null;
+}): Promise<boolean> {
+  const bodyHtml = `
+    <p style="color:#e6e8f0; font-size:16px; margin:0 0 16px;">Hi ${params.memberName},</p>
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 16px;">
+      Unfortunately we couldn't accommodate your booking request for
+      <strong style="color:#ffffff;">${params.facilityName}</strong> on
+      <strong style="color:#ffffff;">${params.dateLong}, ${params.timeRange}</strong>.
+    </p>
+    ${params.reason ? `<p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0 0 16px;"><em>"${params.reason}"</em></p>` : ""}
+    <p style="color:#bfc3d4; font-size:14px; line-height:1.6; margin:0;">
+      You're welcome to request another time at
+      <a href="https://book.unitedsportscentre.com/members" style="color:${USC_BRAND};">book.unitedsportscentre.com/members</a>,
+      or reply to this email and we'll help you find a slot that works.
+    </p>`;
+
+  return sendEmail({
+    to: params.to,
+    from: USC_FROM,
+    replyTo: USC_REPLY_TO,
+    subject: `Booking request update — ${params.facilityName}, ${params.dateLong}`,
+    html: uscShell({ heading: "Booking Request Update", sub: "Member Booking", bodyHtml }),
+  });
+}
+
 /** Balance auto-charge failed — ask the captain to pay the balance manually. */
 export async function sendLeagueBalanceFailedEmail(params: {
   registrationId: number;

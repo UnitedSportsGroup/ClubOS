@@ -44,6 +44,7 @@ import {
   ExternalLink,
   Sun,
   Moon,
+  Zap,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -81,6 +82,7 @@ const campsNav = [
 const venueNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "calendar", title: "Bookings Calendar", url: "/admin/calendar", icon: Calendar },
+  { tab: "booking-requests", title: "Booking Requests", url: "/admin/booking-requests", icon: ClipboardCheck },
   { tab: "website", title: "Website", url: "/admin/website", icon: Globe },
   { tab: "analytics", title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
   { tab: "facilities", title: "Facilities", url: "/admin/facilities", icon: Shield },
@@ -117,6 +119,7 @@ const tournamentNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "tournaments", title: "Tournaments", url: "/admin/tournaments", icon: Award },
   { tab: "clubs", title: "Clubs", url: "/admin/clubs", icon: Shield },
+  { tab: "skills-challenge", title: "Skills Challenge", url: "/admin/skills-challenge", icon: Zap },
 ];
 
 const tournamentSecondary = [

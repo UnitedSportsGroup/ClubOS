@@ -542,6 +542,13 @@ export const facilityBookings = pgTable("facility_bookings", {
   additionalFacilityIds: integer("additional_facility_ids").array(),
   recurrenceRule: text("recurrence_rule"),
   recurrenceEndDate: date("recurrence_end_date"),
+  // Waiver acceptance for bookings made through the public booking site —
+  // stamped at checkout (see shared/usc-waiver.ts). Admin-created and
+  // member-request bookings leave these at their defaults (the member flow
+  // records its acceptance on booking_requests instead).
+  waiverAccepted: boolean("waiver_accepted").notNull().default(false),
+  waiverVersion: text("waiver_version"),
+  waiverAcceptedAt: timestamp("waiver_accepted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -575,6 +582,41 @@ export const facilityAddons = pgTable("facility_addons", {
   maxQty: integer("max_qty"),
   appliesToAll: boolean("applies_to_all").default(true),
   active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Member booking requests — submitted from the public member booking page
+// (book.unitedsportscentre.com/members) with no payment attached. An admin
+// reviews each request in the "Booking Requests" tab; approving one creates a
+// confirmed $0 facilityBookings row (linked via facilityBookingId) so the slot
+// blocks the public calendar like any other booking.
+export const bookingRequests = pgTable("booking_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  facilityId: integer("facility_id").notNull().references(() => facilities.id, { onDelete: "cascade" }),
+  fullName: text("full_name").notNull(),
+  dateOfBirth: date("date_of_birth").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone").notNull(),
+  bookingDate: date("booking_date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  // full | half | quarter — same vocabulary as facilityBookings.
+  halfFull: text("half_full"),
+  // front|back for halves, q1–q4 for quarters; NULL for full bookings.
+  halfPosition: text("half_position"),
+  // The waiver the member agreed to. waiverVersion pins the exact text
+  // (see shared/usc-waiver.ts) so acceptance is auditable after edits.
+  waiverAccepted: boolean("waiver_accepted").notNull().default(false),
+  waiverVersion: text("waiver_version"),
+  waiverAcceptedAt: timestamp("waiver_accepted_at"),
+  status: text("status").notNull().default("pending"), // pending | approved | declined
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  declineReason: text("decline_reason"),
+  // Set on approval — the confirmed facilityBookings row that holds the slot.
+  facilityBookingId: integer("facility_booking_id").references(() => facilityBookings.id),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -886,6 +928,9 @@ export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricin
 export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
 export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
 export const insertVenueSettingsSchema = createInsertSchema(venueSettings).omit({ id: true, updatedAt: true });
+export const insertBookingRequestSchema = createInsertSchema(bookingRequests).omit({ id: true, createdAt: true });
+export type InsertBookingRequest = z.infer<typeof insertBookingRequestSchema>;
+export type BookingRequest = typeof bookingRequests.$inferSelect;
 
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({ id: true, createdAt: true });
 export const insertTournamentGroupSchema = createInsertSchema(tournamentGroups).omit({ id: true, createdAt: true });
@@ -1947,3 +1992,29 @@ export type InsertXeroSyncRun = z.infer<typeof insertXeroSyncRunSchema>;
 export type XeroSyncRun = typeof xeroSyncRuns.$inferSelect;
 
 export type Term = typeof terms.$inferSelect;
+
+// ---- CIC Skills Challenge ----
+// Side-competition run at the tournament. One row per player per challenge
+// entry. Registrations come from the public landing page (join.cicyouth.com)
+// or from admins adding walk-ups; scores are entered by CIC admins in the
+// mobile app or the ClubOS Skills Challenge tab.
+// Score semantics per challenge:
+//   juggling             → most juggles in 90 seconds (higher is better)
+//   dribble_pass_finish  → best time in seconds, 2 attempts (lower is better)
+export const skillsChallengeEntries = pgTable("skills_challenge_entries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  playerName: text("player_name").notNull(),
+  clubName: text("club_name").notNull(),
+  ageGroup: text("age_group").notNull(), // "U10" | "U11"
+  challenge: text("challenge").notNull(), // "juggling" | "dribble_pass_finish"
+  score: decimal("score", { precision: 8, scale: 2 }),
+  scoredByUserId: integer("scored_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  scoredAt: timestamp("scored_at"),
+  source: text("source").notNull().default("public"), // "public" | "admin"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertSkillsChallengeEntrySchema = createInsertSchema(skillsChallengeEntries).omit({ id: true, createdAt: true });
+export type InsertSkillsChallengeEntry = z.infer<typeof insertSkillsChallengeEntrySchema>;
+export type SkillsChallengeEntry = typeof skillsChallengeEntries.$inferSelect;

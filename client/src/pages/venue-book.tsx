@@ -12,10 +12,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Calendar as CalendarIcon, Clock, MapPin, Plus, Trash2, ArrowLeft, ArrowRight,
   CheckCircle2, Lightbulb, Users, ShoppingCart, Loader2, Lock, X,
-  ChevronLeft, ChevronRight, Shield, Minus,
+  ChevronLeft, ChevronRight, Shield, Minus, ScrollText,
 } from "lucide-react";
 import { FacilityCarousel } from "@/components/FacilityCarousel";
 import { cellsOverlap, QUARTER_POSITIONS, type FieldSize } from "@shared/field-cells";
+import { waiverSectionsFor, USC_WAIVER_VERSION } from "@shared/usc-waiver";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -392,6 +393,9 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
   const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.id !== id));
 
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", club: "", notes: "" });
+  // Facility Use Terms & Liability Waiver tick — required before checkout,
+  // mirrored server-side (checkoutSchema requires waiverAccepted === true).
+  const [waiverAgreed, setWaiverAgreed] = useState(false);
   const [checkout, setCheckout] = useState<{ clientSecret: string; bookingGroupId: string; quote: Quote } | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutErr, setCheckoutErr] = useState<string | null>(null);
@@ -424,6 +428,7 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
             addons: c.addons,
           })),
           discountCode: discountCode.trim() || undefined,
+          waiverAccepted: waiverAgreed,
         }),
       });
       const data = await r.json();
@@ -485,6 +490,8 @@ function BookingFlow({ resolved }: { resolved: ResolveResp }) {
             <DetailsStep
               customer={customer}
               setCustomer={setCustomer}
+              waiverAgreed={waiverAgreed}
+              setWaiverAgreed={setWaiverAgreed}
               brand={brand}
               onBack={() => setStep("review")}
               onSubmit={startCheckout}
@@ -1499,17 +1506,20 @@ function ReviewStep({
 
 // ============ STEP 3 — Details ============
 function DetailsStep({
-  customer, setCustomer, brand, onBack, onSubmit, loading, error,
+  customer, setCustomer, waiverAgreed, setWaiverAgreed, brand, onBack, onSubmit, loading, error,
 }: {
   customer: { name: string; email: string; phone: string; club: string; notes: string };
   setCustomer: (c: { name: string; email: string; phone: string; club: string; notes: string }) => void;
+  waiverAgreed: boolean;
+  setWaiverAgreed: (v: boolean) => void;
   brand: string;
   onBack: () => void;
   onSubmit: () => void;
   loading: boolean;
   error: string | null;
 }) {
-  const valid = customer.name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customer.email);
+  const valid = customer.name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customer.email) && waiverAgreed;
+  const waiverSections = waiverSectionsFor("public");
   return (
     <div>
       <h2 className="text-lg font-semibold mb-3">Your details</h2>
@@ -1536,8 +1546,47 @@ function DetailsStep({
           <Label className="text-xs text-white/60 mb-1.5 block">Notes</Label>
           <Textarea value={customer.notes} onChange={e => setCustomer({ ...customer, notes: e.target.value })} data-testid="input-notes" className="bg-white/[0.04] border-white/10 text-white min-h-[80px]" />
         </div>
-        {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-2.5">{error}</div>}
       </div>
+
+      {/* Facility Use Terms & Liability Waiver — same agreement as the member
+          booking site, with booking/cancellation sections adapted for paid
+          public bookings. Must be ticked to continue. */}
+      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden mb-5">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+          <ScrollText className="w-4 h-4 text-white/40" />
+          <div className="text-sm font-semibold">Facility Use Terms &amp; Liability Waiver</div>
+          <div className="text-[10px] text-white/30 ml-auto">v{USC_WAIVER_VERSION}</div>
+        </div>
+        <div className="max-h-64 overflow-y-auto px-5 py-4 space-y-4" data-testid="waiver-scrollbox">
+          {waiverSections.map(s => (
+            <div key={s.title}>
+              <div className="text-xs font-semibold text-white/80 mb-1">{s.title}</div>
+              <p className="text-xs text-white/50 leading-relaxed">{s.body}</p>
+            </div>
+          ))}
+        </div>
+        <label
+          className="flex items-start gap-3 px-5 py-4 border-t border-white/[0.06] cursor-pointer transition"
+          style={{ background: waiverAgreed ? `${brand}10` : "rgba(255,255,255,0.02)" }}
+        >
+          <input
+            type="checkbox"
+            checked={waiverAgreed}
+            onChange={e => setWaiverAgreed(e.target.checked)}
+            data-testid="checkbox-waiver"
+            className="mt-0.5 w-4 h-4 accent-[#6366f1] flex-shrink-0"
+          />
+          <span className="text-xs text-white/70 leading-relaxed">
+            I have read and agree to the
+            <span className="text-white font-medium"> Facility Use Terms &amp; Liability Waiver</span> above
+            on behalf of myself and my group, and I accept full liability for any damage and responsibility
+            for any injury as set out in those terms.
+          </span>
+        </label>
+      </div>
+
+      {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 mb-5">{error}</div>}
+
       <div className="flex gap-2 justify-between">
         <Button variant="outline" onClick={onBack} data-testid="button-back-details" disabled={loading}>
           <ArrowLeft className="w-4 h-4 mr-1.5" /> Back

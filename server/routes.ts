@@ -1,7 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory } from "@shared/schema";
+import { insertContactSchema, insertProgramSchema, insertRegistrationSchema, emailCampaigns, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, bookingRequests } from "@shared/schema";
+import { USC_WAIVER_VERSION } from "@shared/usc-waiver";
+import { canAccessTab } from "@shared/tabs";
 import { budgetStorage } from "./budget-storage";
 import { objectStorageClient } from "./replit_integrations/object_storage/objectStorage";
 import { db } from "./db";
@@ -11,7 +13,7 @@ import { requireAuth, requireSuperAdmin, requireTab, verifyPassword, hashPasswor
 import { sunriseSunsetLocal } from "./solar";
 import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, createRefund, retrieveRefund, getOrCreateCustomer, createOffSessionPaymentIntent } from "./stripe";
 import { sendPurchaseEvent, sendLeadEvent } from "./meta-capi";
-import { sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail } from "./email";
+import { sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail } from "./email";
 import { handleLeagueBalanceSuccess, handleLeagueBalanceFailed, claimBalance } from "./league-balance-cron";
 import { buildCICSchedule } from "./tournament-schedule";
 import { cellsOverlap } from "@shared/field-cells";
@@ -2849,6 +2851,31 @@ export async function registerRoutes(
         created.push(await storage.createFacilityBooking(row));
       }
 
+      // Confirmation email to the customer (best-effort — never fail the
+      // booking over email). One email covers the whole series/multi-facility
+      // group, not one per row.
+      if (allowedClient.customerEmail) {
+        try {
+          const facNames: string[] = [];
+          for (const fid of allFacilityIds) {
+            const f = await storage.getFacility(fid);
+            if (f) facNames.push(f.name);
+          }
+          const amount = parseFloat(allowedClient.totalAmount || "0");
+          const { sendManualBookingConfirmationEmail } = await import("./email");
+          sendManualBookingConfirmationEmail({
+            to: allowedClient.customerEmail,
+            customerName: allowedClient.customerName,
+            facilityNames: facNames.length > 0 ? facNames : ["United Sports Centre"],
+            dateLongs: occurrences.map(d => fmtDateLongNZ(d)),
+            timeRange: `${fmtTime12(allowedClient.startTime)}–${fmtTime12(allowedClient.endTime)}`,
+            amountLabel: amount > 0 ? `$${amount.toFixed(2)} incl. GST` : null,
+          }).catch(e => console.error("[Venue] manual booking confirmation email failed:", e));
+        } catch (e) {
+          console.error("[Venue] manual booking confirmation email failed:", e);
+        }
+      }
+
       // Response: single booking shape if just one, else summary so the client can show "X bookings created"
       if (created.length === 1) {
         return res.json(created[0]);
@@ -2900,11 +2927,63 @@ export async function registerRoutes(
 
   app.delete("/api/admin/venue/bookings/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getFacilityBooking(parseInt(req.params.id));
+      const existing = await storage.getFacilityBooking(parseInt(String(req.params.id)));
       if (!existing) return res.status(404).json({ message: "Not found" });
       if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
-      await storage.deleteFacilityBooking(parseInt(req.params.id));
-      res.json({ ok: true });
+
+      const isSeries = req.query.scope === "series" && !!existing.bookingGroupId;
+      const notify = req.query.notify === "true";
+
+      // Snapshot the affected rows BEFORE deleting so the cancellation email
+      // can list exactly what was removed.
+      let affected = [existing];
+      if (isSeries) {
+        affected = await db.select().from(facilityBookings)
+          .where(and(
+            eq(facilityBookings.bookingGroupId, existing.bookingGroupId!),
+            eq(facilityBookings.organizationId, existing.organizationId),
+          ));
+      }
+
+      // ?scope=series deletes every booking sharing this row's group id — used
+      // by the calendar to remove a recurring/multi-facility booking in one go.
+      if (isSeries) {
+        await db.delete(facilityBookings)
+          .where(and(
+            eq(facilityBookings.bookingGroupId, existing.bookingGroupId!),
+            eq(facilityBookings.organizationId, existing.organizationId),
+          ));
+      } else {
+        await storage.deleteFacilityBooking(existing.id);
+      }
+
+      // Cancellation notice — only when the admin ticked the option, and only
+      // if the booking has a customer email. Best-effort.
+      if (notify && existing.customerEmail) {
+        try {
+          const facIds = Array.from(new Set(affected.map(b => b.facilityId)));
+          const facNames: string[] = [];
+          for (const fid of facIds) {
+            const f = await storage.getFacility(fid);
+            if (f) facNames.push(f.name);
+          }
+          const dateLongs = Array.from(new Set(affected.map(b => b.bookingDate)))
+            .sort()
+            .map(d => fmtDateLongNZ(d));
+          const { sendBookingCancellationEmail } = await import("./email");
+          sendBookingCancellationEmail({
+            to: existing.customerEmail,
+            customerName: existing.customerName || "there",
+            facilityNames: facNames.length > 0 ? facNames : ["United Sports Centre"],
+            dateLongs,
+            timeRange: `${fmtTime12(existing.startTime)}–${fmtTime12(existing.endTime)}`,
+          }).catch(e => console.error("[Venue] cancellation email failed:", e));
+        } catch (e) {
+          console.error("[Venue] cancellation email failed:", e);
+        }
+      }
+
+      res.json({ ok: true, deleted: affected.length, notified: notify && !!existing.customerEmail });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -3277,6 +3356,10 @@ export async function registerRoutes(
       notes: z.string().optional().default(""),
     }),
     discountCode: z.string().optional().nullable(),
+    // The booking form can't submit without ticking the Facility Use Terms &
+    // Liability Waiver — enforced here too so a hand-crafted request can't
+    // skip it. Acceptance is stamped on every created booking row.
+    waiverAccepted: z.literal(true),
   });
 
   app.post("/api/public/venue/:orgId/bookings/checkout", async (req, res) => {
@@ -3329,6 +3412,9 @@ export async function registerRoutes(
           status: "pending" as const,
           bookingGroupId: groupId,
           notes: parsed.customer.notes || null,
+          waiverAccepted: true,
+          waiverVersion: USC_WAIVER_VERSION,
+          waiverAcceptedAt: new Date(),
         };
       });
 
@@ -3484,6 +3570,9 @@ export async function registerRoutes(
           notes: parsed.customer.notes
             ? `${parsed.customer.notes}\n[Recurring weekly · ${idx + 1}/${parsed.items.length}]`
             : `[Recurring weekly · ${idx + 1}/${parsed.items.length}]`,
+          waiverAccepted: true,
+          waiverVersion: USC_WAIVER_VERSION,
+          waiverAcceptedAt: new Date(),
         };
       });
 
@@ -3634,6 +3723,292 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ========= Member booking requests (book.unitedsportscentre.com/members) =========
+  //
+  // Club members request a slot with no payment attached. The request lands in
+  // the USC workspace "Booking Requests" tab; approving it creates a confirmed
+  // $0 facilityBookings row (so the slot blocks the public booking calendar)
+  // and emails the member a branded confirmation.
+
+  // Staff who get pinged about every new request. info@ is the office account
+  // (Avi), socials@ is Max Comrie who manages member bookings.
+  const BOOKING_REQUEST_NOTIFY = ["info@cufc.co.nz", "socials@cufc.co.nz"];
+  const BOOKING_REQUEST_REVIEW_URL = "https://clubos.fly.dev/admin/booking-requests";
+
+  function fmtDateLongNZ(iso: string): string {
+    return new Date(iso + "T00:00:00").toLocaleDateString("en-NZ", {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    });
+  }
+  function fmtTime12(t: string): string {
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")}${ampm}`;
+  }
+  function memberSizeLabel(halfFull: string | null, halfPosition: string | null): string | null {
+    if (halfFull === "half") return halfPosition ? `${halfPosition} half` : "half field";
+    if (halfFull === "quarter") return halfPosition ? `quarter ${halfPosition.toUpperCase()}` : "quarter field";
+    return null;
+  }
+  function addDaysISO(iso: string, n: number): string {
+    const d = new Date(iso + "T00:00:00");
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  const bookingRequestSubmitSchema = z.object({
+    fullName: z.string().trim().min(2).max(120),
+    dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    email: z.string().trim().email().max(254),
+    phone: z.string().trim().min(5).max(40),
+    facilityId: z.number().int().positive(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    halfFull: z.enum(["half", "full", "quarter"]).nullable().optional(),
+    halfPosition: z.enum(["front", "back", "q1", "q2", "q3", "q4"]).nullable().optional(),
+    // Must be literally true — the form can't submit without the waiver tick.
+    waiverAccepted: z.literal(true),
+  }).refine(
+    (v) => v.halfFull !== "half" || (v.halfPosition === "front" || v.halfPosition === "back"),
+    { message: "halfPosition (front or back) is required for half bookings", path: ["halfPosition"] }
+  ).refine(
+    (v) => v.halfFull !== "quarter" || (["q1", "q2", "q3", "q4"] as const).includes(v.halfPosition as any),
+    { message: "halfPosition (q1–q4) is required for quarter bookings", path: ["halfPosition"] }
+  );
+
+  app.post("/api/public/venue/:orgId/booking-requests", async (req, res) => {
+    try {
+      const orgId = parseInt(req.params.orgId);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      const parsed = bookingRequestSubmitSchema.parse(req.body);
+
+      if (!(await assertFacilityInOrg(parsed.facilityId, orgId))) {
+        return res.status(404).json({ message: "Facility not found" });
+      }
+      const facility = await storage.getFacility(parsed.facilityId);
+      if (!facility || !facility.active || !facility.publicVisible) {
+        return res.status(404).json({ message: "Facility not found" });
+      }
+
+      // Date of birth sanity: a real past date, not a typo in the future.
+      const { today } = nzNowStrings();
+      if (parsed.dateOfBirth >= today || parsed.dateOfBirth < "1900-01-01") {
+        return res.status(400).json({ message: "Please enter a valid date of birth" });
+      }
+
+      // Slot sanity: in the future (NZ time), inside opening hours, minimum
+      // duration, and within the venue's advance-booking window.
+      assertItemsBookable([{ date: parsed.date, startTime: parsed.startTime }]);
+      if (parsed.endTime <= parsed.startTime) {
+        return res.status(400).json({ message: "End time must be after start time" });
+      }
+      const settings = await storage.getVenueSettings(orgId);
+      if (settings) {
+        if (parsed.startTime < settings.openingTime || parsed.endTime > settings.closingTime) {
+          return res.status(400).json({ message: `Bookings run ${settings.openingTime}–${settings.closingTime}` });
+        }
+        const [sh, sm] = parsed.startTime.split(":").map(Number);
+        const [eh, em] = parsed.endTime.split(":").map(Number);
+        if ((eh * 60 + em) - (sh * 60 + sm) < settings.minDurationMinutes) {
+          return res.status(400).json({ message: `Minimum booking is ${settings.minDurationMinutes} minutes` });
+        }
+        if (parsed.date > addDaysISO(today, settings.advanceBookingDays)) {
+          return res.status(400).json({ message: `Bookings can be requested up to ${settings.advanceBookingDays} days ahead` });
+        }
+      }
+
+      // Conflict check against live bookings (same cell model as checkout).
+      // Pending member *requests* don't block each other — the admin resolves
+      // races at approval time, where the check re-runs inside a transaction.
+      const existing = await storage.getFacilityBookingsForDates(parsed.facilityId, [parsed.date]);
+      const conflict = existing.find(e =>
+        ["pending", "confirmed", "paid"].includes(e.status) &&
+        e.startTime < parsed.endTime && e.endTime > parsed.startTime &&
+        cellsOverlap(e.halfFull, e.halfPosition, parsed.halfFull, parsed.halfPosition)
+      );
+      if (conflict) {
+        return res.status(409).json({ message: "That slot has just been booked — please pick another time" });
+      }
+
+      const normalizedHalfFull = (facility.halfFull || facility.quarterField) ? (parsed.halfFull || "full") : null;
+      const [request] = await db.insert(bookingRequests).values({
+        organizationId: orgId,
+        facilityId: parsed.facilityId,
+        fullName: parsed.fullName,
+        dateOfBirth: parsed.dateOfBirth,
+        email: parsed.email,
+        phone: parsed.phone,
+        bookingDate: parsed.date,
+        startTime: parsed.startTime,
+        endTime: parsed.endTime,
+        halfFull: normalizedHalfFull,
+        halfPosition: normalizedHalfFull === "half" || normalizedHalfFull === "quarter" ? (parsed.halfPosition || null) : null,
+        waiverAccepted: true,
+        waiverVersion: USC_WAIVER_VERSION,
+        waiverAcceptedAt: new Date(),
+        status: "pending",
+      }).returning();
+
+      // Notify staff — best-effort, never fail the member's submission over email.
+      const sizeLabel = memberSizeLabel(request.halfFull, request.halfPosition);
+      const dateLong = fmtDateLongNZ(request.bookingDate);
+      const timeRange = `${fmtTime12(request.startTime)}–${fmtTime12(request.endTime)}`;
+      for (const to of BOOKING_REQUEST_NOTIFY) {
+        sendBookingRequestNotificationEmail({
+          to,
+          requestId: request.id,
+          memberName: request.fullName,
+          memberEmail: request.email,
+          memberPhone: request.phone,
+          facilityName: facility.name,
+          sizeLabel,
+          dateLong,
+          timeRange,
+          reviewUrl: BOOKING_REQUEST_REVIEW_URL,
+        }).catch(e => console.error("[BookingRequest] staff notification failed:", e));
+      }
+
+      res.status(201).json({ ok: true, id: request.id });
+    } catch (error: any) {
+      console.error("[BookingRequest] submit error:", error);
+      res.status(400).json({ message: error?.issues?.[0]?.message || error.message });
+    }
+  });
+
+  app.get("/api/admin/venue/booking-requests", requireAuth, requireTab("booking-requests"), async (req, res) => {
+    try {
+      const orgId = parseInt(req.query.orgId as string);
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      const rows = await db.select({
+        request: bookingRequests,
+        facilityName: facilities.name,
+      }).from(bookingRequests)
+        .leftJoin(facilities, eq(bookingRequests.facilityId, facilities.id))
+        .where(eq(bookingRequests.organizationId, orgId))
+        .orderBy(desc(bookingRequests.createdAt));
+      res.json(rows.map(r => ({ ...r.request, facilityName: r.facilityName })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/booking-requests/:id/approve", requireAuth, requireTab("booking-requests"), async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const [request] = await db.select().from(bookingRequests).where(eq(bookingRequests.id, id));
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      if (!(await checkUserOrg(req.session.userId!, request.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      if (request.status !== "pending") {
+        return res.status(409).json({ message: `Request is already ${request.status}` });
+      }
+      const { today, hhmm } = nzNowStrings();
+      if (request.bookingDate < today || (request.bookingDate === today && request.startTime <= hhmm)) {
+        return res.status(400).json({ message: "That slot has already passed — decline the request instead" });
+      }
+      const facility = await storage.getFacility(request.facilityId);
+      if (!facility) return res.status(404).json({ message: "Facility not found" });
+
+      // Approve atomically: advisory-lock the facility (same lock the public
+      // checkout takes), re-check conflicts, then create the confirmed $0
+      // booking and flip the request — so an approval can never double-book
+      // against a concurrent paid checkout.
+      const booking = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${request.facilityId})`);
+        const existing = await tx.select().from(facilityBookings)
+          .where(and(
+            eq(facilityBookings.facilityId, request.facilityId),
+            eq(facilityBookings.bookingDate, request.bookingDate),
+            inArray(facilityBookings.status, ["pending", "confirmed", "paid"]),
+          ));
+        const conflict = existing.find(e =>
+          e.startTime < request.endTime && e.endTime > request.startTime &&
+          cellsOverlap(e.halfFull, e.halfPosition, request.halfFull, request.halfPosition)
+        );
+        if (conflict) {
+          throw new Error("Slot is no longer available — another booking overlaps this time");
+        }
+        const [created] = await tx.insert(facilityBookings).values({
+          organizationId: request.organizationId,
+          facilityId: request.facilityId,
+          customerName: request.fullName,
+          customerEmail: request.email,
+          customerPhone: request.phone,
+          customerClub: "Club member",
+          bookingDate: request.bookingDate,
+          startTime: request.startTime,
+          endTime: request.endTime,
+          halfFull: request.halfFull,
+          halfPosition: request.halfPosition,
+          subtotalCents: 0,
+          gstCents: 0,
+          totalCents: 0,
+          totalAmount: "0.00",
+          gstAmount: "0.00",
+          status: "confirmed",
+          notes: `Member booking request MBR-${request.id} (approved)`,
+        }).returning();
+        await tx.update(bookingRequests).set({
+          status: "approved",
+          reviewedBy: req.session.userId!,
+          reviewedAt: new Date(),
+          facilityBookingId: created.id,
+        }).where(eq(bookingRequests.id, request.id));
+        return created;
+      });
+
+      sendBookingRequestConfirmedEmail({
+        to: request.email,
+        memberName: request.fullName,
+        facilityName: facility.name,
+        sizeLabel: memberSizeLabel(request.halfFull, request.halfPosition),
+        dateLong: fmtDateLongNZ(request.bookingDate),
+        timeRange: `${fmtTime12(request.startTime)}–${fmtTime12(request.endTime)}`,
+        requestId: request.id,
+      }).catch(e => console.error("[BookingRequest] confirmation email failed:", e));
+
+      res.json({ ok: true, facilityBookingId: booking.id });
+    } catch (error: any) {
+      console.error("[BookingRequest] approve error:", error);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/venue/booking-requests/:id/decline", requireAuth, requireTab("booking-requests"), async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+      const [request] = await db.select().from(bookingRequests).where(eq(bookingRequests.id, id));
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      if (!(await checkUserOrg(req.session.userId!, request.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      if (request.status !== "pending") {
+        return res.status(409).json({ message: `Request is already ${request.status}` });
+      }
+      await db.update(bookingRequests).set({
+        status: "declined",
+        reviewedBy: req.session.userId!,
+        reviewedAt: new Date(),
+        declineReason: reason || null,
+      }).where(eq(bookingRequests.id, request.id));
+
+      const facility = await storage.getFacility(request.facilityId);
+      sendBookingRequestDeclinedEmail({
+        to: request.email,
+        memberName: request.fullName,
+        facilityName: facility?.name || "the facility",
+        dateLong: fmtDateLongNZ(request.bookingDate),
+        timeRange: `${fmtTime12(request.startTime)}–${fmtTime12(request.endTime)}`,
+        reason: reason || null,
+      }).catch(e => console.error("[BookingRequest] decline email failed:", e));
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
     }
   });
 
@@ -7070,6 +7445,356 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message });
     }
   });
+
+  // ─────────────────────────── CIC SKILLS CHALLENGE ───────────────────────────
+  // Side-competition at the Christchurch International Cup. Four categories:
+  // {U10, U11} × {90-Second Juggling, Dribble Pass & Finish}.
+  //   - Public registration from join.cicyouth.com (no auth, no payment)
+  //   - Public leaderboard feeds the CIC Youth app's Skills tab
+  //   - Scoring: CIC admins via the mobile app (HMAC bearer token from
+  //     admin-login below — the app has no session cookies) or the ClubOS
+  //     Skills Challenge tab (normal session + tab permission).
+  // Score semantics: juggling = most juggles in 90s (higher wins);
+  // dribble_pass_finish = best time in seconds over 2 attempts (lower wins).
+
+  const SKILLS_ORG_SLUG = "christchurch-international-cup";
+  const SKILLS_AGE_GROUPS = ["U10", "U11"] as const;
+  const SKILLS_CHALLENGES = ["juggling", "dribble_pass_finish"] as const;
+
+  let skillsOrgIdCache: number | null = null;
+  async function skillsOrgId(): Promise<number> {
+    if (skillsOrgIdCache) return skillsOrgIdCache;
+    const [org] = await db.select().from(organizations).where(eq(organizations.slug, SKILLS_ORG_SLUG));
+    if (!org) throw new Error("CIC organization not found");
+    skillsOrgIdCache = org.id;
+    return org.id;
+  }
+
+  function normalizeSkillsInput(body: any): { playerName: string; clubName: string; ageGroup: string; challenge: string } | { error: string } {
+    const playerName = String(body?.playerName ?? "").trim();
+    const clubName = String(body?.clubName ?? "").trim();
+    const ageGroup = String(body?.ageGroup ?? "").trim().toUpperCase();
+    const challenge = String(body?.challenge ?? "").trim();
+    if (!playerName || playerName.length > 80) return { error: "Player name is required (max 80 characters)" };
+    if (!clubName || clubName.length > 80) return { error: "Club name is required (max 80 characters)" };
+    if (!(SKILLS_AGE_GROUPS as readonly string[]).includes(ageGroup)) return { error: "Age group must be U10 or U11" };
+    if (!(SKILLS_CHALLENGES as readonly string[]).includes(challenge)) return { error: "Unknown challenge" };
+    return { playerName, clubName, ageGroup, challenge };
+  }
+
+  function serializeSkillsEntry(e: typeof skillsChallengeEntries.$inferSelect) {
+    return {
+      id: e.id,
+      playerName: e.playerName,
+      clubName: e.clubName,
+      ageGroup: e.ageGroup,
+      challenge: e.challenge,
+      score: e.score == null ? null : Number(e.score),
+      scoredAt: e.scoredAt,
+      source: e.source,
+      createdAt: e.createdAt,
+    };
+  }
+
+  // Build the four ranked leaderboards. Standard competition ranking — equal
+  // scores share a rank. Unscored entries are counted but not ranked.
+  function skillsLeaderboards(entries: (typeof skillsChallengeEntries.$inferSelect)[]) {
+    const categories = [];
+    for (const challenge of SKILLS_CHALLENGES) {
+      for (const ageGroup of SKILLS_AGE_GROUPS) {
+        const all = entries.filter(e => e.challenge === challenge && e.ageGroup === ageGroup);
+        const scored = all
+          .filter(e => e.score != null)
+          .map(e => ({ id: e.id, playerName: e.playerName, clubName: e.clubName, score: Number(e.score) }));
+        scored.sort((a, b) => (challenge === "juggling" ? b.score - a.score : a.score - b.score));
+        let lastScore: number | null = null;
+        let lastRank = 0;
+        const ranked = scored.map((e, i) => {
+          const rank = e.score === lastScore ? lastRank : i + 1;
+          lastScore = e.score;
+          lastRank = rank;
+          return { ...e, rank };
+        });
+        categories.push({ challenge, ageGroup, entries: ranked, registeredCount: all.length, scoredCount: scored.length });
+      }
+    }
+    return categories;
+  }
+
+  // Bearer tokens for the mobile app — `userId.expiry.hmac`, signed with the
+  // session secret. 30 days comfortably covers the tournament window.
+  const SKILLS_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  function makeSkillsAdminToken(userId: number) {
+    const expiresAt = Date.now() + SKILLS_TOKEN_TTL_MS;
+    const payload = `${userId}.${expiresAt}`;
+    const sig = crypto.createHmac("sha256", process.env.SESSION_SECRET || "cufc-dev-secret").update(payload).digest("hex");
+    return { token: `${payload}.${sig}`, expiresAt };
+  }
+  function parseSkillsAdminToken(token: string): number | null {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const [userIdStr, expStr, sig] = parts;
+    const expected = crypto.createHmac("sha256", process.env.SESSION_SECRET || "cufc-dev-secret").update(`${userIdStr}.${expStr}`).digest("hex");
+    if (sig.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+    const userId = parseInt(userIdStr);
+    const exp = parseInt(expStr);
+    if (!userId || !exp || Date.now() > exp) return null;
+    return userId;
+  }
+
+  async function userCanScoreSkills(userId: number): Promise<boolean> {
+    const user = await storage.getUser(userId);
+    if (!user || !user.active) return false;
+    if (user.role === "super_admin") return true;
+    const orgs = await storage.getUserOrganizations(userId);
+    const membership = orgs.find(o => o.slug === SKILLS_ORG_SLUG);
+    if (!membership) return false;
+    return canAccessTab({
+      globalRole: user.role,
+      membershipRole: membership.userRole,
+      membershipTabs: membership.userTabs,
+      tabSlug: "skills-challenge",
+    });
+  }
+
+  async function requireSkillsAdminToken(req: Request, res: Response, next: NextFunction) {
+    const header = (req.headers.authorization as string | undefined) || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const userId = token ? parseSkillsAdminToken(token) : null;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    if (!(await userCanScoreSkills(userId))) {
+      return res.status(403).json({ message: "No Skills Challenge admin access" });
+    }
+    (req as any).skillsAdminUserId = userId;
+    next();
+  }
+
+  // Shared mutation logic for both auth layers (mobile token + web session).
+  async function skillsCreateEntry(body: any, source: string, userId: number | null) {
+    const input = normalizeSkillsInput(body);
+    if ("error" in input) return { error: input.error };
+    const orgId = await skillsOrgId();
+    // Soft dedupe — same player + club + category twice is almost always a
+    // double-tap on submit, not two different kids.
+    const [existing] = await db.select().from(skillsChallengeEntries).where(and(
+      eq(skillsChallengeEntries.organizationId, orgId),
+      eq(skillsChallengeEntries.challenge, input.challenge),
+      eq(skillsChallengeEntries.ageGroup, input.ageGroup),
+      sql`lower(${skillsChallengeEntries.playerName}) = ${input.playerName.toLowerCase()}`,
+      sql`lower(${skillsChallengeEntries.clubName}) = ${input.clubName.toLowerCase()}`,
+    ));
+    if (existing) return { entry: existing, alreadyRegistered: true };
+    const values: any = {
+      organizationId: orgId,
+      playerName: input.playerName,
+      clubName: input.clubName,
+      ageGroup: input.ageGroup,
+      challenge: input.challenge,
+      source,
+    };
+    if (body?.score != null && body.score !== "") {
+      const n = Number(body.score);
+      if (!Number.isFinite(n) || n < 0 || n > 999999) return { error: "Score must be a positive number" };
+      values.score = n.toFixed(2);
+      values.scoredByUserId = userId;
+      values.scoredAt = new Date();
+    }
+    const [row] = await db.insert(skillsChallengeEntries).values(values).returning();
+    return { entry: row, alreadyRegistered: false };
+  }
+
+  async function skillsPatchEntry(entryId: number, body: any, userId: number) {
+    const updates: Record<string, any> = {};
+    if ("playerName" in body) {
+      const v = String(body.playerName ?? "").trim();
+      if (!v || v.length > 80) return { error: "Player name is required (max 80 characters)" };
+      updates.playerName = v;
+    }
+    if ("clubName" in body) {
+      const v = String(body.clubName ?? "").trim();
+      if (!v || v.length > 80) return { error: "Club name is required (max 80 characters)" };
+      updates.clubName = v;
+    }
+    if ("ageGroup" in body) {
+      const v = String(body.ageGroup ?? "").trim().toUpperCase();
+      if (!(SKILLS_AGE_GROUPS as readonly string[]).includes(v)) return { error: "Age group must be U10 or U11" };
+      updates.ageGroup = v;
+    }
+    if ("challenge" in body) {
+      const v = String(body.challenge ?? "").trim();
+      if (!(SKILLS_CHALLENGES as readonly string[]).includes(v)) return { error: "Unknown challenge" };
+      updates.challenge = v;
+    }
+    if ("score" in body) {
+      if (body.score == null || body.score === "") {
+        updates.score = null;
+        updates.scoredByUserId = null;
+        updates.scoredAt = null;
+      } else {
+        const n = Number(body.score);
+        if (!Number.isFinite(n) || n < 0 || n > 999999) return { error: "Score must be a positive number" };
+        updates.score = n.toFixed(2);
+        updates.scoredByUserId = userId;
+        updates.scoredAt = new Date();
+      }
+    }
+    if (Object.keys(updates).length === 0) return { error: "Nothing to update" };
+    const orgId = await skillsOrgId();
+    const [row] = await db.update(skillsChallengeEntries)
+      .set(updates)
+      .where(and(eq(skillsChallengeEntries.id, entryId), eq(skillsChallengeEntries.organizationId, orgId)))
+      .returning();
+    if (!row) return { error: "Entry not found" };
+    return { entry: row };
+  }
+
+  async function skillsDeleteEntry(entryId: number) {
+    const orgId = await skillsOrgId();
+    const [row] = await db.delete(skillsChallengeEntries)
+      .where(and(eq(skillsChallengeEntries.id, entryId), eq(skillsChallengeEntries.organizationId, orgId)))
+      .returning();
+    return !!row;
+  }
+
+  async function skillsListEntries() {
+    const orgId = await skillsOrgId();
+    return db.select().from(skillsChallengeEntries)
+      .where(eq(skillsChallengeEntries.organizationId, orgId))
+      .orderBy(desc(skillsChallengeEntries.createdAt));
+  }
+
+  // -- Public: registration (landing page) + leaderboard (mobile app) --
+
+  app.post("/api/public/skills-challenge/register", async (req, res) => {
+    try {
+      const result = await skillsCreateEntry(req.body, "public", null);
+      if ("error" in result) return res.status(400).json({ message: result.error });
+      res.json({ ok: true, id: result.entry.id, alreadyRegistered: result.alreadyRegistered });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/public/skills-challenge/leaderboard", async (_req, res) => {
+    try {
+      const entries = await skillsListEntries();
+      res.json({ categories: skillsLeaderboards(entries) });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // -- Mobile admin: login + scoring (bearer token) --
+
+  app.post("/api/public/skills-challenge/admin-login", async (req, res) => {
+    try {
+      const { email, password } = req.body ?? {};
+      if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+      const user = await storage.getUserByEmail(String(email).trim());
+      if (!user || !user.active) return res.status(401).json({ message: "Invalid credentials" });
+      const valid = await verifyPassword(password, user.password);
+      if (!valid) return res.status(401).json({ message: "Invalid credentials" });
+      if (!(await userCanScoreSkills(user.id))) {
+        return res.status(403).json({ message: "This account doesn't have Skills Challenge admin access" });
+      }
+      const { token, expiresAt } = makeSkillsAdminToken(user.id);
+      res.json({ token, expiresAt, name: `${user.firstName} ${user.lastName}`.trim(), email: user.email });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/public/skills-challenge/admin/entries", requireSkillsAdminToken, async (_req, res) => {
+    try {
+      const entries = await skillsListEntries();
+      res.json(entries.map(serializeSkillsEntry));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/public/skills-challenge/admin/entries", requireSkillsAdminToken, async (req, res) => {
+    try {
+      const result = await skillsCreateEntry(req.body, "admin", (req as any).skillsAdminUserId);
+      if ("error" in result) return res.status(400).json({ message: result.error });
+      res.json({ ...serializeSkillsEntry(result.entry), alreadyRegistered: result.alreadyRegistered });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/public/skills-challenge/admin/entries/:id", requireSkillsAdminToken, async (req, res) => {
+    try {
+      const result = await skillsPatchEntry(parseInt(String(req.params.id)), req.body ?? {}, (req as any).skillsAdminUserId);
+      if ("error" in result) return res.status(400).json({ message: result.error });
+      res.json(serializeSkillsEntry(result.entry));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/public/skills-challenge/admin/entries/:id", requireSkillsAdminToken, async (req, res) => {
+    try {
+      const ok = await skillsDeleteEntry(parseInt(String(req.params.id)));
+      if (!ok) return res.status(404).json({ message: "Entry not found" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // -- Web admin (ClubOS Skills Challenge tab — session + tab permission) --
+
+  app.get("/api/admin/skills-challenge/entries", requireAuth, requireTab("skills-challenge"), async (_req, res) => {
+    try {
+      const entries = await skillsListEntries();
+      res.json(entries.map(serializeSkillsEntry));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/skills-challenge/leaderboard", requireAuth, requireTab("skills-challenge"), async (_req, res) => {
+    try {
+      const entries = await skillsListEntries();
+      res.json({ categories: skillsLeaderboards(entries) });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/skills-challenge/entries", requireAuth, requireTab("skills-challenge"), async (req, res) => {
+    try {
+      const result = await skillsCreateEntry(req.body, "admin", req.session.userId!);
+      if ("error" in result) return res.status(400).json({ message: result.error });
+      res.json({ ...serializeSkillsEntry(result.entry), alreadyRegistered: result.alreadyRegistered });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/skills-challenge/entries/:id", requireAuth, requireTab("skills-challenge"), async (req, res) => {
+    try {
+      const result = await skillsPatchEntry(parseInt(String(req.params.id)), req.body ?? {}, req.session.userId!);
+      if ("error" in result) return res.status(400).json({ message: result.error });
+      res.json(serializeSkillsEntry(result.entry));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/skills-challenge/entries/:id", requireAuth, requireTab("skills-challenge"), async (req, res) => {
+    try {
+      const ok = await skillsDeleteEntry(parseInt(String(req.params.id)));
+      if (!ok) return res.status(404).json({ message: "Entry not found" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ───────────────────────── END CIC SKILLS CHALLENGE ─────────────────────────
 
   app.get("/api/public/camps", async (_req, res) => {
     try {

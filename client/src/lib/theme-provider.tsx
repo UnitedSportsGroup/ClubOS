@@ -26,13 +26,22 @@ function readStoredMode(): ThemeMode {
 
 // The public booking flow (book.* subdomain or /book route) is hardcoded
 // dark-themed and the shared light-mode polyfill in index.css would flip its
-// white text invisible. Force dark for those surfaces regardless of the
-// visitor's stored preference or OS setting.
+// white text invisible. Same for the CIC Skills Challenge landing page
+// (join.cicyouth.com / /skills) — hardcoded near-black, so a light-mode
+// phone rendered its white text navy-on-black. Force dark for these
+// regardless of the visitor's stored preference or OS setting.
 function isPublicDarkSurface(): boolean {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname;
   const path = window.location.pathname;
-  return host.startsWith("book.") || path === "/book" || path.startsWith("/book/");
+  return (
+    host.startsWith("book.") ||
+    path === "/book" ||
+    path.startsWith("/book/") ||
+    host.includes("cicyouth") ||
+    path === "/skills" ||
+    path.startsWith("/skills/")
+  );
 }
 
 function resolveMode(mode: ThemeMode): "light" | "dark" {

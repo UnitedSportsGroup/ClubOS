@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -56,6 +56,23 @@ const emptyForm = {
   repeatByDay: [] as number[],
   repeatUntil: "",
 };
+
+// "· front half" / "· quarter Q3" suffix for a booking's field size. Empty for
+// full-field or non-divisible facilities.
+function sizeLabel(b: { halfFull: string | null; halfPosition: string | null }): string {
+  if (b.halfFull === "half") return b.halfPosition ? ` · ${b.halfPosition} half` : " · half";
+  if (b.halfFull === "quarter") return b.halfPosition ? ` · quarter ${b.halfPosition.toUpperCase()}` : " · quarter";
+  return "";
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 border-b border-white/5 last:border-0">
+      <span className="text-xs text-white/40 flex-shrink-0 pt-0.5">{label}</span>
+      <span className="text-xs text-white text-right min-w-0">{children}</span>
+    </div>
+  );
+}
 
 function getWeekDates(date: Date): Date[] {
   const d = new Date(date);
@@ -120,6 +137,16 @@ export default function VenueCalendar() {
   const [facilityFilter, setFacilityFilter] = useState<string>("all");
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [newBooking, setNewBooking] = useState({ ...emptyForm });
+  // Booking the user clicked — opens the details modal.
+  const [selectedBooking, setSelectedBooking] = useState<BookingWithFacility | null>(null);
+  // Delete confirmation step inside the details modal. Holds the scope the
+  // admin picked; notifyCancel drives the "email the customer" checkbox.
+  const [deleteIntent, setDeleteIntent] = useState<null | { scope?: "series" }>(null);
+  const [notifyCancel, setNotifyCancel] = useState(true);
+  useEffect(() => {
+    setDeleteIntent(null);
+    setNotifyCancel(true);
+  }, [selectedBooking?.id]);
 
   const weekDates = getWeekDates(currentDate);
 
@@ -153,6 +180,28 @@ export default function VenueCalendar() {
     onError: (e: any) => {
       toast({ title: "Couldn't create booking", description: e?.message || String(e), variant: "destructive" });
     },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id, scope, notify }: { id: number; scope?: "series"; notify?: boolean }) => {
+      const params = new URLSearchParams();
+      if (scope === "series") params.set("scope", "series");
+      if (notify) params.set("notify", "true");
+      const qs = params.toString();
+      const r = await apiRequest("DELETE", `/api/admin/venue/bookings/${id}${qs ? `?${qs}` : ""}`);
+      return await r.json();
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/venue/bookings"] });
+      setSelectedBooking(null);
+      toast({
+        title: result?.deleted > 1 ? `${result.deleted} bookings removed` : "Booking removed",
+        description: result?.notified
+          ? "The customer has been emailed a cancellation notice."
+          : "The time slot is available again.",
+      });
+    },
+    onError: (e: any) => toast({ title: "Couldn't delete booking", description: e?.message || String(e), variant: "destructive" }),
   });
 
   const weekDateStrs = weekDates.map(d => ymd(d));
@@ -303,14 +352,20 @@ export default function VenueCalendar() {
                         const inline = b.color
                           ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
                           : undefined;
+                        const extra = (b.additionalFacilityIds?.length || 0) > 0 ? ` +${b.additionalFacilityIds!.length}` : "";
                         return (
                           <div
                             key={b.id}
                             style={inline}
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
+                            onClick={() => setSelectedBooking(b)}
+                            role="button"
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium border cursor-pointer hover:brightness-125 transition ${b.color ? "" : statusColors[b.status]}`}
                             data-testid={`calendar-booking-${b.id}`}
                           >
-                            {b.facility?.name || "Booking"}
+                            <div className="truncate">{b.customerName || b.facility?.name || "Booking"}</div>
+                            <div className="truncate opacity-70 font-normal">
+                              {(b.facility?.name || "Facility") + extra}{sizeLabel(b)} · {b.startTime}–{b.endTime}
+                            </div>
                           </div>
                         );
                       })}
@@ -351,22 +406,19 @@ export default function VenueCalendar() {
                         const inline = b.color
                           ? { backgroundColor: `${b.color}33`, borderColor: `${b.color}55`, color: b.color }
                           : undefined;
+                        const extra = (b.additionalFacilityIds?.length || 0) > 0 ? ` +${b.additionalFacilityIds!.length}` : "";
                         return (
                           <div
                             key={b.id}
                             style={inline}
-                            className={`rounded px-2 py-1 text-xs font-medium border mb-0.5 ${b.color ? "" : statusColors[b.status]}`}
+                            onClick={() => setSelectedBooking(b)}
+                            role="button"
+                            className={`rounded px-2 py-1 text-xs font-medium border mb-0.5 cursor-pointer hover:brightness-125 transition ${b.color ? "" : statusColors[b.status]}`}
                             data-testid={`calendar-booking-${b.id}`}
                           >
                             <span className="opacity-70 mr-2">{b.startTime}–{b.endTime}</span>
-                            {b.facility?.name || "Booking"}
-                            {b.halfFull === "half" && (
-                              <span className="opacity-70 ml-1">· {b.halfPosition ? `${b.halfPosition} half` : "half"}</span>
-                            )}
-                            {b.halfFull === "quarter" && (
-                              <span className="opacity-70 ml-1">· quarter {b.halfPosition?.toUpperCase() || ""}</span>
-                            )}
-                            {b.customerName && <span className="opacity-60 ml-2">· {b.customerName}</span>}
+                            {b.customerName || b.facility?.name || "Booking"}
+                            <span className="opacity-60 ml-2">· {(b.facility?.name || "Facility") + extra}{sizeLabel(b)}</span>
                           </div>
                         );
                       })}
@@ -427,7 +479,9 @@ export default function VenueCalendar() {
                             key={b.id}
                             style={inline}
                             title={`${b.startTime}–${b.endTime} · ${b.facility?.name || ""} · ${b.customerName || ""}`}
-                            className={`rounded px-1 py-0.5 text-[9px] font-medium border truncate ${b.color ? "" : statusColors[b.status]}`}
+                            onClick={(e) => { e.stopPropagation(); setSelectedBooking(b); }}
+                            role="button"
+                            className={`rounded px-1 py-0.5 text-[9px] font-medium border truncate cursor-pointer hover:brightness-125 transition ${b.color ? "" : statusColors[b.status]}`}
                             data-testid={`calendar-booking-${b.id}`}
                           >
                             {label}
@@ -500,7 +554,7 @@ export default function VenueCalendar() {
         const renderRow = (b: BookingWithFacility) => {
           const dot = b.color || "#3b82f6";
           return (
-            <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 hover:bg-white/[0.03]" data-testid={`list-booking-${b.id}`}>
+            <div key={b.id} onClick={() => setSelectedBooking(b)} role="button" className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 hover:bg-white/[0.03] cursor-pointer" data-testid={`list-booking-${b.id}`}>
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot }} />
               <div className="w-32 text-xs text-white/60 flex-shrink-0">
                 {new Date(b.bookingDate + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })}
@@ -595,7 +649,9 @@ export default function VenueCalendar() {
                             bottom: 4,
                             ...inline,
                           }}
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate flex items-center ${b.color ? "" : statusColors[b.status]}`}
+                          onClick={() => setSelectedBooking(b)}
+                          role="button"
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border truncate flex items-center cursor-pointer hover:brightness-125 transition ${b.color ? "" : statusColors[b.status]}`}
                           data-testid={`planner-booking-${b.id}`}
                         >
                           <span className="opacity-70 mr-1.5">{b.startTime}</span>
@@ -606,6 +662,154 @@ export default function VenueCalendar() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Booking details — opens when any booking chip/row is clicked. Read-only. */}
+      {selectedBooking && (() => {
+        const b = selectedBooking;
+        const primaryName = b.facility?.name || facs.find(f => f.id === b.facilityId)?.name || "Facility";
+        const extraNames = (b.additionalFacilityIds || []).map(id => facs.find(f => f.id === id)?.name || `Facility #${id}`);
+        const amount = Number(b.totalAmount || 0);
+        const isMemberBooking = (b.notes || "").startsWith("Member booking request");
+        const dateLong = new Date(b.bookingDate + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSelectedBooking(null)}>
+            <div className="bg-[#0f1423] border border-white/10 rounded-2xl p-6 w-[460px] max-w-[95vw] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="booking-details-modal">
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold text-white truncate" data-testid="text-details-name">{b.customerName || "Booking"}</h3>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${statusColors[b.status]}`}>{b.status}</span>
+                    {isMemberBooking && (
+                      <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border bg-indigo-500/15 text-indigo-300 border-indigo-500/30">Member booking</span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => setSelectedBooking(null)} className="text-white/30 hover:text-white/60 flex-shrink-0" data-testid="button-close-details"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="mt-4">
+                <DetailRow label={extraNames.length > 0 ? "Facilities" : "Facility"}>
+                  <span className="font-medium">{primaryName}{sizeLabel(b)}</span>
+                  {extraNames.map(n => <span key={n} className="block text-white/80">{n}</span>)}
+                </DetailRow>
+                <DetailRow label="Date">{dateLong}</DetailRow>
+                <DetailRow label="Time">{b.startTime} – {b.endTime}</DetailRow>
+                {b.customerEmail && (
+                  <DetailRow label="Email"><a href={`mailto:${b.customerEmail}`} className="text-blue-400 hover:underline break-all">{b.customerEmail}</a></DetailRow>
+                )}
+                {b.customerPhone && (
+                  <DetailRow label="Phone"><a href={`tel:${b.customerPhone}`} className="text-blue-400 hover:underline">{b.customerPhone}</a></DetailRow>
+                )}
+                {b.customerClub && <DetailRow label="Club / org">{b.customerClub}</DetailRow>}
+                <DetailRow label="Amount">
+                  {amount > 0 ? `$${amount.toFixed(2)} incl. GST` : "No charge"}
+                  {b.discountCode && <span className="block text-white/50">Code: {b.discountCode}</span>}
+                </DetailRow>
+                {b.paidAt && (
+                  <DetailRow label="Paid">{new Date(b.paidAt).toLocaleString("en-NZ", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</DetailRow>
+                )}
+                {b.recurrenceRule && (
+                  <DetailRow label="Repeats">
+                    {b.recurrenceRule.replace("FREQ=", "").toLowerCase()}
+                    {b.recurrenceEndDate ? ` until ${new Date(b.recurrenceEndDate + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                  </DetailRow>
+                )}
+                {b.notes && <DetailRow label="Notes"><span className="whitespace-pre-wrap">{b.notes}</span></DetailRow>}
+                {b.bookingGroupId && <DetailRow label="Reference"><span className="text-white/60 break-all">{b.bookingGroupId}</span></DetailRow>}
+                {b.createdAt && (
+                  <DetailRow label="Booked on">{new Date(b.createdAt).toLocaleString("en-NZ", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</DetailRow>
+                )}
+              </div>
+
+              {(() => {
+                // Other rows sharing this booking's group id (recurring series /
+                // multi-facility) — offers a one-click series delete.
+                const seriesCount = b.bookingGroupId
+                  ? bookings.filter(x => x.bookingGroupId === b.bookingGroupId && x.status !== "cancelled").length
+                  : 0;
+
+                if (deleteIntent) {
+                  const isSeries = deleteIntent.scope === "series";
+                  return (
+                    <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/[0.06] p-4 space-y-3" data-testid="delete-confirm-panel">
+                      <p className="text-sm text-red-200 font-medium">
+                        {isSeries
+                          ? `Delete the entire series — all ${seriesCount} linked bookings?`
+                          : "Delete this booking?"}
+                      </p>
+                      <p className="text-xs text-white/50">
+                        The time slot{isSeries ? "s become" : " becomes"} available again. This can't be undone.
+                      </p>
+                      {b.customerEmail && (
+                        <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                          <input
+                            type="checkbox"
+                            checked={notifyCancel}
+                            onChange={e => setNotifyCancel(e.target.checked)}
+                            className="mt-0.5 w-4 h-4 accent-red-500 flex-shrink-0"
+                            data-testid="checkbox-notify-cancel"
+                          />
+                          <span className="text-xs text-white/70 leading-relaxed">
+                            Email a cancellation notice to <span className="text-white">{b.customerEmail}</span>
+                          </span>
+                        </label>
+                      )}
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button variant="ghost" size="sm" onClick={() => setDeleteIntent(null)} disabled={deleteMutation.isPending} className="text-white/50" data-testid="button-delete-back">
+                          Back
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => deleteMutation.mutate({ id: b.id, scope: deleteIntent.scope, notify: !!b.customerEmail && notifyCancel })}
+                          disabled={deleteMutation.isPending}
+                          className="bg-red-600 hover:bg-red-700 text-white"
+                          data-testid="button-confirm-delete"
+                        >
+                          {deleteMutation.isPending
+                            ? "Deleting…"
+                            : isSeries
+                              ? `Delete ${seriesCount} bookings`
+                              : "Delete booking"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex items-center justify-between gap-2 pt-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDeleteIntent({})}
+                        disabled={deleteMutation.isPending}
+                        className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+                        data-testid="button-delete-booking"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete booking
+                      </Button>
+                      {seriesCount > 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDeleteIntent({ scope: "series" })}
+                          disabled={deleteMutation.isPending}
+                          className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+                          data-testid="button-delete-series"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete series ({seriesCount})
+                        </Button>
+                      )}
+                    </div>
+                    <Button variant="ghost" onClick={() => setSelectedBooking(null)} className="text-white/50" data-testid="button-details-close">Close</Button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );

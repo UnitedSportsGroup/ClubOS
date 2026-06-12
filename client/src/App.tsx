@@ -57,6 +57,8 @@ import VenueSettings from "@/pages/venue-settings";
 import VenueWebsite from "@/pages/venue-website";
 import VenueBookPage from "@/pages/venue-book";
 import VenueBookSuccess from "@/pages/venue-book-success";
+import MemberBookingPage from "@/pages/member-booking";
+import VenueBookingRequests from "@/pages/venue-booking-requests";
 import LeagueDashboard from "@/pages/league-dashboard";
 import LeagueCompetitions from "@/pages/league-competitions";
 import LeagueCompetitionDetail from "@/pages/league-competition-detail";
@@ -71,6 +73,8 @@ import ClubsList from "@/pages/clubs-list";
 import ClubDetail from "@/pages/club-detail";
 import TournamentDetail from "@/pages/tournament-detail";
 import TournamentTeamDetail from "@/pages/tournament-team-detail";
+import TournamentSkillsChallenge from "@/pages/tournament-skills-challenge";
+import CicSkillsLandingPage from "@/pages/cic-skills-landing";
 import PrintsDashboard from "@/pages/prints-dashboard";
 import PrintsCRM from "@/pages/prints-crm";
 import PrintsOrders from "@/pages/prints-orders";
@@ -194,6 +198,7 @@ function AdminRouter() {
         <Route path="/admin/tournaments" component={TournamentList} />
         <Route path="/admin/clubs/:id" component={ClubDetail} />
         <Route path="/admin/clubs" component={ClubsList} />
+        <Route path="/admin/skills-challenge" component={TournamentSkillsChallenge} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
         <Route component={NotFound} />
@@ -221,6 +226,7 @@ function AdminRouter() {
       <Switch>
         <Route path="/admin" component={VenueDashboard} />
         <Route path="/admin/calendar" component={VenueCalendar} />
+        <Route path="/admin/booking-requests" component={VenueBookingRequests} />
         <Route path="/admin/analytics" component={VenueAnalytics} />
         <Route path="/admin/facilities" component={VenueFacilities} />
         <Route path="/admin/addons" component={VenueAddons} />
@@ -335,9 +341,11 @@ function App() {
                 const isVenueHost = host.startsWith("book.");
                 const isPrintHost = host.startsWith("order.") || host.includes("unitedprints.co.nz");
                 const isMflHost = host.includes("minifootball");
+                const isCicHost = host.includes("cicyouth");
                 if (isVenueHost) return <VenueBookPage />;
                 if (isPrintHost) return <PrintHub />;
                 if (isMflHost) return <Redirect to="/league" />;
+                if (isCicHost) return <Redirect to="/skills" />;
                 return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
               })()}
             </Route>
@@ -346,11 +354,15 @@ function App() {
             <Route path="/calendar/rsvp/:token" component={RsvpPage} />
             <Route path="/book" component={VenueBookPage} />
             <Route path="/book/success" component={VenueBookSuccess} />
+            {/* Member booking requests (book.unitedsportscentre.com/members) */}
+            <Route path="/members" component={MemberBookingPage} />
             <Route path="/print" component={PrintHub} />
             <Route path="/print/configure/:slug" component={PrintConfigure} />
             <Route path="/print/checkout" component={PrintCheckout} />
             <Route path="/print/order/:token/upload" component={PrintUpload} />
             <Route path="/print/order/:token" component={PrintOrderStatus} />
+            {/* CIC Skills Challenge registration (join.cicyouth.com) */}
+            <Route path="/skills" component={CicSkillsLandingPage} />
             {/* MFL team registration funnel (join.minifootball.co.nz) */}
             <Route path="/league/balance/:registrationId">{() => <MflCheckoutPage mode="balance" />}</Route>
             <Route path="/league/:slug/register" component={MflRegisterPage} />
