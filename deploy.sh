@@ -247,7 +247,7 @@ if [ -n "$_LIVE_JS_PATH" ]; then
     "/admin/equipment|client/src/components/app-sidebar.tsx|Equipment Register tab" \
     "/admin/accommodation|client/src/components/app-sidebar.tsx|Accommodation tab" \
     "button-account-menu|client/src/components/account-menu.tsx|Top-right account menu" \
-    "Revenue isn't wired up for this workspace|client/src/components/dashboard/revenue-widget.tsx|Dashboard revenue widget" \
+    "Nothing is wired up for this workspace yet|client/src/components/dashboard/revenue-widget.tsx|Dashboard metric widget" \
     "MOVED_TO_ACCOUNT_MENU|client/src/components/app-sidebar.tsx|Trimmed sidebar (light-only era)" \
   | while IFS='|' read -r _marker _file _label; do
       [ -z "$_marker" ] && continue
