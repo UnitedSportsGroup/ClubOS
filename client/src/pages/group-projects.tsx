@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,7 @@ export default function GroupProjectsPage() {
   const { data: boards = [], isLoading: boardsLoading } = useQuery<ProjectBoard[]>({
     queryKey: ["/api/admin/projects/boards", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/projects/boards?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/boards?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load boards");
       return r.json();
     },
@@ -63,7 +63,7 @@ export default function GroupProjectsPage() {
       params.set("organizationId", String(orgId));
       if (board) params.set("boardId", String(board.id));
       if (brandFilter) params.set("brand", brandFilter);
-      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load tasks");
       return r.json();
     },
@@ -73,7 +73,7 @@ export default function GroupProjectsPage() {
   const { data: myTasks = [] } = useQuery<ProjectTask[]>({
     queryKey: ["/api/admin/projects/tasks/mine"],
     queryFn: async () => {
-      const r = await fetch("/api/admin/projects/tasks/mine", { credentials: "include" });
+      const r = await workspaceFetch("/api/admin/projects/tasks/mine", { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load");
       return r.json();
     },
@@ -94,7 +94,7 @@ export default function GroupProjectsPage() {
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("organizationId", String(orgId));
-      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -107,7 +107,7 @@ export default function GroupProjectsPage() {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ["/api/admin/departments", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/departments?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/departments?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) return [];
       return r.json();
     },
@@ -118,7 +118,7 @@ export default function GroupProjectsPage() {
   const { data: goals = [] } = useQuery<Goal[]>({
     queryKey: ["/api/admin/goals", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/goals?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/goals?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) return [];
       return r.json();
     },
@@ -157,7 +157,7 @@ export default function GroupProjectsPage() {
   const { data: team = [] } = useQuery<TeamMember[]>({
     queryKey: ["/api/admin/projects/team", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/projects/team?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/team?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load team");
       return r.json();
     },
@@ -793,7 +793,7 @@ function TaskModal({
       const params = new URLSearchParams();
       params.set("organizationId", String(orgId));
       params.set("boardId", String(board.id));
-      const r = await fetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/tasks?${params}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load subtasks");
       return r.json();
     },

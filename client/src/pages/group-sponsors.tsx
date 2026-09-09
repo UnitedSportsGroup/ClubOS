@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -175,7 +175,7 @@ export default function GroupSponsors() {
   const { data: sponsors = [], isLoading } = useQuery<Sponsor[]>({
     queryKey: ["/api/admin/sponsor-traffic", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsor-traffic?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsor-traffic?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load sponsors");
       return r.json();
     },
@@ -584,7 +584,7 @@ function SponsorAnalytics({ sponsorId }: { sponsorId: number }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/sponsor-traffic", sponsorId, "analytics"],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsor-traffic/${sponsorId}/analytics`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsor-traffic/${sponsorId}/analytics`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load analytics");
       return r.json();
     },

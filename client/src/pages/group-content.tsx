@@ -11,7 +11,7 @@ import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,7 +92,7 @@ export default function GroupContentPage() {
   const { data: items = [], isLoading: itemsLoading } = useQuery<ContentItem[]>({
     queryKey: ["/api/admin/content/items", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/content/items?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/content/items?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load content");
       return r.json();
     },
@@ -101,7 +101,7 @@ export default function GroupContentPage() {
   const { data: sessions = [] } = useQuery<ContentSession[]>({
     queryKey: ["/api/admin/content/sessions", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/content/sessions?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/content/sessions?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load sessions");
       return r.json();
     },
@@ -110,7 +110,7 @@ export default function GroupContentPage() {
   const { data: team = [] } = useQuery<TeamMember[]>({
     queryKey: ["/api/admin/content/team", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/content/team?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/content/team?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load team");
       return r.json();
     },

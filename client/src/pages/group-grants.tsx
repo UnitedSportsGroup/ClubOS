@@ -2,7 +2,7 @@ import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +147,7 @@ export default function GroupGrants() {
   const { data: funders = [], isLoading: fundersLoading } = useQuery<GrantFunder[]>({
     queryKey: ["/api/admin/grants/funders", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/grants/funders?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/grants/funders?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load funders");
       return r.json();
     },
@@ -157,7 +157,7 @@ export default function GroupGrants() {
   const { data: apps = [], isLoading: appsLoading } = useQuery<GrantApplication[]>({
     queryKey: ["/api/admin/grants/applications", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/grants/applications?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/grants/applications?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load applications");
       return r.json();
     },
@@ -785,7 +785,7 @@ function CalendarView({ orgId }: { orgId: number }) {
   const { data: deadlines = [], isLoading } = useQuery<GrantDeadline[]>({
     queryKey: ["/api/admin/grants/deadlines", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/grants/deadlines?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/grants/deadlines?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load deadlines");
       return r.json();
     },

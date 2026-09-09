@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,7 @@ export default function VenueWebsitePage() {
   const { data: domains, isLoading: domainsLoading, isError: domainsError, refetch: refetchDomains } = useQuery<CustomDomain[]>({
     queryKey: ["/api/admin/domains", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/domains?organizationId=${orgId}`);
+      const r = await workspaceFetch(`/api/admin/domains?organizationId=${orgId}`);
       if (!r.ok) throw new Error("Failed to load domains");
       return r.json();
     },

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,7 +110,7 @@ export default function GroupSponsorship() {
   const { data: summary } = useQuery<PipelineSummary>({
     queryKey: ["/api/admin/sponsorship/summary", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/summary?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/summary?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -124,7 +124,7 @@ export default function GroupSponsorship() {
       params.set("organizationId", String(orgId));
       if (brandFilter) params.set("brand", brandFilter);
       if (ownerFilter === "mine" && me?.id) params.set("ownerId", String(me.id));
-      const r = await fetch(`/api/admin/sponsorship/deals?${params}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/deals?${params}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -134,7 +134,7 @@ export default function GroupSponsorship() {
   const { data: team = [] } = useQuery<TeamMember[]>({
     queryKey: ["/api/admin/projects/team", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/projects/team?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/team?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -717,7 +717,7 @@ function DeliverablesSection({ dealId, team }: { dealId: number; team: TeamMembe
   const { data: items = [], isLoading } = useQuery<SponsorshipDeliverable[]>({
     queryKey: ["/api/admin/sponsorship/deliverables", dealId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/deals/${dealId}/deliverables`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/deals/${dealId}/deliverables`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -976,7 +976,7 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
   const { data: rows = [], isLoading } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
     queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, category],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=${category}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=${category}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -1429,7 +1429,7 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
   const { data: templates = [] } = useQuery<OnboardingTemplate[]>({
     queryKey: ["/api/admin/sponsorship/onboarding-templates", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/onboarding-templates?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/onboarding-templates?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -1438,7 +1438,7 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
   const { data: allDeliverables = [] } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
     queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=onboarding`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=onboarding`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -2137,7 +2137,7 @@ function ProspectsView({ orgId }: { orgId: number }) {
   const { data: prospects = [], isLoading } = useQuery<SponsorshipProspect[]>({
     queryKey: ["/api/admin/sponsorship/prospects", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/sponsorship/prospects?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/sponsorship/prospects?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load prospects");
       return r.json();
     },

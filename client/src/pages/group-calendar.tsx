@@ -12,7 +12,7 @@ import {
   ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, Calendar as CalIcon,
   Trash2, Edit, Repeat, DollarSign, Pencil, Users, Bell
 } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { CalendarEvent, CalendarCategory } from "@shared/schema";
@@ -211,7 +211,7 @@ export default function GroupCalendar() {
     queryKey: ["/api/admin/projects/team", currentOrg?.id],
     queryFn: async () => {
       if (!currentOrg?.id) return [];
-      const r = await fetch(`/api/admin/projects/team?organizationId=${currentOrg.id}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/projects/team?organizationId=${currentOrg.id}`, { credentials: "include" });
       if (!r.ok) return [];
       return r.json();
     },

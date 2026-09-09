@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,7 +132,7 @@ export default function GroupProposals() {
   const { data: proposals = [], isLoading } = useQuery<Proposal[]>({
     queryKey: ["/api/admin/proposals", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/proposals?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/proposals?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load proposals");
       return r.json();
     },
@@ -141,7 +141,7 @@ export default function GroupProposals() {
   const { data: categories = [] } = useQuery<ProposalCategory[]>({
     queryKey: ["/api/admin/proposal-categories", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/proposal-categories?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/proposal-categories?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load categories");
       return r.json();
     },
@@ -604,7 +604,7 @@ function ProposalAnalytics({ proposalId }: { proposalId: number }) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/proposals", proposalId, "analytics"],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/proposals/${proposalId}/analytics`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/proposals/${proposalId}/analytics`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load analytics");
       return r.json();
     },

@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +58,7 @@ export default function PrintCustomerAccounts() {
   const { data, isLoading, isError, refetch } = useQuery<{ customers: Account[] }>({
     queryKey: ["/api/admin/print-customers"],
     queryFn: async () => {
-      const r = await fetch("/api/admin/print-customers", { credentials: "include" });
+      const r = await workspaceFetch("/api/admin/print-customers", { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load");
       return r.json();
     },

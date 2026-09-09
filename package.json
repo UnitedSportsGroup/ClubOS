@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "db:migrate:camps-term": "tsx script/migrate-camps-term-mode.ts",
     "build:light-theme": "node script/build-light-theme.mjs",
-    "check:light-theme": "node script/build-light-theme.mjs --check"
+    "check:light-theme": "node script/build-light-theme.mjs --check",
+    "check:workspace-fetch": "node script/check-workspace-fetch.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

@@ -110,6 +110,16 @@ esac
 # on purpose.
 if [ "${PREFLIGHT_SKIP:-0}" != "1" ]; then
   echo "── Pre-deploy: would this branch remove anything live? ──"
+# 🔴 A bare fetch() to a tab-gated admin endpoint works for a super admin and
+# 400s for everybody else, so it ships looking finished. Fail here, not in Ryan's
+# face. (Daniel, 2026-09-10: "only i can see it and no one else".)
+echo ""
+echo "── Does every page work for STAFF, not just for Daniel? ──"
+if ! node script/check-workspace-fetch.mjs; then
+  echo "   Fix these before deploying, or the feature ships broken for everyone but you."
+  exit 91
+fi
+
   npx tsx --env-file=.env script/preflight-deploy.ts || {
     echo "❌ Pre-deploy check failed — not shipping. (PREFLIGHT_SKIP=1 to override deliberately.)"
     exit 1

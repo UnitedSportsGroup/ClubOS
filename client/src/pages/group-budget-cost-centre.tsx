@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, Fragment } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,7 +78,7 @@ export default function GroupBudgetCostCentrePage() {
   const { data, isLoading, error } = useQuery<Resp>({
     queryKey,
     queryFn: async () => {
-      const r = await fetch(`/api/admin/budget/cost-centres/${slug}?year=${year}`, {
+      const r = await workspaceFetch(`/api/admin/budget/cost-centres/${slug}?year=${year}`, {
         credentials: "include",
         headers: { "X-Workspace-Slug": "united-sports-group" },
       });
@@ -651,7 +651,7 @@ function AttachmentsPanel({ lineId, canEdit, indentPx = 24 }: { lineId: number; 
   const { data: attachments } = useQuery<Attachment[]>({
     queryKey: qk,
     queryFn: async () => {
-      const r = await fetch(`/api/admin/budget/lines/${lineId}/attachments`, {
+      const r = await workspaceFetch(`/api/admin/budget/lines/${lineId}/attachments`, {
         credentials: "include",
         headers: { "X-Workspace-Slug": "united-sports-group" },
       });
@@ -664,7 +664,7 @@ function AttachmentsPanel({ lineId, canEdit, indentPx = 24 }: { lineId: number; 
     mutationFn: async (file: File) => {
       const fd = new FormData();
       fd.append("file", file);
-      const r = await fetch(`/api/admin/budget/lines/${lineId}/attachments`, {
+      const r = await workspaceFetch(`/api/admin/budget/lines/${lineId}/attachments`, {
         method: "POST",
         body: fd,
         credentials: "include",
@@ -683,7 +683,7 @@ function AttachmentsPanel({ lineId, canEdit, indentPx = 24 }: { lineId: number; 
   });
 
   const openSigned = async (id: number) => {
-    const r = await fetch(`/api/admin/budget/attachments/${id}/url`, {
+    const r = await workspaceFetch(`/api/admin/budget/attachments/${id}/url`, {
       credentials: "include",
       headers: { "X-Workspace-Slug": "united-sports-group" },
     });

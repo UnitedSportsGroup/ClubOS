@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Globe, Plus, Trash2, ExternalLink, Copy, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomDomain } from "@shared/schema";
 import {
@@ -26,7 +26,7 @@ export default function AdminDomainSettings() {
   const { data: domains, isLoading } = useQuery<CustomDomain[]>({
     queryKey: ["/api/admin/domains", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/domains?organizationId=${orgId}`);
+      const r = await workspaceFetch(`/api/admin/domains?organizationId=${orgId}`);
       if (!r.ok) throw new Error("Failed to load domains");
       return r.json();
     },

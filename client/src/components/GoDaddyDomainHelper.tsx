@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -277,7 +277,7 @@ export function GoDaddyVerifiedRecord({ domainId, fullDomain, cnameTarget }: { d
   const { data } = useQuery<{ configuredTarget: string | null; cnameHost: string; apex: string; isApex?: boolean; apexForwardingTo?: string | null }>({
     queryKey: ["/api/admin/domains", domainId, "dns-status"],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/domains/${domainId}/dns-status`);
+      const r = await workspaceFetch(`/api/admin/domains/${domainId}/dns-status`);
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },

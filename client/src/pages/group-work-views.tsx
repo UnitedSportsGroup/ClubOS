@@ -7,7 +7,7 @@
 //   • LeadershipView   — the RAG rollup across every brand × department.
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -818,7 +818,7 @@ export function PlaybooksView({ orgId, boards, departments, team }: {
   const { data: templates = [], isLoading } = useQuery<TaskTemplate[]>({
     queryKey: ["/api/admin/task-templates", orgId],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/task-templates?organizationId=${orgId}`, { credentials: "include" });
+      const r = await workspaceFetch(`/api/admin/task-templates?organizationId=${orgId}`, { credentials: "include" });
       if (!r.ok) return [];
       return r.json();
     },
@@ -1003,7 +1003,7 @@ function PlaybookEditor({ orgId, template, departments, onClose }: {
   // Items are fetched fresh so the editor reflects saved state (incl. after create).
   const { data: liveTemplates = [] } = useQuery<TaskTemplate[]>({
     queryKey: ["/api/admin/task-templates", orgId],
-    queryFn: async () => { const r = await fetch(`/api/admin/task-templates?organizationId=${orgId}`, { credentials: "include" }); return r.ok ? r.json() : []; },
+    queryFn: async () => { const r = await workspaceFetch(`/api/admin/task-templates?organizationId=${orgId}`, { credentials: "include" }); return r.ok ? r.json() : []; },
     enabled: !!orgId,
   });
   const items = useMemo(() => (savedId ? (liveTemplates.find(t => t.id === savedId)?.items || []) : []), [liveTemplates, savedId]);
