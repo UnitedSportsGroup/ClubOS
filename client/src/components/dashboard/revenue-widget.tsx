@@ -135,7 +135,12 @@ export function RevenueWidget({
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-medium text-muted-foreground">Revenue</h2>
+            {/* The metric's own title. Hardcoding "Revenue" put that word above the
+                Cup's registrations-of-interest count and above its sales card,
+                so a dashboard with two cards called both of them the same thing. */}
+            <h2 className="text-sm font-medium text-muted-foreground">
+              {data?.source?.title ?? "Revenue"}
+            </h2>
             <p className="text-xs text-muted-foreground/80 mt-0.5">
               {data ? rangeLabel(data.range) : PERIOD_LABELS[period]}
             </p>
@@ -190,7 +195,7 @@ export function RevenueWidget({
             <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-foreground">
-                Revenue isn't wired up for this workspace yet
+                Nothing is wired up for this workspace yet
               </p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 This workspace takes money outside ClubOS, so there's nothing here to total.
@@ -232,7 +237,9 @@ function RevenueBody({ data }: { data: MetricResponse }) {
               against a zero baseline is a fiction, so it says so instead. */}
           {change === null ? (
             data.previous === 0 && data.total > 0 ? (
-              <span className="text-xs text-muted-foreground">no revenue in the previous period</span>
+              <span className="text-xs text-muted-foreground">
+                nothing in the previous period
+              </span>
             ) : null
           ) : (
             <span
@@ -299,8 +306,15 @@ function RevenueBody({ data }: { data: MetricResponse }) {
                 minTickGap={28}
               />
               <YAxis
+                // 🔴 Cents on a money metric, whole rows on a count. The money
+                // formatter on the Cup's interest chart drew an axis of "$0"
+                // beside a headline of 9 registrations.
                 tickFormatter={(c: number) =>
-                  c >= 100000 ? `$${Math.round(c / 100000)}k` : `$${Math.round(c / 100)}`
+                  data.source?.kind === "count"
+                    ? String(Math.round(c))
+                    : c >= 100000
+                      ? `$${Math.round(c / 100000)}k`
+                      : `$${Math.round(c / 100)}`
                 }
                 tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                 tickLine={false}
