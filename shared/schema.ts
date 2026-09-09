@@ -9165,6 +9165,8 @@ export const posRegisters = pgTable("pos_registers", {
   defaultOrgId: integer("default_org_id").references(() => organizations.id, { onDelete: "set null" }),
   stripeLocationId: text("stripe_location_id"),
   stripeReaderId: text("stripe_reader_id"),
+  /** The club is cashless. A register opts IN to a drawer — a merch stand might. */
+  handlesCash: boolean("handles_cash").notNull().default(false),
   active: boolean("active").notNull().default(true),
   createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", tz).defaultNow().notNull(),

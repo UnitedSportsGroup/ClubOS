@@ -41,6 +41,20 @@ export function posTenderLabel(v: unknown): string {
 /** Tenders staff can record without a reader — everything but card_present. */
 export const POS_MANUAL_TENDERS = POS_TENDERS.filter((t) => t.value !== "card_present");
 
+/**
+ * What a given register may actually take.
+ *
+ * 🔴 The club is CASHLESS (Daniel, 2026-09-09), so cash is a capability a
+ * register opts into rather than the default the till was first built around —
+ * it opened by asking staff to count a float into a drawer that does not
+ * exist. Kept rather than deleted because a CIC merch stand or a sausage
+ * sizzle is exactly where cash comes back, and that must be a tick, not a
+ * migration.
+ */
+export function tendersFor(register: { handlesCash?: boolean | null }): typeof POS_TENDERS[number][] {
+  return POS_TENDERS.filter((t) => t.value !== "cash" || register.handlesCash === true);
+}
+
 // ── Statuses and kinds ─────────────────────────────────────────────────────
 export const POS_SALE_STATUSES = ["open", "paid", "void", "refunded", "partially_refunded"] as const;
 export type PosSaleStatus = (typeof POS_SALE_STATUSES)[number];
