@@ -60,6 +60,18 @@ import { sendPosReceiptEmail } from "./email";
 
 const RECEIPT_BASE = process.env.POS_RECEIPT_BASE_URL || "https://app.usg.co.nz";
 
+/**
+ * Product photography is stored two ways: MFL and CIC point at Shopify's CDN
+ * (absolute), while CUFC's and SIU's are served by ClubOS itself as
+ * `/shop/<brand>/x.webp` (relative). A browser resolves a relative URL against
+ * the page it is on, so the web register never noticed. A native <Image> has no
+ * page to resolve against and simply renders nothing — which is how every CUFC
+ * and SIU product came up blank on the iPad. An API must hand a client
+ * something it can actually fetch.
+ */
+const absUrl = (u: string | null | undefined): string | null =>
+  !u ? null : /^https?:\/\//i.test(u) ? u : `${RECEIPT_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
+
 // ── Stripe per money account ─────────────────────────────────────────────────
 // The same shape as club-events' stripeFor: a missing key REFUSES to sell rather
 // than quietly charging the wrong account.
@@ -381,10 +393,10 @@ export function registerPosRoutes(app: Express) {
         .filter((p) => !q || p.title.toLowerCase().includes(q) || (p.subtitle ?? "").toLowerCase().includes(q))
         .map((p) => ({
           id: p.id, orgId: p.organizationId, title: p.title, subtitle: p.subtitle, type: p.type, priceCents: p.priceCents,
-          image: images.find((im) => im.productId === p.id && im.colourId == null)?.url ?? images.find((im) => im.productId === p.id)?.url ?? null,
+          image: absUrl(images.find((im) => im.productId === p.id && im.colourId == null)?.url ?? images.find((im) => im.productId === p.id)?.url),
           colours: colours.filter((c) => c.productId === p.id).map((c) => ({
             id: c.id, name: c.name, swatchHex: c.swatchHex,
-            image: images.find((im) => im.colourId === c.id)?.url ?? null,
+            image: absUrl(images.find((im) => im.colourId === c.id)?.url),
             variants: variants.filter((v) => v.colourId === c.id).map((v) => ({ id: v.id, size: v.size, sku: v.sku, stock: v.stock, priceCents: v.priceCents ?? p.priceCents })),
           })),
         }))
@@ -515,7 +527,7 @@ export function registerPosRoutes(app: Express) {
           await db.insert(posSaleLines).values({
             saleId: sale.id, kind: "variant", organizationId: row.p.organizationId, variantId: row.v.id, productId: row.p.id,
             title: row.p.title, detail: [row.c.name, row.v.size].filter(Boolean).join(" · "), unitCents: unit, qty, lineCents: unit * qty,
-            meta: { imageUrl: img?.url ?? null, sku: row.v.sku ?? null }, sort: nextSort,
+            meta: { imageUrl: absUrl(img?.url), sku: row.v.sku ?? null }, sort: nextSort,
           });
         }
       } else if (kind === "custom") {
