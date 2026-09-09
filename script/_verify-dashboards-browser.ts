@@ -49,10 +49,21 @@ async function main() {
         title: (document.querySelector('[data-testid="text-page-title"]')||{}).innerText || null,
         cardTitles: Array.from(document.querySelectorAll('h2')).map(function(e){return e.innerText.trim();}).filter(Boolean),
         axisTicks: Array.from(document.querySelectorAll('.recharts-yAxis text')).map(function(e){return e.textContent;}),
-        countAxisHasDollars: (function(){
-          var heads = Array.from(document.querySelectorAll('h2')).map(function(e){return e.innerText.trim();});
-          if (!heads.some(function(h){return /interest/i.test(h);})) return false;
-          return Array.from(document.querySelectorAll('.recharts-yAxis text')).some(function(e){return /\$/.test(e.textContent||"");});
+        // 🔴 Per CARD, not per page. Scanning every axis on the page made the
+        // 7's dashboard fail on its own money chart while its count chart was
+        // perfectly correct — the check was wrong, not the product.
+        badCountAxes: (function(){
+          var out = [];
+          Array.from(document.querySelectorAll('h2')).forEach(function(h){
+            var title = h.innerText.trim();
+            if (!/interest/i.test(title)) return;
+            var card = h;
+            while (card && !card.querySelector('.recharts-yAxis') && card.parentElement) card = card.parentElement;
+            if (!card) return;
+            var ticks = Array.from(card.querySelectorAll('.recharts-yAxis text')).map(function(e){return e.textContent||"";});
+            if (ticks.some(function(t){ return t.indexOf(String.fromCharCode(36)) >= 0; })) out.push(title + ": " + ticks.join(" "));
+          });
+          return out;
         })(),
         totals: Array.from(document.querySelectorAll('[data-testid="text-revenue-total"]')).map(function(e){return e.innerText;}),
         hasPicker: !!document.querySelector('button, [role="tablist"]') && /Last 30 days/.test(b),
@@ -72,8 +83,8 @@ async function main() {
     ok("every card has its own title", new Set(titles).size === titles.length, titles.join(" | "));
     ok("a count card is not titled Revenue",
       !(label.startsWith("cic") && titles.includes("Revenue")), titles.join(" | "));
-    ok("no dollar signs on a count chart's axis",
-      !m.countAxisHasDollars, m.axisTicks?.slice(0, 4).join(" ") ?? "");
+    ok("no dollar signs on a count chart's own axis",
+      (m.badCountAxes ?? []).length === 0, (m.badCountAxes ?? []).join(" | ") || (m.axisTicks ?? []).slice(0, 4).join(" "));
     await page.screenshot({ path: join(OUT, `${label}.png`) });
     console.log(`  → ${join(OUT, `${label}.png`)}`);
   }
