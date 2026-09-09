@@ -25,11 +25,13 @@ import {
   eachDay,
   previousRange,
   resolvePeriod,
-  revenueSourceFor,
+  metricFor,
+  metricsFor,
+  type DashboardMetric,
   type DashboardPeriod,
   type DateRange,
-  type RevenueResponse,
-  type RevenueSource,
+  type MetricPart,
+  type MetricResponse,
 } from "@shared/dashboard";
 
 // Identifiers come from the REVENUE_SOURCES registry in shared/dashboard.ts —
@@ -88,15 +90,34 @@ function dateExprFor(column: string, kind: "date" | "timestamptz" | "timestamp")
   return `(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
 }
 
-function whereFor(source: RevenueSource, orgId: number, range: DateRange, dateExpr: string) {
+/** Brands come from the registry, never a request, but they are interpolated
+ *  into SQL — so they are asserted at the boundary like every identifier. */
+function brandLiteral(brand: string): string {
+  if (!/^[a-z0-9_-]+$/.test(brand)) throw new Error(`Unsafe brand: ${brand}`);
+  return `'${brand}'`;
+}
+
+function whereFor(source: MetricPart, orgId: number, range: DateRange, dateExpr: string) {
   const scope = source.orgScope;
   const parts: string[] =
     scope.kind === "column"
       ? [`t.${ident(scope.column)} = ${orgId}`]
-      : // `registrations` reaches its workspace through the programme it is
+      : scope.kind === "viaPrograms"
+      ? // `registrations` reaches its workspace through the programme it is
         // for; it has no organization_id of its own.
+        [`t.${ident(scope.column)} IN (SELECT id FROM programs WHERE organization_id = ${orgId})`]
+      : scope.kind === "viaTeampayCompetition"
+      ? [
+          `t.${ident(scope.column)} IN (SELECT id FROM teampay_competitions ` +
+            `WHERE organization_id = ${orgId} AND brand = ${brandLiteral(scope.brand)})`,
+        ]
+      : // A player's payment reaches the workspace through its entry, and the
+        // entry's competition carries the brand — which is what keeps CIC 7's
+        // money apart from the Ethnic Cup's inside the one Cup workspace.
         [
-          `t.${ident(scope.column)} IN (SELECT id FROM programs WHERE organization_id = ${orgId})`,
+          `t.${ident(scope.column)} IN (SELECT id FROM teampay_entries WHERE competition_id IN ` +
+            `(SELECT id FROM teampay_competitions WHERE organization_id = ${orgId} ` +
+            `AND brand = ${brandLiteral(scope.brand)}))`,
         ];
   parts.push(`${dateExpr} BETWEEN '${range.from}'::date AND '${range.to}'::date`);
   if (source.statuses.length > 0) {
@@ -111,49 +132,58 @@ function whereFor(source: RevenueSource, orgId: number, range: DateRange, dateEx
   return parts.join(" AND ");
 }
 
+// 🔴 A money metric SUMS a column; a count metric counts ROWS. Summing a
+// missing column would throw, and counting rows for money would report the
+// number of payments as dollars — so the kind decides the expression, once.
+const valueExpr = (metric: DashboardMetric, part: MetricPart) =>
+  metric.kind === "money"
+    ? `COALESCE(SUM(t.${ident(part.amountColumn ?? "")}), 0)::bigint`
+    : `COUNT(*)::bigint`;
+
 async function sumFor(
-  source: RevenueSource,
+  metric: DashboardMetric,
+  part: MetricPart,
   orgId: number,
   range: DateRange,
   dateExpr: string,
 ) {
   const rows = await db.execute(
     sql.raw(`
-      SELECT COALESCE(SUM(t.${ident(source.amountColumn)}), 0)::bigint AS cents,
+      SELECT ${valueExpr(metric, part)} AS value,
              COUNT(*)::int AS n
-      FROM ${ident(source.table)} t
-      WHERE ${whereFor(source, orgId, range, dateExpr)}
+      FROM ${ident(part.table)} t
+      WHERE ${whereFor(part, orgId, range, dateExpr)}
     `),
   );
   const row: any = (rows as any).rows?.[0] ?? {};
-  return { cents: Number(row.cents ?? 0), count: Number(row.n ?? 0) };
+  return { value: Number(row.value ?? 0), count: Number(row.n ?? 0) };
 }
 
 async function seriesFor(
-  source: RevenueSource,
+  metric: DashboardMetric,
+  part: MetricPart,
   orgId: number,
   range: DateRange,
   dateExpr: string,
+  into: Map<string, number>,
 ) {
   const rows = await db.execute(
     sql.raw(`
-      SELECT ${dateExpr} AS d,
-             COALESCE(SUM(t.${ident(source.amountColumn)}), 0)::bigint AS cents
-      FROM ${ident(source.table)} t
-      WHERE ${whereFor(source, orgId, range, dateExpr)}
+      SELECT ${dateExpr} AS d, ${valueExpr(metric, part)} AS value
+      FROM ${ident(part.table)} t
+      WHERE ${whereFor(part, orgId, range, dateExpr)}
       GROUP BY 1
       ORDER BY 1
     `),
   );
-  const byDate = new Map<string, number>();
   for (const r of ((rows as any).rows ?? []) as any[]) {
     // pg returns a `date` as a local-midnight JS Date. Formatting it with
     // toISOString() would shift it a day; read the calendar parts instead.
     const d = r.d instanceof Date ? isoFromLocalDate(r.d) : String(r.d).slice(0, 10);
-    byDate.set(d, Number(r.cents ?? 0));
+    // Accumulated, because a metric can have more than one part and both may
+    // land on the same day.
+    into.set(d, (into.get(d) ?? 0) + Number(r.value ?? 0));
   }
-  // Fill every day so the chart shows real gaps rather than joining across them.
-  return eachDay(range).map((date) => ({ date, cents: byDate.get(date) ?? 0 }));
 }
 
 function isoFromLocalDate(d: Date): string {
@@ -166,32 +196,54 @@ function isoFromLocalDate(d: Date): string {
  * script exercises exactly the code the route runs, rather than a
  * reimplementation of it that can agree with itself while both are wrong.
  */
-export async function revenueFor(
+export async function metricSeries(
   orgSlug: string,
   orgId: number,
+  metricKey: string,
   period: DashboardPeriod,
-  custom?: { from?: string; to?: string },
-): Promise<RevenueResponse> {
-  const range = resolvePeriod(period, custom);
-  const source = revenueSourceFor(orgSlug);
-  if (!source) {
-    return { source: null, range, totalCents: 0, previousCents: 0, series: [], count: 0 };
+  opts?: { from?: string; to?: string; view?: string | null },
+): Promise<MetricResponse> {
+  const range = resolvePeriod(period, opts);
+  const metric = metricFor(orgSlug, opts?.view, metricKey);
+  // 🔴 No metric is NOT a zero. A workspace that charts nothing says so, or a
+  // club reads "$0.00" in its own dashboard and takes it as a fact about the
+  // month rather than a fact about our instrumentation.
+  if (!metric) {
+    return { source: null, range, total: 0, previous: 0, series: [], count: 0 };
   }
-  const kind = await dateKind(source.table, source.dateColumn);
-  const expr = dateExprFor(source.dateColumn, kind);
   const prev = previousRange(range);
-  const [current, previous, series] = await Promise.all([
-    sumFor(source, orgId, range, expr),
-    sumFor(source, orgId, prev, expr),
-    seriesFor(source, orgId, range, expr),
-  ]);
+  const byDate = new Map<string, number>();
+  let total = 0;
+  let previous = 0;
+  let count = 0;
+
+  for (const part of metric.parts) {
+    const kind = await dateKind(part.table, part.dateColumn);
+    const expr = dateExprFor(part.dateColumn, kind);
+    const [cur, before] = await Promise.all([
+      sumFor(metric, part, orgId, range, expr),
+      sumFor(metric, part, orgId, prev, expr),
+    ]);
+    await seriesFor(metric, part, orgId, range, expr, byDate);
+    total += cur.value;
+    previous += before.value;
+    count += cur.count;
+  }
+
   return {
-    source: { label: source.label, caveat: source.dateCaveat },
+    source: {
+      title: metric.title,
+      label: metric.label,
+      caveat: metric.dateCaveat,
+      kind: metric.kind,
+      unit: metric.unit,
+    },
     range,
-    totalCents: current.cents,
-    previousCents: previous.cents,
-    series,
-    count: current.count,
+    total,
+    previous,
+    // Fill every day so the chart shows real gaps rather than joining across them.
+    series: eachDay(range).map((date) => ({ date, value: byDate.get(date) ?? 0 })),
+    count,
   };
 }
 
@@ -200,7 +252,9 @@ export function registerDashboardRoutes(
   requireAuth: any,
   workspaceOrg: (req: any) => Promise<{ id: number; slug: string } | null>,
 ) {
-  app.get("/api/admin/dashboard/revenue", requireAuth, async (req, res) => {
+  // One endpoint for every dashboard number. `metric` picks which (revenue,
+  // interest, …) and `view` narrows to a sub-tournament inside the Cup.
+  const handler = async (req: any, res: any) => {
     try {
       const org = await workspaceOrg(req);
       // 🔴 An unresolved workspace is an ERROR, not an empty result. Answering
@@ -217,19 +271,40 @@ export function registerDashboardRoutes(
       const period: DashboardPeriod = (DASHBOARD_PERIODS as readonly string[]).includes(rawPeriod)
         ? (rawPeriod as DashboardPeriod)
         : "30d";
-      const range = resolvePeriod(period, {
-        from: req.query.from ? String(req.query.from) : undefined,
-        to: req.query.to ? String(req.query.to) : undefined,
-      });
+      const view = req.query.view ? String(req.query.view) : null;
+      const metricKey = String(req.query.metric ?? "revenue");
 
-      const body = await revenueFor(org.slug, org.id, period, {
+      const body = await metricSeries(org.slug, org.id, metricKey, period, {
         from: req.query.from ? String(req.query.from) : undefined,
         to: req.query.to ? String(req.query.to) : undefined,
+        view,
       });
       res.json(body);
     } catch (error: any) {
       // Let the client show "couldn't load" rather than a plausible zero.
-      res.status(500).json({ message: error?.message ?? "Failed to load revenue" });
+      res.status(500).json({ message: error?.message ?? "Failed to load dashboard metric" });
+    }
+  };
+
+  app.get("/api/admin/dashboard/metric", requireAuth, handler);
+  // The original path, kept so a stale client keeps working; it defaults to
+  // metric=revenue, which is exactly what it always returned.
+  app.get("/api/admin/dashboard/revenue", requireAuth, handler);
+
+  // Which cards this workspace (and sub-view) should draw, so a dashboard page
+  // never hardcodes a list that drifts from the registry.
+  app.get("/api/admin/dashboard/metrics", requireAuth, async (req: any, res: any) => {
+    try {
+      const org = await workspaceOrg(req);
+      if (!org) return res.status(400).json({ message: "No workspace selected." });
+      const view = req.query.view ? String(req.query.view) : null;
+      res.json({
+        metrics: metricsFor(org.slug, view).map((m) => ({
+          key: m.key, kind: m.kind, title: m.title, label: m.label, unit: m.unit,
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message ?? "Failed to load dashboard metrics" });
     }
   });
 }

@@ -146,127 +146,197 @@ export function eachDay(range: DateRange): string[] {
  */
 export type OrgScope =
   | { kind: "column"; column: string }
-  | { kind: "viaPrograms"; column: string };
+  | { kind: "viaPrograms"; column: string }
+  // Team Pay money reaches a workspace through its competition, and the
+  // competition also carries the BRAND — which is how CIC 7's money is told
+  // apart from the Ethnic Cup's inside the one Cup workspace.
+  | { kind: "viaTeampayCompetition"; column: string; brand: string }
+  | { kind: "viaTeampayEntry"; column: string; brand: string };
 
-export type RevenueSource = {
-  /** Table to sum. */
+export type MetricKind = "money" | "count";
+
+/**
+ * One table's contribution to a metric.
+ *
+ * 🔴 A metric can have MORE THAN ONE part, and Team Pay is why. A team's fee is
+ * settled either by each player paying a share (`teampay_players.paid_cents`)
+ * or by the manager paying the balance (`teampay_entries.team_paid_cents`), and
+ * both routes settle the SAME balance. Reporting one table would quietly halve
+ * the tournament's income the first time a manager cleared a team's fee.
+ */
+export type MetricPart = {
   table: string;
-  /** How rows in this table belong to a workspace. */
   orgScope: OrgScope;
-  /** Money column, in cents. */
-  amountColumn: string;
-  /** Column holding the date the money is attributed to. */
+  /** Required when the metric is money. Ignored for a count. */
+  amountColumn?: string;
   dateColumn: string;
-  /** Status values that count. Empty = every row counts. */
-  statuses: string[];
-  /** Status column name, when `statuses` is non-empty. */
   statusColumn?: string;
-  /** What the number actually means, shown to the user. */
+  statuses: string[];
+};
+
+export type DashboardMetric = {
+  /** Query key — `?metric=` on the endpoint. */
+  key: string;
+  kind: MetricKind;
+  /** Card heading, e.g. "Revenue" or "Registrations of interest". */
+  title: string;
+  /** What the number actually counts, shown under it. */
   label: string;
+  parts: MetricPart[];
   /** Set when the date column is a proxy — surfaced in the UI, never hidden. */
   dateCaveat?: string;
+  /** Singular/plural for a count metric, e.g. ["registration","registrations"]. */
+  unit?: [string, string];
 };
 
-export const REVENUE_SOURCES: Record<string, RevenueSource> = {
-  // 🔴 `paid_at` is NULL on all 448 confirmed registrations and `amount_paid`
-  // sums to $308 against a $53,200 total — both columns exist and neither is
-  // populated. `registered_at` + `total_cents` are the only honest pair, so the
-  // caveat says which date is being charted rather than implying settlement.
-  "christchurch-united": {
-    table: "registrations",
-    orgScope: { kind: "viaPrograms", column: "program_id" },
-    amountColumn: "total_cents",
-    dateColumn: "registered_at",
-    statusColumn: "status",
-    statuses: ["confirmed"],
-    label: "Confirmed registrations",
-    dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
-  },
-  "south-island-united": {
-    table: "registrations",
-    orgScope: { kind: "viaPrograms", column: "program_id" },
-    amountColumn: "total_cents",
-    dateColumn: "registered_at",
-    statusColumn: "status",
-    statuses: ["confirmed"],
-    label: "Confirmed registrations",
-    dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
-  },
-  "mini-football-leagues": {
-    table: "registrations",
-    orgScope: { kind: "viaPrograms", column: "program_id" },
-    amountColumn: "total_cents",
-    dateColumn: "registered_at",
-    statusColumn: "status",
-    statuses: ["confirmed"],
-    label: "Confirmed registrations",
-    dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
-  },
+
+
+/**
+ * What each workspace's dashboard charts, in order.
+ *
+ * 🔴 A workspace with no entry gets an explicit "not wired up in ClubOS", never
+ * a $0.00 — six of the nine have no `programs` row, and a confident zero in a
+ * club's own dashboard reads as "you earned nothing" rather than "we are not
+ * measuring this".
+ *
+ * The key is a workspace slug, optionally with a sub-view after a colon. The
+ * Cup is one workspace holding three tournaments behind a Youth / 7's / Ethnic
+ * toggle, and they do not share a number: Youth is measured in registrations of
+ * interest, 7's in interest AND the money Team Pay has actually taken.
+ */
+export const DASHBOARD_METRICS: Record<string, DashboardMetric[]> = {
+  "christchurch-united": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Confirmed registrations",
+      dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
+      parts: [{ table: "registrations", orgScope: { kind: "viaPrograms", column: "program_id" }, amountColumn: "total_cents",
+                dateColumn: "registered_at", statusColumn: "status", statuses: ["confirmed"] }],
+    },
+  ],
+  "south-island-united": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Confirmed registrations",
+      dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
+      parts: [{ table: "registrations", orgScope: { kind: "viaPrograms", column: "program_id" }, amountColumn: "total_cents",
+                dateColumn: "registered_at", statusColumn: "status", statuses: ["confirmed"] }],
+    },
+  ],
+  "mini-football-leagues": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Confirmed registrations",
+      dateCaveat: "By registration date — ClubOS does not record when each payment cleared.",
+      parts: [{ table: "registrations", orgScope: { kind: "viaPrograms", column: "program_id" }, amountColumn: "total_cents",
+                dateColumn: "registered_at", statusColumn: "status", statuses: ["confirmed"] }],
+    },
+  ],
   // 🔴 2,259 bookings are `confirmed` and only 6 are `paid`, so this is the
-  // value of confirmed bookings, NOT money received. Labelled as such: calling
-  // $153k "revenue" here would be a claim the data cannot support.
-  "united-sports-centre": {
-    table: "facility_bookings",
-    orgScope: { kind: "column", column: "organization_id" },
-    amountColumn: "total_cents",
-    dateColumn: "booking_date",
-    statusColumn: "status",
-    statuses: ["confirmed", "paid"],
-    label: "Confirmed bookings",
-    dateCaveat: "Booked value by booking date — not all of it has been paid yet.",
-  },
-  "united-gymnastics": {
-    table: "cugc_registrations",
-    orgScope: { kind: "column", column: "organization_id" },
-    amountColumn: "price_cents",
-    dateColumn: "paid_at",
-    statusColumn: "status",
-    statuses: ["paid"],
-    label: "Paid registrations",
-  },
-  "united-sports-group": {
-    table: "usg_invoices",
-    orgScope: { kind: "column", column: "organization_id" },
-    amountColumn: "total_cents",
-    dateColumn: "paid_at",
-    statusColumn: "status",
-    statuses: ["paid"],
-    label: "Paid invoices",
-  },
-  "united-prints": {
-    table: "print_orders",
-    orgScope: { kind: "column", column: "organization_id" },
-    amountColumn: "total_cents",
-    dateColumn: "created_at",
-    statusColumn: "status",
-    statuses: ["delivered", "ready", "in_production", "confirmed"],
-    label: "Accepted print jobs",
-    dateCaveat: "By order date — print orders carry no payment timestamp.",
-  },
-  // Deliberately absent: christchurch-international-cup and sandbox.
+  // value of confirmed bookings, NOT money received.
+  "united-sports-centre": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Confirmed bookings",
+      dateCaveat: "Booked value by booking date — not all of it has been paid yet.",
+      parts: [{ table: "facility_bookings", orgScope: { kind: "column", column: "organization_id" },
+                amountColumn: "total_cents", dateColumn: "booking_date",
+                statusColumn: "status", statuses: ["confirmed", "paid"] }],
+    },
+  ],
+  "united-gymnastics": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Paid registrations",
+      parts: [{ table: "cugc_registrations", orgScope: { kind: "column", column: "organization_id" },
+                amountColumn: "price_cents", dateColumn: "paid_at",
+                statusColumn: "status", statuses: ["paid"] }],
+    },
+  ],
+  "united-sports-group": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Paid invoices",
+      parts: [{ table: "usg_invoices", orgScope: { kind: "column", column: "organization_id" },
+                amountColumn: "total_cents", dateColumn: "paid_at",
+                statusColumn: "status", statuses: ["paid"] }],
+    },
+  ],
+  "united-prints": [
+    {
+      key: "revenue", kind: "money", title: "Revenue", label: "Accepted print jobs",
+      dateCaveat: "By order date — print orders carry no payment timestamp.",
+      parts: [{ table: "print_orders", orgScope: { kind: "column", column: "organization_id" },
+                amountColumn: "total_cents", dateColumn: "created_at",
+                statusColumn: "status", statuses: ["delivered", "ready", "in_production", "confirmed"] }],
+    },
+  ],
+
+  // ── The Cup, one workspace, three tournaments ────────────────────────────
   //
-  // The Cup's 132 team entries all carry `paid_amount_cents = 0` — the money is
-  // real and is simply not recorded in ClubOS. Charting that as $0.00 would
-  // state, in the club's own dashboard, that the tournament earned nothing.
-  // An unwired workspace says it is unwired.
+  // 🔴 There is deliberately NO money metric for Youth. Its 132 team entries
+  // all carry `paid_amount_cents = 0`: the money is real and simply is not in
+  // ClubOS, and charting it as $0.00 would say in the club's own dashboard
+  // that the tournament earned nothing. Interest is a number ClubOS genuinely
+  // holds, so that is what it charts.
+  "christchurch-international-cup": [
+    {
+      key: "interest", kind: "count", title: "Registrations of interest",
+      label: "From the cicyouth.com register-your-interest form",
+      unit: ["registration", "registrations"],
+      parts: [{ table: "cic_interest_registrations",
+                orgScope: { kind: "column", column: "organization_id" },
+                dateColumn: "created_at", statuses: [] }],
+    },
+  ],
+  "christchurch-international-cup:7s": [
+    {
+      key: "interest", kind: "count", title: "Registrations of interest",
+      label: "From the cic7s.com register-your-interest form",
+      unit: ["registration", "registrations"],
+      parts: [{ table: "cic7s_registrations",
+                orgScope: { kind: "column", column: "organization_id" },
+                dateColumn: "created_at", statuses: [] }],
+    },
+    {
+      key: "revenue", kind: "money", title: "Sales revenue",
+      label: "Team Pay payments received",
+      // 🔴 TWO parts on purpose. A team's fee is settled either by each player
+      // paying their share or by the manager paying the balance, and both
+      // settle the same one. Charting only the player table would halve the
+      // tournament's income the first time a manager cleared a whole team.
+      parts: [
+        { table: "teampay_players",
+          orgScope: { kind: "viaTeampayEntry", column: "entry_id", brand: "cic7s" },
+          amountColumn: "paid_cents", dateColumn: "paid_at", statuses: [] },
+        { table: "teampay_entries",
+          orgScope: { kind: "viaTeampayCompetition", column: "competition_id", brand: "cic7s" },
+          amountColumn: "team_paid_cents", dateColumn: "team_paid_at", statuses: [] },
+      ],
+    },
+  ],
 };
 
-export function revenueSourceFor(slug: string | undefined | null): RevenueSource | null {
-  if (!slug) return null;
-  return REVENUE_SOURCES[slug] ?? null;
+/** Metrics for a workspace, optionally narrowed to a sub-view (the Cup). */
+export function metricsFor(slug: string | undefined | null, view?: string | null): DashboardMetric[] {
+  if (!slug) return [];
+  if (view) {
+    const scoped = DASHBOARD_METRICS[`${slug}:${view}`];
+    if (scoped) return scoped;
+  }
+  return DASHBOARD_METRICS[slug] ?? [];
 }
 
-export type RevenuePoint = { date: string; cents: number };
+export function metricFor(slug: string | undefined | null, view: string | null | undefined, key: string): DashboardMetric | null {
+  return metricsFor(slug, view).find((m) => m.key === key) ?? null;
+}
 
-export type RevenueResponse = {
-  /** null when this workspace has no wired revenue source. */
-  source: { label: string; caveat?: string } | null;
+export type MetricPoint = { date: string; value: number };
+
+export type MetricResponse = {
+  /** null when this workspace charts nothing — never a zero. */
+  source: { title: string; label: string; caveat?: string; kind: MetricKind; unit?: [string, string] } | null;
   range: DateRange;
-  totalCents: number;
+  /** Cents when kind is "money", a row count when kind is "count". */
+  total: number;
   /** Same-length preceding range, for the comparison line. */
-  previousCents: number;
+  previous: number;
   /** One entry per calendar day in the range, zeros included. */
-  series: RevenuePoint[];
+  series: MetricPoint[];
   /** Rows counted — lets the UI say "across 41 registrations". */
   count: number;
 };

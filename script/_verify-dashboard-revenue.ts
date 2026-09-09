@@ -1,7 +1,7 @@
 /**
  * Verify the dashboard revenue engine against the real database.
  *
- * Runs `revenueFor()` — the exact function the route calls — for every
+ * Runs `metricSeries()` — the exact function the route calls — for every
  * workspace, and checks each answer against an independently written control
  * query. A reimplementation that agrees with itself proves nothing; these
  * controls are deliberately written a different way (plain SQL, no shared
@@ -13,9 +13,10 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../server/db";
-import { revenueFor } from "../server/dashboard-routes";
+import { metricSeries } from "../server/dashboard-routes";
 import {
-  REVENUE_SOURCES,
+  DASHBOARD_METRICS,
+  metricFor,
   eachDay,
   nzTodayIso,
   previousRange,
@@ -86,12 +87,18 @@ async function main() {
   const orgs: any[] = ((await db.execute(sql.raw("SELECT id, slug FROM organizations ORDER BY id"))) as any).rows;
 
   for (const org of orgs) {
-    const src = REVENUE_SOURCES[org.slug];
-    console.log(`\n  ${org.slug} (org ${org.id})${src ? ` → ${src.table}.${src.amountColumn}` : " → no source"}`);
+    const src = (DASHBOARD_METRICS[org.slug] ?? []).find((m: any) => m.key === 'revenue');
+    // Every money metric here has exactly ONE part; the control query below is
+    // written against that part independently of the engine. A metric that
+    // grows a second part (CIC 7's, whose fee can be settled by the players or
+    // by the manager) is controlled separately further down.
+    const part: any = src?.parts?.[0];
+    console.log(`\n  ${org.slug} (org ${org.id})${part ? ` → ${part.table}.${part.amountColumn}` : " → no source"}`);
+    if (src) check("this money metric has exactly one part", src.parts.length === 1, `${src.parts.length} parts`);
 
-    const ytd = await revenueFor(org.slug, org.id, "ytd");
+    const ytd = await metricSeries(org.slug, org.id, "revenue", "ytd");
 
-    if (!src) {
+    if (!src || !part) {
       // 🔴 The whole point of the unwired case: it must be distinguishable
       // from zero revenue, or the Cup's dashboard states the tournament
       // earned nothing.
@@ -103,90 +110,150 @@ async function main() {
     check("source is labelled", !!ytd.source?.label);
 
     // Control: a plain query written independently of the engine.
-    const st = src.statuses.length
-      ? `AND ${src.statusColumn ?? "status"} IN (${src.statuses.map((s) => `'${s}'`).join(",")})`
+    const st = part.statuses.length
+      ? `AND ${part.statusColumn ?? "status"} IN (${part.statuses.map((s) => `'${s}'`).join(",")})`
       : "";
     const dt = await one(
-      `SELECT data_type FROM information_schema.columns WHERE table_name='${src.table}' AND column_name='${src.dateColumn}'`,
+      `SELECT data_type FROM information_schema.columns WHERE table_name='${part.table}' AND column_name='${part.dateColumn}'`,
     );
     const kind = String(dt.data_type ?? "").toLowerCase();
     const expr =
       kind === "date"
-        ? src.dateColumn
+        ? part.dateColumn
         : kind.includes("with time zone")
-          ? `(${src.dateColumn} AT TIME ZONE 'Pacific/Auckland')::date`
-          : `(${src.dateColumn} AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
+          ? `(${part.dateColumn} AT TIME ZONE 'Pacific/Auckland')::date`
+          : `(${part.dateColumn} AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
 
     // The control writes the org scope independently too — the engine's
     // assumption that every table has an organization_id is exactly the bug
     // this script caught on its first run.
     const scopeSql =
-      src.orgScope.kind === "column"
-        ? `${src.orgScope.column} = ${org.id}`
-        : `${src.orgScope.column} IN (SELECT id FROM programs WHERE organization_id = ${org.id})`;
+      part.orgScope.kind === "column"
+        ? `${part.orgScope.column} = ${org.id}`
+        : `${part.orgScope.column} IN (SELECT id FROM programs WHERE organization_id = ${org.id})`;
 
     const control = await one(`
-      SELECT COALESCE(SUM(${src.amountColumn}),0)::bigint cents, COUNT(*)::int n
-      FROM ${src.table}
+      SELECT COALESCE(SUM(${part.amountColumn}),0)::bigint cents, COUNT(*)::int n
+      FROM ${part.table}
       WHERE ${scopeSql}
         ${st}
-        AND ${src.dateColumn} IS NOT NULL
+        AND ${part.dateColumn} IS NOT NULL
         AND ${expr} BETWEEN '${ytd.range.from}'::date AND '${ytd.range.to}'::date
     `);
     check(
-      `YTD total matches an independent query ($${(ytd.totalCents / 100).toFixed(2)})`,
-      ytd.totalCents === Number(control.cents),
-      `engine ${ytd.totalCents} vs control ${control.cents}`,
+      `YTD total matches an independent query ($${(ytd.total / 100).toFixed(2)})`,
+      ytd.total === Number(control.cents),
+      `engine ${ytd.total} vs control ${control.cents}`,
     );
     check(`YTD count matches (${ytd.count})`, ytd.count === Number(control.n));
 
     // 🔴 The series must sum to the headline. A total that exceeds the sum of
     // its own bars is the thing that makes people stop believing a chart.
-    const seriesSum = ytd.series.reduce((a, p) => a + p.cents, 0);
-    check("daily series sums to the headline total", seriesSum === ytd.totalCents, `series ${seriesSum} vs total ${ytd.totalCents}`);
+    const seriesSum = ytd.series.reduce((a, p) => a + p.value, 0);
+    check("daily series sums to the headline total", seriesSum === ytd.total, `series ${seriesSum} vs total ${ytd.total}`);
     check("series has one point per calendar day", ytd.series.length === daysInclusive(ytd.range.from, ytd.range.to));
     check("series is in date order with no duplicates", (() => {
       const ds = ytd.series.map((p) => p.date);
       return ds.every((d, i) => i === 0 || d > ds[i - 1]);
     })());
-    check("no negative day totals", ytd.series.every((p) => p.cents >= 0));
+    check("no negative day totals", ytd.series.every((p) => p.value >= 0));
 
     // Periods must nest: a day cannot exceed the 30 days containing it.
-    const today = await revenueFor(org.slug, org.id, "today");
-    const d30 = await revenueFor(org.slug, org.id, "30d");
-    check("today ≤ last 30 days ≤ year to date", today.totalCents <= d30.totalCents && d30.totalCents <= ytd.totalCents,
-      `${today.totalCents} / ${d30.totalCents} / ${ytd.totalCents}`);
+    const today = await metricSeries(org.slug, org.id, "revenue", "today");
+    const d30 = await metricSeries(org.slug, org.id, "revenue", "30d");
+    check("today ≤ last 30 days ≤ year to date", today.total <= d30.total && d30.total <= ytd.total,
+      `${today.total} / ${d30.total} / ${ytd.total}`);
 
     // The previous-period figure must be the real preceding window, not a copy.
     const prev = previousRange(d30.range);
     const prevControl = await one(`
-      SELECT COALESCE(SUM(${src.amountColumn}),0)::bigint cents
-      FROM ${src.table}
+      SELECT COALESCE(SUM(${part.amountColumn}),0)::bigint cents
+      FROM ${part.table}
       WHERE ${scopeSql} ${st}
-        AND ${src.dateColumn} IS NOT NULL
+        AND ${part.dateColumn} IS NOT NULL
         AND ${expr} BETWEEN '${prev.from}'::date AND '${prev.to}'::date
     `);
-    check("previous-period figure matches its own window", d30.previousCents === Number(prevControl.cents),
-      `engine ${d30.previousCents} vs control ${prevControl.cents}`);
+    check("previous-period figure matches its own window", d30.previous === Number(prevControl.cents),
+      `engine ${d30.previous} vs control ${prevControl.cents}`);
 
     // 🔴 Scoping: this workspace's number must not include another's rows.
     const global = await one(`
-      SELECT COALESCE(SUM(${src.amountColumn}),0)::bigint cents
-      FROM ${src.table}
-      WHERE 1=1 ${st} AND ${src.dateColumn} IS NOT NULL
+      SELECT COALESCE(SUM(${part.amountColumn}),0)::bigint cents
+      FROM ${part.table}
+      WHERE 1=1 ${st} AND ${part.dateColumn} IS NOT NULL
         AND ${expr} BETWEEN '${ytd.range.from}'::date AND '${ytd.range.to}'::date
     `);
-    check("workspace total never exceeds the all-orgs total", ytd.totalCents <= Number(global.cents));
+    check("workspace total never exceeds the all-orgs total", ytd.total <= Number(global.cents));
+  }
+
+  // ── The Cup: counts, sub-views, and a two-part money metric ───────────────
+  console.log("\n── The Cup ───────────────────────────────────────────────");
+  {
+    const CIC = 5;
+    // Youth charts INTEREST, not money: its 132 team entries all carry
+    // paid_amount_cents = 0, and a $0.00 there would say the tournament earned
+    // nothing rather than that we do not hold the number.
+    const youth = await metricSeries("christchurch-international-cup", CIC, "interest", "ytd");
+    check("Youth charts a count, not money", youth.source?.kind === "count", String(youth.source?.kind));
+    const yctl = await one(`SELECT count(*)::int n FROM cic_interest_registrations WHERE organization_id = ${CIC}
+      AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date
+          BETWEEN '${youth.range.from}'::date AND '${youth.range.to}'::date`);
+    check(`Youth interest matches an independent count (${youth.total})`,
+      youth.total === Number(yctl.n), `engine ${youth.total} vs control ${yctl.n}`);
+    check("Youth series sums to its headline",
+      youth.series.reduce((a, p) => a + p.value, 0) === youth.total);
+    check("Youth has NO money metric", metricFor("christchurch-international-cup", null, "revenue") === null);
+
+    // 7's is a sub-view of the SAME workspace and must not inherit Youth's.
+    const sevens = await metricSeries("christchurch-international-cup", CIC, "interest", "ytd", { view: "7s" });
+    const sctl = await one(`SELECT count(*)::int n FROM cic7s_registrations WHERE organization_id = ${CIC}
+      AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date
+          BETWEEN '${sevens.range.from}'::date AND '${sevens.range.to}'::date`);
+    check(`7's interest matches an independent count (${sevens.total})`,
+      sevens.total === Number(sctl.n), `engine ${sevens.total} vs control ${sctl.n}`);
+    check("7's interest is a DIFFERENT number from Youth's",
+      sevens.total !== youth.total, `7's ${sevens.total}, youth ${youth.total}`);
+
+    // 🔴 The two-part one. A team's fee is settled either by the players or by
+    // the manager, and both settle the same balance — so the control adds both
+    // tables independently of the engine.
+    const money = await metricSeries("christchurch-international-cup", CIC, "revenue", "ytd", { view: "7s" });
+    check("7's charts money", money.source?.kind === "money", String(money.source?.kind));
+    const mctl = await one(`
+      SELECT (
+        COALESCE((SELECT SUM(pl.paid_cents) FROM teampay_players pl
+           WHERE pl.entry_id IN (SELECT id FROM teampay_entries WHERE competition_id IN
+             (SELECT id FROM teampay_competitions WHERE organization_id = ${CIC} AND brand = 'cic7s'))
+             AND pl.paid_at IS NOT NULL
+             AND (pl.paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date
+                 BETWEEN '${money.range.from}'::date AND '${money.range.to}'::date), 0)
+      + COALESCE((SELECT SUM(en.team_paid_cents) FROM teampay_entries en
+           WHERE en.competition_id IN (SELECT id FROM teampay_competitions WHERE organization_id = ${CIC} AND brand = 'cic7s')
+             AND en.team_paid_at IS NOT NULL
+             AND (en.team_paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date
+                 BETWEEN '${money.range.from}'::date AND '${money.range.to}'::date), 0)
+      )::bigint AS cents`);
+    check(`7's revenue counts BOTH payment routes ($${(money.total / 100).toFixed(2)})`,
+      money.total === Number(mctl.cents), `engine ${money.total} vs control ${mctl.cents}`);
+    check("7's revenue series sums to its headline",
+      money.series.reduce((a, p) => a + p.value, 0) === money.total);
+    // The Ethnic Cup shares these tables and must not leak into the 7's figure.
+    const ethnic = await one(`SELECT COALESCE(SUM(pl.paid_cents),0)::bigint cents FROM teampay_players pl
+      WHERE pl.entry_id IN (SELECT id FROM teampay_entries WHERE competition_id IN
+        (SELECT id FROM teampay_competitions WHERE organization_id = ${CIC} AND brand = 'ethniccup'))`);
+    check("the Ethnic Cup's money is NOT in the 7's figure",
+      Number(ethnic.cents) === 0 || money.total !== Number(ethnic.cents),
+      `ethnic ${ethnic.cents}, 7s ${money.total}`);
   }
 
   console.log("\n── Cross-workspace ───────────────────────────────────────");
   {
     // 🔴 Two workspaces sharing a table must not report each other's money.
-    const cufc = await revenueFor("christchurch-united", 1, "ytd");
-    const mfl = await revenueFor("mini-football-leagues", 3, "ytd");
+    const cufc = await metricSeries("christchurch-united", 1, "revenue", "ytd");
+    const mfl = await metricSeries("mini-football-leagues", 3, "revenue", "ytd");
     check("CUFC and MFL share `registrations` but report different totals",
-      cufc.totalCents !== mfl.totalCents || (cufc.totalCents === 0 && mfl.totalCents === 0),
-      `cufc ${cufc.totalCents}, mfl ${mfl.totalCents}`);
+      cufc.total !== mfl.total || (cufc.total === 0 && mfl.total === 0),
+      `cufc ${cufc.total}, mfl ${mfl.total}`);
 
     const both = await one(`
       SELECT COALESCE(SUM(r.total_cents),0)::bigint cents FROM registrations r
@@ -198,8 +265,8 @@ async function main() {
     // registrations has no organization_id of its own — it scopes through
     // programs — so this also proves the engine is joining, not guessing.
     check("CUFC + MFL equals the two orgs' combined registrations",
-      cufc.totalCents + mfl.totalCents === Number(both.cents),
-      `${cufc.totalCents} + ${mfl.totalCents} vs ${both.cents}`);
+      cufc.total + mfl.total === Number(both.cents),
+      `${cufc.total} + ${mfl.total} vs ${both.cents}`);
   }
 
   console.log("\n──────────────────────────────────────────────────────────");

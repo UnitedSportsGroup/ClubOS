@@ -10,7 +10,8 @@ import {
   percentChange,
   type DashboardPeriod,
   type DateRange,
-  type RevenueResponse,
+  type MetricPoint,
+  type MetricResponse,
 } from "@shared/dashboard";
 
 /**
@@ -89,21 +90,40 @@ function rangeLabel(range: DateRange) {
     : `${shortDate(range.from)} ${range.from.slice(0, 4)} – ${shortDate(range.to)} ${range.to.slice(0, 4)}`;
 }
 
+/**
+ * How a metric's number is written.
+ *
+ * 🔴 Money is cents and a count is rows, and putting one through the other's
+ * formatter is the whole bug class this exists to avoid: 95 registrations of
+ * interest rendered as money reads "$0.95".
+ */
+function formatMetric(data: MetricResponse, value: number): string {
+  if (data.source?.kind === "count") return value.toLocaleString("en-NZ");
+  return formatCurrency(value, { fromCents: true });
+}
+
 export function RevenueWidget({
   period,
   custom,
+  metric = "revenue",
+  view,
 }: {
   period: DashboardPeriod;
   custom: DateRange;
+  /** Which number this card charts. Defaults to revenue. */
+  metric?: string;
+  /** Sub-view inside a workspace — the Cup's Youth / 7's / Ethnic toggle. */
+  view?: string | null;
 }) {
-  const params = new URLSearchParams({ period });
+  const params = new URLSearchParams({ period, metric });
+  if (view) params.set("view", view);
   if (period === "custom") {
     params.set("from", custom.from);
     params.set("to", custom.to);
   }
-  const url = `/api/admin/dashboard/revenue?${params.toString()}`;
+  const url = `/api/admin/dashboard/metric?${params.toString()}`;
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<RevenueResponse>({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<MetricResponse>({
     queryKey: [url],
     // A wrong number is worse than a slightly stale one, but a slightly stale
     // one is worse than a spinner on every tab change.
@@ -189,13 +209,13 @@ export function RevenueWidget({
   );
 }
 
-function RevenueBody({ data }: { data: RevenueResponse }) {
+function RevenueBody({ data }: { data: MetricResponse }) {
   const chart = useMeasuredWidth<HTMLDivElement>();
-  const change = percentChange(data.totalCents, data.previousCents);
+  const change = percentChange(data.total, data.previous);
   const flat = change !== null && Math.abs(change) < 0.5;
   const up = change !== null && change > 0;
 
-  const hasAny = data.series.some((p) => p.cents > 0);
+  const hasAny = data.series.some((p: MetricPoint) => p.value > 0);
 
   return (
     <div className="space-y-4">
@@ -205,13 +225,13 @@ function RevenueBody({ data }: { data: RevenueResponse }) {
             className="text-3xl sm:text-4xl font-semibold tracking-tight tabular-nums"
             data-testid="text-revenue-total"
           >
-            {formatCurrency(data.totalCents, { fromCents: true })}
+            {formatMetric(data, data.total)}
           </span>
 
           {/* A change from nothing is not a percentage — showing +100% or ∞%
               against a zero baseline is a fiction, so it says so instead. */}
           {change === null ? (
-            data.previousCents === 0 && data.totalCents > 0 ? (
+            data.previous === 0 && data.total > 0 ? (
               <span className="text-xs text-muted-foreground">no revenue in the previous period</span>
             ) : null
           ) : (
@@ -239,7 +259,7 @@ function RevenueBody({ data }: { data: RevenueResponse }) {
           {change !== null && (
             <>
               {" · vs "}
-              {formatCurrency(data.previousCents, { fromCents: true })} previous period
+              {formatMetric(data, data.previous)} previous period
             </>
           )}
         </p>
@@ -297,7 +317,7 @@ function RevenueBody({ data }: { data: RevenueResponse }) {
                   color: "hsl(var(--popover-foreground))",
                 }}
                 labelFormatter={(d: string) => shortDate(d)}
-                formatter={(v: number) => [formatCurrency(v, { fromCents: true }), "Revenue"]}
+                formatter={(v: number) => [formatMetric(data, v), data.source?.title ?? "Value"]}
               />
               {/* `linear`, not `monotone`. These are daily buckets: a smooth
                   curve between a zero day and a spike draws revenue on days
@@ -305,7 +325,7 @@ function RevenueBody({ data }: { data: RevenueResponse }) {
                   The chart should show the bursts, not round them off. */}
               <Area
                 type="linear"
-                dataKey="cents"
+                dataKey="value"
                 stroke="hsl(var(--primary))"
                 strokeWidth={2}
                 fill="url(#revenueFill)"

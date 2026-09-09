@@ -336,6 +336,9 @@ const tournamentSecondary = [
 
 // CIC 7's view (toggled from the youth tournament via the Youth/7's switcher).
 const tournament7sNav = [
+  // Added 2026-09-10 with the 7's dashboard: interest and Team Pay revenue.
+  // Without a Dashboard row the 7's view had no way to reach its own numbers.
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "cic7s-registrations", title: "Registrations", url: "/admin/cic7s-registrations", icon: ClipboardCheck },
   // Team Pay's staff board lists every competition under the CIC org, so the
   // 7's teams sit on the same page as the Ethnic Cup's. Without this line the
@@ -348,6 +351,9 @@ const tournament7sNav = [
 // Registrations of interest today; entries, draw and results follow once the
 // venue is confirmed and payment opens.
 const tournamentEthnicNav = [
+  // The toggle lands every view on /admin now, so Ethnic needs the row too. It
+  // charts nothing yet and says so honestly rather than showing a $0.00.
+  { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "ethnic-cup-registrations", title: "Registrations", url: "/admin/ethnic-cup-registrations", icon: ClipboardCheck },
   { tab: "team-entries", title: "Team Entries", url: "/admin/team-entries", icon: Users },
 ];
@@ -577,11 +583,10 @@ function CicViewToggle() {
   const [, setLocation] = useLocation();
   const select = (v: "youth" | "7s" | "ethnic") => {
     setCicView(v);
-    setLocation(
-      v === "7s" ? "/admin/cic7s-registrations"
-      : v === "ethnic" ? "/admin/ethnic-cup-registrations"
-      : "/admin",
-    );
+    // Every view lands on ITS dashboard. The 7's and Ethnic views used to jump
+    // straight to a registrations list, which is why neither had anywhere to
+    // show a number; the dashboard is the same route and reads the view.
+    setLocation("/admin");
   };
   return (
     <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/[0.06]" data-testid="toggle-cic-view">

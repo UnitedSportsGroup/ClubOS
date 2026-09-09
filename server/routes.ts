@@ -1358,17 +1358,37 @@ export async function registerRoutes(
   // workspace context has written localStorage), and all 524 CUFC rows by
   // naming CUFC in the header. Found by screenshotting the MFL Registrations
   // page as an ordinary MFL admin — the CUFC holiday camps were on it.
-  async function registrationOrgScope(req: Request): Promise<number[] | "all"> {
+  // "ambiguous" = no workspace header, and the caller belongs to more than one
+  // workspace. It is deliberately NOT an answer.
+  //
+  // 🔴 2026-09-10, Daniel with a screenshot: Christchurch United's
+  // Registrations page was listing "Mini Football Leagues — Term 4" rows and
+  // totalling the office takings across both clubs. The scope rule was right;
+  // the page reached it with a bare fetch(), so no X-Workspace-Slug arrived,
+  // and this function used to fall back to `mine` — every workspace the caller
+  // belongs to. Ryan is an admin of both, so he was shown the union.
+  //
+  // Falling back to "all of yours" is a fail-open, and the next page written
+  // with a bare fetch() would reopen it in silence. A registrations list is
+  // always about ONE workspace: when we cannot tell which, we say so rather
+  // than guess, and the route answers 400 the way requireTab already does for
+  // a missing header.
+  type RegScope = number[] | "all" | "ambiguous";
+  async function registrationOrgScope(req: Request): Promise<RegScope> {
     const user = req.session.userId ? await storage.getUser(req.session.userId) : null;
     if (!user) return [];
     const org = await workspaceOrg(req);
     if (user.role === "super_admin") return org ? [org.id] : "all";
     const mine = (await storage.getUserOrganizations(user.id)).map((o) => o.id);
     if (org) return mine.includes(org.id) ? [org.id] : [];
-    return mine;
+    return mine.length <= 1 ? mine : "ambiguous";
   }
-  const inRegistrationScope = (scope: number[] | "all", orgId: number | null | undefined) =>
-    scope === "all" || (orgId != null && scope.includes(orgId));
+  const inRegistrationScope = (scope: RegScope, orgId: number | null | undefined) =>
+    scope === "all" || (scope !== "ambiguous" && orgId != null && scope.includes(orgId));
+  /** The 400 a list route sends when it cannot tell whose registrations to show. */
+  const AMBIGUOUS_WORKSPACE = {
+    message: "Which workspace? This request arrived without X-Workspace-Slug and you belong to more than one.",
+  };
 
   app.get("/api/admin/stats", requireAuth, async (req, res) => {
     try {
@@ -4386,6 +4406,8 @@ export async function registerRoutes(
     try {
       const campId = req.query.campId ? parseInt(req.query.campId as string) : undefined;
       const scope = await registrationOrgScope(req);
+      // Refuse rather than mix two clubs on one screen (see registrationOrgScope).
+      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
 
       // One batched read instead of ~5 queries per row. The old per-row
       // Promise.all fan-out exhausted the 15-connection pooler on CUFC's

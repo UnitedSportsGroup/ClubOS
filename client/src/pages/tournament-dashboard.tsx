@@ -1,97 +1,41 @@
-import { useQuery } from "@tanstack/react-query";
+// The Christchurch International Cup dashboard — Youth, 7's and Ethnic.
+//
+// Daniel, 2026-09-10: "For CIC Youth make it track registrations of interest on
+// the graph, for CIC 7's make it track registrations of interest and sales
+// revenue and add the dashboard here."
+//
+// 🔴 One page, three tournaments, and they do NOT share a number. The Cup is a
+// single workspace with a Youth / 7's / Ethnic toggle, so the sub-view is
+// passed through and the server answers with that tournament's own metrics:
+// Youth charts interest, 7's charts interest AND the money Team Pay has taken.
+//
+// 🔴 Youth deliberately has no money card. Its 132 team entries all carry
+// paid_amount_cents = 0 — the money is real and simply is not in ClubOS, and a
+// "$0.00" on the Cup's own dashboard would read as "the tournament earned
+// nothing" rather than "we are not measuring this". The Ethnic Cup charts
+// nothing yet for the same reason, and says so.
+//
+// What replaced: four counters (tournaments, active, registration open,
+// published) and a list of active tournaments — all of it already on the
+// Tournaments tab one click away.
 import { useWorkspace } from "@/lib/workspace-context";
-import { Award, UsersRound, Calendar, DollarSign, TrendingUp } from "lucide-react";
-import type { Tournament, TournamentTeam } from "@shared/schema";
+import { MetricDashboard } from "@/components/dashboard/metric-dashboard";
+
+const VIEW_LABEL: Record<string, string> = {
+  youth: "CIC Youth",
+  "7s": "CIC 7's",
+  ethnic: "Christchurch Ethnic Cup",
+};
 
 export default function TournamentDashboard() {
-  const { currentOrg } = useWorkspace();
-  const orgId = currentOrg?.id;
-
-  const { data: tournaments = [] } = useQuery<Tournament[]>({
-    queryKey: ["/api/admin/tournament/tournaments", { orgId }],
-    queryFn: () => fetch(`/api/admin/tournament/tournaments?orgId=${orgId}`).then(r => r.json()),
-    enabled: !!orgId,
-  });
-
-  const activeTournaments = tournaments.filter(t => t.active && !t.archived);
-  const totalTeams = 0;
-  const openReg = tournaments.filter(t => t.registrationStatus === "open");
-  const totalRevenue = tournaments.reduce((sum, t) => sum + (t.registrationFeeCents || 0), 0);
-
+  const { currentOrg, cicView } = useWorkspace();
+  const view = cicView ?? "youth";
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white" data-testid="text-tournament-dashboard-title">Dashboard</h1>
-        <p className="text-sm text-white/40 mt-1">Tournament management overview</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5" data-testid="stat-tournaments">
-          <Award className="w-5 h-5 text-white/50 mb-3" />
-          <p className="text-2xl font-bold text-white">{tournaments.length}</p>
-          <p className="text-xs text-white/40 mt-1">Tournaments</p>
-        </div>
-        <div className="rounded-2xl border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5" data-testid="stat-active">
-          <TrendingUp className="w-5 h-5 text-white/50 mb-3" />
-          <p className="text-2xl font-bold text-white">{activeTournaments.length}</p>
-          <p className="text-xs text-white/40 mt-1">Active</p>
-        </div>
-        <div className="rounded-2xl border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5" data-testid="stat-open-reg">
-          <UsersRound className="w-5 h-5 text-white/50 mb-3" />
-          <p className="text-2xl font-bold text-white">{openReg.length}</p>
-          <p className="text-xs text-white/40 mt-1">Registration Open</p>
-        </div>
-        <div className="rounded-2xl border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5" data-testid="stat-revenue">
-          <DollarSign className="w-5 h-5 text-white/50 mb-3" />
-          <p className="text-2xl font-bold text-white">{tournaments.filter(t => t.status !== "draft").length}</p>
-          <p className="text-xs text-white/40 mt-1">Published</p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Award className="w-4 h-4 text-white/40" />
-          <h3 className="text-sm font-semibold text-white">Active Tournaments</h3>
-        </div>
-        {activeTournaments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-white/20">
-            <Award className="w-10 h-10 mb-2" />
-            <p className="text-sm">No active tournaments</p>
-            <p className="text-xs mt-1">Create your first tournament to get started</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {activeTournaments.map(t => (
-              <div key={t.id} className="flex items-center justify-between py-3 border-b border-white/5 last:border-0" data-testid={`tournament-row-${t.id}`}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
-                    <Award className="w-4 h-4 text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white/80">{t.name}</p>
-                    <p className="text-xs text-white/30">{t.ageGroup || "Open"} · {t.numGroups} groups · {t.teamsPerGroup} teams/group</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    t.status === "active" ? "bg-green-500/15 text-green-400" :
-                    t.status === "draft" ? "bg-white/5 text-white/30" :
-                    t.status === "completed" ? "bg-blue-500/15 text-blue-400" :
-                    "bg-white/5 text-white/30"
-                  }`}>
-                    {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
-                  </span>
-                  {t.startDate && (
-                    <p className="text-[10px] text-white/20 mt-1">
-                      {new Date(t.startDate + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+    <MetricDashboard
+      subtitle={`${currentOrg?.name ?? "Christchurch International Cup"} — ${VIEW_LABEL[view] ?? "Youth"}`}
+      basePath="/admin"
+      // "youth" is the registry's unprefixed default, so it is passed as null.
+      view={view === "youth" ? null : view}
+    />
   );
 }

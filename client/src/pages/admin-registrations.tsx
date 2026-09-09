@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/format";
 import {
   OFFICE_PAYMENT_METHODS, isOfficePaymentMethod, paymentMethodLabel, describePaymentMethod,
@@ -735,7 +735,14 @@ export default function AdminRegistrations() {
     queryKey: ["/api/admin/registrations", selectedCamp],
     queryFn: async () => {
       const url = selectedCamp ? `/api/admin/registrations?campId=${selectedCamp}` : "/api/admin/registrations";
-      const res = await fetch(url, { credentials: "include" });
+      // 🔴 workspaceFetch, never a bare fetch. Without X-Workspace-Slug the
+      // server cannot tell which workspace is asking, and
+      // registrationOrgScope() then falls back to EVERY workspace the caller
+      // belongs to. That is why Christchurch United's Registrations page was
+      // listing Mini Football Leagues entries — Ryan is an admin of both, so
+      // the page showed him the union of the two and totalled the money at the
+      // top of it.
+      const res = await workspaceFetch(url);
       if (!res.ok) throw new Error("Failed to load");
       return res.json();
     },
