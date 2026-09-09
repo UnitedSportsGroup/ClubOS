@@ -11767,7 +11767,19 @@ export async function registerRoutes(
 
   // Lightweight team list — every user with access to a given org. Used by
   // the assignee dropdown in the task editor.
-  app.get("/api/admin/projects/team", requireAuth, requireTab("projects"), async (req, res) => {
+  // 🔴 Gated on MEMBERSHIP, not on the "projects" tab.
+  //
+  // It returns the names and work emails of active members of ONE workspace,
+  // and checkUserOrg below already requires the caller to be a member of that
+  // same workspace. Every one of those people is already visible to them in
+  // Chat and on the Team tab, so the tab gate added no protection.
+  //
+  // What it did add was breakage: "projects" is a super-admin-only tab, and the
+  // Sponsorship and Calendar pages call this for their "assign to" pickers. So
+  // staff got a 403 and an empty dropdown on two pages that otherwise worked,
+  // while Daniel saw a full list — the same class of bug as the bare fetch(),
+  // and invisible to him for the same reason (2026-09-10).
+  app.get("/api/admin/projects/team", requireAuth, async (req, res) => {
     try {
       const orgId = parseInt(req.query.organizationId as string);
       if (!orgId) return res.status(400).json({ message: "organizationId required" });
