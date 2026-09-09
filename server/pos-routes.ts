@@ -60,6 +60,18 @@ import { sendPosReceiptEmail } from "./email";
 
 const RECEIPT_BASE = process.env.POS_RECEIPT_BASE_URL || "https://app.usg.co.nz";
 
+/**
+ * Product photography is stored two ways: MFL and CIC point at Shopify's CDN
+ * (absolute), while CUFC's and SIU's are served by ClubOS itself as
+ * `/shop/<brand>/x.webp` (relative). A browser resolves a relative URL against
+ * the page it is on, so the web register never noticed. A native <Image> has no
+ * page to resolve against and simply renders nothing — which is how every CUFC
+ * and SIU product came up blank on the iPad. An API must hand a client
+ * something it can actually fetch.
+ */
+const absUrl = (u: string | null | undefined): string | null =>
+  !u ? null : /^https?:\/\//i.test(u) ? u : `${RECEIPT_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
+
 // ── Stripe per money account ─────────────────────────────────────────────────
 // The same shape as club-events' stripeFor: a missing key REFUSES to sell rather
 // than quietly charging the wrong account.
@@ -261,6 +273,7 @@ async function shiftSummary(shiftId: number) {
     gstCents: sales.filter((s) => s.paidAt).reduce((a, s) => a + s.gstCents, 0),
     byTender: Object.entries(byTender).map(([method, v]) => ({ method, ...v })).filter((v) => v.cents || v.refundedCents),
     byBrand: Object.values(byBrand),
+    handlesCash: (await db.select().from(posRegisters).where(eq(posRegisters.id, shift.registerId)))[0]?.handlesCash === true,
     cash: { openingFloatCents: shift.openingFloatCents, inCents: cashIn, outCents: cashOut, expectedCents: expectedCash, countedCents: shift.closingCashCountedCents, varianceCents: shift.closingCashCountedCents == null ? null : shift.closingCashCountedCents - expectedCash },
     declines: { total: declines.length, byReason: declinesByReason },
   };
@@ -281,7 +294,7 @@ export function registerPosRoutes(app: Express) {
       const open = regs.length ? await db.select().from(posShifts).where(and(inArray(posShifts.registerId, regs.map((r) => r.id)), isNull(posShifts.closedAt))) : [];
       const openShifts = await Promise.all(open.map(async (s) => ({ ...s, openedByName: await staffName(s.openedByUserId) })));
       res.json({
-        registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId })),
+        registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true })),
         brands: orgs.filter((o) => o.slug !== "sandbox").map((o) => ({ ...o, account: buckets.find((b) => b.organizationId === o.id)?.account ?? null })),
         moneyAccounts: POS_MONEY_ACCOUNTS,
         tenders: POS_TENDERS, manualTenders: POS_MANUAL_TENDERS, declineReasons: POS_DECLINE_REASONS, seller: POS_SELLER,
@@ -298,8 +311,25 @@ export function registerPosRoutes(app: Express) {
       const [r] = await db.insert(posRegisters).values({
         name, location: str(req.body?.location, 120) || null,
         defaultOrgId: Number.isFinite(defaultOrgId) ? defaultOrgId : null, createdByUserId: uid(req),
+        handlesCash: req.body?.handlesCash === true,
       }).returning();
       res.status(201).json(r);
+    } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
+  });
+
+  // Turn cash on or off for a register — a tick, never a migration, because a
+  // merch stand at a tournament is exactly where a cash box reappears.
+  app.patch("/api/admin/pos/registers/:id", ...gate, async (req, res) => {
+    try {
+      const id = num(req.params.id);
+      const patch: Record<string, unknown> = {};
+      if (req.body?.handlesCash !== undefined) patch.handlesCash = req.body.handlesCash === true;
+      if (req.body?.name !== undefined) { const n = str(req.body.name, 80); if (n.length < 2) return res.status(400).json({ message: "Give the register a name." }); patch.name = n; }
+      if (req.body?.location !== undefined) patch.location = str(req.body.location, 120) || null;
+      if (!Object.keys(patch).length) return res.status(400).json({ message: "Nothing to change." });
+      const [r] = await db.update(posRegisters).set(patch).where(eq(posRegisters.id, id)).returning();
+      if (!r) return res.status(404).json({ message: "Register not found." });
+      res.json(r);
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
 
@@ -318,11 +348,20 @@ export function registerPosRoutes(app: Express) {
   app.post("/api/admin/pos/shifts/:id/close", ...gate, async (req, res) => {
     try {
       const id = num(req.params.id);
-      const counted = num(req.body?.countedCents);
-      if (!Number.isFinite(counted) || counted < 0) return res.status(400).json({ message: "Enter the cash you counted." });
+      const [shiftRow] = await db.select({ registerId: posShifts.registerId }).from(posShifts).where(eq(posShifts.id, id));
+      const [closeReg] = shiftRow ? await db.select().from(posRegisters).where(eq(posRegisters.id, shiftRow.registerId)) : [];
+      const cashless = closeReg?.handlesCash !== true;
+      // A cashless register has no drawer, so there is nothing to count and NULL
+      // means "not counted" rather than a fabricated zero.
+      let counted: number | null = null;
+      if (!cashless) {
+        const c = num(req.body?.countedCents);
+        if (!Number.isFinite(c) || c < 0) return res.status(400).json({ message: "Enter the cash you counted." });
+        counted = Math.round(c);
+      }
       // Empty open carts are abandoned, not money: void them so the shift can close.
       await db.execute(sql`UPDATE pos_sales SET status = 'void', voided_at = now(), void_reason = 'Shift closed with the sale still open' WHERE shift_id = ${id} AND status = 'open' AND paid_cents = 0`);
-      await db.update(posShifts).set({ closedAt: new Date(), closedByUserId: uid(req), closingCashCountedCents: Math.round(counted), notes: str(req.body?.notes, 1000) || null }).where(and(eq(posShifts.id, id), isNull(posShifts.closedAt)));
+      await db.update(posShifts).set({ closedAt: new Date(), closedByUserId: uid(req), closingCashCountedCents: counted, notes: str(req.body?.notes, 1000) || null }).where(and(eq(posShifts.id, id), isNull(posShifts.closedAt)));
       const summary = await shiftSummary(id);
       if (!summary?.shift.closedAt) return res.status(409).json({ code: "POS_SHIFT_NOT_CLOSED", message: "The shift did not close — is it already closed?" });
       res.json(summary);
@@ -354,10 +393,10 @@ export function registerPosRoutes(app: Express) {
         .filter((p) => !q || p.title.toLowerCase().includes(q) || (p.subtitle ?? "").toLowerCase().includes(q))
         .map((p) => ({
           id: p.id, orgId: p.organizationId, title: p.title, subtitle: p.subtitle, type: p.type, priceCents: p.priceCents,
-          image: images.find((im) => im.productId === p.id && im.colourId == null)?.url ?? images.find((im) => im.productId === p.id)?.url ?? null,
+          image: absUrl(images.find((im) => im.productId === p.id && im.colourId == null)?.url ?? images.find((im) => im.productId === p.id)?.url),
           colours: colours.filter((c) => c.productId === p.id).map((c) => ({
             id: c.id, name: c.name, swatchHex: c.swatchHex,
-            image: images.find((im) => im.colourId === c.id)?.url ?? null,
+            image: absUrl(images.find((im) => im.colourId === c.id)?.url),
             variants: variants.filter((v) => v.colourId === c.id).map((v) => ({ id: v.id, size: v.size, sku: v.sku, stock: v.stock, priceCents: v.priceCents ?? p.priceCents })),
           })),
         }))
@@ -488,7 +527,7 @@ export function registerPosRoutes(app: Express) {
           await db.insert(posSaleLines).values({
             saleId: sale.id, kind: "variant", organizationId: row.p.organizationId, variantId: row.v.id, productId: row.p.id,
             title: row.p.title, detail: [row.c.name, row.v.size].filter(Boolean).join(" · "), unitCents: unit, qty, lineCents: unit * qty,
-            meta: { imageUrl: img?.url ?? null, sku: row.v.sku ?? null }, sort: nextSort,
+            meta: { imageUrl: absUrl(img?.url), sku: row.v.sku ?? null }, sort: nextSort,
           });
         }
       } else if (kind === "custom") {
@@ -571,7 +610,13 @@ export function registerPosRoutes(app: Express) {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const method = str(req.body?.method, 20);
-      if (!isPosTender(method) || method === "card_present") return res.status(400).json({ message: "Choose how they paid: cash, EFTPOS terminal, bank transfer or other." });
+      if (!isPosTender(method) || method === "card_present") return res.status(400).json({ message: "Choose how they paid: EFTPOS terminal, bank transfer or other." });
+      // 🔴 Cashless unless the register says otherwise. Hiding the button is not
+      // the same as refusing the payment — a stale tab would still post it.
+      const [reg] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
+      if (method === "cash" && reg?.handlesCash !== true) {
+        return res.status(409).json({ code: "POS_NO_CASH", message: "This register doesn't take cash. Use the EFTPOS terminal, or turn cash on for this register." });
+      }
       const tendered = Math.round(num(req.body?.amountCents));
       if (!Number.isFinite(tendered) || tendered <= 0) return res.status(400).json({ message: "Enter the amount." });
       if (sale.lines.length === 0) return res.status(409).json({ message: "Nothing in the sale yet." });

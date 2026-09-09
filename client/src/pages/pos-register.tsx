@@ -24,7 +24,7 @@ import {
 
 // ── Types (JSON shapes from server/pos-routes.ts) ───────────────────────────
 interface Brand { id: number; slug: string; name: string; account: string | null }
-interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
+interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
 interface Bootstrap {
   registers: Register[]; brands: Brand[];
   tenders: { value: string; label: string; rounds: boolean; needsReference: boolean }[];
@@ -56,6 +56,7 @@ interface Summary {
   takenCents: number; refundedCents: number; gstCents: number;
   byTender: { method: string; label: string; cents: number; count: number; refundedCents: number }[];
   byBrand: { name: string; cents: number; lines: number }[];
+  handlesCash: boolean;
   cash: { openingFloatCents: number; inCents: number; outCents: number; expectedCents: number; countedCents: number | null; varianceCents: number | null };
   declines: { total: number; byReason: Record<string, number> };
 }
@@ -203,8 +204,8 @@ export default function PosRegister() {
   const fail = (e: any) => toast({ title: "Couldn't do that", description: errMessage(e), variant: "destructive" });
 
   const openShift = useMutation({
-    mutationFn: () => json("POST", "/api/admin/pos/shifts/open", { registerId: register!.id, openingFloatCents: dollarInputToCents(floatDollars) }),
-    onSuccess: () => { refreshBoot(); toast({ title: "Shift open", description: "Take the first sale." }); }, onError: fail,
+    mutationFn: () => json("POST", "/api/admin/pos/shifts/open", { registerId: register!.id, openingFloatCents: register!.handlesCash ? dollarInputToCents(floatDollars) : 0 }),
+    onSuccess: () => { refreshBoot(); toast({ title: "Ready", description: "Take the first sale." }); }, onError: fail,
   });
   const newSale = useMutation({
     mutationFn: (moneyAccount?: string) => json<Sale>("POST", "/api/admin/pos/sales", { registerId: register!.id, moneyAccount }),
@@ -309,20 +310,32 @@ export default function PosRegister() {
         <ShoppingBag className="h-5 w-5 text-neutral-700" />
         <div className="mr-auto min-w-0 flex-1">
           <div className="text-[15px] font-semibold leading-tight truncate">{register.name}</div>
-          <div className="text-[12px] text-neutral-500 truncate">{shift ? `Shift open · ${shift.openedByName ?? "staff"} · float ${$(shift.openingFloatCents)}` : "No shift open"}</div>
+          <div className="text-[12px] text-neutral-500 truncate">{shift ? (register.handlesCash ? `Shift open · ${shift.openedByName ?? "staff"} · float ${$(shift.openingFloatCents)}` : `Open · ${shift.openedByName ?? "staff"}`) : (register.handlesCash ? "No shift open" : "Not started")}</div>
         </div>
         {shift && <button className={`${btnGhost} px-3`} onClick={() => setRecentOpen(true)} data-testid="pos-recent" title="This shift's sales"><Receipt className="h-4 w-4" /><span className="hidden sm:inline">Sales</span></button>}
         {shift && <button className={`${btnGhost} px-3`} onClick={() => setDeclineOpen(true)} data-testid="pos-decline" title="Couldn't pay"><AlertTriangle className="h-4 w-4" /><span className="hidden sm:inline">Couldn't pay</span></button>}
-        {shift && <button className={`${btnGhost} px-3`} onClick={() => setCashupOpen(true)} data-testid="pos-cashup" title="Cash up"><Banknote className="h-4 w-4" /><span className="hidden sm:inline">Cash up</span></button>}
+        {shift && <button className={`${btnGhost} px-3`} onClick={() => setCashupOpen(true)} data-testid="pos-cashup" title="Cash up"><Banknote className="h-4 w-4" /><span className="hidden sm:inline">{register.handlesCash ? "Cash up" : "Takings"}</span></button>}
       </div>
 
       {!shift ? (
+        // 🔴 The club is CASHLESS (Daniel, 2026-09-09). This screen used to demand
+        // "count the float in the drawer" before the first sale, at a counter with
+        // no drawer — the first thing the register ever asked, and it did not apply.
+        // Cashless registers just start; only a register with a cash box counts one.
         <div className="max-w-md mx-auto mt-10 bg-white rounded-2xl p-6 shadow-sm" data-testid="pos-open-shift">
-          <h2 className="text-lg font-semibold">Open the till</h2>
-          <p className="text-[13px] text-neutral-600 mt-1">Count the float in the drawer before the first sale. Expected cash at close is the float plus cash taken, worked out for you.</p>
-          <label className="block mt-4 text-[13px] font-medium">Opening float</label>
-          <div className="relative mt-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input inputMode="decimal" className={`${inputCls} pl-7`} value={floatDollars} onChange={(e) => setFloatDollars(e.target.value)} data-testid="pos-float" /></div>
-          <button className={`${btnPrimary} w-full mt-4`} disabled={openShift.isPending} onClick={() => openShift.mutate()} data-testid="pos-open-shift-btn">{openShift.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Open shift</button>
+          <h2 className="text-lg font-semibold">{register.handlesCash ? "Open the till" : "Start selling"}</h2>
+          <p className="text-[13px] text-neutral-600 mt-1">
+            {register.handlesCash
+              ? "Count the float in the drawer before the first sale. Expected cash at close is the float plus cash taken, worked out for you."
+              : "Everything on this register is taken by card, EFTPOS terminal or bank transfer. Nothing to count."}
+          </p>
+          {register.handlesCash && (
+            <>
+              <label className="block mt-4 text-[13px] font-medium">Opening float</label>
+              <div className="relative mt-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input inputMode="decimal" className={`${inputCls} pl-7`} value={floatDollars} onChange={(e) => setFloatDollars(e.target.value)} data-testid="pos-float" /></div>
+            </>
+          )}
+          <button className={`${btnPrimary} w-full mt-4`} disabled={openShift.isPending} onClick={() => openShift.mutate()} data-testid="pos-open-shift-btn">{openShift.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{register.handlesCash ? "Open shift" : "Start selling"}</button>
         </div>
       ) : (
         <div className="grid md:grid-cols-[1fr_400px] gap-3 p-3 pb-28 md:pb-3">
@@ -468,11 +481,11 @@ export default function PosRegister() {
       {/* ── Sheets ── */}
       {picking && <VariantSheet product={picking} brand={brandName(picking.orgId)} onClose={() => setPicking(null)} onPick={(variantId) => addLine.mutate({ kind: "variant", variantId, qty: 1 })} pending={addLine.isPending} />}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onCode={onCode} />
-      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders} hasReader={register.hasReader} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
+      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders.filter((t) => t.value !== "cash" || register.handlesCash)} hasReader={register.hasReader} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
       {s && <CustomerDialog open={customerOpen} onClose={() => setCustomerOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {s && <DiscountDialog open={discountOpen} onClose={() => setDiscountOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {done && <RefundDialog open={refundOpen} onClose={() => setRefundOpen(false)} sale={done} onSave={(b) => refund.mutate(b)} pending={refund.isPending} />}
-      <CashupDialog open={cashupOpen} onClose={() => { setCashupOpen(false); refreshBoot(); }} shiftId={shift?.id ?? null} onClosed={() => { setSaleId(null); ls.set("clubos_pos_sale", null); refreshBoot(); }} />
+      <CashupDialog open={cashupOpen} onClose={() => { setCashupOpen(false); refreshBoot(); }} shiftId={shift?.id ?? null} handlesCash={register.handlesCash} onClosed={() => { setSaleId(null); ls.set("clubos_pos_sale", null); refreshBoot(); }} />
       <DeclineDialog open={declineOpen} onClose={() => setDeclineOpen(false)} reasons={boot.data.declineReasons} onSave={(b) => decline.mutate(b)} pending={decline.isPending} />
       <RecentDialog open={recentOpen} onClose={() => setRecentOpen(false)} sales={recent.data ?? []} onOpen={(id) => { setSaleId(id); ls.set("clubos_pos_sale", String(id)); setRecentOpen(false); }} />
       {s && <RegisterPlayerModal open={registerOpen} onClose={() => setRegisterOpen(false)} scope="all" posSaleId={s.id}
@@ -552,7 +565,8 @@ function TenderSheet({ open, onClose, sale, tenders, hasReader, onPay, onCard, o
   open: boolean; onClose: () => void; sale: Sale; tenders: Bootstrap["manualTenders"]; hasReader: boolean;
   onPay: (b: { method: string; amountCents: number; reference?: string }) => void; onCard: () => void; onCancelCard: () => void; cardPending: boolean; pending: boolean;
 }) {
-  const [method, setMethod] = useState<string>("cash");
+  // Default to whatever this register can actually take — EFTPOS on a cashless one.
+  const [method, setMethod] = useState<string>(tenders[0]?.value ?? "eftpos");
   const [tendered, setTendered] = useState("");
   const [reference, setReference] = useState("");
   const remaining = sale.remainingCents;
@@ -672,19 +686,19 @@ function RefundDialog({ open, onClose, sale, onSave, pending }: { open: boolean;
   );
 }
 
-function CashupDialog({ open, onClose, shiftId, onClosed }: { open: boolean; onClose: () => void; shiftId: number | null; onClosed: () => void }) {
+function CashupDialog({ open, onClose, shiftId, handlesCash, onClosed }: { open: boolean; onClose: () => void; shiftId: number | null; handlesCash: boolean; onClosed: () => void }) {
   const { toast } = useToast();
   const summary = useQuery<Summary>({ queryKey: ["/api/admin/pos/shifts", shiftId, "summary"], queryFn: () => json("GET", `/api/admin/pos/shifts/${shiftId}/summary`), enabled: open && !!shiftId });
   const [counted, setCounted] = useState("");
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState<Summary | null>(null);
-  const close = useMutation({ mutationFn: () => json<Summary>("POST", `/api/admin/pos/shifts/${shiftId}/close`, { countedCents: dollarInputToCents(counted), notes }), onSuccess: (r) => { setResult(r); onClosed(); }, onError: (e) => toast({ title: "Couldn't close the shift", description: errMessage(e), variant: "destructive" }) });
+  const close = useMutation({ mutationFn: () => json<Summary>("POST", `/api/admin/pos/shifts/${shiftId}/close`, { countedCents: handlesCash ? dollarInputToCents(counted) : undefined, notes }), onSuccess: (r) => { setResult(r); onClosed(); }, onError: (e) => toast({ title: "Couldn't close the shift", description: errMessage(e), variant: "destructive" }) });
   const sm = result ?? summary.data;
   const countedCents = dollarInputToCents(counted);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md" data-testid="pos-cashup-dialog">
-        <DialogTitle className="text-[16px] font-semibold">{result ? "Shift closed" : "Cash up"}</DialogTitle>
+        <DialogTitle className="text-[16px] font-semibold">{result ? "Closed" : handlesCash ? "Cash up" : "Takings"}</DialogTitle>
         {!sm ? <div className="text-neutral-500 text-sm">Loading…</div> : (
           <div className="space-y-3 text-[13px]">
             <div className="grid grid-cols-2 gap-2">
@@ -692,18 +706,20 @@ function CashupDialog({ open, onClose, shiftId, onClosed }: { open: boolean; onC
             </div>
             <div className="rounded-xl border border-neutral-200 divide-y divide-neutral-100">{sm.byTender.map((t) => <Row2 key={t.method} label={`${t.label} (${t.count})`} value={t.refundedCents ? `${$(t.cents)} − ${$(t.refundedCents)}` : $(t.cents)} />)}{sm.byTender.length === 0 && <div className="p-3 text-neutral-500">No payments yet.</div>}</div>
             {sm.byBrand.length > 0 && <div className="rounded-xl border border-neutral-200 divide-y divide-neutral-100">{sm.byBrand.map((b) => <Row2 key={b.name} label={b.name} value={$(b.cents)} />)}</div>}
-            <div className="rounded-xl border border-neutral-200 divide-y divide-neutral-100">
+            {handlesCash && <div className="rounded-xl border border-neutral-200 divide-y divide-neutral-100">
               <Row2 label="Float" value={$(sm.cash.openingFloatCents)} /><Row2 label="Cash in" value={$(sm.cash.inCents)} /><Row2 label="Cash out (refunds)" value={$(sm.cash.outCents)} /><Row2 label="Expected in the drawer" value={$(sm.cash.expectedCents)} strong />
               {result && <Row2 label="Counted" value={$(sm.cash.countedCents ?? 0)} />}
               {result && <Row2 label="Variance" value={`${(sm.cash.varianceCents ?? 0) >= 0 ? "+" : "-"}${$(Math.abs(sm.cash.varianceCents ?? 0))}`} strong />}
-            </div>
+            </div>}
             {sm.declines.total > 0 && <div className="text-neutral-600">Couldn't pay: {Object.entries(sm.declines.byReason).map(([k, v]) => `${k.replace("_", " ")} ×${v}`).join(", ")}</div>}
             {!result && (
               <>
-                <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input inputMode="decimal" className={`${inputCls} pl-7`} placeholder="Cash counted in the drawer" value={counted} onChange={(e) => setCounted(e.target.value)} data-testid="pos-counted" /></div>
-                {counted && <div className={`font-medium ${countedCents - sm.cash.expectedCents === 0 ? "text-emerald-700" : "text-amber-700"}`}>Variance {countedCents - sm.cash.expectedCents >= 0 ? "+" : "-"}{$(Math.abs(countedCents - sm.cash.expectedCents))}</div>}
+                {handlesCash && <>
+                  <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input inputMode="decimal" className={`${inputCls} pl-7`} placeholder="Cash counted in the drawer" value={counted} onChange={(e) => setCounted(e.target.value)} data-testid="pos-counted" /></div>
+                  {counted && <div className={`font-medium ${countedCents - sm.cash.expectedCents === 0 ? "text-emerald-700" : "text-amber-700"}`}>Variance {countedCents - sm.cash.expectedCents >= 0 ? "+" : "-"}{$(Math.abs(countedCents - sm.cash.expectedCents))}</div>}
+                </>}
                 <input className={inputCls} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
-                <button className={`${btnPrimary} w-full`} disabled={close.isPending || counted.trim() === ""} onClick={() => close.mutate()} data-testid="pos-close-shift">{close.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Close the shift</button>
+                <button className={`${btnPrimary} w-full`} disabled={close.isPending || (handlesCash && counted.trim() === "")} onClick={() => close.mutate()} data-testid="pos-close-shift">{close.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{handlesCash ? "Close the shift" : "Close off"}</button>
                 <div className="text-[11px] text-neutral-500">Any open, unpaid cart is cleared when the shift closes. A cart that has taken money must be finished first.</div>
               </>
             )}

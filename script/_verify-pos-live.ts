@@ -93,9 +93,28 @@ async function main() {
   ok("gymnastics banks separately from the football brands", gym?.account === "cugc" && cufc?.account === "club" && siu?.account === "club");
 
   // A register of our own, so the office till is never touched by a probe.
-  const reg = await S("POST", "/api/admin/pos/registers", { name: `Probe register ${crypto.randomBytes(3).toString("hex")}`, location: "verification" });
+  // 🔴 A register is CASHLESS by default (the club has no drawer). This one asks
+  // for cash explicitly, because the cash rounding and change paths still have to
+  // be proven for a merch stand that does take a cash box.
+  const reg = await S("POST", "/api/admin/pos/registers", { name: `Probe register ${crypto.randomBytes(3).toString("hex")}`, location: "verification", handlesCash: true });
   ok("a register can be created", reg.status === 201 && !!reg.body?.id);
+  ok("cash is something a register opts into", reg.body?.handlesCash === true);
   const registerId = reg.body.id;
+
+  // And the default really is cashless, refused by the SERVER, not just hidden.
+  const plain = await S("POST", "/api/admin/pos/registers", { name: `Cashless probe ${crypto.randomBytes(3).toString("hex")}` });
+  ok("a new register defaults to cashless", plain.body?.handlesCash === false);
+  const plainShift = await S("POST", "/api/admin/pos/shifts/open", { registerId: plain.body.id });
+  ok("a cashless register opens with no float", plainShift.status === 201 && plainShift.body?.openingFloatCents === 0);
+  const plainSale = await S("POST", "/api/admin/pos/sales", { registerId: plain.body.id });
+  madeSales.push(plainSale.body.id);
+  await S("POST", `/api/admin/pos/sales/${plainSale.body.id}/lines`, { kind: "custom", orgId: cufc.id, title: "Scarf", unitCents: 1000, qty: 1 });
+  const cashRefused = await S("POST", `/api/admin/pos/sales/${plainSale.body.id}/payments`, { method: "cash", amountCents: 1000 });
+  ok("a cashless register REFUSES cash server-side", cashRefused.status === 409 && cashRefused.body?.code === "POS_NO_CASH", cashRefused.body?.message?.slice(0, 50));
+  const eft = await S("POST", `/api/admin/pos/sales/${plainSale.body.id}/payments`, { method: "eftpos", amountCents: 1000, reference: "slip 9" });
+  ok("but takes the EFTPOS terminal", eft.status === 201 && eft.body?.sale?.status === "paid");
+  const plainClose = await S("POST", `/api/admin/pos/shifts/${plainShift.body.id}/close`, {});
+  ok("and closes off with NO drawer count", plainClose.status === 200 && plainClose.body?.cash?.countedCents == null);
 
   // ── Shift ─────────────────────────────────────────────────────────────────
   const shift = await S("POST", "/api/admin/pos/shifts/open", { registerId, openingFloatCents: 10000 });
@@ -215,6 +234,8 @@ async function cleanup() {
     await pool.query(`delete from pos_sale_lines where sale_id = $1`, [id]).catch(() => {});
     await pool.query(`delete from pos_sales where id = $1`, [id]).catch(() => {});
   }
+  await pool.query(`delete from pos_shifts where register_id in (select id from pos_registers where name like 'Cashless probe %')`).catch(() => {});
+  await pool.query(`delete from pos_registers where name like 'Cashless probe %'`).catch(() => {});
   if (madeShift) {
     await pool.query(`delete from pos_declines where shift_id = $1`, [madeShift]).catch(() => {});
     await pool.query(`delete from pos_sales where shift_id = $1`, [madeShift]).catch(() => {});
