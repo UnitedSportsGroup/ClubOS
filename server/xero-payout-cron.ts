@@ -11,7 +11,7 @@
 // club's ledger just because it was deployed.
 
 import { listRecentPayouts, PayoutNotSplittable } from "./xero-payout";
-import { planPayout, postPayout } from "./xero-payout-post";
+import { planPayout, postPayout, isAlreadyPosted } from "./xero-payout-post";
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;   // hourly
 const BOOT_DELAY_MS = 3 * 60 * 1000;        // let the app settle after a deploy
@@ -36,6 +36,14 @@ async function sweep() {
     // Oldest first, so a catch-up lands in the order the bank statement shows.
     for (const p of payouts.slice().reverse()) {
       try {
+        // 🔴 Ask our own ledger BEFORE planning. `planPayout` walks the payout in
+        // Stripe and asks Xero for the chart of accounts and a window of bank
+        // transactions — two Xero calls — and only then reports `alreadyPosted`.
+        // Doing that hourly for eight payouts on two machines burned ~768 Xero
+        // calls a day re-deciding work finished days ago, against a 5,000/day
+        // tenant limit. The duplicate guard is untouched: anything actually
+        // postable still gets the full check.
+        if (await isAlreadyPosted(p.id)) continue;
         const plan = await planPayout(p.id);
         if (plan.alreadyPosted) continue;
         // Already coded by a human, or an account nobody has agreed: both are

@@ -52,6 +52,29 @@ async function loadMap(orgId: number) {
  * thrown, so one run tells a human everything they have to fix instead of one
  * thing at a time.
  */
+/**
+ * Have WE already posted this payout? A pure DB read, no Stripe and no Xero.
+ *
+ * 🔴 Exists so the hourly sweep can skip work it has already done. `planPayout`
+ * walks the payout in Stripe and then asks Xero for the chart of accounts and a
+ * window of bank transactions — two Xero calls — before it gets far enough to
+ * notice `alreadyPosted`. Eight payouts an hour on two Fly machines is ~768
+ * wasted Xero calls a day against a 5,000/day tenant limit, which is how the
+ * quota came to be exhausted mid-afternoon.
+ *
+ * 🔴 This does NOT weaken the duplicate guard. `findExistingEntry` — the check
+ * that Olga or Natalia has not already coded the deposit by hand — still runs
+ * on every payout that could actually be posted. This only short-circuits ones
+ * our own ledger already claims, where there is nothing left to decide.
+ */
+export async function isAlreadyPosted(payoutId: string): Promise<boolean> {
+  const prior = await db.execute(sql`
+    SELECT 1 FROM xero_payout_posts
+     WHERE stripe_payout_id = ${payoutId} AND stripe_account = 'club' AND status = 'posted'
+     LIMIT 1`);
+  return (prior.rows as any[]).length > 0;
+}
+
 export async function planPayout(payoutId: string, orgId = 1): Promise<PostPlan> {
   const { split, items } = await walkPayout(payoutId);
   const map = await loadMap(orgId);
