@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import { ArrowLeft, ArrowRight, Loader2, CheckCircle2, Clock, BellRing } from "lucide-react";
 import HdyhauCard from "@/components/hdyhau-card";
+import { useFormGuard } from "@/lib/use-form-guard";
 
 // MFL premium black + gold brand (matches the landing + register pages).
 const BRAND = {
@@ -20,6 +21,7 @@ const inputCls = "w-full rounded-xl px-4 py-3 text-[15px] outline-none transitio
 const inputStyle: React.CSSProperties = { background: BRAND.cardSoft, border: `1px solid ${BRAND.border}`, color: BRAND.white };
 
 export default function MflWaitlistPage() {
+  const { payload: guardPayload, Fields: GuardFields } = useFormGuard();
   const [, params] = useRoute("/league/:slug/waitlist");
   const slug = params?.slug || "";
   const [data, setData] = useState<any | null>(null);
@@ -77,6 +79,7 @@ export default function MflWaitlistPage() {
           utmMedium: url.searchParams.get("utm_medium"),
           utmCampaign: url.searchParams.get("utm_campaign"),
           fbclid: url.searchParams.get("fbclid"),
+          ...guardPayload(),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -149,6 +152,7 @@ export default function MflWaitlistPage() {
             </p>
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+              {GuardFields}
               <div className="rounded-2xl p-5 space-y-4" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}` }}>
                 <div>
                   <label className="block text-sm font-semibold mb-2">Team name</label>
