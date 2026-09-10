@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -2285,13 +2285,39 @@ export default function AdminCampDetail() {
   // stays inside it and the sidebar keeps the right item highlighted.
   const route = useProgramRoute();
   const campId = route?.id || 0;
-  // Deep-linkable tabs (`…/academy/4#coaches`). Without this the Coaches view
-  // is unreachable by URL, so it can't be bookmarked, sent to a coach, or
-  // linked from anywhere. Read once on mount, then kept in the hash.
-  const [tab, setTab] = useState(() => {
+  // 🔴 THE TAB LIVES IN THE URL, not only in React state.
+  //
+  // Daniel, 2026-09-10: "when i go back from that sessions page it takes me
+  // back to players not sessions tab — we've had this issue before with other
+  // areas of software, really need this fixed now and forever more."
+  //
+  // It was read from the hash ON MOUNT and never written back, so switching
+  // tabs changed nothing about the URL. Everything downstream of that was
+  // broken and looked like separate bugs: a sub-page could not send you back to
+  // the tab you came from (the session roll always dumped you on Players), the
+  // browser's own Back button could not step between tabs, and a tab could not
+  // be bookmarked or sent to anyone once you had clicked off it.
+  //
+  // Now it round-trips. `replaceState` rather than `pushState` so nine tabs do
+  // not bury the page you actually arrived from under nine history entries, and
+  // a `hashchange` listener keeps state honest when the hash changes from
+  // anywhere else — a back/forward, or a link into a different tab.
+  const [tab, setTabState] = useState(() => {
     const h = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
     return h || "players";
   });
+  const setTab = useCallback((key: string) => {
+    setTabState(key);
+    if (typeof window !== "undefined") {
+      const url = `${window.location.pathname}${window.location.search}#${key}`;
+      window.history.replaceState(null, "", url);
+    }
+  }, []);
+  useEffect(() => {
+    const onHash = () => setTabState(window.location.hash.replace("#", "") || "players");
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { toast } = useToast();

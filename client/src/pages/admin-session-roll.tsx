@@ -192,7 +192,7 @@ export function AddPlayerModal({
           <div className="space-y-2">
             <label className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">Search existing players</label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 value={q}
                 onChange={e => setQ(e.target.value)}
@@ -275,7 +275,12 @@ export default function AdminSessionRoll() {
   // programs) so back goes where the user came from.
   const route = useProgramRoute("/session/:dateId/:sessionType");
   const campId = route?.id || 0;
-  const detailPath = `${route?.base ?? "/admin/camps"}/${campId}`;
+  // 🔴 Back to the SESSIONS tab, not to whatever the programme page opens on.
+  // A session roll is only ever reached from Sessions, and returning someone to
+  // Players after they marked a roll is the small thing that makes an app feel
+  // like it is not listening. The programme page keeps its tab in the hash, so
+  // this is all it takes.
+  const detailPath = `${route?.base ?? "/admin/camps"}/${campId}#sessions`;
   const dateId = parseInt(route?.params.dateId || "0");
   const sessionType = route?.params.sessionType || "MORNING";
   const { toast } = useToast();
@@ -524,8 +529,15 @@ export default function AdminSessionRoll() {
           {/* Sticky on a term roll: with ~58 names the coach is scrolled well
               down the list when the next child arrives, and a search box that
               has scrolled off the top is no use to them. */}
+          {/* 🔴 The THEME's background, not a hard-coded near-black.
+              This carried `background: "rgba(6,10,18,0.88)"` — an inline style,
+              which the generated light-mode mapping can never reach, so it
+              stayed nearly black after the admin went light-only and drew a
+              black bar across a white page. Daniel: "fix this formatting
+              shitty". `hsl(var(--background) / …)` follows whichever theme is
+              active, so the sticky bar matches the page it is stuck to. */}
           <div className={isTermRoll ? "sticky top-0 z-30 -mx-1 px-1 py-2 backdrop-blur-md" : ""}
-               style={isTermRoll ? { background: "rgba(6,10,18,0.88)" } : undefined}>
+               style={isTermRoll ? { background: "hsl(var(--background) / 0.88)" } : undefined}>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
               <input
@@ -535,7 +547,12 @@ export default function AdminSessionRoll() {
                 placeholder={isTermRoll ? "Search for a player…" : "Search players..."}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className={`w-full pl-10 pr-10 rounded-xl border border-blue-500/[0.1] bg-blue-500/[0.03] text-white/80 placeholder-white/25 outline-none focus:border-blue-500/25 transition-colors ${
+                // 🔴 premium-input, not a hand-rolled dark box. ClubOS admin is
+                // LIGHT ONLY, and the generated light-theme block maps this
+                // class; a raw `bg-blue-500/[0.03] text-white/80` input is not
+                // in that mapping, so it rendered as a black bar across an
+                // otherwise white page.
+                className={`premium-input w-full pl-10 pr-10 rounded-xl outline-none transition-colors ${
                   isTermRoll ? "py-3 text-[16px]" : "py-2.5 text-[13px]"
                 }`}
                 /* 16px on the term roll: iOS Safari zooms the whole page in

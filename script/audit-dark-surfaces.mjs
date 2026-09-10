@@ -58,6 +58,8 @@ const DECLARED_DARK = {
   "pages/venue-split-page.tsx": "venue split pay — /book/split/:code",
   "pages/venue-payshare-pay.tsx": "venue PayShare — /book/payshare/pay/:token",
   "pages/ref/RefHome.tsx": "CIC referee portal home — /login",
+  "studio-blocks/blocks.tsx":
+    "USG Studio public page blocks — deliberately black, gradient scrims over hero imagery",
   "pages/ref/RefGameDetail.tsx": "CIC referee scoring — /game/:id",
   "pages/mfl-ref/MflRefHome.tsx": "MFL referee portal home — /mfl-ref",
   "pages/mfl-ref/MflRefGameDetail.tsx": "MFL referee scoring — /mfl-ref/game/:id",
@@ -85,8 +87,21 @@ const NOT_A_SURFACE = [
   /\?\?\s*["'`]#/, // a fallback for user-supplied colour data
 ];
 
-function luminance(hex) {
-  let h = hex.replace("#", "");
+/** Luminance of a hex OR an rgb()/rgba() colour.
+ *
+ * 🔴 It was hex-only, and that hole shipped: the session roll's sticky search
+ * bar carried `style={{ background: "rgba(6,10,18,0.88)" }}` and this audit
+ * reported "no un-declared dark surfaces" while a black bar sat across a white
+ * page. A guard that only knows one notation gives cover to the other.
+ */
+function luminance(colour) {
+  if (/^rgba?\(/i.test(colour)) {
+    const [r, g, b] = (colour.match(/[\d.]+/g) ?? []).map(Number);
+    if ([r, g, b].some((v) => v === undefined || Number.isNaN(v))) return 1;
+    const f = (c) => { c = c / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  let h = colour.replace("#", "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   if (h.length > 6) h = h.slice(0, 6);
   const ch = (i) => parseInt(h.slice(i, i + 2), 16) / 255;
@@ -112,9 +127,12 @@ function grepLines(pattern) {
   }
 }
 
-const lines = grepLines(
-  "style=\\{\\{[^}]*(background|backgroundColor)[^}]*#[0-9a-fA-F]{3,6}",
-);
+const lines = [
+  ...grepLines("style=\\{\\{[^}]*(background|backgroundColor)[^}]*#[0-9a-fA-F]{3,6}"),
+  // rgb()/rgba() paints exactly the same pixels and was invisible here until
+  // 2026-09-10 — see the note on luminance().
+  ...grepLines("style=\\{\\{[^}]*(background|backgroundColor)[^}]*rgba?\\("),
+];
 
 // 🔴 The mirror bug, and the one that actually shipped. An inline
 // `style={{ color: "#fff" }}` is just as unreachable by the CSS mapping as an
@@ -134,11 +152,31 @@ for (const line of lines) {
 
   if (NOT_A_SURFACE.some((re) => re.test(text))) continue;
 
+  // An inline `backdropFilter` means this element is an OVERLAY sitting over
+  // the page — a modal scrim — not a panel the theme should own. (The session
+  // roll's sticky bar used the `backdrop-blur-md` CLASS, not this property, so
+  // it stays caught: the difference is deliberate.)
+  if (/backdropFilter\s*:/.test(text)) continue;
+
+  // `p-[1px]` wrapping a gradient is this codebase's gradient-BORDER idiom.
+  // The dark colour is the border, and the card inside it paints its own
+  // background — nothing here is a surface whose ink could be flipped.
+  if (/p-\[1px\]/.test(text) && /gradient/i.test(text)) continue;
+
   // Only look at the hexes inside the style block, not elsewhere on the line.
   const style = text.match(/style=\{\{[^}]*\}?\}?/)?.[0] ?? text;
-  const darkHexes = (style.match(/#[0-9a-fA-F]{3,6}\b/g) ?? []).filter(
-    (h) => luminance(h) < DARK_MAX_L,
-  );
+  // 🔴 A SHADOW and a SCRIM are not surfaces, and widening this audit to
+  // rgb()/rgba() swept both in. A drop shadow is meant to be dark on every
+  // theme, and `rgba(0,0,0,α)` behind a modal is the universal dimming idiom —
+  // neither is a branded panel whose ink the light mapping would flip. Flagging
+  // them would train people to ignore this script, which is worse than the hole
+  // it was written to close.
+  const withoutShadows = style.replace(/(boxShadow|textShadow|filter|dropShadow)\s*:\s*(["'`])(?:\\.|(?!\2)[^\\])*\2/g, "");
+  const colours = [
+    ...(withoutShadows.match(/#[0-9a-fA-F]{3,6}\b/g) ?? []),
+    ...(withoutShadows.match(/rgba?\([^)]*\)/g) ?? []),
+  ].filter((c) => !/^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*[,)]/i.test(c));
+  const darkHexes = colours.filter((c) => luminance(c) < DARK_MAX_L);
   if (darkHexes.length === 0) continue;
 
   if (rel in DECLARED_DARK) continue;

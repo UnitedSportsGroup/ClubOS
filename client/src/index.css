@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 128 translucent white utilities → dark ink on light */
+/* 129 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -241,6 +241,7 @@ html:not(.dark) .border-white\/25 { border-color: rgb(15 23 42 / 0.152) !importa
 html:not(.dark) .border-white\/30 { border-color: rgb(15 23 42 / 0.175) !important; }
 html:not(.dark) .border-white\/5 { border-color: rgb(15 23 42 / 0.063) !important; }
 html:not(.dark) .border-white\/8 { border-color: rgb(15 23 42 / 0.076) !important; }
+html:not(.dark) .border-white\/80 { border-color: rgb(15 23 42 / 0.28) !important; }
 html:not(.dark) .decoration-white\/20 { text-decoration-color: rgb(15 23 42 / 0.58) !important; }
 html:not(.dark) .divide-white\/\[0\.03\] { border-color: rgb(15 23 42 / 0.053) !important; }
 html:not(.dark) .divide-white\/\[0\.04\] { border-color: rgb(15 23 42 / 0.058) !important; }
@@ -374,7 +375,7 @@ html:not(.dark) .from-\[\#0d1117\] { --tw-gradient-from: hsl(var(--card)) !impor
 html:not(.dark) .via-\[\#0d1117\] { --tw-gradient-to: hsl(var(--card)) !important; }
 html:not(.dark) .via-\[\#0d1117\]\/40 { --tw-gradient-to: hsl(var(--card)) !important; }
 
-/* 21 dark palette surfaces → light card.
+/* 22 dark palette surfaces → light card.
    bg-black/NN scrims are deliberately untouched — a dim scrim is
    correct on a light page too. */
 html:not(.dark) .bg-black { background-color: hsl(var(--card)) !important; }
@@ -393,6 +394,7 @@ html:not(.dark) .bg-slate-900\/95 { background-color: hsl(var(--card) / 0.95) !i
 html:not(.dark) .bg-slate-950 { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-zinc-800 { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-zinc-900 { background-color: hsl(var(--card)) !important; }
+html:not(.dark) .border-neutral-900 { border-color: rgb(15 23 42 / 0.28) !important; }
 html:not(.dark) .border-zinc-900 { border-color: rgb(15 23 42 / 0.28) !important; }
 html:not(.dark) .focus\:border-zinc-900:focus { border-color: rgb(15 23 42 / 0.28) !important; }
 html:not(.dark) .hover\:bg-slate-800:hover { background-color: hsl(var(--card)) !important; }
