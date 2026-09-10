@@ -113,19 +113,19 @@ async function main() {
 
   // ── The office walk-up form: a price per term ──────────────────────────────
   console.log(`\nRegister at the office → a price per term\n`);
-  await page.goto(`${BASE}/admin/register?scope=academy`, { waitUntil: "networkidle2", timeout: 60000 });
+  // 🔴 The form is a MODAL on the Academy page (button-register-player) — there
+  // is no /admin/register route, and guessing one 404s. Open it the way Olga
+  // does.
+  await page.goto(`${BASE}/admin/academy`, { waitUntil: "networkidle2", timeout: 60000 });
   await settle(2600);
-  let body = await page.evaluate(() => document.body.innerText || "");
-  if (!/FUNiño|Programme|programme/i.test(body)) {
-    // The form is a dialog on the Registrations page in some builds.
-    await page.goto(`${BASE}/admin/registrations`, { waitUntil: "networkidle2", timeout: 60000 });
-    await settle(2600);
-    await page.evaluate(() => {
-      const b = Array.from(document.querySelectorAll("button")).find((x) => /register (a )?player|new registration|register at/i.test(x.textContent || ""));
-      if (b) (b as HTMLButtonElement).click();
-    });
-    await settle(2200);
-  }
+  const openedForm = await page.evaluate(() => {
+    const b = document.querySelector('[data-testid="button-register-player"]');
+    if (!b) return false;
+    (b as HTMLElement).click();
+    return true;
+  });
+  ok("the Register Player button is on the Academy page", openedForm);
+  await settle(2600);
   const picked = await page.evaluate(() => {
     const b = Array.from(document.querySelectorAll('[data-testid^="option-programme-"]'))
       .find((x) => /FUNi/i.test(x.textContent || ""));
