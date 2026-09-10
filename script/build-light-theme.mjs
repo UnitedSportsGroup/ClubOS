@@ -41,6 +41,11 @@ const TW = require("tailwindcss/colors");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "client/src");
+// 🔴 Shared deciders carry class strings too (shared/programme-kinds.ts owns
+// the colour of each programme kind), and a utility only used there would get
+// no light-mode rule — the same blind spot that stopped Tailwind compiling it
+// at all. Both scans must cover the same ground.
+const SHARED = join(ROOT, "shared");
 const CSS = join(SRC, "index.css");
 
 const START = "/* === GENERATED: light-theme mapping — do not edit by hand === */";
@@ -81,7 +86,7 @@ const borderAlpha = (a) => round(Math.min(a * 0.45 + 0.04, 0.28));
 // ── scan the source ─────────────────────────────────────────────────────────
 function grep(pattern) {
   try {
-    return execSync(`grep -rhoE ${JSON.stringify(pattern)} ${JSON.stringify(SRC)}`, {
+    return execSync(`grep -rhoE ${JSON.stringify(pattern)} ${JSON.stringify(SRC)} ${JSON.stringify(SHARED)}`, {
       encoding: "utf8",
       maxBuffer: 1 << 28,
     })

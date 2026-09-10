@@ -2,7 +2,13 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  // 🔴 `shared/` is scanned too. A class written in a shared decider (e.g.
+  // shared/programme-kinds.ts, which owns what colour a programme kind is) was
+  // NEVER compiled — it only rendered when the identical string happened to
+  // also exist somewhere in client/src. That is exactly how the Registrations
+  // legend shipped with a violet swatch that drew nothing: bg-violet-500/60
+  // appears nowhere else in the app, so Tailwind never emitted the rule.
+  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}", "./shared/**/*.{ts,tsx}"],
   theme: {
     extend: {
       borderRadius: {

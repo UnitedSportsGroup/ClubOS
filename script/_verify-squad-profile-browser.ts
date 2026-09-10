@@ -154,6 +154,43 @@ async function main() {
       terms.filter((t) => t.disabled).map((t) => t.text).join(" | ") || "none disabled");
   }
 
+  // ── Registrations: colour, legend, and the term ───────────────────────────
+  console.log(`\nRegistrations → colour by kind, and the term it paid for\n`);
+  await page.goto(`${BASE}/admin/registrations`, { waitUntil: "networkidle2", timeout: 60000 });
+  await settle(3200);
+
+  // 🔴 MEASURE THE PIXEL, not the class name. `shared/` was outside Tailwind's
+  // content globs, so a class written in a shared decider was never compiled —
+  // the legend's violet swatch had the right className and drew NOTHING. A
+  // check that asserts the class is present would have passed the whole time.
+  const swatches = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="legend-programme-kinds"] span span')).map((el) => {
+      const c = getComputedStyle(el as HTMLElement).backgroundColor;
+      const m = /rgba?\(([^)]+)\)/.exec(c);
+      const parts = m ? m[1].split(",").map((x) => parseFloat(x)) : [];
+      return { colour: c, alpha: parts.length > 3 ? parts[3] : 1 };
+    }));
+  ok("the legend draws a swatch for every kind", swatches.length >= 3, `${swatches.length}`);
+  ok("every legend swatch is actually PAINTED, not a transparent class that never compiled",
+    swatches.length > 0 && swatches.every((s) => s.alpha > 0.2),
+    swatches.map((s) => `${s.colour}`).join(" | "));
+  ok("the three kinds are three DIFFERENT colours",
+    new Set(swatches.map((s) => s.colour)).size >= 3,
+    swatches.map((s) => s.colour).join(" | "));
+
+  const rows = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid^="row-registration-"]')).slice(0, 12).map((r) => ({
+      kind: (r.querySelector('[data-testid^="badge-reg-kind-"]') as HTMLElement)?.innerText ?? null,
+      term: (r.querySelector('[data-testid^="text-reg-term-"]') as HTMLElement)?.innerText ?? null,
+      text: (r as HTMLElement).innerText.replace(/\s+/g, " ").slice(0, 80),
+    })));
+  ok("every registration says what KIND it is", rows.length > 0 && rows.every((r) => !!r.kind),
+    rows.filter((r) => !r.kind).map((r) => r.text).slice(0, 2).join(" | "));
+  const academyRows = rows.filter((r) => r.kind === "ACADEMY");
+  ok("an academy registration says which TERM it paid for",
+    academyRows.length === 0 || academyRows.every((r) => /Term \d 20\d\d/.test(r.term ?? "")),
+    academyRows.slice(0, 2).map((r) => `${r.term}`).join(" | ") || "no academy rows on screen");
+
   ok("no React error on either page", errors.length === 0, errors.slice(0, 2).join(" · "));
   await page.close();
 }

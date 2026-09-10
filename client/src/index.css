@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 130 translucent white utilities → dark ink on light */
+/* 132 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -219,6 +219,7 @@ html:not(.dark) .bg-white\/10 { background-color: rgb(15 23 42 / 0.06) !importan
 html:not(.dark) .bg-white\/15 { background-color: rgb(15 23 42 / 0.085) !important; }
 html:not(.dark) .bg-white\/20 { background-color: rgb(15 23 42 / 0.11) !important; }
 html:not(.dark) .bg-white\/25 { background-color: rgb(15 23 42 / 0.135) !important; }
+html:not(.dark) .bg-white\/30 { background-color: rgb(15 23 42 / 0.16) !important; }
 html:not(.dark) .bg-white\/40 { background-color: rgb(15 23 42 / 0.16) !important; }
 html:not(.dark) .bg-white\/5 { background-color: rgb(15 23 42 / 0.035) !important; }
 html:not(.dark) .bg-white\/50 { background-color: rgb(255 255 255 / 0.5) !important; }
@@ -239,6 +240,7 @@ html:not(.dark) .border-white\/15 { border-color: rgb(15 23 42 / 0.108) !importa
 html:not(.dark) .border-white\/20 { border-color: rgb(15 23 42 / 0.13) !important; }
 html:not(.dark) .border-white\/25 { border-color: rgb(15 23 42 / 0.152) !important; }
 html:not(.dark) .border-white\/30 { border-color: rgb(15 23 42 / 0.175) !important; }
+html:not(.dark) .border-white\/40 { border-color: rgb(15 23 42 / 0.22) !important; }
 html:not(.dark) .border-white\/5 { border-color: rgb(15 23 42 / 0.063) !important; }
 html:not(.dark) .border-white\/8 { border-color: rgb(15 23 42 / 0.076) !important; }
 html:not(.dark) .border-white\/80 { border-color: rgb(15 23 42 / 0.28) !important; }
@@ -402,7 +404,7 @@ html:not(.dark) .hover\:bg-slate-800:hover { background-color: hsl(var(--card)) 
 html:not(.dark) .hover\:bg-zinc-800:hover { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .hover\:border-zinc-900:hover { border-color: rgb(15 23 42 / 0.28) !important; }
 
-/* 201 pale text utilities → their family's 700, which is the
+/* 202 pale text utilities → their family's 700, which is the
    lightest shade that clears 4.5:1 on white. Families touched:
    amber-100, amber-200, amber-300, amber-400, amber-500, amber-600, blue-100, blue-200, blue-300, blue-400, blue-500, cyan-200, cyan-300, cyan-400, emerald-100, emerald-200, emerald-300, emerald-400, emerald-500, emerald-600, green-300, green-400, green-600, indigo-100, indigo-200, indigo-300, indigo-400, lime-300, orange-300, orange-400, orange-500, orange-600, pink-100, pink-200, pink-300, pink-400, purple-300, purple-400, red-200, red-300, red-400, red-50, red-500, rose-300, rose-400, sky-200, sky-300, sky-400, teal-300, violet-200, violet-300, violet-400, violet-500, yellow-300, yellow-400, yellow-500, yellow-600 */
 html:not(.dark) .group:hover .group-hover\:text-amber-300 { color: #b45309 !important; }
@@ -599,6 +601,7 @@ html:not(.dark) .text-violet-400 { color: #6d28d9 !important; }
 html:not(.dark) .text-violet-400\/50 { color: color-mix(in srgb, #6d28d9 70%, transparent) !important; }
 html:not(.dark) .text-violet-400\/60 { color: color-mix(in srgb, #6d28d9 70%, transparent) !important; }
 html:not(.dark) .text-violet-400\/70 { color: color-mix(in srgb, #6d28d9 70%, transparent) !important; }
+html:not(.dark) .text-violet-400\/80 { color: color-mix(in srgb, #6d28d9 80%, transparent) !important; }
 html:not(.dark) .text-violet-500 { color: #6d28d9 !important; }
 html:not(.dark) .text-yellow-300 { color: #a16207 !important; }
 html:not(.dark) .text-yellow-400 { color: #a16207 !important; }
