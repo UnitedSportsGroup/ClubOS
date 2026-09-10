@@ -120,6 +120,7 @@ import {
 import { registerMediaRoutes } from "./media-routes";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes } from "./family-routes";
+import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import { registerParentRoutes, resolveOwnedChildContactId } from "./parent-routes";
@@ -25538,6 +25539,7 @@ export async function registerRoutes(
   // Every screen that shows a family goes through resolveFamily() in there, so
   // two pages can never disagree about whose child someone is.
   registerFamilyRoutes(app);
+  registerMailerPeopleSearch(app, requireAuth);
 
   // View As — see ClubOS exactly as a staff member sees it (super admin only,
   // read-only, audited). Born from Olga's and Travis's blank tabs: a super admin

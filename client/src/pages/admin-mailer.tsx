@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect, Fragment, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { RecipientSearch } from "@/components/mailer/recipient-search";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +88,6 @@ export default function AdminMailer() {
   const [selectedDateId, setSelectedDateId] = useState<number | null>(null);
   const [selectedSession, setSelectedSession] = useState<string>("");
   const [manualEmails, setManualEmails] = useState<string[]>([]);
-  const [emailInput, setEmailInput] = useState("");
   const [subject, setSubject] = useState("");
   const [fromEmail, setFromEmail] = useState("CUFC Camps <noreply@cufc.co.nz>");
   const [replyTo, setReplyTo] = useState("info@cufc.co.nz");
@@ -234,13 +234,6 @@ export default function AdminMailer() {
     },
   });
 
-  const addManualEmail = useCallback(() => {
-    const email = emailInput.trim();
-    if (email && email.includes("@") && !manualEmails.includes(email)) {
-      setManualEmails(prev => [...prev, email]);
-      setEmailInput("");
-    }
-  }, [emailInput, manualEmails]);
 
   const removeManualEmail = useCallback((email: string) => {
     setManualEmails(prev => prev.filter(e => e !== email));
@@ -392,63 +385,23 @@ export default function AdminMailer() {
 
             {segmentType === "custom" && (
               <div className="space-y-3">
-                <label className="text-xs text-white/40 uppercase tracking-wider">Enter Email Addresses</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={emailInput}
-                    onChange={e => setEmailInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addManualEmail(); } }}
-                    placeholder="email@example.com"
-                    className="premium-input text-white/80 flex-1"
-                    data-testid="input-manual-email"
-                  />
-                  <Button onClick={addManualEmail} variant="outline" className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10" data-testid="button-add-email">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-                {manualEmails.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {manualEmails.map(email => (
-                      <Badge key={email} variant="outline" className="border-blue-500/20 text-blue-400 bg-blue-500/5 gap-1 pr-1">
-                        {email}
-                        <button onClick={() => removeManualEmail(email)} className="ml-1 hover:text-red-400" data-testid={`button-remove-${email}`}>
-                          <X className="w-3 h-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+                <RecipientSearch
+                  emails={manualEmails}
+                  onAdd={(e) => setManualEmails(prev => prev.includes(e) ? prev : [...prev, e])}
+                  onRemove={removeManualEmail}
+                  label="Recipients"
+                />
               </div>
             )}
 
             {segmentType !== "custom" && (
               <div className="space-y-3">
-                <label className="text-xs text-white/40 uppercase tracking-wider">Additional Manual Emails (Optional)</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={emailInput}
-                    onChange={e => setEmailInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addManualEmail(); } }}
-                    placeholder="Add extra emails manually..."
-                    className="premium-input text-white/80 flex-1"
-                    data-testid="input-extra-email"
-                  />
-                  <Button onClick={addManualEmail} variant="outline" className="border-white/10 text-white/40 hover:bg-white/5" data-testid="button-add-extra-email">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-                {manualEmails.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {manualEmails.map(email => (
-                      <Badge key={email} variant="outline" className="border-white/10 text-white/50 bg-white/[0.02] gap-1 pr-1">
-                        {email}
-                        <button onClick={() => removeManualEmail(email)} className="ml-1 hover:text-red-400" data-testid={`button-remove-extra-${email}`}>
-                          <X className="w-3 h-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+                <RecipientSearch
+                  emails={manualEmails}
+                  onAdd={(e) => setManualEmails(prev => prev.includes(e) ? prev : [...prev, e])}
+                  onRemove={removeManualEmail}
+                  label="Add anyone else (optional)"
+                />
               </div>
             )}
 
