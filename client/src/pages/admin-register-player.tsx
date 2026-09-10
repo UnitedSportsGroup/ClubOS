@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { formatCurrency, centsToDollarInput, dollarInputToCents } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,17 @@ interface AcademyQuote {
     id: number; name: string; section: string; registrationOpen: boolean;
     seasonYear: number; ageMin: number | null; ageMax: number | null;
   };
-  term: { name: string; termNumber: number | null; startDate: string; endDate: string } | null;
+  term: { id: number; year: number; name: string; termNumber: number | null; startDate: string; endDate: string } | null;
+  /**
+   * Every term this workspace has, each priced in its OWN right — the term
+   * running now costs its remaining sessions, a future one costs the full fee.
+   * `totalCents: null` means there is nothing left to sell in that term.
+   */
+  terms: {
+    id: number; year: number; name: string; termNumber: number | null;
+    startDate: string; endDate: string; isProgrammeTerm: boolean;
+    totalCents: number | null; sessionsRemaining: number | null; sessionsTotal: number | null;
+  }[];
   allowFullYear: boolean;
   options: { id: number; name: string; fullPriceCents: number; scheduleText?: string | null }[];
   quote: {
@@ -180,6 +190,9 @@ export function RegisterPlayerModal({
 
   // ── Academy shape ─────────────────────────────────────────────────────────
   const [optionId, setOptionId] = useState<number | null>(null);
+  // WHICH TERM the counter is selling. null = the programme's own current term,
+  // which is what every caller did before the picker existed.
+  const [termId, setTermId] = useState<number | null>(null);
   const [plan, setPlan] = useState<"term" | "year">("term");
   const [playerFirst, setPlayerFirst] = useState("");
   const [playerLast, setPlayerLast] = useState("");
@@ -249,11 +262,15 @@ export function RegisterPlayerModal({
 
   // ── Academy pricing: quoted by the server, never computed here ────────────
   const { data: academyData, isFetching: quoting } = useQuery<AcademyQuote>({
-    queryKey: ["/api/admin/registrations/manual/quote", selectedProgramId, optionId, plan],
+    queryKey: ["/api/admin/registrations/manual/quote", selectedProgramId, optionId, plan, termId],
     queryFn: async () => {
       const qs = new URLSearchParams({ programId: String(selectedProgramId), plan });
       if (optionId) qs.set("programOptionId", String(optionId));
-      const res = await fetch(`/api/admin/registrations/manual/quote?${qs}`, { credentials: "include" });
+      if (termId) qs.set("termId", String(termId));
+      // 🔴 workspaceFetch, never a bare fetch(). This endpoint is tab-gated, and
+      // requireTab() demands X-Workspace-Slug of everyone — a bare fetch prices
+      // the programme for a super admin and answers 400 for the office.
+      const res = await workspaceFetch(`/api/admin/registrations/manual/quote?${qs}`);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not price this programme");
       return res.json();
     },
@@ -339,6 +356,9 @@ export function RegisterPlayerModal({
           programId: selectedProgramId,
           programOptionId: optionId,
           paymentPlan: plan,
+          // Which term they paid for. Omitted = the programme's own current
+          // term, which the server resolves; it re-prices either way.
+          termId: plan === "term" ? termId : null,
           guardian: {
             firstName: parentFirst, lastName: parentLast,
             email: parentEmail, phone: parentPhone, relationship,
@@ -704,7 +724,7 @@ export function RegisterPlayerModal({
                 {programmes.map((p) => (
                   <button
                     key={`${p.type}-${p.id}`}
-                    onClick={() => { setSelectedProgramId(p.id); setOptionId(null); setItems([]); setAmountTouched(false); }}
+                    onClick={() => { setSelectedProgramId(p.id); setOptionId(null); setTermId(null); setItems([]); setAmountTouched(false); }}
                     className={`w-full text-left px-4 py-3 rounded-xl border transition-colors min-w-0 ${
                       selectedProgramId === p.id
                         ? "bg-blue-500/10 border-blue-500/30"
@@ -762,6 +782,80 @@ export function RegisterPlayerModal({
                     </Field>
                   )}
 
+                  {/* ── Which term ───────────────────────────────────────────
+                      Daniel, 2026-09-10: "make sure here in register at office
+                      manual rego it shows the term 4 full price or the term 3
+                      pro rata what's remaining price so that the guys in the
+                      office can still track those too."
+
+                      Today Term 3 is running past its full-price weeks (so it
+                      costs its remaining sessions) and Term 4 is open at the
+                      full fee. Both are real sales at the counter, and the one
+                      chosen is STORED on the registration — otherwise the roll
+                      cannot tell this term's players from next term's.
+
+                      🔴 Every price here comes from the server, priced by the
+                      same function as the public checkout. The browser never
+                      works one out. */}
+                  {plan === "term" && (academyData?.terms?.length ?? 0) > 0 && (
+                    <Field label="Which term" required>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {academyData!.terms.map((t) => {
+                          const selected = (termId ?? academyData!.term?.id ?? null) === t.id;
+                          const finished = t.totalCents == null;
+                          return (
+                            <button
+                              key={t.id}
+                              disabled={finished}
+                              onClick={() => { if (!finished) { setTermId(t.id); setAmountTouched(false); } }}
+                              className={`px-3 py-2.5 rounded-lg border text-left transition-colors min-w-0 ${
+                                finished
+                                  ? "bg-muted/30 border-input opacity-55 cursor-not-allowed"
+                                  : selected
+                                    ? "bg-blue-500/10 border-blue-500/30"
+                                    : "bg-background border-input hover:bg-muted"
+                              }`}
+                              data-testid={`option-term-${t.id}`}
+                            >
+                              <div className="flex items-center justify-between gap-2 min-w-0">
+                                <span className="text-[13px] text-white/95 font-medium break-words min-w-0">
+                                  {t.name} {t.year}
+                                </span>
+                                {t.isProgrammeTerm && (
+                                  <Badge variant="outline" className="text-[9.5px] shrink-0 border-blue-400/25 text-blue-200/70">
+                                    Now selling
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-white/45 mt-0.5">
+                                {formatDate(t.startDate)} – {formatDate(t.endDate)}
+                              </div>
+                              <div className="text-[12px] mt-1 min-w-0">
+                                {finished ? (
+                                  <span className="text-white/40">Finished — nothing left to sell</span>
+                                ) : (
+                                  <>
+                                    <span className="text-white/85 font-medium">
+                                      {formatCurrency(t.totalCents!, { fromCents: true })}
+                                    </span>
+                                    {t.sessionsRemaining != null && t.sessionsTotal != null && (
+                                      <span className="text-white/45">
+                                        {" · "}
+                                        {t.sessionsRemaining === t.sessionsTotal
+                                          ? `full term, ${t.sessionsTotal} sessions`
+                                          : `pro rata · ${t.sessionsRemaining} of ${t.sessionsTotal} sessions left`}
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Field>
+                  )}
+
                   {academyData?.allowFullYear && (
                     <Field label="Payment plan">
                       <div className="flex gap-2">
@@ -800,7 +894,7 @@ export function RegisterPlayerModal({
                       </div>
                       {academyData.term && (
                         <p className="text-[11px] text-white/50 pt-0.5">
-                          {academyData.term.name} · {formatDate(academyData.term.startDate)} – {formatDate(academyData.term.endDate)}
+                          {academyData.term.name} {academyData.term.year} · {formatDate(academyData.term.startDate)} – {formatDate(academyData.term.endDate)}
                           {academyData.quote.sessionsRemaining != null && academyData.quote.totalSessions != null &&
                             ` · ${academyData.quote.sessionsRemaining} of ${academyData.quote.totalSessions} sessions left`}
                         </p>
@@ -1269,7 +1363,32 @@ export function RegisterPlayerModal({
         </div>
 
         {/* Sticky so Save is always reachable on a short laptop screen. */}
-        <div className="px-5 py-4 border-t border-blue-500/[0.08] flex items-center justify-between gap-2 sticky bottom-0 z-10 rounded-b-2xl" style={{ background: "hsl(var(--background))" }}>
+        <div className="sticky bottom-0 z-10 rounded-b-2xl" style={{ background: "hsl(var(--background))" }}>
+          {/* 🔴 IN THE FLOW, not `absolute bottom-full`.
+              It used to float above the footer over the scrolling form, and at
+              10% opacity you read it and the form underneath at the same time —
+              on the NZF step, where the list runs to a dozen field names and
+              wraps to three lines, it landed straight on top of the "skip and
+              follow up" checkbox and both were unreadable. Daniel: "I think the
+              transparency is causing readability issues here." The transparency
+              was the symptom; overlapping was the cause. Now it sits inside the
+              sticky block, so the footer grows and the form scrolls clear of it,
+              and it is opaque so nothing can bleed through regardless. */}
+          {showErrors && missingForStep().length > 0 && (
+            <div
+              className="mx-5 mt-3 px-3 py-2.5 rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/40"
+              data-testid="banner-missing-fields"
+            >
+              <div className="flex gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-[13px] text-foreground leading-snug min-w-0">
+                  Still needed before you can go on:{" "}
+                  <span className="font-medium">{missingForStep().join(", ")}</span>
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="px-5 py-4 border-t border-blue-500/[0.08] flex items-center justify-between gap-2">
           <Button
             size="sm" variant="ghost"
             onClick={() => (step === 0 ? (isDirty ? setConfirmDiscard(true) : close()) : setStep(step - 1))}
@@ -1279,20 +1398,6 @@ export function RegisterPlayerModal({
             {step === 0 ? "Cancel" : <><ChevronLeft className="w-3.5 h-3.5 mr-1" />Back</>}
           </Button>
 
-          {showErrors && missingForStep().length > 0 && (
-            <div
-              className="absolute bottom-full left-0 right-0 mx-4 mb-2 px-3 py-2.5 rounded-lg bg-amber-500/[0.10] border border-amber-500/30"
-              data-testid="banner-missing-fields"
-            >
-              <div className="flex gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-[13px] text-foreground/85 leading-snug min-w-0">
-                  Still needed before you can go on:{" "}
-                  <span className="font-medium">{missingForStep().join(", ")}</span>
-                </p>
-              </div>
-            </div>
-          )}
           {step < STEPS.length - 1 ? (
             <Button
               size="sm"
@@ -1319,6 +1424,7 @@ export function RegisterPlayerModal({
                 : <><CheckCircle className="w-3.5 h-3.5 mr-1" />Create registration</>}
             </Button>
           )}
+          </div>
         </div>
       </div>
     </div>

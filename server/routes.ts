@@ -2220,6 +2220,10 @@ export async function registerRoutes(
         guardianId: guardian.id,
         status: "pending",
         amountPaid: "0",
+        // The term this class booking is for — the one it was just priced
+        // against. Without it the Players tab re-files every past sign-up under
+        // whatever term the programme is flipped to next.
+        termId: term?.id ?? null,
         subtotalCents: isDepositWeekly ? quote.payNowCents : isWeekly ? weeklyPriceCents : quote.payNowCents,
         discountCents: quote.discountCents,
         // Deposit-weekly owes the whole term; the deposit is what lands today.
@@ -3316,6 +3320,11 @@ export async function registerRoutes(
         paymentMode: "upfront",
         academyPaymentPlan: plan,
         seasonYear,
+        // Which term the family just paid for. The public checkout always sells
+        // the term the programme is CURRENTLY on — the same `term` this quote
+        // was priced against — and stamping it here is what stops the next
+        // term-flip re-filing this registration under Term 5.
+        termId: term?.id ?? null,
         subtotalCents: quote.subtotalCents,
         discountCents: totalDiscountCents,
         totalCents: chargeCents,
@@ -4215,8 +4224,68 @@ export async function registerRoutes(
           return res.status(404).json({ message: "Program not found" });
         }
       }
-      const players = await storage.getProgramPlayers(campId);
+      // `?termId=7` narrows to one term, `?termId=none` to rows whose term was
+      // never recorded, and no parameter keeps every term (what a holiday camp,
+      // which has no terms at all, still wants).
+      const raw = req.query.termId;
+      const termId =
+        raw === undefined || raw === "" || raw === "all" ? undefined
+        : raw === "none" ? null
+        : Number(raw);
+      if (typeof termId === "number" && !Number.isFinite(termId)) {
+        return res.status(400).json({ message: "termId must be a term id, 'none' or 'all'" });
+      }
+      const players = await storage.getProgramPlayers(campId, termId);
       res.json(players);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /**
+   * The term picker on a programme's Players tab: every term this programme has
+   * ACTUALLY taken registrations in, with the count and the money for each.
+   *
+   * 🔴 Counts come from the same decider as the list itself
+   * (REAL_REGISTRATION_STATUSES — money landed), so the number on the chip is
+   * the number of rows you get when you click it. A tab whose filter says 146
+   * and then shows 151 is worse than no filter.
+   */
+  app.get("/api/admin/camps/:id/term-counts", requireAuth, async (req, res) => {
+    try {
+      const campId = parseInt(String(req.params.id));
+      const org = await workspaceOrg(req);
+      const prog: any = await storage.getProgram(campId);
+      if (!prog) return res.status(404).json({ message: "Program not found" });
+      if (org && prog.organizationId && prog.organizationId !== org.id) {
+        return res.status(404).json({ message: "Program not found" });
+      }
+      const rows: any = await db.execute(sql`
+        SELECT r.term_id,
+               t.year, COALESCE(t.name, 'Term ' || t.term_number) AS name, t.term_number,
+               COUNT(*)::int AS n,
+               COALESCE(SUM(r.total_cents), 0)::bigint AS cents
+        FROM registrations r
+        LEFT JOIN terms t ON t.id = r.term_id
+        WHERE r.program_id = ${campId}
+          AND r.status IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+        GROUP BY r.term_id, t.year, t.name, t.term_number
+        ORDER BY t.year DESC NULLS LAST, t.term_number DESC NULLS LAST
+      `);
+      res.json({
+        programmeTermId: prog.termId ?? null,
+        terms: (rows.rows ?? []).map((r: any) => ({
+          id: r.term_id,
+          // A row with no term reads "not recorded" — never filed under a real
+          // term, and never hidden either.
+          label: r.term_id ? `${r.name} ${r.year}` : "Term not recorded",
+          year: r.year ?? null,
+          termNumber: r.term_number ?? null,
+          count: Number(r.n),
+          totalCents: Number(r.cents),
+          isProgrammeTerm: r.term_id != null && r.term_id === prog.termId,
+        })),
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -4850,7 +4919,10 @@ export async function registerRoutes(
               // than offering a $0 registration.
               totalCents: q ? q.totalCents : null,
               sessionsRemaining: q ? q.sessionsRemaining ?? null : null,
-              sessionsTotal: q ? q.sessionsTotal ?? null : null,
+              // `totalSessions` is what academyQuoteFor calls it. Reading
+              // `sessionsTotal` here returned undefined on every term and the
+              // counter would have read "3 of sessions left".
+              sessionsTotal: q ? q.totalSessions ?? null : null,
             };
           })
           .sort((a: any, b: any) => (b.year - a.year) || (b.termNumber - a.termNumber)),
@@ -5018,7 +5090,28 @@ export async function registerRoutes(
         if (!option) return res.status(400).json({ message: "Choose which age group / option they're registering for." });
 
         const plan: "term" | "year" = body.paymentPlan === "year" ? "year" : "term";
-        const term = await academyTermFor(program);
+
+        // ── WHICH TERM they are paying for ──────────────────────────────────
+        // Daniel, 2026-09-10: "make sure here in register at office manual rego
+        // it shows the term 4 full price or the term 3 pro rata what's
+        // remaining price so that the guys in the office can still track those
+        // too." Term 3 is running and pro-rated; Term 4 is open and costs the
+        // full fee. Both are sellable at the counter today, so the term is a
+        // choice — and it is RECORDED, because otherwise the roll cannot tell
+        // the two populations apart.
+        //
+        // 🔴 Default is the programme's own term, so a caller that sends
+        // nothing behaves exactly as it did before this existed. A termId that
+        // belongs to another workspace is refused rather than quietly ignored,
+        // which is what makes it safe to take one from the browser.
+        const askedTermId = body.termId != null && String(body.termId).trim() !== "" ? Number(body.termId) : null;
+        if (askedTermId != null && !Number.isFinite(askedTermId)) {
+          return res.status(400).json({ message: "That term isn't recognised." });
+        }
+        const term = await academyTermFor(program, askedTermId);
+        if (askedTermId != null && !term) {
+          return res.status(400).json({ message: "That term doesn't belong to this programme's workspace." });
+        }
         if (plan === "year" && !academyFullYearAvailable(section, term?.termNumber ?? null)) {
           return res.status(400).json({ message: "The full-year plan isn't available for this programme right now — it's charged per term." });
         }
@@ -5252,6 +5345,11 @@ export async function registerRoutes(
           paymentMode: "upfront",
           academyPaymentPlan: plan,
           seasonYear,
+          // The term this registration is FOR. Not `program.termId` read later:
+          // that column is flipped when the next term opens, so reading it at
+          // display time would silently re-file every past registration under
+          // the new term — which is the bug Daniel spotted on the Players tab.
+          termId: term?.id ?? null,
           subtotalCents: priceSubtotal,
           discountCents: priceDiscount,
           totalCents: priceTotal,

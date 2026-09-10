@@ -481,6 +481,18 @@ export const registrations = pgTable("registrations", {
   // discount and is only offered on core academy programmes.
   academyPaymentPlan: text("academy_payment_plan"),
   seasonYear: integer("season_year"),
+  /** WHICH TERM this registration is for.
+   *
+   * 🔴 Until 2026-09-10 a registration carried no term at all, so the FUNiño
+   * Players tab listed every registration ever taken — Term 3 and Term 4 in one
+   * list of 151, with the money totalled across both. `programs.term_id` cannot
+   * answer this: it is the term a programme is selling RIGHT NOW and gets
+   * flipped when a term opens, so reading it would rewrite history every flip.
+   *
+   * Nullable with no default on purpose. A row whose term genuinely cannot be
+   * established reads "not recorded" rather than being filed under a real term
+   * on a guess. */
+  termId: integer("term_id").references(() => terms.id),
   // Provenance. NULL = created in ClubOS. 'friendly_manager' = imported.
   legacySource: text("legacy_source"),
   legacyExternalId: text("legacy_external_id"),

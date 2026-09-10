@@ -1593,7 +1593,22 @@ export class DatabaseStorage implements IStorage {
     return results.sort((a, b) => a.child.lastName.localeCompare(b.child.lastName));
   }
 
-  async getProgramPlayers(campId: number): Promise<ProgramPlayer[]> {
+  /**
+   * @param termId  Narrow to ONE term. `undefined` = every term (the old
+   *   behaviour, still what a holiday camp wants). `null` = only rows whose
+   *   term was never recorded.
+   *
+   * 🔴 Daniel, 2026-09-10: "make sure you got a term selector here... only show
+   *   corresponding registrations... I feel like you putting the term 4 ones all
+   *   in here now which is wrong." He was right — FUNiño listed 151 people, and
+   *   it was 146 from Term 3 plus 5 who had signed up for Term 4, with the money
+   *   totalled across both.
+   */
+  async getProgramPlayers(campId: number, termId?: number | null): Promise<ProgramPlayer[]> {
+    const termFilter =
+      termId === undefined ? undefined
+      : termId === null ? isNull(registrations.termId)
+      : eq(registrations.termId, termId);
     // Both shapes are queried — see the ProgramPlayer docblock. Only REAL
     // registrations (money landed — @shared/registrations) are read: a pending
     // row is an unfinished checkout, not a player, and Daniel's rule is that it
@@ -1651,7 +1666,7 @@ export class DatabaseStorage implements IStorage {
       .from(registrations)
       .innerJoin(contacts, eq(registrations.contactId, contacts.id))
       .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
-      .where(and(eq(registrations.programId, campId), eq(contacts.type, "player"), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES])));
+      .where(and(eq(registrations.programId, campId), eq(contacts.type, "player"), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]), termFilter));
 
     // Shape 2 — camps: one registration_items line per child per day.
     const childRows = await db.select({
@@ -1675,7 +1690,7 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
       .innerJoin(children, eq(registrationItems.childId, children.id))
       .leftJoin(contacts, eq(children.parentId, contacts.id))
-      .where(and(eq(registrations.programId, campId), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES])));
+      .where(and(eq(registrations.programId, campId), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]), termFilter));
 
     const rows: Row[] = [
       ...contactRows.map((r): Row => ({

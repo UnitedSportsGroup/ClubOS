@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimePickerInput } from "@/components/ui/time-picker-input";
@@ -1786,15 +1786,51 @@ const PLAYER_STATUS_STYLES: Record<string, string> = {
  * store players differently). Missing dates of birth are flagged rather than
  * hidden: the NZF / Mainland Football audit needs a real DOB on every player.
  */
+type TermCount = {
+  id: number | null;
+  label: string;
+  year: number | null;
+  termNumber: number | null;
+  count: number;
+  totalCents: number;
+  isProgrammeTerm: boolean;
+};
+
 function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; detailPath: string }) {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // 🔴 WHICH TERM. Daniel, 2026-09-10: "make sure you got a term selector here
+  // for term 1, term 2, term 3 and term 4 2026... only show corresponding
+  // registrations... I feel like you putting the term 4 ones all in here now
+  // which is wrong." FUNiño was listing 151 people — 146 from Term 3 and 5 who
+  // had signed up for Term 4 — and totalling the money across both.
+  //
+  // `undefined` here means "not chosen yet": the tab opens on the term the
+  // programme is CURRENTLY selling, which is the one a person opening it almost
+  // always means, and every other term is one click away.
+  const [termFilter, setTermFilter] = useState<string | undefined>(undefined);
+
+  const { data: termData } = useQuery<{ programmeTermId: number | null; terms: TermCount[] }>({
+    queryKey: [`/api/admin/camps/${campId}/term-counts`],
+  });
+  const terms = termData?.terms ?? [];
+  // Default to the programme's own term, but only once we know it exists in the
+  // data — defaulting to a term with no registrations would open on an empty
+  // list and look broken.
+  const defaultTerm =
+    terms.find((t) => t.isProgrammeTerm)?.id != null
+      ? String(terms.find((t) => t.isProgrammeTerm)!.id)
+      : terms.length > 0 ? String(terms[0].id ?? "none") : "all";
+  const activeTerm = termFilter ?? defaultTerm;
+  const hasTerms = terms.length > 0;
+
   const { data: players, isLoading } = useQuery<ProgramPlayer[]>({
-    queryKey: ["/api/admin/camps", campId, "players"],
+    queryKey: ["/api/admin/camps", campId, "players", hasTerms ? activeTerm : "all"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/camps/${campId}/players`, { credentials: "include" });
+      const qs = hasTerms && activeTerm !== "all" ? `?termId=${encodeURIComponent(activeTerm)}` : "";
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/players${qs}`);
       if (!res.ok) throw new Error("Failed to load players");
       return res.json();
     },
@@ -1881,6 +1917,47 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
 
   return (
     <div className="space-y-3">
+      {/* The term picker sits ABOVE the status chips because it changes what
+          the whole page is about, while a status chip only narrows it. Each
+          shows its own count and money so the two never have to be added up in
+          somebody's head. */}
+      {hasTerms && (
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="filter-terms">
+          {terms.map((t) => {
+            const key = t.id == null ? "none" : String(t.id);
+            const on = activeTerm === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setTermFilter(key)}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+                  on ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                     : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+                }`}
+                data-testid={`filter-term-${key}`}
+              >
+                {t.label}
+                {t.isProgrammeTerm && <span className="ml-1.5 text-[10px] text-emerald-400/80">open</span>}
+                <span className="ml-1.5 text-white/30">{t.count}</span>
+                <span className="ml-1.5 text-white/25">{formatCurrency(t.totalCents, { fromCents: true })}</span>
+              </button>
+            );
+          })}
+          {terms.length > 1 && (
+            <button
+              onClick={() => setTermFilter("all")}
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+                activeTerm === "all" ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                                     : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+              }`}
+              data-testid="filter-term-all"
+            >
+              All terms <span className="ml-1.5 text-white/30">{terms.reduce((a, t) => a + t.count, 0)}</span>
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {chips.map(c => (
