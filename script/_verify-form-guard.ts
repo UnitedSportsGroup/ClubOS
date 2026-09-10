@@ -11,7 +11,7 @@ import { looksRandom, looksRandomName, vowellessName, contentSignals } from "../
 let pass = 0; const fails: string[] = [];
 const ok = (n: string, c: boolean, d = "") => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fails.push(n); console.log(`  ✗ ${n} ${d}`); } };
 
-const IPS = ["198.51.100.31", "198.51.100.32", "198.51.100.33", "198.51.100.34", "198.51.100.35", "198.51.100.36", "198.51.100.37"];
+const IPS = ["198.51.100.31", "198.51.100.32", "198.51.100.33", "198.51.100.34", "198.51.100.35", "198.51.100.36", "198.51.100.37", "198.51.100.38"];
 const req = (ip: string, body: Record<string, unknown> = {}) =>
   ({ headers: { "x-forwarded-for": ip }, socket: {}, body }) as any;
 
@@ -28,6 +28,21 @@ const req = (ip: string, body: Record<string, unknown> = {}) =>
     ok("…but the NAME rules let it through", !looksRandomName("TheKickers2026"));
     for (const t of ["Real Madrid CF", "FC Twenty 11", "St Albans Shirley", "Ōtautahi United", "The A-Team"])
       ok(`real team "${t}" passes`, !looksRandomName(t));
+  }
+
+  console.log("\nThe realistic path: a real entry WITH a token scores nothing at all");
+  {
+    // 🔴 Since expectsToken flipped, a submission with no token starts at one of
+    // the two signals needed to hold it. Every live page fetches one, so the real
+    // path must come back completely clean — this is the check that says the flip
+    // was safe.
+    const t = mintFormToken();
+    await new Promise((r) => setTimeout(r, 3300)); // past the three-second floor
+    const v = await guardPublicForm({
+      form: "mfl_waitlist", req: req("198.51.100.38", { formToken: t }),
+      email: "captain2@example.invalid", name: "Aroha Williams", text: [], names: ["Ōtautahi United"], page: "/waitlist",
+    });
+    ok("accepted with ZERO signals", v.ok && v.reasons.length === 0, JSON.stringify(v.reasons));
   }
 
   console.log("\nA real CUGC free-session booking gets through — the date-of-birth trap");

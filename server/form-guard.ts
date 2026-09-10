@@ -23,7 +23,7 @@ import { contentSignals, GUARD_THRESHOLD } from "@shared/form-guard";
  * it keeps this change out of three separate tables and three admin screens.
  */
 
-export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training";
+export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register";
 
 /* 🔴 Per-form policy, because the same rule is right on one form and wrong on
  * another.
@@ -39,10 +39,17 @@ export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "o
  * Found by the verifier: a real customer doing exactly that was held.
  */
 const FORM_POLICY: Record<FormName, { expectsToken: boolean; allowLinks: boolean }> = {
-  mfl_waitlist:      { expectsToken: false, allowLinks: false },
-  cugc_free_session: { expectsToken: false, allowLinks: false },
-  print_quote:       { expectsToken: false, allowLinks: true },
+  // 🟢 Flipped 11 Sept 2026, once all three pages were PROVEN to fetch a real
+  // token on load in a live browser — not merely deployed with the code in them.
+  mfl_waitlist:      { expectsToken: true,  allowLinks: false },
+  cugc_free_session: { expectsToken: true,  allowLinks: false },
+  print_quote:       { expectsToken: true,  allowLinks: true },
   open_training:     { expectsToken: false, allowLinks: false },
+  /* 🔴 ethniccup.com runs its OWN token check and does not forward the token
+   * here, so a missing one means nothing at this end. ClubOS's job for that
+   * form is the DURABLE RATE LIMIT the website cannot have: it holds no
+   * database of its own, only a relay. */
+  ethnic_cup_register: { expectsToken: false, allowLinks: false },
 };
 
 export interface GuardVerdict {

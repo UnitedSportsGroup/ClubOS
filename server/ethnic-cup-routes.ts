@@ -12,6 +12,7 @@
 import type { Express, Request, Response } from "express";
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
+import { guardPublicForm } from "./form-guard";
 import { ethnicCupRegistrations, organizations } from "@shared/schema";
 import { requireAuth, requireTab } from "./auth";
 import * as tp from "./teampay";
@@ -73,6 +74,17 @@ export function registerEthnicCupRoutes(app: Express) {
         return res.status(400).json({ message: "Please add your name, community and a valid email." });
       }
 
+      /* 🔴 ethniccup.com does its own honeypot, token and content checks, but it
+       * holds no database, so it cannot rate limit. That is what this adds. The
+       * verdict is RETURNED rather than acted on here — the website relays
+       * before it emails, so it can fold this into its own decision, and the row
+       * is written either way so a human still sees it. */
+      const verdict = await guardPublicForm({
+        form: "ethnic_cup_register", req, email,
+        name: `${firstName} ${lastName}`.trim(),
+        names: [community], text: [message], page: sourceUrl,
+      });
+
       const organizationId = await cicOrgId();
       const [row] = await db
         .insert(ethnicCupRegistrations)
@@ -91,7 +103,7 @@ export function registerEthnicCupRoutes(app: Express) {
         .returning({ id: ethnicCupRegistrations.id });
 
       // The site still sends its own emails via Resend; ClubOS is the record.
-      res.json({ ok: true, id: row?.id });
+      res.json({ ok: true, id: row?.id, held: !verdict.ok, reasons: verdict.reasons });
     } catch (e: any) {
       console.error("[EthnicCup register] error:", e?.message || e);
       res.status(500).json({ message: "Could not save that just now. Please try again." });
