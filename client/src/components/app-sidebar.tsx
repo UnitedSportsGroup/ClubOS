@@ -493,7 +493,7 @@ function PreviewPublicSiteLink({ orgId, orgSlug }: { orgId: number; orgSlug: str
         <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
         <span className="truncate">{primary ? primary.domain : "View public site"}</span>
       </span>
-      <span className="text-[9px] text-blue-300/40 uppercase tracking-wider flex-shrink-0">open</span>
+      <span className="text-[10px] text-blue-300/40 uppercase tracking-wider flex-shrink-0">open</span>
     </a>
   );
 }
@@ -533,8 +533,12 @@ function WorkspaceSwitcher() {
           )}
         </div>
         <div className="flex-1 min-w-0 text-left">
+          {/* 🔴 Stays at 12px while the nav items go up. At 13px "Christchurch United"
+              truncates to "Christchurch Unit…", and in a nine-workspace app not being
+              able to read which one you are in is a worse problem than small type.
+              Caught by looking at a screenshot — an overflow measurement missed it. */}
           <p className="text-[12px] font-medium text-white/80 truncate" data-testid="text-workspace-name">{currentOrg.name}</p>
-          <p className="text-[9px] text-blue-400/30 uppercase tracking-wider">Workspace</p>
+          <p className="text-[10px] text-blue-400/30 uppercase tracking-wider">Workspace</p>
         </div>
         <ChevronDown className={`w-3.5 h-3.5 text-white/20 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -544,7 +548,7 @@ function WorkspaceSwitcher() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute left-2 right-2 top-full mt-1 z-50 rounded-xl border border-blue-500/15 bg-[#0a0e1a] shadow-2xl shadow-black/50 overflow-hidden" data-testid="dropdown-workspace">
             <div className="px-3 py-2 border-b border-white/[0.04]">
-              <p className="text-[9px] text-blue-300/25 uppercase tracking-wider font-semibold">Switch Workspace</p>
+              <p className="text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Switch Workspace</p>
             </div>
             <div className="py-1 max-h-[280px] overflow-y-auto">
               {organizations.map(org => (
@@ -563,7 +567,7 @@ function WorkspaceSwitcher() {
                       <Building2 className="w-3.5 h-3.5 text-white/25" />
                     )}
                   </div>
-                  <span className={`flex-1 text-left text-[12px] truncate ${
+                  <span className={`flex-1 text-left text-[13px] truncate ${
                     currentOrg.id === org.id ? "text-blue-400 font-medium" : "text-white/60"
                   }`}>{org.name}</span>
                   {currentOrg.id === org.id && (
@@ -816,7 +820,7 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
             Navigation
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -849,7 +853,7 @@ export function AppSidebar() {
                         data-testid={`link-nav-${item.title.toLowerCase().replace(/[\s&]/g, '-')}`}
                       >
                         <item.icon className="w-4 h-4" />
-                        <span className="text-[13px] font-medium truncate">{item.title}</span>
+                        <span className="text-[14px] font-medium truncate">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
 
@@ -909,7 +913,7 @@ export function AppSidebar() {
                                   data-testid={`link-nav-${child.title.toLowerCase().replace(/[\s&]/g, '-')}`}
                                 >
                                   <child.icon className="w-3.5 h-3.5" />
-                                  <span className="text-[12.5px] font-medium truncate">{child.title}</span>
+                                  <span className="text-[13.5px] font-medium truncate">{child.title}</span>
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -927,7 +931,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-auto">
-          <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.2em] text-blue-300/20 font-semibold mb-2 px-2">
             System
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -947,7 +951,7 @@ export function AppSidebar() {
                     >
                       <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase()}`}>
                         <item.icon className="w-4 h-4" />
-                        <span className="text-[13px] font-medium truncate">{item.title}</span>
+                        <span className="text-[14px] font-medium truncate">{item.title}</span>
                         {item.tab === "chat" && chatBadge.important > 0 && (
                           <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-[#c9a43e] text-[#0b0b08] text-[10px] font-bold flex items-center justify-center leading-none">
                             {chatBadge.important > 99 ? "99+" : chatBadge.important}
