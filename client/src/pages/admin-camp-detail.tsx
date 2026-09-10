@@ -7,7 +7,7 @@ import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useRoute, Link, useLocation } from "wouter";
+import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { CoachOverview } from "@/components/coach-overview";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, useProgramRoute } from "@/lib/program-path";
@@ -1517,10 +1517,13 @@ type SessionSummary = { campDateId: number; date: string; productType: string; b
 type CampStats = { totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number };
 
 function StatsHeader({ campId }: { campId: number }) {
+  // The tiles answer the same question the list below them does — see useTermParam.
+  const [term] = useTermParam();
   const { data: stats, isLoading } = useQuery<CampStats>({
-    queryKey: ["/api/admin/camps", campId, "stats"],
+    queryKey: ["/api/admin/camps", campId, "stats", term ?? "all"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/camps/${campId}/stats`, { credentials: "include" });
+      const qs = term && term !== "all" ? `?termId=${encodeURIComponent(term)}` : "";
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/stats${qs}`);
       if (!res.ok) throw new Error("Failed to load stats");
       return res.json();
     },
@@ -1529,7 +1532,7 @@ function StatsHeader({ campId }: { campId: number }) {
   const { data: sessions } = useQuery<SessionSummary[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/camps/${campId}/sessions-summary`, { credentials: "include" });
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/sessions-summary`);
       if (!res.ok) throw new Error("Failed to load sessions");
       return res.json();
     },
@@ -1555,7 +1558,7 @@ function StatsHeader({ campId }: { campId: number }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="stats-header">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="stats-header" data-term={term ?? "all"}>
       {statItems.map((s) => (
         <div key={s.label} className="rounded-xl border border-blue-500/[0.08] bg-white/[0.02] px-4 py-3">
           <div className="flex items-center gap-2 mb-1">
@@ -1796,6 +1799,29 @@ type TermCount = {
   isProgrammeTerm: boolean;
 };
 
+/**
+ * WHICH TERM this page is looking at, kept in the URL as `?term=`.
+ *
+ * 🔴 In the URL rather than in PlayersTab's own state, for the reason the
+ * squad roster is: two components need the same answer. With it local, the
+ * tiles read 151 registrations and $22,749 while the list beneath them showed
+ * 5 people and $800 — two answers to one question on one screen. It also makes
+ * "the Term 4 roll" a link somebody can send.
+ */
+function useTermParam(): [string | undefined, (v: string) => void] {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const value = new URLSearchParams(search).get("term") ?? undefined;
+  const set = (v: string) => {
+    const p = new URLSearchParams(search);
+    p.set("term", v);
+    // replace + keep the hash: the tab lives there, and pushing a history entry
+    // per chip would bury the page you arrived from.
+    navigate(`${location}?${p.toString()}${window.location.hash}`, { replace: true });
+  };
+  return [value, set];
+}
+
 type PlayerSortKey = "player" | "age" | "parent" | "contact" | "sessions" | "paid" | "status";
 
 /** A column header you can click. The arrow only shows on the active column —
@@ -1838,7 +1864,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // `undefined` here means "not chosen yet": the tab opens on the term the
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
-  const [termFilter, setTermFilter] = useState<string | undefined>(undefined);
+  const [termFilter, setTermFilter] = useTermParam();
   const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const toggleSort = (key: PlayerSortKey) => {

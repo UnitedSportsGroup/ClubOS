@@ -1046,7 +1046,7 @@ export default function AdminRegistrations() {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1" data-testid="legend-programme-kinds">
         {PROGRAMME_KIND_ORDER.map((k) => (
           <span key={k} className="flex items-center gap-1.5 text-[11px] text-white/35">
-            <span className={`w-2.5 h-2.5 rounded-[4px] border ${PROGRAMME_KIND_META[k].tile}`} />
+            <span className={`w-2.5 h-2.5 rounded-[4px] border ${PROGRAMME_KIND_META[k].dot}`} />
             {PROGRAMME_KIND_META[k].note}
           </span>
         ))}

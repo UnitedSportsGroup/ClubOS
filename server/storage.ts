@@ -462,7 +462,7 @@ export interface IStorage {
   upsertCampSettings(campId: number, data: Partial<InsertCampSettings>): Promise<CampSettings>;
 
   getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]>;
-  getCampRegistrationStats(campId: number): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }>;
+  getCampRegistrationStats(campId: number, termId?: number | null): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }>;
   getCampRegistrationCounts(): Promise<Record<number, number>>;
   getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]>;
   getProgramPlayers(campId: number): Promise<ProgramPlayer[]>;
@@ -1376,11 +1376,24 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getCampRegistrationStats(campId: number): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }> {
+  /**
+   * @param termId  Narrow to ONE term; `undefined` = every term, `null` = only
+   *   rows whose term was never recorded.
+   *
+   * 🔴 The tiles must agree with the list under them. With a term chosen, the
+   * Players tab showed 5 people and $800 while these tiles still read 151 and
+   * $22,749 — two answers to one question on one screen, which is the mixing
+   * Daniel called out in the first place, just one level up.
+   */
+  async getCampRegistrationStats(campId: number, termId?: number | null): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }> {
+    const termFilter =
+      termId === undefined ? undefined
+      : termId === null ? isNull(registrations.termId)
+      : eq(registrations.termId, termId);
     // Real registrations only (@shared/registrations): the "Total" tile used to
     // count unfinished checkouts, which read as 119 registrations against 90
     // paid — the exact confusion Daniel called out.
-    const regs = await db.select().from(registrations).where(and(eq(registrations.programId, campId), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES])));
+    const regs = await db.select().from(registrations).where(and(eq(registrations.programId, campId), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]), termFilter));
     const totalRegistrations = regs.length;
     const confirmedRegistrations = regs.filter(r => r.status === "confirmed").length;
     const totalRevenueCents = regs.filter(r => r.status === "confirmed").reduce((sum, r) => sum + (r.totalCents || 0), 0);
@@ -1396,6 +1409,7 @@ export class DatabaseStorage implements IStorage {
           inArray(registrationItems.campDateId, dateIds),
           eq(registrations.programId, campId),
           eq(registrations.status, "confirmed"),
+          termFilter,
         ));
       totalSessions = result?.count || 0;
     }

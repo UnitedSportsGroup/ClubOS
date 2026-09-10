@@ -4202,7 +4202,15 @@ export async function registerRoutes(
   app.get("/api/admin/camps/:id/stats", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(req.params.id);
-      const stats = await storage.getCampRegistrationStats(campId);
+      // `?termId=7` narrows the tiles to one term, `none` to rows with no term
+      // recorded, absent keeps every term — the same vocabulary the players
+      // list uses, so the tiles and the list under them cannot disagree.
+      const raw = req.query.termId;
+      const termId =
+        raw === undefined || raw === "" || raw === "all" ? undefined
+        : raw === "none" ? null
+        : Number.isFinite(Number(raw)) ? Number(raw) : undefined;
+      const stats = await storage.getCampRegistrationStats(campId, termId);
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

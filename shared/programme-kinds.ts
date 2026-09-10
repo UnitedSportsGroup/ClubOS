@@ -53,6 +53,11 @@ export const PROGRAMME_KIND_META: Record<ProgrammeKind, {
   /** The icon tile on a list row. */
   tile: string;
   icon: string;
+  /** 🔴 The legend swatch is its OWN class, not the tile reused. The tile sits
+   *  behind an icon and works at 8%; the same 8% as a bare 10px square was
+   *  invisible on a white page, so the legend's "Term academy" dot did not
+   *  render at all. Caught by looking at a screenshot, not by any check. */
+  dot: string;
   /** A small chip beside the programme name. */
   chip: string;
   /** What this colour means, for the page's own legend. */
@@ -62,6 +67,7 @@ export const PROGRAMME_KIND_META: Record<ProgrammeKind, {
     label: "Academy",
     tile: "bg-blue-500/8 border-blue-500/15",
     icon: "text-blue-400/70",
+    dot: "bg-blue-500/60 border-blue-500/70",
     chip: "border-blue-500/20 text-blue-400/70 bg-blue-500/[0.06]",
     note: "Term academy — FUNiño, Pre-Academy, Academy",
   },
@@ -69,6 +75,7 @@ export const PROGRAMME_KIND_META: Record<ProgrammeKind, {
     label: "Additional",
     tile: "bg-violet-500/10 border-violet-500/20",
     icon: "text-violet-400/80",
+    dot: "bg-violet-500/60 border-violet-500/70",
     chip: "border-violet-500/25 text-violet-400/80 bg-violet-500/[0.08]",
     note: "Additional programmes — Technification, Goalkeeper, Morning",
   },
@@ -76,6 +83,7 @@ export const PROGRAMME_KIND_META: Record<ProgrammeKind, {
     label: "Holiday camp",
     tile: "bg-amber-500/10 border-amber-500/20",
     icon: "text-amber-400/80",
+    dot: "bg-amber-500/60 border-amber-500/70",
     chip: "border-amber-500/25 text-amber-400/80 bg-amber-500/[0.08]",
     note: "Holiday camps",
   },
@@ -83,6 +91,7 @@ export const PROGRAMME_KIND_META: Record<ProgrammeKind, {
     label: "Other",
     tile: "bg-white/[0.04] border-white/10",
     icon: "text-white/40",
+    dot: "bg-white/30 border-white/40",
     chip: "border-white/12 text-white/45 bg-white/[0.03]",
     note: "Everything else",
   },
