@@ -113,8 +113,13 @@ async function main() {
     const body: any = await res.json();
     const terms: any[] = body.terms ?? [];
     for (const t of terms) console.log(`        ${String(t.count).padStart(4)}  ${money(t.totalCents).padStart(11)}  ${t.label}${t.isProgrammeTerm ? "  ← now selling" : ""}`);
-    ok(`${label}: more than one term, so the list is no longer one undivided pile`, terms.length > 1,
-      `${terms.length} term(s)`);
+    // NOT "more than one term" — Technification genuinely has no Term 4
+    // sign-ups yet, and asserting a count that depends on who has walked in
+    // this week is a test that fails on a fact about the club, not about the
+    // code. What must hold is that every registration is FILED under a term.
+    ok(`${label}: every registration is filed under a named term`,
+      terms.length > 0 && terms.every((t) => t.id != null),
+      terms.map((t) => `${t.label}:${t.count}`).join(", "));
     ok(`${label}: every term carries a year, not just a number`,
       terms.filter((t) => t.id != null).every((t) => /\b20\d\d$/.test(t.label)),
       terms.map((t) => t.label).join(", "));
