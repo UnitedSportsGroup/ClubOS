@@ -51,6 +51,20 @@ export function vowellessName(raw: string | null | undefined): boolean {
   return words.some((w) => !/[aeiouyàáâäãåèéêëìíîïòóôöõùúûüỳýÿœæ]/i.test(w));
 }
 
+/* 🔴 A name-shaped field is judged by DIFFERENT rules than prose.
+ * `looksRandom` fires on any one-word alphanumeric string of twelve characters
+ * or more — which is what a team name looks like ("TheKickers2026"). So a field
+ * that holds a name, a team, a business gets only the two tests that a real one
+ * cannot trip: no vowel at all, or capitals scattered through the middle.
+ * Found by a live probe: the MFL waitlist form has NO prose field, so with the
+ * team name unjudged the only signal available was the contact name, and one
+ * signal never holds anything. */
+export function looksRandomName(raw: string | null | undefined): boolean {
+  const s = (raw ?? "").trim();
+  if (vowellessName(s)) return true;
+  return s.length >= 10 && !/\s/.test(s) && caseFlips(s) >= 3;
+}
+
 const LINK_RE = /(https?:\/\/|www\.|\[url|<a\s|\bt\.me\/|\bbit\.ly\/)/i;
 export function hasLink(s: string | null | undefined): boolean {
   return LINK_RE.test(s ?? "");
@@ -60,6 +74,8 @@ export interface ContentInput {
   name?: string | null;
   /** Every free-text field a human is supposed to have written. */
   text?: (string | null | undefined)[];
+  /** Name-shaped fields — a team, a business, a child. Judged by name rules only. */
+  names?: (string | null | undefined)[];
   /** Dates the form collected, as submitted (YYYY-MM-DD), with today for comparison. */
   dates?: (string | null | undefined)[];
   today?: string;
@@ -71,6 +87,7 @@ export function contentSignals(input: ContentInput): string[] {
   const texts = (input.text ?? []).filter(Boolean) as string[];
   if (texts.some((t) => looksRandom(t))) out.push("random_text");
   if (looksRandom(input.name) || vowellessName(input.name)) out.push("random_name");
+  if ((input.names ?? []).some((n) => looksRandomName(n))) out.push("random_name_field");
   if (texts.some((t) => hasLink(t))) out.push("link_in_message");
   for (const d of input.dates ?? []) {
     if (!d) continue;
@@ -90,6 +107,7 @@ export const GUARD_REASON_TEXT: Record<string, string> = {
   stale_form_token: "form was more than 6 hours old",
   random_text: "message reads as random characters",
   random_name: "name reads as random characters",
+  random_name_field: "a name field reads as random characters",
   link_in_message: "contained a link",
   invalid_date: "impossible date",
   date_in_past: "date in the past",

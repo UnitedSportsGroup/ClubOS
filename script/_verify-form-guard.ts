@@ -6,12 +6,12 @@
  */
 import { Client } from "pg";
 import { guardPublicForm, mintFormToken } from "../server/form-guard";
-import { looksRandom, vowellessName, contentSignals } from "../shared/form-guard";
+import { looksRandom, looksRandomName, vowellessName, contentSignals } from "../shared/form-guard";
 
 let pass = 0; const fails: string[] = [];
 const ok = (n: string, c: boolean, d = "") => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fails.push(n); console.log(`  ✗ ${n} ${d}`); } };
 
-const IPS = ["198.51.100.31", "198.51.100.32", "198.51.100.33", "198.51.100.34", "198.51.100.35", "198.51.100.36"];
+const IPS = ["198.51.100.31", "198.51.100.32", "198.51.100.33", "198.51.100.34", "198.51.100.35", "198.51.100.36", "198.51.100.37"];
 const req = (ip: string, body: Record<string, unknown> = {}) =>
   ({ headers: { "x-forwarded-for": ip }, socket: {}, body }) as any;
 
@@ -20,12 +20,14 @@ const req = (ip: string, body: Record<string, unknown> = {}) =>
   {
     const v = await guardPublicForm({
       form: "mfl_waitlist", req: req(IPS[0]), email: "captain@example.invalid",
-      name: "Sam Rangi", text: [], page: "/waitlist",
+      name: "Sam Rangi", text: [], names: ["TheKickers2026"], page: "/waitlist",
     });
     ok("accepted", v.ok, JSON.stringify(v.reasons));
     // The bug this guards against: teamName used to be judged as prose.
     ok("'TheKickers2026' WOULD read as random if it were judged as prose", looksRandom("TheKickers2026"));
-    ok("…which is exactly why a team name is not passed as text", !contentSignals({ name: "Sam Rangi", text: [] }).length);
+    ok("…but the NAME rules let it through", !looksRandomName("TheKickers2026"));
+    for (const t of ["Real Madrid CF", "FC Twenty 11", "St Albans Shirley", "Ōtautahi United", "The A-Team"])
+      ok(`real team "${t}" passes`, !looksRandomName(t));
   }
 
   console.log("\nA real CUGC free-session booking gets through — the date-of-birth trap");
@@ -38,6 +40,19 @@ const req = (ip: string, body: Record<string, unknown> = {}) =>
     ok("accepted", v.ok, JSON.stringify(v.reasons));
     ok("a child's date of birth is in the past and must never be judged as a date",
        contentSignals({ dates: ["2018-04-11"], today: "2026-09-10" }).includes("date_in_past"));
+  }
+
+  console.log("\nA form with NO prose field can still hold a bot — the live-probe gap");
+  {
+    // Found on production: the MFL waitlist has no free-text field, so with the
+    // team name unjudged only ONE signal was reachable and nothing was ever held.
+    const v = await guardPublicForm({
+      form: "mfl_waitlist", req: req("198.51.100.37"), email: "bot@example.invalid",
+      name: "Kczf Gtritlcw", text: [], names: ["Rqqcdq Rnsxkvm"], page: "/waitlist",
+    });
+    ok("held", !v.ok, JSON.stringify(v.reasons));
+    ok("on two independent signals", v.reasons.length >= 2, JSON.stringify(v.reasons));
+    console.log(`     reasons: ${JSON.stringify(v.reasons)}`);
   }
 
   console.log("\nThe bot shape is held");

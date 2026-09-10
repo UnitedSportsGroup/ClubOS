@@ -21997,8 +21997,10 @@ export async function registerRoutes(
         // 🔴 `teamName` is deliberately NOT judged as prose. "TheKickers2026" is
         // one word, alphanumeric and fourteen characters — exactly the shape the
         // random-text rule looks for — so a real team would have been held.
-        // Only genuinely free-text fields go in `text`; this form has none.
-        text: [], page: "/waitlist",
+        // Only genuinely free-text fields go in `text`; this form has none — so
+        // the team name is judged by the NAME rules instead, which is what gives
+        // this form a second signal at all.
+        text: [], names: [teamName], page: "/waitlist",
       });
 
       // Emails are best-effort — the waitlist row is already saved.
@@ -24123,8 +24125,9 @@ export async function registerRoutes(
       const guard = await guardPublicForm({
         form: "cugc_free_session", req, email, name: parentName,
         // 🔴 `childName` is a NAME, not prose — judging it as free text would
-        // hold a real family over an unusual spelling. Only `notes` is prose.
-        text: [notes], page: "/free-session",
+        // hold a real family over an unusual spelling — it is judged by the name
+        // rules instead. Only `notes` is prose.
+        text: [notes], names: [childName], page: "/free-session",
       });
 
       if (guard.ok) {

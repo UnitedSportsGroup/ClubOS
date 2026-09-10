@@ -133,6 +133,8 @@ export interface GuardInput {
   name?: string | null;
   /** Free-text fields a human is supposed to have written. */
   text?: (string | null | undefined)[];
+  /** Name-shaped fields (a team, a business) — judged by name rules, not prose. */
+  names?: (string | null | undefined)[];
   /** Dates the form collected, as submitted. */
   dates?: (string | null | undefined)[];
   /** NZ today, for judging a date in the past. Pass it; never compute UTC here. */
@@ -159,7 +161,7 @@ export async function guardPublicForm(input: GuardInput): Promise<GuardVerdict> 
   // A missing token only counts once the site is known to send one; a token that
   // is present and WRONG always counts.
   if (t && (t !== "no_form_token" || policy.expectsToken)) reasons.push(t);
-  for (const r of contentSignals({ name: input.name, text: input.text, dates: input.dates, today: input.today })) {
+  for (const r of contentSignals({ name: input.name, names: input.names, text: input.text, dates: input.dates, today: input.today })) {
     if (r === "link_in_message" && policy.allowLinks) continue;
     reasons.push(r);
   }
