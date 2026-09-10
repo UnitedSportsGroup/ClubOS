@@ -122,15 +122,24 @@ export async function resolvePeopleHistory(
       WHERE p.contact_id IN (${idList(cIds)})
       ORDER BY p.paid_on DESC NULLS LAST`) : { rows: [] as any[] },
 
+    // 🔴 The TERM comes from the registration's own `term_id`, never from
+    // `programs.term_id`. Daniel, 2026-09-10, of a $160 FUNiño row on a
+    // person's card reading only "9 September 2026": "these need to show what
+    // term and what year it's paid for for our history." The programme's term
+    // is flipped when the next one opens, so reading it here would relabel
+    // every past registration on every person's history at every flip.
     cIds.length ? db.execute(sql`
       SELECT r.contact_id, r.id, r.program_id, r.status::text AS status,
              r.total_cents, r.amount_paid::text AS amount_paid,
              r.refunded_amount_cents, r.registered_at, r.season_year,
              r.payment_method, r.paid_at,
              p.name AS program_name, p.type::text AS program_type,
+             t.year AS term_year, COALESCE(t.name, 'Term ' || t.term_number) AS term_name,
              (SELECT count(DISTINCT ri.child_id) FROM registration_items ri
                WHERE ri.registration_id = r.id AND ri.child_id IS NOT NULL) AS child_count
-      FROM registrations r JOIN programs p ON p.id = r.program_id
+      FROM registrations r
+      JOIN programs p ON p.id = r.program_id
+      LEFT JOIN terms t ON t.id = r.term_id
       WHERE r.contact_id IN (${idList(cIds)})
         AND r.status IN ${REAL_STATUS_SQL}
       ORDER BY r.registered_at DESC NULLS LAST`) : { rows: [] as any[] },
@@ -198,13 +207,18 @@ export async function resolvePeopleHistory(
     const total = num(row.total_cents);
     const paidCents = dollarsToCents(row.amount_paid) || 0;
     const refunded = Number(row.refunded_amount_cents) || 0;
+    // "Term 4 2026" — the same shape the Friendly Manager rows already carry,
+    // so a ten-year history reads as one list rather than two. A registration
+    // taken before term_id existed and which the backfill could not establish
+    // stays NULL and shows its date instead: never a guessed term.
+    const termLabel = row.term_name && row.term_year ? `${row.term_name} ${row.term_year}` : null;
 
     h.programmes.push({
       key: `reg-${row.id}`,
       source: "clubos",
       programme: row.program_name,
       detail: row.program_type || null,
-      termLabel: null,
+      termLabel,
       seasonYear: num(row.season_year),
       status: row.status,
       chargedCents: total,
@@ -226,7 +240,7 @@ export async function resolvePeopleHistory(
         amountCents: paidCents,
         method: row.payment_method || null,
         description: row.program_name,
-        termLabel: null,
+        termLabel,
       });
     }
     if (refunded > 0) {
@@ -237,7 +251,7 @@ export async function resolvePeopleHistory(
         amountCents: -refunded,
         method: "refund",
         description: `Refund — ${row.program_name}`,
-        termLabel: null,
+        termLabel,
       });
     }
   }

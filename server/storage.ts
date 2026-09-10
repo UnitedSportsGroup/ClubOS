@@ -1023,9 +1023,14 @@ export class DatabaseStorage implements IStorage {
     const byId = <T extends { id: number }>(rows: T[]) => new Map(rows.map((r) => [r.id, r]));
 
     const regIds = regs.map((r) => r.id);
-    const [items, progRows, contactRows, staffRows] = await Promise.all([
+    const [items, progRows, termRows, contactRows, staffRows] = await Promise.all([
       db.select().from(registrationItems).where(inArray(registrationItems.registrationId, regIds)),
       (async () => { const ids = uniq(regs.map((r) => r.programId)); return ids.length ? db.select().from(programs).where(inArray(programs.id, ids)) : []; })(),
+      // 🔴 The term comes from the REGISTRATION's own term_id, batched like
+      // everything else here. Never from `programs.term_id`: that is what the
+      // programme sells today and is flipped when the next term opens, so the
+      // whole list would relabel itself to the new term at every flip.
+      (async () => { const ids = uniq(regs.map((r: any) => r.termId)); return ids.length ? db.select().from(terms).where(inArray(terms.id, ids)) : []; })(),
       // Both people on the row. For a camp the registration's contact IS the
       // parent; for an academy enrolment the contact is the PLAYER and the
       // parent hangs off guardianId. Fetching only the contact is how the
@@ -1058,6 +1063,7 @@ export class DatabaseStorage implements IStorage {
     const medByChild = new Map(medRows.map((m) => [m.childId, m]));
 
     const progById = byId(progRows);
+    const termById = byId(termRows as any[]);
     const contactById = byId(contactRows);
     const childById = byId(itemChildren);
     const dateById = byId(itemDates);
@@ -1080,9 +1086,15 @@ export class DatabaseStorage implements IStorage {
     return regs.map((r: any) => {
       const contact = contactById.get(r.contactId);
       const guardian = r.guardianId ? contactById.get(r.guardianId) : undefined;
+      const term: any = r.termId ? termById.get(r.termId) : undefined;
       return {
         ...r,
         program: progById.get(r.programId),
+        // "Term 4 2026" — what this registration BOUGHT, beside the date it was
+        // bought on. Null when no term was ever established, which reads as an
+        // absent fact rather than a guessed one.
+        term: term ? { id: term.id, year: term.year, name: term.name ?? `Term ${term.termNumber}`, termNumber: term.termNumber } : null,
+        termLabel: term ? `${term.name ?? `Term ${term.termNumber}`} ${term.year}` : null,
         contact,
         // Only when it is a genuinely different person — on a camp
         // registration guardianId and contactId are the same row, and echoing

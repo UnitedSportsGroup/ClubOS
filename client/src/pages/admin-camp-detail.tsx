@@ -15,7 +15,7 @@ import { tabsForOrgSlug } from "@shared/tabs";
 import { withFrom } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
@@ -1796,6 +1796,34 @@ type TermCount = {
   isProgrammeTerm: boolean;
 };
 
+type PlayerSortKey = "player" | "age" | "parent" | "contact" | "sessions" | "paid" | "status";
+
+/** A column header you can click. The arrow only shows on the active column —
+ *  a permanent arrow on every header says nothing about which one is sorting. */
+function SortHeader({ label, sortKey: key, active, dir, onSort, align = "left", className = "" }: {
+  label: string; sortKey: PlayerSortKey; active: boolean; dir: "asc" | "desc";
+  onSort: (k: PlayerSortKey) => void; align?: "left" | "right" | "center"; className?: string;
+}) {
+  const justify = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+  return (
+    <th className={`px-4 py-2 text-[10px] uppercase tracking-wider font-semibold ${
+      align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"} ${className}`}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        onClick={() => onSort(key)}
+        className={`inline-flex items-center gap-1 ${justify} transition-colors cursor-pointer ${
+          active ? "text-blue-400/80" : "text-blue-300/25 hover:text-blue-300/50"}`}
+        data-testid={`sort-players-${key}`}
+        title={`Sort by ${label.toLowerCase()}`}
+      >
+        {label}
+        {active && (dir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+      </button>
+    </th>
+  );
+}
+
 function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; detailPath: string }) {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
@@ -1811,6 +1839,14 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
   const [termFilter, setTermFilter] = useState<string | undefined>(undefined);
+  const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const toggleSort = (key: PlayerSortKey) => {
+    // Standard behaviour: a new column starts ascending; the same column again
+    // reverses. Nobody expects the third click to clear it.
+    if (key === sortKey) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
 
   const { data: termData } = useQuery<{ programmeTermId: number | null; terms: TermCount[] }>({
     queryKey: [`/api/admin/camps/${campId}/term-counts`],
@@ -1864,7 +1900,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   const showPaid = all.some(p => p.paidCents != null);
 
   const q = search.trim().toLowerCase();
-  const filtered = all.filter(p => {
+  const unsorted = all.filter(p => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (!q) return true;
     const hay = [
@@ -1872,6 +1908,44 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
       p.parent?.firstName, p.parent?.lastName, p.parent?.email, p.parent?.phone,
     ].filter(Boolean).join(" ").toLowerCase();
     return hay.includes(q);
+  });
+
+  // ── Click a column to sort by it ──────────────────────────────────────────
+  // Daniel, 2026-09-10: "make it so if you click these top headers player, age,
+  // parent etc... it will sort them based on that like standard software ui/ux
+  // experience for user."
+  //
+  // 🔴 A missing value SORTS LAST in both directions, never as zero and never
+  // as an empty string that floats to the top. A child with no date of birth is
+  // an unanswered question — putting them above every four-year-old when you
+  // ask "who is youngest" states something untrue about them. Same for a parent
+  // nobody has recorded, and for a paid amount that was never captured.
+  const sortValue = (p: ProgramPlayer, key: PlayerSortKey): string | number | null => {
+    switch (key) {
+      case "player": return `${p.lastName ?? ""} ${p.firstName ?? ""}`.trim().toLowerCase() || null;
+      // Sort on the DATE OF BIRTH, not the rendered "5 yrs" — age is derived
+      // from it and two children a day apart can read the same number of years.
+      case "age": return p.dateOfBirth || null;
+      case "parent": return p.parent ? `${p.parent.lastName ?? ""} ${p.parent.firstName ?? ""}`.trim().toLowerCase() || null : null;
+      case "contact": return (p.parent?.email || p.parent?.phone || "").toLowerCase() || null;
+      case "sessions": return p.sessionsBooked || null;
+      case "paid": return p.paidCents;
+      case "status": return p.status || null;
+    }
+  };
+  const filtered = [...unsorted].sort((a, b) => {
+    const av = sortValue(a, sortKey), bv = sortValue(b, sortKey);
+    // Blanks last, whichever way the arrow points.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const cmp = typeof av === "number" && typeof bv === "number"
+      ? av - bv
+      : String(av).localeCompare(String(bv), "en-NZ");
+    // Older-first reads wrong for "Age": the youngest child has the LATEST date
+    // of birth, so ascending age means descending date.
+    const flip = sortKey === "age" ? -1 : 1;
+    return (sortDir === "asc" ? cmp : -cmp) * flip;
   });
 
   const exportCsv = () => {
@@ -2011,13 +2085,13 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
           <table className="w-full min-w-[340px]" data-testid="table-players">
             <thead>
               <tr className="border-b border-blue-500/[0.06] bg-blue-500/[0.03]">
-                <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Player</th>
-                <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Age</th>
-                <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden md:table-cell">Parent</th>
-                <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden lg:table-cell">Contact</th>
-                {showSessions && <th className="text-center px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden sm:table-cell">Sessions</th>}
-                {showPaid && <th className="text-right px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden sm:table-cell">Paid</th>}
-                <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Status</th>
+                <SortHeader label="Player" sortKey="player" active={sortKey === "player"} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Age" sortKey="age" active={sortKey === "age"} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Parent" sortKey="parent" active={sortKey === "parent"} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell" />
+                <SortHeader label="Contact" sortKey="contact" active={sortKey === "contact"} dir={sortDir} onSort={toggleSort} className="hidden lg:table-cell" />
+                {showSessions && <SortHeader label="Sessions" sortKey="sessions" active={sortKey === "sessions"} dir={sortDir} onSort={toggleSort} align="center" className="hidden sm:table-cell" />}
+                {showPaid && <SortHeader label="Paid" sortKey="paid" active={sortKey === "paid"} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell" />}
+                <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody>

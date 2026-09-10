@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 129 translucent white utilities → dark ink on light */
+/* 130 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -262,6 +262,7 @@ html:not(.dark) .group:hover .group-hover\:text-white\/25 { color: rgb(15 23 42 
 html:not(.dark) .group:hover .group-hover\:text-white\/30 { color: rgb(15 23 42 / 0.66) !important; }
 html:not(.dark) .group:hover .group-hover\:text-white\/40 { color: rgb(15 23 42 / 0.74) !important; }
 html:not(.dark) .group:hover .group-hover\:text-white\/50 { color: rgb(15 23 42 / 0.82) !important; }
+html:not(.dark) .group:hover .group-hover\:text-white\/60 { color: rgb(15 23 42 / 0.88) !important; }
 html:not(.dark) .group:hover .group-hover\:text-white\/90 { color: rgb(15 23 42 / 0.98) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.01\]:hover { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.015\]:hover { background-color: rgb(15 23 42 / 0.018) !important; }
@@ -401,10 +402,11 @@ html:not(.dark) .hover\:bg-slate-800:hover { background-color: hsl(var(--card)) 
 html:not(.dark) .hover\:bg-zinc-800:hover { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .hover\:border-zinc-900:hover { border-color: rgb(15 23 42 / 0.28) !important; }
 
-/* 199 pale text utilities → their family's 700, which is the
+/* 201 pale text utilities → their family's 700, which is the
    lightest shade that clears 4.5:1 on white. Families touched:
    amber-100, amber-200, amber-300, amber-400, amber-500, amber-600, blue-100, blue-200, blue-300, blue-400, blue-500, cyan-200, cyan-300, cyan-400, emerald-100, emerald-200, emerald-300, emerald-400, emerald-500, emerald-600, green-300, green-400, green-600, indigo-100, indigo-200, indigo-300, indigo-400, lime-300, orange-300, orange-400, orange-500, orange-600, pink-100, pink-200, pink-300, pink-400, purple-300, purple-400, red-200, red-300, red-400, red-50, red-500, rose-300, rose-400, sky-200, sky-300, sky-400, teal-300, violet-200, violet-300, violet-400, violet-500, yellow-300, yellow-400, yellow-500, yellow-600 */
 html:not(.dark) .group:hover .group-hover\:text-amber-300 { color: #b45309 !important; }
+html:not(.dark) .group:hover .group-hover\:text-blue-400 { color: #1d4ed8 !important; }
 html:not(.dark) .group:hover .group-hover\:text-blue-400\/50 { color: color-mix(in srgb, #1d4ed8 70%, transparent) !important; }
 html:not(.dark) .hover\:text-amber-100:hover { color: #b45309 !important; }
 html:not(.dark) .hover\:text-amber-200:hover { color: #b45309 !important; }
@@ -414,6 +416,7 @@ html:not(.dark) .hover\:text-amber-400:hover { color: #b45309 !important; }
 html:not(.dark) .hover\:text-amber-400\/60:hover { color: color-mix(in srgb, #b45309 70%, transparent) !important; }
 html:not(.dark) .hover\:text-blue-200:hover { color: #1d4ed8 !important; }
 html:not(.dark) .hover\:text-blue-300:hover { color: #1d4ed8 !important; }
+html:not(.dark) .hover\:text-blue-300\/50:hover { color: color-mix(in srgb, #1d4ed8 70%, transparent) !important; }
 html:not(.dark) .hover\:text-blue-300\/90:hover { color: color-mix(in srgb, #1d4ed8 90%, transparent) !important; }
 html:not(.dark) .hover\:text-blue-400:hover { color: #1d4ed8 !important; }
 html:not(.dark) .hover\:text-blue-400\/80:hover { color: color-mix(in srgb, #1d4ed8 80%, transparent) !important; }

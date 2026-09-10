@@ -53,7 +53,7 @@ const campsTabs: TabDef[] = [
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
   // tournament and group workspaces; the register sells every brand from any.
-  { slug: "pos", title: "Register", url: "/admin/pos" },
+  { slug: "pos", title: "POS", url: "/admin/pos" },
   { slug: "links", title: "Links", url: "/admin/links" },
   { slug: "attribution", title: "Attribution", url: "/admin/attribution" },
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },
@@ -104,7 +104,7 @@ const venueTabs: TabDef[] = [
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
   // tournament and group workspaces; the register sells every brand from any.
-  { slug: "pos", title: "Register", url: "/admin/pos" },
+  { slug: "pos", title: "POS", url: "/admin/pos" },
   { slug: "links", title: "Links", url: "/admin/links" },
   { slug: "attribution", title: "Attribution", url: "/admin/attribution" },
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },
@@ -134,7 +134,7 @@ const leagueTabs: TabDef[] = [
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
   // tournament and group workspaces; the register sells every brand from any.
-  { slug: "pos", title: "Register", url: "/admin/pos" },
+  { slug: "pos", title: "POS", url: "/admin/pos" },
   { slug: "links", title: "Links", url: "/admin/links" },
   { slug: "attribution", title: "Attribution", url: "/admin/attribution" },
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },
@@ -179,7 +179,7 @@ const tournamentTabs: TabDef[] = [
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
   // tournament and group workspaces; the register sells every brand from any.
-  { slug: "pos", title: "Register", url: "/admin/pos" },
+  { slug: "pos", title: "POS", url: "/admin/pos" },
   { slug: "links", title: "Links", url: "/admin/links" },
   { slug: "attribution", title: "Attribution", url: "/admin/attribution" },
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },
@@ -243,7 +243,7 @@ const groupTabs: TabDef[] = [
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
   // tournament and group workspaces; the register sells every brand from any.
-  { slug: "pos", title: "Register", url: "/admin/pos" },
+  { slug: "pos", title: "POS", url: "/admin/pos" },
   { slug: "links", title: "Links", url: "/admin/links" },
   { slug: "attribution", title: "Attribution", url: "/admin/attribution" },
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },

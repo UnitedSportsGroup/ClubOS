@@ -78,8 +78,15 @@ function ProgrammeRow({ e }: { e: any }) {
           {e.programme}
         </div>
         <div className="text-[11px] text-white/35 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          {e.termLabel && <span>{e.termLabel}</span>}
-          {!e.termLabel && e.registeredAt && <span>{formatDate(e.registeredAt)}</span>}
+          {/* 🔴 The term is WHAT THEY BOUGHT; the date is WHEN THEY BOUGHT IT.
+              They are different facts and a history needs both — this used to
+              show one or the other, so a ClubOS registration read "9 September
+              2026" and never said it was Term 4. A row with no term recorded
+              still shows its date rather than an invented term. */}
+          {e.termLabel && (
+            <span className="text-white/55 font-medium" data-testid="text-programme-term">{e.termLabel}</span>
+          )}
+          {e.registeredAt && <span>{e.termLabel ? "registered " : ""}{formatDate(e.registeredAt)}</span>}
           <span className="text-white/20">{SOURCE_LABEL[e.source] || e.source}</span>
           {e.status && <span className="text-white/40 capitalize">{e.status.replace(/_/g, " ")}</span>}
         </div>
@@ -122,6 +129,10 @@ function PaymentRow({ e }: { e: any }) {
           {e.description || e.termLabel || "Payment"}
         </div>
         <div className="text-[11px] text-white/35 mt-0.5 flex flex-wrap items-center gap-x-2">
+          {/* Which term the money was FOR, beside the day it landed. */}
+          {e.termLabel && e.termLabel !== e.description && (
+            <span className="text-white/55 font-medium" data-testid="text-payment-term">{e.termLabel}</span>
+          )}
           <span>{e.paidOn ? formatDate(e.paidOn) : "Date not recorded"}</span>
           {e.method && <span className="text-white/25 capitalize">{e.method.replace(/_/g, " ")}</span>}
         </div>

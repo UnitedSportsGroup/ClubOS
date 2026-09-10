@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { MoneyInput } from "@/components/ui/money-input";
+import { programmeKind, PROGRAMME_KIND_META, PROGRAMME_KIND_ORDER } from "@shared/programme-kinds";
 
 type RegItem = {
   id: number;
@@ -86,7 +87,12 @@ type Registration = {
   // Present only when the parent is a DIFFERENT contact from the registration's
   // own contact — i.e. an academy enrolment, where the contact is the player.
   guardian?: { id?: number; firstName: string; lastName: string; email?: string; phone?: string; emergencyContact?: string; emergencyPhone?: string };
-  program?: { id: number; name: string };
+  // `type` + `academySection` are what decide the row's colour — see
+  // shared/programme-kinds.ts. Widened from {id,name} so the decider can read
+  // them rather than each page guessing from the programme's NAME.
+  program?: { id: number; name: string; type?: string | null; academySection?: string | null };
+  /** "Term 4 2026" — the term this registration bought, or null if never recorded. */
+  termLabel?: string | null;
   items?: RegItem[];
   children?: RegChild[];
 };
@@ -1036,6 +1042,16 @@ export default function AdminRegistrations() {
         </div>
       )}
 
+      {/* A colour nobody can decode is decoration, so it says what it means. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1" data-testid="legend-programme-kinds">
+        {PROGRAMME_KIND_ORDER.map((k) => (
+          <span key={k} className="flex items-center gap-1.5 text-[11px] text-white/35">
+            <span className={`w-2.5 h-2.5 rounded-[4px] border ${PROGRAMME_KIND_META[k].tile}`} />
+            {PROGRAMME_KIND_META[k].note}
+          </span>
+        ))}
+      </div>
+
       <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
         {isLoading ? (
           <div className="p-6 space-y-3">
@@ -1052,18 +1068,31 @@ export default function AdminRegistrations() {
                     onClick={() => setExpandedId(expandedId === reg.id ? null : reg.id)}
                     data-testid={`row-registration-${reg.id}`}
                   >
-                    <div className="w-8 h-8 rounded-xl bg-blue-500/8 border border-blue-500/15 flex items-center justify-center flex-shrink-0">
-                      <ClipboardCheck className="w-4 h-4 text-blue-400/70" />
-                    </div>
+                    {/* Colour says WHAT KIND of thing this is at a glance — one
+                        decider in shared/programme-kinds.ts, so amber means
+                        holiday camp on every screen that ever shows it. */}
+                    {(() => { const k = PROGRAMME_KIND_META[programmeKind(reg.program)]; return (
+                    <div className={`w-8 h-8 rounded-xl border flex items-center justify-center flex-shrink-0 ${k.tile}`} title={k.label}>
+                      <ClipboardCheck className={`w-4 h-4 ${k.icon}`} />
+                    </div>); })()}
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium text-white/75" data-testid={`text-reg-name-${reg.id}`}>
                         #{reg.orderNumber || reg.id} — {reg.contact?.firstName} {reg.contact?.lastName}
                       </p>
-                      <p className="text-[11px] text-white/25">
-                        {reg.program?.name || `Camp #${reg.programId}`}
-                        {reg.items?.length ? ` · ${reg.items.length} session${reg.items.length !== 1 ? "s" : ""}` : ""}
-                        {" · "}
-                        {new Date(reg.registeredAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}
+                      <p className="text-[11px] text-white/25 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded-md border uppercase tracking-wider ${PROGRAMME_KIND_META[programmeKind(reg.program)].chip}`}
+                          data-testid={`badge-reg-kind-${reg.id}`}
+                        >
+                          {PROGRAMME_KIND_META[programmeKind(reg.program)].label}
+                        </span>
+                        <span>{reg.program?.name || `Camp #${reg.programId}`}</span>
+                        {/* WHAT they bought (the term) beside WHEN they bought it. */}
+                        {reg.termLabel && (
+                          <span className="text-white/45 font-medium" data-testid={`text-reg-term-${reg.id}`}>· {reg.termLabel}</span>
+                        )}
+                        {reg.items?.length ? <span>· {reg.items.length} session{reg.items.length !== 1 ? "s" : ""}</span> : null}
+                        <span>· {new Date(reg.registeredAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}</span>
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
