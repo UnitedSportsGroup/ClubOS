@@ -1,6 +1,6 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
-import { guardPublicForm } from "./form-guard";
+import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -2753,10 +2753,33 @@ export async function registerRoutes(
   // ══════════════════════════════════════════════════════════════════════════
 
   /** The term a programme is bound to, or null. */
-  async function academyTermFor(program: any): Promise<any | null> {
-    if (!program.termId) return null;
-    const [t] = await db.select().from(terms).where(eq(terms.id, program.termId));
-    return t ?? null;
+  /**
+   * The term a price is being quoted FOR.
+   *
+   * 🔴 `overrideTermId` exists because the office has to be able to sell a term
+   * other than the one the programme is currently advertising. Daniel,
+   * 2026-09-10: "make sure here in register at office it shows the term 4 full
+   * price or the term 3 pro rata what's remaining price so that the guys in the
+   * office can still track those too." A parent walking in during the last
+   * fortnight of Term 3 may be buying the two sessions that are left, or the
+   * whole of Term 4 — only the person at the counter knows which.
+   *
+   * The override is checked against the programme's OWN workspace, so it can
+   * never price against another club's calendar.
+   */
+  async function academyTermFor(program: any, overrideTermId?: number | null): Promise<any | null> {
+    const wanted = overrideTermId ?? program.termId;
+    if (!wanted) return null;
+    const [t] = await db.select().from(terms).where(eq(terms.id, wanted));
+    if (!t) return null;
+    if (program.organizationId && t.organizationId !== program.organizationId) return null;
+    return t;
+  }
+
+  /** Every term this programme's workspace has, for the counter's term picker. */
+  async function academyTermsFor(program: any): Promise<any[]> {
+    if (!program.organizationId) return [];
+    return db.select().from(terms).where(eq(terms.organizationId, program.organizationId));
   }
 
   const ACADEMY_DEFAULT_SESSIONS = 10;   // NZ school term
@@ -4776,7 +4799,11 @@ export async function registerRoutes(
       const options = await storage.getProgramOptions(program.id, { activeOnly: true });
       const sellable = options.filter((o: any) => (o.fullPriceCents ?? 0) > 0);
 
-      const term = await academyTermFor(program);
+      const askedTermId = req.query.termId ? Number(req.query.termId) : null;
+      const term = await academyTermFor(program, askedTermId);
+      if (askedTermId && !term) {
+        return res.status(400).json({ message: "That term does not belong to this programme's workspace." });
+      }
       const plan: "term" | "year" = req.query.plan === "year" ? "year" : "term";
       const allowFullYear = academyFullYearAvailable(section, term?.termNumber ?? null);
 
@@ -4802,7 +4829,31 @@ export async function registerRoutes(
           ageMin: program.ageMin,
           ageMax: program.ageMax,
         },
-        term: term ? { name: term.name, termNumber: term.termNumber, startDate: term.startDate, endDate: term.endDate } : null,
+        term: term
+          ? { id: term.id, year: term.year, name: term.name, termNumber: term.termNumber, startDate: term.startDate, endDate: term.endDate }
+          : null,
+        // Every term the counter can sell, each priced in its own right — the
+        // one running now costs its remaining sessions, a future one costs the
+        // full term. Sorted newest first so the two that matter are on top.
+        terms: (await academyTermsFor(program))
+          .map((t: any) => {
+            const q = option ? academyQuoteFor(program, t, section, option.fullPriceCents, "term") : null;
+            return {
+              id: t.id,
+              year: t.year,
+              name: t.name ?? `Term ${t.termNumber}`,
+              termNumber: t.termNumber,
+              startDate: t.startDate,
+              endDate: t.endDate,
+              isProgrammeTerm: t.id === program.termId,
+              // null = nothing left to sell in that term; the UI says so rather
+              // than offering a $0 registration.
+              totalCents: q ? q.totalCents : null,
+              sessionsRemaining: q ? q.sessionsRemaining ?? null : null,
+              sessionsTotal: q ? q.sessionsTotal ?? null : null,
+            };
+          })
+          .sort((a: any, b: any) => (b.year - a.year) || (b.termNumber - a.termNumber)),
         allowFullYear,
         options: sellable.map((o: any) => ({ id: o.id, name: o.name, fullPriceCents: o.fullPriceCents, scheduleText: o.scheduleText })),
         quote,
@@ -21922,6 +21973,22 @@ export async function registerRoutes(
         splitEnabled: !!(program as any).splitEnabled,
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  /* A fresh nonce for a public form about to be filled in. Public and cheap on
+   * purpose — its value is not secrecy but that a client had to ask for it and
+   * then wait, which a straight POST at the API does not do. CORS-open because
+   * the brand websites are each on their own origin.
+   *
+   * 🔴 A form is only HELD for a missing token once its site is known to send
+   * one — see FORM_POLICY.expectsToken in server/form-guard.ts. Flip a form
+   * there in the same wave as the website deploy that starts calling this,
+   * never before: counting it earlier puts every genuine submission at one of
+   * the two signals needed to hold it. */
+  app.get("/api/public/form-token", (_req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ token: mintFormToken() });
   });
 
   // Join the waitlist for one or more sold-out (or nearly-full) nights. No
