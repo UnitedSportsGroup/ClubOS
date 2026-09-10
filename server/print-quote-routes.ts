@@ -32,6 +32,7 @@ import { currentPrintCustomer } from "./print-account-routes";
 import { accountDiscountPct } from "@shared/print-account";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
+import { guardPublicForm } from "./form-guard";
 import { requireAuth, requireTab } from "./auth";
 import {
   organizations,
@@ -485,7 +486,17 @@ export function registerPrintQuoteRoutes(app: Express) {
       const items = itemRows.map((row) => ({ ...row, quoteId: quote.id }));
       const insertedItems = items.length ? await db.insert(printQuoteItems).values(items).returning() : [];
 
+      /* 🔴 `emailQuoteReceivedCustomer` sends to the address the request supplied,
+       * so without a gate this form mails strangers from unitedprints.co.nz.
+       * The quote row is saved either way and still reaches Dima's Quotes tab —
+       * a held one simply sends no automatic email. See server/form-guard.ts. */
+      const guard = await guardPublicForm({
+        form: "print_quote", req, email: quote.customerEmail,
+        name: quote.customerName, text: [note], page: "/instant-quote",
+      });
+
       // Email is best-effort. A Resend outage must never lose the quote.
+      if (guard.ok) {
       try {
         await emailQuoteReceivedCustomer(quote, insertedItems);
       } catch (mailErr) {
@@ -495,6 +506,9 @@ export function registerPrintQuoteRoutes(app: Express) {
         await emailQuoteRequestDima(quote, insertedItems);
       } catch (mailErr) {
         console.error("[print-quotes] dima email failed:", mailErr);
+      }
+      } else {
+        console.warn("[print-quotes] held, no email sent:", guard.reasons.join(", "));
       }
 
       // Echo the SERVER's totals back. If a stale tab submitted an old price,

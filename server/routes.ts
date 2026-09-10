@@ -1,5 +1,6 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
+import { guardPublicForm } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -21986,13 +21987,31 @@ export async function registerRoutes(
         });
       }
 
+      /* 🔴 The confirmation goes to whatever address the request supplied, which
+       * makes this form a way to mail a stranger from minifootball.co.nz. The
+       * guard decides whether it looks like a person; the row is saved either
+       * way and is still in the admin, so a false positive costs a look at the
+       * list rather than a lost team. See server/form-guard.ts. */
+      const guard = await guardPublicForm({
+        form: "mfl_waitlist", req, email, name: contactName,
+        // 🔴 `teamName` is deliberately NOT judged as prose. "TheKickers2026" is
+        // one word, alphanumeric and fourteen characters — exactly the shape the
+        // random-text rule looks for — so a real team would have been held.
+        // Only genuinely free-text fields go in `text`; this form has none.
+        text: [], page: "/waitlist",
+      });
+
       // Emails are best-effort — the waitlist row is already saved.
-      try {
-        await sendMflWaitlistConfirmation({ to: email, contactName, teamName, nights });
-      } catch (e) { console.error("[MFL waitlist] confirmation email failed:", e); }
-      try {
-        await sendMflWaitlistNotification({ to: "info@minifootball.co.nz", teamName, contactName, email, phone: phone || undefined, nights });
-      } catch (e) { console.error("[MFL waitlist] notification email failed:", e); }
+      if (guard.ok) {
+        try {
+          await sendMflWaitlistConfirmation({ to: email, contactName, teamName, nights });
+        } catch (e) { console.error("[MFL waitlist] confirmation email failed:", e); }
+        try {
+          await sendMflWaitlistNotification({ to: "info@minifootball.co.nz", teamName, contactName, email, phone: phone || undefined, nights });
+        } catch (e) { console.error("[MFL waitlist] notification email failed:", e); }
+      } else {
+        console.warn("[MFL waitlist] held, no email sent:", guard.reasons.join(", "));
+      }
 
       res.json({ ok: true, id: entry?.id });
     } catch (e: any) { console.error("[MFL waitlist] error:", e); res.status(400).json({ message: e.message }); }
@@ -24097,6 +24116,18 @@ export async function registerRoutes(
 
       // Emails: confirmation to the parent + heads-up to the club. Never block
       // the booking on email failures.
+      /* 🔴 Same relay shape as the MFL waitlist — a confirmation to an address a
+       * stranger typed in, from cugc.co.nz. 🔴 `childDob` is NOT passed to the
+       * guard: a child's date of birth is legitimately in the past, and judging
+       * it as a stay date would hold every genuine booking. */
+      const guard = await guardPublicForm({
+        form: "cugc_free_session", req, email, name: parentName,
+        // 🔴 `childName` is a NAME, not prose — judging it as free text would
+        // hold a real family over an unusual spelling. Only `notes` is prose.
+        text: [notes], page: "/free-session",
+      });
+
+      if (guard.ok) {
       try {
         await sendCugcFreeSessionConfirmation({
           to: email, parentName, childName,
@@ -24109,6 +24140,9 @@ export async function registerRoutes(
           phone: phone || null, programName: program.title, sessionLabel, sessionDate, notes: notes || null,
         });
       } catch (e) { console.error("[CUGC free session] notify email failed:", e); }
+      } else {
+        console.warn("[CUGC free session] held, no email sent:", guard.reasons.join(", "));
+      }
 
       // Server-side Meta Lead (CAPI). Browser fires the same eventID for dedup.
       const nameParts = parentName.split(/\s+/);
