@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { withFrom } from "@/lib/back-to";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -624,10 +626,23 @@ function MemberRow({
   onRemove: () => void;
   departed?: boolean;
 }) {
+  const [, navigate] = useLocation();
   const roleLabel = isSquadRole(member.role) ? SQUAD_ROLE_LABELS[member.role] : member.role;
   const ineligible = member.eligibility && member.eligibility.eligible === false;
   const playingUp =
     member.eligibility && member.eligibility.eligible && member.eligibility.reason.toLowerCase().startsWith("playing up");
+
+  // Daniel, 2026-09-10: "make it so when you click on player for example in
+  // squads it opens their profile."
+  //
+  // A squad member IS a `contacts` row, so their profile is the same person
+  // page the Players tab and global search open — `/admin/people/contact-{id}`,
+  // never a second view of the same human. `from` is read at CLICK time so it
+  // carries the squad that is actually open, and Back returns to this roster
+  // rather than the squad list.
+  const openProfile = () =>
+    navigate(withFrom(`/admin/people/contact-${member.contactId}`,
+      window.location.pathname + window.location.search));
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 row-hover" data-testid={`row-member-${member.id}`}>
@@ -636,9 +651,15 @@ function MemberRow({
           {member.squadNumber ?? "—"}
         </div>
       )}
-      <div className="flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={openProfile}
+        className="flex-1 min-w-0 text-left cursor-pointer group"
+        data-testid={`button-open-profile-${member.id}`}
+        title="Open their profile"
+      >
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-[13px] font-medium ${departed ? "text-white/40 line-through" : "text-white/75"}`} data-testid={`text-member-name-${member.id}`}>
+          <span className={`text-[13px] font-medium transition-colors ${departed ? "text-white/40 line-through group-hover:text-white/60" : "text-white/75 group-hover:text-blue-400"}`} data-testid={`text-member-name-${member.id}`}>
             {member.firstName} {member.lastName}
           </span>
           {!isPlayer && (
@@ -677,7 +698,7 @@ function MemberRow({
             {member.eligibility!.reason}
           </p>
         )}
-      </div>
+      </button>
       {!departed ? (
         <div className="flex items-center gap-1 flex-shrink-0">
           {onMarkLeft && (
@@ -1017,8 +1038,31 @@ export default function AdminSquads() {
   const currentYear = new Date().getFullYear();
   const [season, setSeason] = useState(currentYear);
   const [seasonDefaulted, setSeasonDefaulted] = useState(false);
-  const [selectedSquadId, setSelectedSquadId] = useState<number | null>(null);
   const [showNewSquad, setShowNewSquad] = useState(false);
+
+  // 🔴 WHICH SQUAD IS OPEN LIVES IN THE URL. Daniel, 2026-09-10, of the session
+  // roll: "when i go back from that sessions page it takes me back to players
+  // not sessions tab... really need this fixed now and forever more amen."
+  //
+  // The same shape was here: the open squad was component state alone, so
+  // browser Back left the page entirely, a squad could not be linked to, and —
+  // the reason it matters today — opening a player's profile and coming back
+  // would have dumped you on the squad LIST instead of the squad you were in.
+  const [location, navigate] = useLocation();
+  const search = useSearch();
+  const selectedSquadId = (() => {
+    const raw = new URLSearchParams(search).get("squad");
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const openSquad = useCallback(
+    (id: number | null) => {
+      // replace, not push: the roster is a view OF this page, and pushing would
+      // make Back walk back through every squad you glanced at.
+      navigate(id == null ? location : `${location}?squad=${id}`, { replace: true });
+    },
+    [navigate, location],
+  );
 
   const { data, isLoading } = useQuery<{ seasons: number[]; squads: Squad[] }>({
     queryKey: ["/api/admin/squads", "season", season],
@@ -1038,7 +1082,7 @@ export default function AdminSquads() {
   }, [data, seasonDefaulted, season]);
 
   if (selectedSquadId != null) {
-    return <SquadRoster squadId={selectedSquadId} onBack={() => setSelectedSquadId(null)} />;
+    return <SquadRoster squadId={selectedSquadId} onBack={() => openSquad(null)} />;
   }
 
   const seasons = data?.seasons?.length ? data.seasons : [currentYear];
@@ -1125,7 +1169,7 @@ export default function AdminSquads() {
                           </span>
                         </div>
                         {col.squads.map((sq) => (
-                          <SquadCard key={sq.id} sq={sq} onOpen={() => setSelectedSquadId(sq.id)} />
+                          <SquadCard key={sq.id} sq={sq} onOpen={() => openSquad(sq.id)} />
                         ))}
                       </div>
                     ))}
@@ -1133,7 +1177,7 @@ export default function AdminSquads() {
                 ) : (
                   <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {list.map((sq) => (
-                      <SquadCard key={sq.id} sq={sq} onOpen={() => setSelectedSquadId(sq.id)} />
+                      <SquadCard key={sq.id} sq={sq} onOpen={() => openSquad(sq.id)} />
                     ))}
                   </div>
                 )}

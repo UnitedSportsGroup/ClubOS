@@ -66,6 +66,9 @@ interface AcademyQuote {
   terms: {
     id: number; year: number; name: string; termNumber: number | null;
     startDate: string; endDate: string; isProgrammeTerm: boolean;
+    /** A fact about the TERM, true whether or not an option has been chosen. */
+    ended: boolean;
+    /** null = not priced yet (no option chosen) or the term has ended — `ended` says which. */
     totalCents: number | null; sessionsRemaining: number | null; sessionsTotal: number | null;
   }[];
   allowFullYear: boolean;
@@ -802,7 +805,12 @@ export function RegisterPlayerModal({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {academyData!.terms.map((t) => {
                           const selected = (termId ?? academyData!.term?.id ?? null) === t.id;
-                          const finished = t.totalCents == null;
+                          // 🔴 Finished is the TERM's own state, never "we have
+                          // no price". Technification sells two age groups, so
+                          // nothing prices until one is picked — and reading
+                          // that as finished told the counter Term 4 was over
+                          // three weeks before it started.
+                          const finished = t.ended;
                           return (
                             <button
                               key={t.id}
@@ -833,10 +841,12 @@ export function RegisterPlayerModal({
                               <div className="text-[12px] mt-1 min-w-0">
                                 {finished ? (
                                   <span className="text-white/40">Finished — nothing left to sell</span>
+                                ) : t.totalCents == null ? (
+                                  <span className="text-white/45">Pick an age group above to price this term</span>
                                 ) : (
                                   <>
                                     <span className="text-white/85 font-medium">
-                                      {formatCurrency(t.totalCents!, { fromCents: true })}
+                                      {formatCurrency(t.totalCents, { fromCents: true })}
                                     </span>
                                     {t.sessionsRemaining != null && t.sessionsTotal != null && (
                                       <span className="text-white/45">

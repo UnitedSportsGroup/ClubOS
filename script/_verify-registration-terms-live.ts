@@ -140,12 +140,23 @@ async function main() {
   // ── 4. The counter can sell EITHER term, each at its own price ────────────
   console.log("\nThe office walk-up form");
   for (const [label, id] of [["FUNiño", FUNINO], ["Technification", TECHNIFICATION]] as const) {
-    const q = await asStaff(`/api/admin/registrations/manual/quote?programId=${id}`);
-    ok(`${label}: quote loads for staff`, q.ok, `HTTP ${q.status}`);
-    if (!q.ok) continue;
+    // 🔴 Pick an age group first, the way the counter does. Technification
+    // sells TWO (U9–U10 and U11–U12), so with none chosen nothing can be
+    // priced — and until this was fixed the form read all four terms as
+    // "finished", including a Term 4 that had not started.
+    const first = await asStaff(`/api/admin/registrations/manual/quote?programId=${id}`);
+    ok(`${label}: quote loads for staff`, first.ok, `HTTP ${first.status}`);
+    if (!first.ok) continue;
+    const unpriced: any = await first.json();
+    const option = unpriced.options?.[0];
+    ok(`${label}: with no age group chosen, a term that hasn't ended is not called finished`,
+      (unpriced.terms ?? []).some((t: any) => !t.ended),
+      (unpriced.terms ?? []).map((t: any) => `${t.name}:${t.ended ? "ended" : "open"}`).join(" "));
+
+    const q = await asStaff(`/api/admin/registrations/manual/quote?programId=${id}${option ? `&programOptionId=${option.id}` : ""}`);
+    if (!q.ok) { ok(`${label}: quote loads with an age group chosen`, false, `HTTP ${q.status}`); continue; }
     const body: any = await q.json();
     const terms: any[] = body.terms ?? [];
-    const option = body.options?.[0];
     for (const t of terms) {
       console.log(`        ${t.name} ${t.year}  ${money(t.totalCents).padStart(10)}  ${
         t.sessionsRemaining != null ? `${t.sessionsRemaining}/${t.sessionsTotal} sessions` : "—"}${
@@ -156,7 +167,10 @@ async function main() {
       option ? money(option.fullPriceCents) : "no option");
 
     const sellable = terms.filter((t) => t.totalCents != null);
-    ok(`${label}: at least one term is still sellable`, sellable.length > 0);
+    ok(`${label}: at least one term is still sellable once an age group is chosen`, sellable.length > 0);
+    ok(`${label}: an ended term is never priced, and a live one always is`,
+      terms.every((t) => (t.ended ? t.totalCents == null : t.totalCents != null)),
+      terms.map((t) => `${t.name}:${t.ended ? "ended" : "open"}/${t.totalCents ?? "—"}`).join(" "));
     // 🔴 The bug this line exists for: the route read `q.sessionsTotal` where
     // the pricing engine returns `totalSessions`, so EVERY term came back with
     // a null session count and the counter would have read "3 of  sessions left".

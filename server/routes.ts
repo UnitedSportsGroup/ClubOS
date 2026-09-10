@@ -4915,8 +4915,16 @@ export async function registerRoutes(
               startDate: t.startDate,
               endDate: t.endDate,
               isProgrammeTerm: t.id === program.termId,
-              // null = nothing left to sell in that term; the UI says so rather
-              // than offering a $0 registration.
+              // 🔴 A term with no price and a term that has FINISHED are two
+              // different things, and `totalCents: null` alone cannot tell them
+              // apart. Technification sells two age groups, so nothing can be
+              // priced until staff pick one — and the counter read all four
+              // terms as "finished, nothing left to sell", including Term 4,
+              // which had not started. `ended` is a fact about the TERM and is
+              // true or false whether or not an option has been chosen.
+              ended: String(t.endDate).slice(0, 10) < nzTodayIso(),
+              // null = not priced yet (no option chosen) OR the term has ended;
+              // `ended` says which.
               totalCents: q ? q.totalCents : null,
               sessionsRemaining: q ? q.sessionsRemaining ?? null : null,
               // `totalSessions` is what academyQuoteFor calls it. Reading
