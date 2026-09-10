@@ -167,9 +167,17 @@ async function main() {
         continue;
       }
 
-      const cents = Math.round(Number(inv.total ?? 0) * 100);
+      // 🔴 WHAT THEY WERE ASKED FOR, WHAT WAS CREDITED, AND WHAT ACTUALLY
+      // ARRIVED are three different numbers. 881 live invoices are part-paid and
+      // 1,775 carry a credit note — one real row is total $503.50, credited
+      // $166.50, PAID $337.00. Writing `total` into amount_paid would have the
+      // Players tab and the accounts team state a figure the family never paid.
+      const totalCents = Math.round(Number(inv.total ?? 0) * 100);
+      const creditedCents = Math.round(Number(inv.amountCredited ?? 0) * 100);
+      const paidCents = Math.round(Number(inv.amountPaid ?? 0) * 100);
+      const cents = totalCents - creditedCents;      // what they were actually asked to pay
       if (status === "AUTHORISED") {
-        out.unpaidInvoiced.push({ child: childName, ref, invNo, cents, contactId: person.id });
+        out.unpaidInvoiced.push({ child: childName, ref, invNo, cents, owing: cents - paidCents, contactId: person.id });
         continue;                                   // owed, not registered — Olga's call
       }
 
@@ -180,10 +188,12 @@ async function main() {
              (program_id, contact_id, status, season_year, term_id, subtotal_cents, discount_cents, total_cents,
               amount_paid, currency, registered_at, paid_at, payment_method, registration_location, source,
               legacy_source, legacy_external_id, notes)
-           VALUES ($1,$2,'confirmed',$3,$4,$5,0,$5,$6,'NZD',$7,$7,'other','cufc_office','xero_import',$8,$9,$10)`,
-          [prog.id, person.id, year, termId, cents, (cents / 100).toFixed(2), inv.date,
+           VALUES ($1,$2,'confirmed',$3,$4,$5,$6,$7,$8,'NZD',$9::timestamptz,$9::timestamptz,'other','cufc_office','xero_import',$10,$11,$12)`,
+          [prog.id, person.id, year, termId, totalCents, creditedCents, cents,
+           (paidCents / 100).toFixed(2), inv.date,
            LEGACY_SOURCE, invNo,
-           `migrated from Xero invoice ${invNo} ("${ref}", $${(cents / 100).toFixed(2)} paid ${String(inv.date).slice(0, 10)})`]);
+           `migrated from Xero invoice ${invNo} ("${ref}"): invoiced $${(totalCents / 100).toFixed(2)}${
+             creditedCents ? `, credited $${(creditedCents / 100).toFixed(2)}` : ""}, PAID $${(paidCents / 100).toFixed(2)} on ${String(inv.date).slice(0, 10)}`]);
       }
     }
 
