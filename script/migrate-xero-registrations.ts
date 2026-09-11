@@ -129,6 +129,20 @@ async function main() {
       `SELECT legacy_external_id FROM registrations WHERE legacy_source = $1`, [LEGACY_SOURCE]);
     const done = new Set(existing.map((r: any) => r.legacy_external_id));
 
+    // 🔴 THE KEY THAT ACTUALLY MATTERS: is this person ALREADY on this
+    // programme for this term, from ANY source? Keying only on the Xero invoice
+    // number stopped the same invoice importing twice and was completely blind
+    // to a registration already recorded from Friendly Manager or a ClubOS
+    // checkout. It put 51 duplicate rows and $11,127.50 of phantom money into
+    // production, and Daniel spotted it as "$320 paid for a $160 term".
+    //
+    // A person is on a programme for a term once. Any source can be the one
+    // that recorded it.
+    const { rows: held } = await client.query(`
+      SELECT contact_id, program_id, term_id FROM registrations
+      WHERE term_id IS NOT NULL AND status IN ('confirmed','refunded','partially_refunded')`);
+    const enrolled = new Set(held.map((r: any) => `${r.contact_id}|${r.program_id}|${r.term_id}`));
+
     // ── walk the invoices ─────────────────────────────────────────────────
     for (const inv of invoices) {
       const status = String(inv.status);
@@ -180,6 +194,10 @@ async function main() {
         out.unpaidInvoiced.push({ child: childName, ref, invNo, cents, owing: cents - paidCents, contactId: person.id });
         continue;                                   // owed, not registered — Olga's call
       }
+
+      const seat = `${person.id}|${prog.id}|${termId}`;
+      if (enrolled.has(seat)) { out.alreadyThere++; continue; }   // already on this programme this term
+      enrolled.add(seat);
 
       out.wouldCreate.push({ child: childName, contactId: person.id, programId: prog.id, why: prog.why, termId, year, termNo, cents, ref, invNo });
       if (COMMIT) {
