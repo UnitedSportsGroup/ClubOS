@@ -1,0 +1,880 @@
+{
+ "generated": "2026-09-11T05:02:44.284Z",
+ "sources": [
+  {
+   "source": "xero",
+   "rows": 17795,
+   "people": 2730,
+   "amt": "4170699.790000000000",
+   "first": "2017-02-07",
+   "last": "2026-09-09"
+  },
+  {
+   "source": "friendly_manager",
+   "rows": 8072,
+   "people": 2361,
+   "amt": "1117269.390000000000",
+   "first": "2017-08-10",
+   "last": "2026-07-06"
+  },
+  {
+   "source": "shopify",
+   "rows": 1552,
+   "people": 772,
+   "amt": "95730.000000000000",
+   "first": "2023-01-31",
+   "last": "2026-01-22"
+  }
+ ],
+ "groups": {
+  "total": 39,
+  "records": 106,
+  "safe": 1,
+  "ask": 38,
+  "detail": [
+   {
+    "who": "charlie salmond",
+    "family": "charlottehogg@hotmail.com",
+    "records": 9,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32689,
+     36154,
+     36155,
+     36156,
+     36157,
+     36507,
+     36508,
+     36509,
+     36510
+    ]
+   },
+   {
+    "who": "darren zhang",
+    "family": "zhang386239@hotmail.com",
+    "records": 7,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32256,
+     36447,
+     36448,
+     36449,
+     36450,
+     36451,
+     36452
+    ]
+   },
+   {
+    "who": "parum shridhar",
+    "family": "tovibhutipatel@gmail.com",
+    "records": 6,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35883,
+     35884,
+     36442,
+     36443,
+     36444,
+     36445
+    ]
+   },
+   {
+    "who": "george meates",
+    "family": "s.meates@gmail.com",
+    "records": 5,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35930,
+     35931,
+     35932,
+     36484,
+     36485
+    ]
+   },
+   {
+    "who": "jasper wu",
+    "family": "wuyujia24@gmail.com",
+    "records": 4,
+    "distinct_dobs": 2,
+    "no_dob": 2,
+    "ids": [
+     31591,
+     36393,
+     36394,
+     36395
+    ]
+   },
+   {
+    "who": "oscar oughton",
+    "family": "amymarie.oughton@gmail.com",
+    "records": 4,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36170,
+     36171,
+     36172,
+     36173
+    ]
+   },
+   {
+    "who": "willem farrant",
+    "family": "amywfarrant@gmail.com",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32426,
+     36211,
+     36212
+    ]
+   },
+   {
+    "who": "benjamin huertas porto",
+    "family": "marioliveira_12@yahoo.com.br",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35853,
+     35958,
+     36367
+    ]
+   },
+   {
+    "who": "patrick finn",
+    "family": "finncarpentryservices@gmail.com",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 1,
+    "ids": [
+     35915,
+     35992,
+     37244
+    ]
+   },
+   {
+    "who": "bailey gordon-bhebe",
+    "family": "nikolagordon@yahoo.co.uk",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     31478,
+     36490,
+     36491
+    ]
+   },
+   {
+    "who": "wallace gerring",
+    "family": "madison.gerring@gmail.com",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36295,
+     36296,
+     36453
+    ]
+   },
+   {
+    "who": "hendrix cantwell",
+    "family": "syk0709@hotmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36145,
+     36236
+    ]
+   },
+   {
+    "who": "henry cresswell",
+    "family": "david.cresswell@epochproperty.co.nz",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36243,
+     36244
+    ]
+   },
+   {
+    "who": "hugo wishnowsky",
+    "family": "l.wishnowsky@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32964,
+     36013
+    ]
+   },
+   {
+    "who": "isaac abbott",
+    "family": "karen_paterson@hotmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     31128,
+     37218
+    ]
+   },
+   {
+    "who": "jake mair",
+    "family": "cameronmair@me.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32970,
+     36192
+    ]
+   },
+   {
+    "who": "jeremiah williams",
+    "family": "melissa.sloan101@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     633,
+     36633
+    ]
+   },
+   {
+    "who": "max havill",
+    "family": "emma.mccleary@corde.nz",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     30583,
+     37232
+    ]
+   },
+   {
+    "who": "nikolai hudson",
+    "family": "lisaamiao@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32398,
+     37282
+    ]
+   },
+   {
+    "who": "noah pearson",
+    "family": "jeremy.boundarykapiti@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35834,
+     35864
+    ]
+   },
+   {
+    "who": "reilly welsh",
+    "family": "amie@welsh.net.nz",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35938,
+     36081
+    ]
+   },
+   {
+    "who": "river borsje-clark",
+    "family": "jborsjeclark@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35847,
+     35935
+    ]
+   },
+   {
+    "who": "rocco cantwell",
+    "family": "syk0709@hotmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36144,
+     36235
+    ]
+   },
+   {
+    "who": "rudraksh rawat",
+    "family": "amyarchurawat@gmail.com",
+    "records": 2,
+    "distinct_dobs": 1,
+    "no_dob": 0,
+    "ids": [
+     26418,
+     29436
+    ]
+   },
+   {
+    "who": "teyhan samaranayaka",
+    "family": "dlnlugoda@hotmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36404,
+     36434
+    ]
+   },
+   {
+    "who": "tuari kingi-hazel",
+    "family": "clhayde@hotmail.co.nz",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     30563,
+     36545
+    ]
+   },
+   {
+    "who": "victoria hudson",
+    "family": "lisaamiao@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32399,
+     37283
+    ]
+   },
+   {
+    "who": "arlo bourdot",
+    "family": "bourdotdanielle@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36254,
+     36339
+    ]
+   },
+   {
+    "who": "woolf wright",
+    "family": "natalieroserutherford@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32918,
+     37250
+    ]
+   },
+   {
+    "who": "benji taylor",
+    "family": "lucyerintaylor@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32239,
+     36419
+    ]
+   },
+   {
+    "who": "chace gooding",
+    "family": "ryan@goodbrothersplumbing.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     623,
+     624
+    ]
+   },
+   {
+    "who": "charlie munro",
+    "family": "biancaedmonds@hotmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     31715,
+     36403
+    ]
+   },
+   {
+    "who": "colin green",
+    "family": "jstonegreen@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     36331,
+     36332
+    ]
+   },
+   {
+    "who": "cooper caldwell",
+    "family": "dcaldwell0009@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     30482,
+     30829
+    ]
+   },
+   {
+    "who": "eli mcnaughton",
+    "family": "corbin.mcnaughton@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     33020,
+     37231
+    ]
+   },
+   {
+    "who": "eliezer siu",
+    "family": "yuen.ada@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32469,
+     37251
+    ]
+   },
+   {
+    "who": "fergus carrie",
+    "family": "rossandbecs@xtra.co.nz",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     35874,
+     37329
+    ]
+   },
+   {
+    "who": "finn jones",
+    "family": "tk5wellbeing@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32721,
+     36033
+    ]
+   },
+   {
+    "who": "harry zheng",
+    "family": "zyendeavour@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     31413,
+     36435
+    ]
+   }
+  ]
+ },
+ "move": {
+  "losers": 67,
+  "rows": 308,
+  "moneyOnLosers": 9078.9
+ },
+ "collisions": 0,
+ "years": {
+  "xero": [
+   {
+    "season_year": 2000,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2002,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2003,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2005,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2006,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2007,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2008,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2009,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2010,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2012,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2013,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2014,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2015,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2016,
+    "payments": 1,
+    "amt": "54.4300000000000000"
+   },
+   {
+    "season_year": 2017,
+    "payments": 1317,
+    "amt": "135920.620000000000"
+   },
+   {
+    "season_year": 2018,
+    "payments": 2218,
+    "amt": "269953.770000000000"
+   },
+   {
+    "season_year": 2019,
+    "payments": 1633,
+    "amt": "463827.490000000000"
+   },
+   {
+    "season_year": 2020,
+    "payments": 1219,
+    "amt": "228793.890000000000"
+   },
+   {
+    "season_year": 2021,
+    "payments": 1462,
+    "amt": "320136.520000000000"
+   },
+   {
+    "season_year": 2022,
+    "payments": 1697,
+    "amt": "376872.070000000000"
+   },
+   {
+    "season_year": 2023,
+    "payments": 1752,
+    "amt": "405387.030000000000"
+   },
+   {
+    "season_year": 2024,
+    "payments": 2113,
+    "amt": "595305.380000000000"
+   },
+   {
+    "season_year": 2025,
+    "payments": 2473,
+    "amt": "797182.130000000000"
+   },
+   {
+    "season_year": 2026,
+    "payments": 1840,
+    "amt": "570133.550000000000"
+   },
+   {
+    "season_year": 2031,
+    "payments": 1,
+    "amt": "69.0000000000000000"
+   },
+   {
+    "season_year": 2032,
+    "payments": 1,
+    "amt": "23.0000000000000000"
+   },
+   {
+    "season_year": 2033,
+    "payments": 1,
+    "amt": "23.0000000000000000"
+   },
+   {
+    "season_year": 2034,
+    "payments": 2,
+    "amt": "450.0000000000000000"
+   },
+   {
+    "season_year": 2036,
+    "payments": 1,
+    "amt": "23.0000000000000000"
+   },
+   {
+    "season_year": 2037,
+    "payments": 1,
+    "amt": "18.0000000000000000"
+   },
+   {
+    "season_year": 2038,
+    "payments": 1,
+    "amt": "18.0000000000000000"
+   },
+   {
+    "season_year": 2039,
+    "payments": 1,
+    "amt": "10.0000000000000000"
+   },
+   {
+    "season_year": 2042,
+    "payments": 1,
+    "amt": "90.0000000000000000"
+   },
+   {
+    "season_year": 2043,
+    "payments": 1,
+    "amt": "170.1600000000000000"
+   },
+   {
+    "season_year": 2044,
+    "payments": 1,
+    "amt": "240.0000000000000000"
+   },
+   {
+    "season_year": 2045,
+    "payments": 2,
+    "amt": "480.0000000000000000"
+   },
+   {
+    "season_year": 2046,
+    "payments": 4,
+    "amt": "480.0000000000000000"
+   },
+   {
+    "season_year": 2047,
+    "payments": 2,
+    "amt": "480.0000000000000000"
+   },
+   {
+    "season_year": 2048,
+    "payments": 1,
+    "amt": "170.1600000000000000"
+   },
+   {
+    "season_year": 2050,
+    "payments": 1,
+    "amt": "450.0000000000000000"
+   },
+   {
+    "season_year": 2052,
+    "payments": 1,
+    "amt": "33.0000000000000000"
+   },
+   {
+    "season_year": 2053,
+    "payments": 1,
+    "amt": "39.0000000000000000"
+   },
+   {
+    "season_year": 2054,
+    "payments": 1,
+    "amt": "12.0000000000000000"
+   },
+   {
+    "season_year": 2057,
+    "payments": 1,
+    "amt": "60.0000000000000000"
+   },
+   {
+    "season_year": 2058,
+    "payments": 1,
+    "amt": "60.0000000000000000"
+   },
+   {
+    "season_year": 2066,
+    "payments": 1,
+    "amt": "57.0000000000000000"
+   },
+   {
+    "season_year": 2067,
+    "payments": 1,
+    "amt": "22.0000000000000000"
+   },
+   {
+    "season_year": 2068,
+    "payments": 1,
+    "amt": "57.0000000000000000"
+   },
+   {
+    "season_year": 2069,
+    "payments": 1,
+    "amt": "35.0000000000000000"
+   },
+   {
+    "season_year": 2071,
+    "payments": 1,
+    "amt": "125.0000000000000000"
+   },
+   {
+    "season_year": 2072,
+    "payments": 1,
+    "amt": "55.0000000000000000"
+   },
+   {
+    "season_year": 2073,
+    "payments": 1,
+    "amt": "35.0000000000000000"
+   },
+   {
+    "season_year": 2074,
+    "payments": 1,
+    "amt": "10.0000000000000000"
+   },
+   {
+    "season_year": 2075,
+    "payments": 1,
+    "amt": "23.0000000000000000"
+   },
+   {
+    "season_year": 2076,
+    "payments": 1,
+    "amt": "23.0000000000000000"
+   },
+   {
+    "season_year": 2077,
+    "payments": 1,
+    "amt": "25.0000000000000000"
+   },
+   {
+    "season_year": 2078,
+    "payments": 1,
+    "amt": "115.0000000000000000"
+   },
+   {
+    "season_year": 2080,
+    "payments": 1,
+    "amt": "60.0000000000000000"
+   },
+   {
+    "season_year": 2081,
+    "payments": 1,
+    "amt": "69.0000000000000000"
+   },
+   {
+    "season_year": 2082,
+    "payments": 1,
+    "amt": "52.0000000000000000"
+   },
+   {
+    "season_year": 2083,
+    "payments": 1,
+    "amt": "27.0000000000000000"
+   },
+   {
+    "season_year": 2084,
+    "payments": 1,
+    "amt": "10.0000000000000000"
+   },
+   {
+    "season_year": 2085,
+    "payments": 2,
+    "amt": "39.0000000000000000"
+   },
+   {
+    "season_year": 2087,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2088,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2090,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2091,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2092,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2093,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2094,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2096,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2097,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2098,
+    "payments": 1,
+    "amt": "210.0000000000000000"
+   },
+   {
+    "season_year": 2099,
+    "payments": 1,
+    "amt": "88.0000000000000000"
+   }
+  ],
+  "registrationsByYear": [
+   [
+    2026,
+    1234
+   ]
+  ]
+ }
+}

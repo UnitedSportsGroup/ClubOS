@@ -1,0 +1,342 @@
+[
+ {
+  "who": "charlie salmond",
+  "ids": [
+   32689,
+   36154,
+   36155,
+   36156,
+   36157,
+   36507,
+   36508,
+   36509,
+   36510
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "darren zhang",
+  "ids": [
+   32256,
+   36447,
+   36448,
+   36449,
+   36450,
+   36451,
+   36452
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "parum shridhar",
+  "ids": [
+   35883,
+   35884,
+   36442,
+   36443,
+   36444,
+   36445
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "george meates",
+  "ids": [
+   35930,
+   35931,
+   35932,
+   36484,
+   36485
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "jasper wu",
+  "ids": [
+   31591,
+   36393,
+   36394,
+   36395
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "oscar oughton",
+  "ids": [
+   36170,
+   36171,
+   36172,
+   36173
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "patrick finn",
+  "ids": [
+   35915,
+   35992,
+   37244
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "bailey gordon-bhebe",
+  "ids": [
+   31478,
+   36490,
+   36491
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "benjamin huertas porto",
+  "ids": [
+   35853,
+   35958,
+   36367
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "wallace gerring",
+  "ids": [
+   36295,
+   36296,
+   36453
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "willem farrant",
+  "ids": [
+   32426,
+   36211,
+   36212
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "max havill",
+  "ids": [
+   30583,
+   37232
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "nikolai hudson",
+  "ids": [
+   32398,
+   37282
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "noah pearson",
+  "ids": [
+   35834,
+   35864
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "reilly welsh",
+  "ids": [
+   35938,
+   36081
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "river borsje-clark",
+  "ids": [
+   35847,
+   35935
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "rocco cantwell",
+  "ids": [
+   36144,
+   36235
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "rudraksh rawat",
+  "ids": [
+   26418,
+   29436
+  ],
+  "reason": "2 different Friendly Manager ids"
+ },
+ {
+  "who": "teyhan samaranayaka",
+  "ids": [
+   36404,
+   36434
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "tuari kingi-hazel",
+  "ids": [
+   30563,
+   36545
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "victoria hudson",
+  "ids": [
+   32399,
+   37283
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "woolf wright",
+  "ids": [
+   32918,
+   37250
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "arlo bourdot",
+  "ids": [
+   36254,
+   36339
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "benji taylor",
+  "ids": [
+   32239,
+   36419
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "chace gooding",
+  "ids": [
+   623,
+   624
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "charlie munro",
+  "ids": [
+   31715,
+   36403
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "colin green",
+  "ids": [
+   36331,
+   36332
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "cooper caldwell",
+  "ids": [
+   30482,
+   30829
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "eli mcnaughton",
+  "ids": [
+   33020,
+   37231
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "eliezer siu",
+  "ids": [
+   32469,
+   37251
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "fergus carrie",
+  "ids": [
+   35874,
+   37329
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "finn jones",
+  "ids": [
+   32721,
+   36033
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "harry zheng",
+  "ids": [
+   31413,
+   36435
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "hendrix cantwell",
+  "ids": [
+   36145,
+   36236
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "henry cresswell",
+  "ids": [
+   36243,
+   36244
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "hugo wishnowsky",
+  "ids": [
+   32964,
+   36013
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "isaac abbott",
+  "ids": [
+   31128,
+   37218
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "jake mair",
+  "ids": [
+   32970,
+   36192
+  ],
+  "reason": "2 different dates of birth"
+ },
+ {
+  "who": "jeremiah williams",
+  "ids": [
+   633,
+   36633
+  ],
+  "reason": "2 different dates of birth"
+ }
+]
