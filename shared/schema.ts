@@ -960,6 +960,31 @@ export const facilityPricingRules = pgTable("facility_pricing_rules", {
   halfFieldPricePerHour: decimal("half_field_price_per_hour", { precision: 10, scale: 2 }),
   quarterFieldPricePerHour: decimal("quarter_field_price_per_hour", { precision: 10, scale: 2 }),
   isDefault: boolean("is_default").default(false),
+  // "always" | "school_holidays" | "term_time" — see shared/venue-pricing.ts,
+  // which is the one decider. Defaults to "always", so every rule written before
+  // 2026-09-11 keeps behaving exactly as it did.
+  appliesTo: text("applies_to").notNull().default("always"),
+});
+
+/**
+ * The date ranges that ARE the school holidays, per venue. A sports centre's
+ * weekday demand inverts when school is out — the morning stops being the quiet
+ * part of the day — and `facility_pricing_rules` had no way to say so.
+ *
+ * Editable data rather than a hard-coded calendar: the Ministry gazettes term
+ * dates as a WINDOW (Term 1 2027 starts "between Thursday 28 January and
+ * Wednesday 3 February") and each school picks inside it, so the venue has to be
+ * able to move its own boundary without a deploy.
+ */
+export const venueHolidayPeriods = pgTable("venue_holiday_periods", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Inclusive both ends, NZ calendar days. Never round-trip these through a JS Date.
+  startsOn: date("starts_on").notNull(),
+  endsOn: date("ends_on").notNull(),
+  sourceNote: text("source_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const facilityBookings = pgTable("facility_bookings", {
@@ -2019,6 +2044,7 @@ export type Setting = typeof settings.$inferSelect;
 
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true });
 export const insertFacilityPricingRuleSchema = createInsertSchema(facilityPricingRules).omit({ id: true });
+export const insertVenueHolidayPeriodSchema = createInsertSchema(venueHolidayPeriods).omit({ id: true, createdAt: true });
 export const insertFacilityBookingSchema = createInsertSchema(facilityBookings).omit({ id: true, createdAt: true });
 export const insertFacilityAddonSchema = createInsertSchema(facilityAddons).omit({ id: true, createdAt: true });
 export const insertVenueSettingsSchema = createInsertSchema(venueSettings).omit({ id: true, updatedAt: true });
@@ -2231,6 +2257,8 @@ export type InsertFacility = z.infer<typeof insertFacilitySchema>;
 export type Facility = typeof facilities.$inferSelect;
 export type InsertFacilityPricingRule = z.infer<typeof insertFacilityPricingRuleSchema>;
 export type FacilityPricingRule = typeof facilityPricingRules.$inferSelect;
+export type InsertVenueHolidayPeriod = z.infer<typeof insertVenueHolidayPeriodSchema>;
+export type VenueHolidayPeriod = typeof venueHolidayPeriods.$inferSelect;
 export type InsertFacilityBooking = z.infer<typeof insertFacilityBookingSchema>;
 export type FacilityBooking = typeof facilityBookings.$inferSelect;
 export type InsertFacilityAddon = z.infer<typeof insertFacilityAddonSchema>;

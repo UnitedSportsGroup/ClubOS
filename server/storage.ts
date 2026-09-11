@@ -1,5 +1,6 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { db } from "./db";
+import { REAL_STATUS_SQL } from "./registration-visibility";
 import { eq, desc, sql, and, ilike, or, inArray, asc, isNull, isNotNull, ne, gt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
@@ -17,7 +18,7 @@ import {
   children, childMedical, registrationItems,
   attendance, emailLogs, metaEventLogs, emailCampaigns,
   organizations, userOrganizations,
-  facilities, facilityPricingRules, facilityBookings, facilityAddons, venueSettings,
+  facilities, facilityPricingRules, facilityBookings, facilityAddons, venueSettings, venueHolidayPeriods,
   leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueCoupons, leagueWaitlist,
   type InsertUser, type User,
   type UserOrganization,
@@ -44,6 +45,7 @@ import {
   type Organization,
   type InsertFacility, type Facility,
   type InsertFacilityPricingRule, type FacilityPricingRule,
+  type InsertVenueHolidayPeriod, type VenueHolidayPeriod,
   type InsertFacilityBooking, type FacilityBooking,
   type InsertFacilityAddon, type FacilityAddon,
   type InsertVenueSettings, type VenueSettings,
@@ -1846,17 +1848,34 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => (a.lastName || "").localeCompare(b.lastName || "") || (a.firstName || "").localeCompare(b.firstName || ""));
   }
 
+  /**
+   * How many people are on each programme RIGHT NOW.
+   *
+   * 🔴 THE CURRENT TERM, not every term ever. Daniel, 2026-09-11, of the Academy
+   * list: "just show current term numbers here." It counted every confirmed
+   * registration a programme had ever taken, which was merely misleading before
+   * the Xero import and became plainly wrong after it — FUNiño read 474 people
+   * when 474 is four terms of the same children added together.
+   *
+   * A term programme counts only registrations stamped with the term it is
+   * selling now (`programs.term_id`). A holiday camp has no term, so it counts
+   * everything — that is its whole life.
+   *
+   * 🔴 And the status filter is the ONE decider, not a hand-written
+   * `= 'confirmed'`. That literal silently drops refunded and partially
+   * refunded registrations, which are real registrations whose money moved.
+   */
   async getCampRegistrationCounts(): Promise<Record<number, number>> {
-    const rows = await db.select({
-      programId: registrations.programId,
-      count: sql<number>`count(*)::int`,
-    }).from(registrations)
-      .where(eq(registrations.status, "confirmed"))
-      .groupBy(registrations.programId);
+    const rows: any = await db.execute(sql`
+      SELECT p.id AS program_id, count(r.id)::int AS n
+      FROM programs p
+      LEFT JOIN registrations r
+        ON r.program_id = p.id
+       AND r.status IN ${REAL_STATUS_SQL}
+       AND (p.term_id IS NULL OR r.term_id = p.term_id)
+      GROUP BY p.id`);
     const result: Record<number, number> = {};
-    for (const row of rows) {
-      result[row.programId] = row.count;
-    }
+    for (const row of rows.rows ?? []) result[row.program_id] = Number(row.n);
     return result;
   }
 
@@ -2311,7 +2330,7 @@ export class DatabaseStorage implements IStorage {
     return s;
   }
 
-  async getPublicFacilities(orgId: number): Promise<(Facility & { addons: FacilityAddon[]; pricingRules: FacilityPricingRule[] })[]> {
+  async getPublicFacilities(orgId: number): Promise<(Facility & { addons: FacilityAddon[]; pricingRules: FacilityPricingRule[]; holidayPeriods: VenueHolidayPeriod[] })[]> {
     const facs = await db.select().from(facilities)
       .where(and(eq(facilities.organizationId, orgId), eq(facilities.active, true), eq(facilities.publicVisible, true)))
       .orderBy(asc(facilities.displayOrder), asc(facilities.name));
@@ -2320,10 +2339,17 @@ export class DatabaseStorage implements IStorage {
     const allRules = await db.select().from(facilityPricingRules).where(inArray(facilityPricingRules.facilityId, facIds));
     const allAddons = await db.select().from(facilityAddons)
       .where(and(eq(facilityAddons.organizationId, orgId), eq(facilityAddons.active, true)));
+    // Every facility in a venue shares the venue's holiday calendar — school is
+    // in or it is not, it is not a property of a pitch. Carried on each facility
+    // because that is the shape the booking page already consumes.
+    const periods = await db.select().from(venueHolidayPeriods)
+      .where(eq(venueHolidayPeriods.organizationId, orgId))
+      .orderBy(asc(venueHolidayPeriods.startsOn));
     return facs.map(f => ({
       ...f,
       pricingRules: allRules.filter(r => r.facilityId === f.id),
       addons: allAddons.filter(a => a.appliesToAll),
+      holidayPeriods: periods,
     }));
   }
 

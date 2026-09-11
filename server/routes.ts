@@ -9,6 +9,7 @@ import { isValidApiScope, API_SCOPES, normalizeProgramFilter, programFilterIsEmp
 import { apiSecurityHeaders, clientIp, isIpBlocked, recordAuthFailure, keyRateLimitExceeded, noteScopeDenial, API_KEY_RATE_LIMIT_PER_MIN } from "./api-security";
 import { isExpoPushToken, sendSinglePush, runPushBroadcastQueue } from "./push";
 import { USC_WAIVER_VERSION } from "@shared/usc-waiver";
+import { resolveRate, perHourCentsForSize, slotMinutes, isSchoolHoliday, type PricingRuleLike, type HolidayPeriod } from "@shared/venue-pricing";
 import { canAccessTab, workspaceTypeFor, type WorkspaceType } from "@shared/tabs";
 import { missedPayments, subscriptionIdFromInvoice } from "@shared/league-weekly";
 import { fromForOrg, workspaceDomainByOrgId, workspaceDomainBySlug } from "@shared/org-domains";
@@ -7378,78 +7379,28 @@ export async function registerRoutes(
 
   // ========= Public Venue Booking APIs =========
 
+  /**
+   * What one booked slot costs, in cents.
+   *
+   * 🔴 The rate itself is decided in shared/venue-pricing.ts and NOWHERE else.
+   * This used to work the rate out inline and `pricePerHourForSlot` in
+   * venue-book.tsx worked out the same rate a second time for the price printed
+   * on the slot — two implementations of one money rule, with nothing making
+   * them agree. They now call the same function.
+   */
   function calcItemPriceCents(
     item: { date: string; startTime: string; endTime: string; halfFull?: string | null },
     facility: { pricePerHourCents: number | null; halfFieldPricePerHourCents: number | null; quarterFieldPricePerHourCents?: number | null },
-    rules: { dayOfWeek: number | null; startTime: string | null; endTime: string | null; pricePerHour: string; halfFieldPricePerHour?: string | null; quarterFieldPricePerHour?: string | null; isDefault: boolean | null }[]
+    rules: PricingRuleLike[],
+    holidayPeriods: HolidayPeriod[] = [],
   ): number {
-    const [sh, sm] = item.startTime.split(":").map(Number);
-    const [eh, em] = item.endTime.split(":").map(Number);
-    const minutes = (eh * 60 + em) - (sh * 60 + sm);
+    const minutes = slotMinutes(item.startTime, item.endTime);
     if (minutes <= 0) return 0;
     const hours = minutes / 60;
 
-    const dayOfWeek = new Date(item.date + "T00:00:00").getDay();
-    let pricePerHourCents = 0;
-
-    const specific = rules.find(r =>
-      r.dayOfWeek != null && r.dayOfWeek === dayOfWeek &&
-      r.startTime && r.endTime &&
-      item.startTime >= r.startTime && item.endTime <= r.endTime
-    );
-
-    let halfPricePerHourCents: number | null = null;
-    let quarterPricePerHourCents: number | null = null;
-
-    if (specific) {
-      pricePerHourCents = Math.round(parseFloat(specific.pricePerHour) * 100);
-      if (specific.halfFieldPricePerHour != null) {
-        halfPricePerHourCents = Math.round(parseFloat(specific.halfFieldPricePerHour) * 100);
-      }
-      if (specific.quarterFieldPricePerHour != null) {
-        quarterPricePerHourCents = Math.round(parseFloat(specific.quarterFieldPricePerHour) * 100);
-      }
-    } else {
-      const def = rules.find(r => r.isDefault);
-      if (def) {
-        pricePerHourCents = Math.round(parseFloat(def.pricePerHour) * 100);
-        if (def.halfFieldPricePerHour != null) {
-          halfPricePerHourCents = Math.round(parseFloat(def.halfFieldPricePerHour) * 100);
-        }
-        if (def.quarterFieldPricePerHour != null) {
-          quarterPricePerHourCents = Math.round(parseFloat(def.quarterFieldPricePerHour) * 100);
-        }
-      } else {
-        pricePerHourCents = facility.pricePerHourCents || 0;
-      }
-    }
-
-    let baseCents = Math.round(pricePerHourCents * hours);
-
-    if (item.halfFull === "half") {
-      // Resolution order: rule half price → facility half price → 50% of full.
-      if (halfPricePerHourCents != null) {
-        baseCents = Math.round(halfPricePerHourCents * hours);
-      } else if (facility.halfFieldPricePerHourCents != null) {
-        baseCents = Math.round(facility.halfFieldPricePerHourCents * hours);
-      } else {
-        baseCents = Math.round(baseCents / 2);
-      }
-    } else if (item.halfFull === "quarter") {
-      // Resolution order: rule quarter → facility quarter → half/2 → 25% of full.
-      if (quarterPricePerHourCents != null) {
-        baseCents = Math.round(quarterPricePerHourCents * hours);
-      } else if (facility.quarterFieldPricePerHourCents != null) {
-        baseCents = Math.round(facility.quarterFieldPricePerHourCents * hours);
-      } else if (halfPricePerHourCents != null) {
-        baseCents = Math.round(halfPricePerHourCents * hours / 2);
-      } else if (facility.halfFieldPricePerHourCents != null) {
-        baseCents = Math.round(facility.halfFieldPricePerHourCents * hours / 2);
-      } else {
-        baseCents = Math.round(baseCents / 4);
-      }
-    }
-    return baseCents;
+    const resolved = resolveRate(item, facility, rules, holidayPeriods);
+    const perHourCents = perHourCentsForSize(resolved, facility, item.halfFull);
+    return Math.round(perHourCents * hours);
   }
 
   function calcAddonCents(addon: { name: string; price: string; unit: string; maxQty?: number | null }, qty: number, hours: number): number {
@@ -7610,7 +7561,7 @@ export async function registerRoutes(
     const lineItems = items.map((item) => {
       const facility = facMap.get(item.facilityId);
       if (!facility) throw new Error(`Facility ${item.facilityId} not available`);
-      const baseCents = calcItemPriceCents(item, facility, facility.pricingRules);
+      const baseCents = calcItemPriceCents(item, facility, facility.pricingRules, facility.holidayPeriods ?? []);
       const [sh, sm] = item.startTime.split(":").map(Number);
       const [eh, em] = item.endTime.split(":").map(Number);
       const hours = ((eh * 60 + em) - (sh * 60 + sm)) / 60;

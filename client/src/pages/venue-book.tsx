@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { resolveRate, perHourCentsForSize, type HolidayPeriod } from "@shared/venue-pricing";
 import { useLocation } from "wouter";
 import { saveSplitTokens, stashSetupSecret } from "@/lib/split-pay";
 import { loadStripe } from "@stripe/stripe-js";
@@ -68,6 +69,8 @@ interface PublicFacility {
   halfFieldPricePerHourCents: number | null;
   quarterFieldPricePerHourCents: number | null;
   pricingRules: PricingRule[];
+  /** The venue's school-holiday calendar. Same array on every facility. */
+  holidayPeriods?: HolidayPeriod[];
   addons: Addon[];
 }
 
@@ -246,36 +249,33 @@ function genTimeSlots(opening: string, closing: string, slotMin: number): string
   return out;
 }
 
-// Compute the per-hour rate (inc GST) for a given facility, date, slot, and
-// half/full mode. Mirrors the server-side resolution at routes.ts:1700-1735
-// so the customer sees the same number on the slot button as they'll be
-// charged at checkout.
+// The per-hour rate (inc GST) printed on a slot button.
+//
+// 🔴 The rate is decided by shared/venue-pricing.ts and NOT here. This used to
+// re-implement the server's resolution, with a comment promising the two
+// "mirror" each other — a promise a comment cannot keep. A page that advertises
+// one number while the card is charged another is exactly how the Barça camp
+// quote and this page came to disagree.
+//
+// The whole slot is passed, not just its start, so the window comparison here is
+// the same one the server runs at checkout.
 function pricePerHourForSlot(
   facility: PublicFacility,
   date: string,
   slot: string,
   halfFull: FieldSize,
+  slotMinutes: number,
 ): number {
-  const dayOfWeek = new Date(date + "T00:00:00").getDay();
-  const rule = facility.pricingRules.find(r =>
-    r.dayOfWeek != null && r.dayOfWeek === dayOfWeek &&
-    r.startTime && r.endTime &&
-    slot >= r.startTime && slot < r.endTime
+  const [h, m] = slot.split(":").map(Number);
+  const endMin = h * 60 + m + slotMinutes;
+  const endTime = `${String(Math.floor(endMin / 60)).padStart(2, "0")}:${String(endMin % 60).padStart(2, "0")}`;
+  const resolved = resolveRate(
+    { date, startTime: slot, endTime },
+    facility,
+    facility.pricingRules,
+    facility.holidayPeriods ?? [],
   );
-  const fullRate = rule ? parseFloat(rule.pricePerHour) : (facility.pricePerHourCents ?? 0) / 100;
-  if (halfFull === "half") {
-    if (rule?.halfFieldPricePerHour != null) return parseFloat(rule.halfFieldPricePerHour);
-    return facility.halfFieldPricePerHourCents != null ? facility.halfFieldPricePerHourCents / 100 : fullRate / 2;
-  }
-  if (halfFull === "quarter") {
-    // Mirrors the server: rule quarter → facility quarter → half/2 → full/4.
-    if (rule?.quarterFieldPricePerHour != null) return parseFloat(rule.quarterFieldPricePerHour);
-    if (facility.quarterFieldPricePerHourCents != null) return facility.quarterFieldPricePerHourCents / 100;
-    if (rule?.halfFieldPricePerHour != null) return parseFloat(rule.halfFieldPricePerHour) / 2;
-    if (facility.halfFieldPricePerHourCents != null) return facility.halfFieldPricePerHourCents / 200;
-    return fullRate / 4;
-  }
-  return fullRate;
+  return perHourCentsForSize(resolved, facility, halfFull) / 100;
 }
 
 // "From $X" — the lowest hourly rate you can get on this facility at any
@@ -1019,7 +1019,7 @@ function ConfigureFacility({
             isBusy={(s, e) => allDates.some(d => isSlotConflicted(d, s, e))}
             isPast={isPastSlot}
             brand={brand}
-            priceFor={(s) => pricePerHourForSlot(facility, date, s, halfFull)}
+            priceFor={(s) => pricePerHourForSlot(facility, date, s, halfFull, settings.slotMinutes)}
           />
           {startTime && endTime && (
             <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
