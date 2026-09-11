@@ -2372,8 +2372,6 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
       <div className="space-y-4">
         <SessionLegend />
         {Object.entries(weeks).map(([weekLabel, weekSessions]) => {
-          const weekBooked = weekSessions.reduce((sum, s) => sum + (s.bookedCount ?? 0), 0);
-          const weekCapacity = weekSessions.reduce((sum, s) => sum + (s.capacity ?? 0), 0);
           const weekDone = weekSessions.filter(s => sessionState(s) === "done").length;
           const weekMissed = weekSessions.filter(s => sessionState(s) === "missed").length;
           const sorted = [...weekSessions].sort((a, b) => {
@@ -2471,27 +2469,15 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
                         </tr>
                       );
                     })}
-                    <tr className="bg-blue-500/[0.03]">
-                      <td className="px-4 py-2 text-[11px] text-blue-300/30 font-semibold uppercase tracking-wider" colSpan={3}>Week Total</td>
-                      <td className="px-4 py-2 text-center">
-                        <span className="text-[12px] text-white/50 font-medium">
-                          {weekBooked}{weekCapacity > 0 ? ` / ${weekCapacity}` : ""}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2" />
-                      <td className="px-4 py-2 hidden md:table-cell">
-                        {weekCapacity > 0 ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                              <div className="h-full rounded-full bg-blue-400/60 transition-all duration-500" style={{ width: `${Math.min(Math.round((weekBooked / weekCapacity) * 100), 100)}%` }} />
-                            </div>
-                            <span className="text-[10px] text-white/30 w-8 text-right">{Math.round((weekBooked / weekCapacity) * 100)}%</span>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-white/20">No cap</span>
-                        )}
-                      </td>
-                    </tr>
+                    {/* 🔴 NO WEEK TOTAL IN TERM MODE. Every session of a term
+                        carries the SAME cohort, so adding the Roll column down
+                        the week counts 149 children seven times and prints
+                        1,043 — a number describing nothing. (It read 3,101
+                        before the per-term fix, which is how long it had been
+                        wrong.) The week's real summary is rolls taken vs not,
+                        and that is already in the header above. A holiday camp
+                        keeps its total: there, each day is a separate thing
+                        somebody bought. */}
                   </tbody>
                 </table>
               </div>
