@@ -58,10 +58,22 @@ async function main() {
     }
 
     // A retired record is not findable, and a live one still is.
-    const s1 = await get(`/api/admin/search?q=${encodeURIComponent("Xan Nuthall")}`);
-    const ids = JSON.stringify(s1.body ?? {});
-    ok(!ids.includes(`"36042"`), "global search does not surface the retired record");
-    ok(s1.status === 200, "global search answers");
+    // 🔴 Assert the request WORKED before asserting what it did not contain —
+    // a 404 would otherwise "prove" the retired record is hidden.
+    // 🔴 Assert the request WORKED before asserting what it does not contain —
+    // a 404 would otherwise "prove" a retired record is hidden.
+    const s1 = await get(`/api/search?q=${encodeURIComponent("Joel Cook")}`);
+    ok(s1.status === 200, "global search answers", `HTTP ${s1.status}`);
+    const hits = JSON.stringify(s1.body ?? {});
+    ok(hits.includes(`"617"`), "global search still finds the surviving record");
+    ok(!hits.includes(`"32764"`), "global search does not surface the retired record");
+
+    // ⚠️ Xan Nuthall is NOT a clean example and is deliberately not asserted on:
+    // four MORE copies of him remain (36043/36044/36045/36397, one per Shopify
+    // order), and they crowd the real child out of the top six results. That is
+    // the unfinished half of this problem, not a regression in the merge.
+    const s2 = await get(`/api/search?q=${encodeURIComponent("Xan Nuthall")}`);
+    ok(!JSON.stringify(s2.body ?? {}).includes(`"36042"`), "the merged Xan record is gone from search");
 
     const m1 = await get(`/api/admin/mailer/search-people?q=${encodeURIComponent("Nuthall")}`);
     const mids = (m1.body?.people ?? []).map((p: any) => p.contactId);
