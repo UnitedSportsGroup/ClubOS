@@ -423,12 +423,24 @@ export default function AdminSessionRoll() {
   // open question. Absent is therefore not a third state in the arithmetic: it
   // only lets a coach positively confirm they checked, and it counts exactly
   // the same as untouched. Present is the only value that changes a number.
-  const presentCount = roll?.filter(p => p.attendance?.status === "present").length || 0;
+  // 🔴 A CHECK-IN IS BEING HERE. The ClubOS staff app marks a child by writing
+  // `checkedInAt` (the camp check-in model); this academy roll was written to
+  // read `status === "present"` and nothing else. So Zach took the roll on his
+  // phone for Thursday 10 September — 19 children — and this page said HERE 0,
+  // NOT HERE 295. His work was in the database the whole time; the web simply
+  // was not looking at the column he writes.
+  //
+  // Reading both is the honest fix and it needed no app release. A child who
+  // was explicitly marked ABSENT stays absent — an absence is a statement, and
+  // it must outrank a stale check-in.
+  const isHere = (a?: { status?: string | null; checkedInAt?: string | null }) =>
+    a?.status === "present" || (a?.status !== "absent" && !!a?.checkedInAt);
+  const presentCount = roll?.filter(p => isHere(p.attendance)).length || 0;
   const absentCount = totalPlayers - presentCount;
   // Registered vs not is the whole point of letting a coach add a walk-up:
   // counted off the roll line's own guestKind, never guessed from the name.
   const guests = roll?.filter(p => !!p.attendance?.guestKind) ?? [];
-  const guestsHere = guests.filter(p => p.attendance?.status === "present").length;
+  const guestsHere = guests.filter(p => isHere(p.attendance)).length;
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
@@ -617,7 +629,10 @@ export default function AdminSessionRoll() {
                   const hasMedical = hasRealAllergies(player.child.medical?.allergies) || player.child.medical?.epiPen;
                   const mark = player.attendance?.status ?? null;
 
-                  const here = mark === "present";
+                  // Same decider as the count above — a check-in from the staff
+                  // app is being here, or the tile would say 19 while every row
+                  // read NOT HERE.
+                  const here = isHere(player.attendance);
                   const markedAbsent = mark === "absent";
                   const guestKind = player.attendance?.guestKind ?? null;
                   // One tap anywhere on the row marks a player here (and taps

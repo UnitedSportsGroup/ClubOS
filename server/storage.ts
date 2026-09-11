@@ -1,7 +1,7 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
-import { eq, desc, sql, and, ilike, or, inArray, asc, isNull, isNotNull, ne, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
 import { contentHashOf } from "./studio/hash";
@@ -1520,6 +1520,26 @@ export class DatabaseStorage implements IStorage {
     if (isTermMode) {
       const guardian = alias(contacts, "roll_guardian");
       const player = alias(contacts, "roll_player");
+
+      // 🔴 THE TERM THIS SESSION IS IN — not every term the programme has ever
+      // run. Daniel, 2026-09-11: "why is there saying 295 on roll if it says we
+      // have 179 registered for term 3 which is this session in term 3." 295 was
+      // every child who had ever been in FUNiño, folded together.
+      //
+      // 🔴 Found by the DATE, never `programs.term_id`. That column is what the
+      // programme is SELLING, and it had already flipped to Term 4 — a roll for
+      // a 10 September session would have shown the five Term 4 sign-ups. The
+      // term that contains the session's date is the cohort standing on the
+      // pitch that day.
+      const [thisDate] = await db.select().from(campDates).where(eq(campDates.id, campDateId));
+      const sessionTerm = thisDate?.date
+        ? (await db.select().from(terms).where(and(
+            eq(terms.organizationId, program?.organizationId ?? 1),
+            lte(terms.startDate, thisDate.date),
+            gte(terms.endDate, thisDate.date),
+          )))[0]
+        : undefined;
+
       const enrolled = await db.select({
         player: player,
         guardian: guardian,
@@ -1529,8 +1549,12 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
         .where(and(
           eq(registrations.programId, campId),
-          eq(registrations.status, "confirmed"),
+          inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]),
           eq(player.type, "player"),
+          // A registration with no term recorded still shows: it is a real
+          // enrolment whose term nobody established, and dropping a child off a
+          // roll is worse than showing one who may have moved on.
+          sessionTerm ? or(eq(registrations.termId, sessionTerm.id), isNull(registrations.termId)) : undefined,
         ));
 
       // Walk-ups added to THIS session by a coach — an open trainer or someone
