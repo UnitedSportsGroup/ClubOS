@@ -819,7 +819,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getContacts(): Promise<Contact[]> {
-    return db.select().from(contacts).orderBy(asc(contacts.firstName));
+    // 🔴 A merged duplicate never appears in a staff-facing list. It still
+    // exists, still answers by id, and still says what absorbed it.
+    return db.select().from(contacts)
+      .where(isNull(contacts.mergedIntoContactId))
+      .orderBy(asc(contacts.firstName));
   }
 
   async getContact(id: number): Promise<Contact | undefined> {

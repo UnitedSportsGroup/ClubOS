@@ -6616,7 +6616,10 @@ export async function registerRoutes(
     { type: "discount", table: "discounts", labelSql: "COALESCE(title, code)", sublabelSql: "code", orgCol: "organization_id", cols: ["title","code"] },
     { type: "billboard_deal", table: "billboard_deals", labelSql: "customer_name", sublabelSql: "contact_name", orgCol: "organization_id", cols: ["customer_name","contact_name","contact_email"] },
     // Org-less shared pools — leadership only.
-    { type: "contact", table: "contacts", labelSql: "(first_name||' '||last_name)", sublabelSql: "COALESCE(email, phone, team_name)", metaSql: "type", orgCol: null, cols: ["first_name","last_name","email","phone","team_name"], leadershipOnly: true },
+    { type: "contact", table: "contacts", labelSql: "(first_name||' '||last_name)", sublabelSql: "COALESCE(email, phone, team_name)", metaSql: "type", orgCol: null, cols: ["first_name","last_name","email","phone","team_name"], leadershipOnly: true,
+      // A duplicate that has been merged away is not a person you can find —
+      // surfacing it is the confusion the merge exists to remove.
+      extraWhere: "merged_into_contact_id IS NULL" },
     // Holiday-camp children live in their own table and were not searchable at
     // all — for anyone, including super admins. A parent ringing about their
     // child's camp booking could not be answered from the search bar. Sublabel

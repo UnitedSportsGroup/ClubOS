@@ -64,8 +64,11 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         FROM contacts c
         LEFT JOIN contact_relationships cr ON cr.player_id = c.id
         LEFT JOIN contacts g ON g.id = cr.guardian_id AND g.email IS NOT NULL AND g.email <> ''
-        WHERE lower(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')) LIKE ${like}
-           OR lower(coalesce(c.email,'')) LIKE ${like}
+        -- 🔴 A merged duplicate must never be a mailer recipient: Olga would
+        -- pick a name that reaches nobody, or email one family twice.
+        WHERE c.merged_into_contact_id IS NULL
+          AND (lower(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')) LIKE ${like}
+            OR lower(coalesce(c.email,'')) LIKE ${like})
         ORDER BY
           -- an exact-ish prefix first: typing "tah" should surface Taha before Mohamad Taha
           CASE WHEN lower(coalesce(c.first_name,'')) LIKE ${q.toLowerCase() + "%"} THEN 0 ELSE 1 END,

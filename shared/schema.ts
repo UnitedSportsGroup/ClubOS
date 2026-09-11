@@ -164,6 +164,15 @@ export const contacts = pgTable("contacts", {
   identityDeferredAt: timestamp("identity_deferred_at", { withTimezone: true }),
   identityDeferredReason: text("identity_deferred_reason"),
   identityDeferredByUserId: integer("identity_deferred_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  // One child stored as two contact records. The duplicate is RETIRED, never
+  // deleted — it holds real payments and a real attendance mark, and pointing
+  // at the record that absorbed it is what makes the merge auditable and
+  // reversible. Every staff-facing list and search excludes a merged row;
+  // nothing else changes, so an old link still resolves and says what happened.
+  mergedIntoContactId: integer("merged_into_contact_id"),
+  mergedAt: timestamp("merged_at"),
+  mergedByUserId: integer("merged_by_user_id").references(() => users.id),
+  mergedNote: text("merged_note"),
   // ── Structured address ─────────────────────────────────────────────────────
   // `address` above stays untouched (every existing read path depends on it).
   // Sporty requires six SEPARATE fields and — contradicting its own swagger,
