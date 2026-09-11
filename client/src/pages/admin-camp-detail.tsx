@@ -15,7 +15,7 @@ import { tabsForOrgSlug } from "@shared/tabs";
 import { withFrom } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog, Check } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
@@ -1513,14 +1513,21 @@ function EmailTab({ campId }: { campId: number }) {
   );
 }
 
-type SessionSummary = { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number };
+type SessionSummary = {
+  campDateId: number; date: string; productType: string; bookedCount: number; capacity: number;
+  // Whether the roll was taken, and when the session is relative to NZ today.
+  // All four are computed on the SERVER (see SessionSummaryRow): a browser
+  // deciding "today" with toISOString() reads a day behind all evening in NZ.
+  markedCount?: number; presentCount?: number; rollTaken?: boolean; isToday?: boolean; isPast?: boolean;
+};
 type CampStats = { totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number };
 
 function StatsHeader({ campId }: { campId: number }) {
-  // The tiles answer the same question the list below them does — see useTermParam.
-  const [term] = useTermParam();
+  // The tiles answer the same question the list below them does — ONE decider.
+  const { term, ready } = useActiveTerm(campId);
   const { data: stats, isLoading } = useQuery<CampStats>({
-    queryKey: ["/api/admin/camps", campId, "stats", term ?? "all"],
+    queryKey: ["/api/admin/camps", campId, "stats", term],
+    enabled: ready,
     queryFn: async () => {
       const qs = term && term !== "all" ? `?termId=${encodeURIComponent(term)}` : "";
       const res = await workspaceFetch(`/api/admin/camps/${campId}/stats${qs}`);
@@ -1542,7 +1549,7 @@ function StatsHeader({ campId }: { campId: number }) {
     ? Math.round(sessions.filter(s => s.capacity > 0).reduce((sum, s) => sum + (s.bookedCount / s.capacity) * 100, 0) / (sessions.filter(s => s.capacity > 0).length || 1))
     : 0;
 
-  if (isLoading) {
+  if (isLoading || !ready) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-[72px] rounded-xl bg-blue-500/[0.04]" />)}
@@ -1558,7 +1565,7 @@ function StatsHeader({ campId }: { campId: number }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="stats-header" data-term={term ?? "all"}>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="stats-header" data-term={term}>
       {statItems.map((s) => (
         <div key={s.label} className="rounded-xl border border-blue-500/[0.08] bg-white/[0.02] px-4 py-3">
           <div className="flex items-center gap-2 mb-1">
@@ -1822,6 +1829,48 @@ function useTermParam(): [string | undefined, (v: string) => void] {
   return [value, set];
 }
 
+type TermCounts = { programmeTermId: number | null; currentTermId: number | null; terms: TermCount[] };
+
+/**
+ * THE term this page is about — ONE decider for the tiles, the player list and
+ * anything else added later.
+ *
+ * 🔴 The tiles used to read `useTermParam()` raw, so with nothing in the URL
+ * they answered "every term ever" — **443** for FUNiño (143 + 146 + 149 + 5
+ * across four terms) sitting above a list that showed 149. Daniel, twice:
+ * "just show current term numbers here" and "all needs to be consistent right?"
+ *
+ * 🔴 THE DEFAULT IS THE TERM WE ARE IN, NOT THE TERM WE ARE SELLING. Those are
+ * different terms for most of the year: on 11 Sep the programme sat on Term 4
+ * (open for sign-ups) while every session, every roll and all 149 children
+ * belonged to Term 3. `currentTermId` comes from the server, which is where
+ * NZ's today is known. In the school holidays nothing contains today, and the
+ * programme's own term is then exactly right — it is the one being sold and
+ * the only one anybody is looking at.
+ */
+function useActiveTerm(campId: number) {
+  const [param, setTerm] = useTermParam();
+  const { data } = useQuery<TermCounts>({ queryKey: [`/api/admin/camps/${campId}/term-counts`] });
+  const terms = data?.terms ?? [];
+  const has = (id: number | null | undefined) => id != null && terms.some(t => t.id === id);
+  const fallback =
+    has(data?.currentTermId) ? String(data!.currentTermId)
+    : has(data?.programmeTermId) ? String(data!.programmeTermId)
+    // Neither is represented in the data — opening on a term with no
+    // registrations would look broken, so fall to the newest term that has any.
+    : terms.length > 0 ? String(terms[0].id ?? "none")
+    : "all";
+  return {
+    term: param ?? fallback,
+    setTerm,
+    terms,
+    hasTerms: terms.length > 0,
+    // `undefined` until the counts land: querying before then would fire a
+    // request for "all" and then a second one for the real term.
+    ready: !!data,
+  };
+}
+
 type PlayerSortKey = "player" | "age" | "parent" | "contact" | "sessions" | "paid" | "status";
 
 /** A column header you can click. The arrow only shows on the active column —
@@ -1864,7 +1913,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // `undefined` here means "not chosen yet": the tab opens on the term the
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
-  const [termFilter, setTermFilter] = useTermParam();
+  const { term: activeTerm, setTerm: setTermFilter, terms, hasTerms } = useActiveTerm(campId);
   // Opens alphabetical (A→Z by the name as shown), and stays wherever the user
   // puts it after that — "unless sorted otherwise by the user".
   const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
@@ -1876,19 +1925,6 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const { data: termData } = useQuery<{ programmeTermId: number | null; terms: TermCount[] }>({
-    queryKey: [`/api/admin/camps/${campId}/term-counts`],
-  });
-  const terms = termData?.terms ?? [];
-  // Default to the programme's own term, but only once we know it exists in the
-  // data — defaulting to a term with no registrations would open on an empty
-  // list and look broken.
-  const defaultTerm =
-    terms.find((t) => t.isProgrammeTerm)?.id != null
-      ? String(terms.find((t) => t.isProgrammeTerm)!.id)
-      : terms.length > 0 ? String(terms[0].id ?? "none") : "all";
-  const activeTerm = termFilter ?? defaultTerm;
-  const hasTerms = terms.length > 0;
 
   const { data: players, isLoading } = useQuery<ProgramPlayer[]>({
     queryKey: ["/api/admin/camps", campId, "players", hasTerms ? activeTerm : "all"],
@@ -2215,13 +2251,97 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   );
 }
 
+/**
+ * What colour a session is, and why.
+ *
+ * Daniel, 2026-09-11: "make all the sessions appear either green if roll was
+ * done, red if not done and in the past and make it yellow if that is the roll
+ * for today to make it easy to find right day and leave as is if it's in
+ * future."
+ *
+ * 🔴 TODAY WINS THE ROW, THE ROLL STILL SPEAKS FOR ITSELF. The tint answers
+ * "which day am I looking for" and the pill answers "has it been done" — so
+ * today's session is yellow whether or not the roll is taken, and the pill
+ * beside it still says which. Folding the two together would hide the fact
+ * that today's roll is still outstanding, which is the one thing a coach
+ * opening this page at 5pm needs to see.
+ *
+ * 🔴 A FUTURE SESSION IS NEVER RED. Nobody has failed to take a roll for a
+ * session that has not happened.
+ */
+type SessionState = "today" | "done" | "missed" | "upcoming";
+
+function sessionState(s: SessionSummary): SessionState {
+  if (s.isToday) return "today";
+  if (s.rollTaken) return "done";
+  if (s.isPast) return "missed";
+  return "upcoming";
+}
+
+const SESSION_ROW: Record<SessionState, string> = {
+  today:    "bg-amber-500/[0.12] hover:bg-amber-500/[0.16] border-l-2 border-l-amber-500",
+  done:     "bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12] border-l-2 border-l-emerald-500",
+  missed:   "bg-red-500/[0.07] hover:bg-red-500/[0.11] border-l-2 border-l-red-500",
+  upcoming: "hover:bg-blue-500/[0.04] border-l-2 border-l-transparent",
+};
+
+/** The pill in the Status column. Says what happened, not what colour it is. */
+function RollPill({ s }: { s: SessionSummary }) {
+  const state = sessionState(s);
+  const taken = !!s.rollTaken;
+  // 🔴 "0 present" is a real answer and must not read as "not taken" — a coach
+  // who marked everyone absent did take the roll. markedCount decides that,
+  // never presentCount.
+  if (taken) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-500" data-testid={`roll-status-${s.campDateId}`} data-state={state}>
+        <Check className="w-3 h-3" />{s.presentCount} here
+      </span>
+    );
+  }
+  if (state === "today") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-500/15 border border-amber-500/25 text-amber-600" data-testid={`roll-status-${s.campDateId}`} data-state={state}>
+        Take the roll
+      </span>
+    );
+  }
+  if (state === "missed") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-red-500/10 border border-red-500/20 text-red-500" data-testid={`roll-status-${s.campDateId}`} data-state={state}>
+        No roll taken
+      </span>
+    );
+  }
+  return <span className="text-[11px] text-white/25" data-testid={`roll-status-${s.campDateId}`} data-state={state}>—</span>;
+}
+
+/** Says what the colours mean. A colour code nobody can read is decoration. */
+function SessionLegend() {
+  const items: [string, string][] = [
+    ["bg-amber-500", "Today"],
+    ["bg-emerald-500", "Roll taken"],
+    ["bg-red-500", "Not taken"],
+    ["bg-white/15", "Still to come"],
+  ];
+  return (
+    <div className="flex items-center gap-4 flex-wrap px-1" data-testid="legend-sessions">
+      {items.map(([dot, label]) => (
+        <span key={label} className="flex items-center gap-1.5 text-[11px] text-white/40">
+          <span className={`w-2.5 h-2.5 rounded-sm ${dot}`} />{label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any; detailPath: string }) {
   const [, navigate] = useLocation();
 
   const { data: sessions, isLoading } = useQuery<(SessionSummary & { name?: string | null; startTime?: string | null; endTime?: string | null })[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/camps/${campId}/sessions-summary`, { credentials: "include" });
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/sessions-summary`);
       if (!res.ok) throw new Error("Failed to load sessions");
       return res.json();
     },
@@ -2250,9 +2370,12 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
 
     return (
       <div className="space-y-4">
+        <SessionLegend />
         {Object.entries(weeks).map(([weekLabel, weekSessions]) => {
           const weekBooked = weekSessions.reduce((sum, s) => sum + (s.bookedCount ?? 0), 0);
           const weekCapacity = weekSessions.reduce((sum, s) => sum + (s.capacity ?? 0), 0);
+          const weekDone = weekSessions.filter(s => sessionState(s) === "done").length;
+          const weekMissed = weekSessions.filter(s => sessionState(s) === "missed").length;
           const sorted = [...weekSessions].sort((a, b) => {
             if (a.date !== b.date) return a.date.localeCompare(b.date);
             return (a.startTime ?? "").localeCompare(b.startTime ?? "");
@@ -2260,9 +2383,20 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
 
           return (
             <div key={weekLabel} className="rounded-xl border border-blue-500/[0.08] overflow-hidden">
-              <div className="px-4 py-2.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06] flex items-center justify-between">
+              <div className="px-4 py-2.5 bg-blue-500/[0.04] border-b border-blue-500/[0.06] flex items-center justify-between gap-3">
                 <span className="text-[11px] text-blue-300/40 uppercase tracking-wider font-semibold">{weekLabel}</span>
-                <span className="text-[11px] text-white/40">{weekSessions.length} session{weekSessions.length === 1 ? "" : "s"}</span>
+                <span className="flex items-center gap-3">
+                  {/* Outstanding rolls for the week, so a month of red doesn't
+                      have to be counted row by row. Only sessions that have
+                      HAPPENED can be outstanding. */}
+                  {weekDone > 0 && (
+                    <span className="text-[11px] text-emerald-500/80" data-testid={`week-done-${weekLabel}`}>{weekDone} taken</span>
+                  )}
+                  {weekMissed > 0 && (
+                    <span className="text-[11px] text-red-500/80" data-testid={`week-missed-${weekLabel}`}>{weekMissed} not taken</span>
+                  )}
+                  <span className="text-[11px] text-white/40">{weekSessions.length} session{weekSessions.length === 1 ? "" : "s"}</span>
+                </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[420px]" data-testid={`table-sessions-${weekLabel}`}>
@@ -2272,6 +2406,7 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
                       <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Time</th>
                       <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold hidden sm:table-cell">Slot</th>
                       <th className="text-center px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Roll</th>
+                      <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold">Status</th>
                       <th className="text-left px-4 py-2 text-[10px] text-blue-300/25 uppercase tracking-wider font-semibold w-32 hidden md:table-cell">Occupancy</th>
                     </tr>
                   </thead>
@@ -2283,13 +2418,17 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
                         <tr
                           key={`${s.campDateId}`}
                           onClick={() => navigate(`${detailPath}/session/${s.campDateId}/SESSION`)}
-                          className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.04] transition-colors cursor-pointer"
+                          className={`border-b border-blue-500/[0.03] transition-colors cursor-pointer ${SESSION_ROW[sessionState(s)]}`}
                           data-testid={`row-session-${s.campDateId}`}
+                          data-state={sessionState(s)}
                         >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <ChevronRight className="w-3.5 h-3.5 text-white/20" />
                               <span className="text-[13px] text-white/70 font-medium">{getDayLabel(s.date)}</span>
+                              {/* Colour alone is not a label — it fails for the
+                                  colour-blind and in a screenshot. */}
+                              {s.isToday && <span className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Today</span>}
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
@@ -2314,6 +2453,9 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
                               )}
                             </span>
                           </td>
+                          <td className="px-4 py-2.5">
+                            <RollPill s={s} />
+                          </td>
                           <td className="px-4 py-2.5 hidden md:table-cell">
                             {s.capacity > 0 ? (
                               <div className="flex items-center gap-2">
@@ -2336,6 +2478,7 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
                           {weekBooked}{weekCapacity > 0 ? ` / ${weekCapacity}` : ""}
                         </span>
                       </td>
+                      <td className="px-4 py-2" />
                       <td className="px-4 py-2 hidden md:table-cell">
                         {weekCapacity > 0 ? (
                           <div className="flex items-center gap-2">

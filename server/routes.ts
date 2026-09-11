@@ -4282,8 +4282,26 @@ export async function registerRoutes(
         GROUP BY r.term_id, t.year, t.name, t.term_number
         ORDER BY t.year DESC NULLS LAST, t.term_number DESC NULLS LAST
       `);
+      // 🔴 The term we are IN, which is not the term the programme is SELLING.
+      // On 11 Sep FUNiño sat on Term 4 (open for sign-ups, 5 of them) while
+      // every session on the page, every roll and every one of the 149 children
+      // turning up belonged to Term 3. A page that opens on the term being sold
+      // answers a question nobody asked and reads almost empty.
+      //
+      // 🔴 NZ's today, from the server. `toISOString().slice(0,10)` in a browser
+      // is the UTC date and reads a day behind here all evening.
+      const todayNz = nzTodayIso();
+      const currentTermRows: any = await db.execute(sql`
+        SELECT id FROM terms
+        WHERE organization_id = ${prog.organizationId ?? 1}
+          AND ${todayNz} BETWEEN start_date AND end_date
+        ORDER BY start_date DESC LIMIT 1`);
+      const currentTermId: number | null = (currentTermRows.rows ?? [])[0]?.id ?? null;
+
       res.json({
         programmeTermId: prog.termId ?? null,
+        // null in the school holidays — a real state, not a missing one.
+        currentTermId,
         terms: (rows.rows ?? []).map((r: any) => ({
           id: r.term_id,
           // A row with no term reads "not recorded" — never filed under a real

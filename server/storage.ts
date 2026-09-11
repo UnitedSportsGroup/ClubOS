@@ -1,4 +1,5 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
+import { nzTodayIso } from "@shared/academy";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
 import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
@@ -220,6 +221,34 @@ export type ProgramPlayer = {
 // Bodies carry inlined base64 images, so selecting every campaign ever sent
 // with its body is megabytes the list never renders. Open one to get the body.
 export type EmailCampaignSummary = Omit<EmailCampaign, "body" | "replyTo" | "segmentConfig" | "scheduledAt">;
+
+/**
+ * One row of the programme's Sessions list.
+ *
+ * 🔴 `rollTaken`, `isToday` and `isPast` are DERIVED, never stored. A stored
+ * "roll done" flag goes stale the moment somebody edits a mark, and a stored
+ * "today" is wrong within a day. `isToday`/`isPast` are computed here because
+ * the clock that matters is NZ's — a browser doing `toISOString().slice(0,10)`
+ * reads a day behind for the whole evening.
+ */
+export type SessionSummaryRow = {
+  campDateId: number;
+  date: string;
+  productType: string;
+  bookedCount: number;
+  capacity: number;
+  name?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  /** Anyone marked either way — the roll was opened and worked through. */
+  markedCount: number;
+  /** Marked here. Reads BOTH vocabularies; see getSessionsSummary. */
+  presentCount: number;
+  rollTaken: boolean;
+  isToday: boolean;
+  isPast: boolean;
+};
+
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -463,7 +492,7 @@ export interface IStorage {
   getCampSettings(campId: number): Promise<CampSettings | undefined>;
   upsertCampSettings(campId: number, data: Partial<InsertCampSettings>): Promise<CampSettings>;
 
-  getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number }[]>;
+  getSessionsSummary(campId: number): Promise<SessionSummaryRow[]>;
   getCampRegistrationStats(campId: number, termId?: number | null): Promise<{ totalRegistrations: number; confirmedRegistrations: number; totalRevenueCents: number; totalSessions: number }>;
   getCampRegistrationCounts(): Promise<Record<number, number>>;
   getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]>;
@@ -1308,7 +1337,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getSessionsSummary(campId: number): Promise<{ campDateId: number; date: string; productType: string; bookedCount: number; capacity: number; name?: string | null; startTime?: string | null; endTime?: string | null }[]> {
+  async getSessionsSummary(campId: number): Promise<SessionSummaryRow[]> {
     const dates = await this.getCampDates(campId);
     if (dates.length === 0) return [];
 
@@ -1330,7 +1359,44 @@ export class DatabaseStorage implements IStorage {
     ))
     .groupBy(registrationItems.campDateId, registrationItems.productType);
 
-    const results: { campDateId: number; date: string; productType: string; bookedCount: number; capacity: number; name?: string | null; startTime?: string | null; endTime?: string | null }[] = [];
+    // ── Was the roll taken on this session? ─────────────────────────────────
+    // Daniel, 2026-09-11: "make all the sessions appear either green if roll was
+    // done, red if not done and in the past… yellow if that is the roll for
+    // today." Whether a roll was taken is a question nobody could answer
+    // without opening all 68 of them one at a time.
+    //
+    // 🔴 READ BOTH VOCABULARIES. The mobile app writes `checked_in_at` (the camp
+    // model); the web term roll writes `status`. Across this table 615 rows
+    // carry a check-in and only 50 ever carried a status — reading `status`
+    // alone would paint Zach's roll red on a day he took it.
+    //
+    // 🔴 A row exists for everyone the moment a roll is OPENED (getSessionRoll
+    // creates them), so "rows exist" proves nothing. Only a mark counts.
+    const rollRes: any = await db.execute(sql`
+      SELECT camp_date_id,
+             count(*) FILTER (WHERE status IS NOT NULL OR checked_in_at IS NOT NULL)::int AS marked,
+             count(*) FILTER (WHERE status = 'present'
+                                OR (status IS DISTINCT FROM 'absent' AND checked_in_at IS NOT NULL))::int AS present
+      FROM attendance
+      WHERE camp_id = ${campId}
+      GROUP BY camp_date_id`);
+    const rollBy = new Map<number, { marked: number; present: number }>(
+      (rollRes.rows ?? rollRes ?? []).map((r: any) => [Number(r.camp_date_id), { marked: Number(r.marked), present: Number(r.present) }]));
+
+    // NZ's today, from the server. The browser must not decide this.
+    const today = nzTodayIso();
+    const facts = (d: { id: number; date: string }) => {
+      const r = rollBy.get(d.id) ?? { marked: 0, present: 0 };
+      return {
+        markedCount: r.marked,
+        presentCount: r.present,
+        rollTaken: r.marked > 0,
+        isToday: d.date === today,
+        isPast: d.date < today,
+      };
+    };
+
+    const results: SessionSummaryRow[] = [];
 
     if (isTermMode) {
       // Term-mode: one summary row per camp_date (the slot itself is the
@@ -1341,20 +1407,69 @@ export class DatabaseStorage implements IStorage {
       // registrants (the contact shape) are on the roll for every session, so
       // they're added to each date's count. Programmes that do book per date
       // (CUGC) still count their items; a programme never has both shapes.
-      const termEnrolments = await this.countTermEnrolments(campId);
+      //
+      // 🔴 THE COHORT IS THIS SESSION'S OWN TERM, not every term the programme
+      // has ever run. FUNiño has run four terms — 143 + 146 + 149 + 5 — and a
+      // flat count put **443** on the Roll column of every single session,
+      // including July ones, which is the same fault Daniel caught on the roll
+      // itself ("why is there saying 295 on roll"), one level up.
+      //
+      // 🔴 Found by the session's DATE, never `programs.term_id`: that column is
+      // what the programme is SELLING and has already flipped to Term 4, so it
+      // would have reported the five Term 4 sign-ups against a September
+      // session. Deliberately the same rule as getSessionRoll — the list and
+      // the roll it opens must not disagree.
+      const termRes: any = await db.execute(sql`
+        SELECT d.id AS camp_date_id, t.id AS term_id
+        FROM camp_dates d
+        LEFT JOIN terms t
+          ON t.organization_id = ${program?.organizationId ?? 1}
+         AND d.date BETWEEN t.start_date AND t.end_date
+        WHERE d.camp_id = ${campId}`);
+      const termOfDate = new Map<number, number | null>(
+        (termRes.rows ?? termRes ?? []).map((r: any) => [Number(r.camp_date_id), r.term_id == null ? null : Number(r.term_id)]));
+
+      const cohortRes: any = await db.execute(sql`
+        SELECT r.term_id, count(*)::int AS n
+        FROM registrations r
+        JOIN contacts c ON c.id = r.contact_id
+        WHERE r.program_id = ${campId}
+          AND r.status IN ${REAL_STATUS_SQL}
+          AND c.type = 'player'
+        GROUP BY r.term_id`);
+      const cohortRows: any[] = cohortRes.rows ?? cohortRes ?? [];
+      const byTerm = new Map<number, number>();
+      // A registration with no term recorded still counts on every session: it
+      // is a real enrolment whose term nobody established, and leaving a paid
+      // child off the count is worse than counting one who may have moved on.
+      // Same allowance getSessionRoll makes.
+      let untermed = 0;
+      let everyTerm = 0;
+      for (const r of cohortRows) {
+        const n = Number(r.n);
+        everyTerm += n;
+        if (r.term_id == null) untermed += n; else byTerm.set(Number(r.term_id), n);
+      }
+
       for (const d of dates) {
         const totalCount = items
           .filter(i => i.campDateId === d.id)
           .reduce((sum, i) => sum + (i.count || 0), 0);
+        const t = termOfDate.get(d.id) ?? null;
+        // A session outside every term (a one-off, or a term nobody has entered
+        // yet) has no cohort to narrow to, so it falls back to the whole
+        // programme rather than silently reading zero.
+        const cohort = t == null ? everyTerm : (byTerm.get(t) ?? 0) + untermed;
         results.push({
           campDateId: d.id,
           date: d.date,
           productType: "SESSION",
-          bookedCount: totalCount + termEnrolments,
+          bookedCount: totalCount + cohort,
           capacity: d.capacityFullDay || 0,
           name: d.name,
           startTime: d.startTime,
           endTime: d.endTime,
+          ...facts(d),
         });
       }
       return results;
@@ -1372,6 +1487,9 @@ export class DatabaseStorage implements IStorage {
           productType: pt,
           bookedCount: (match?.count || 0) + fullDayCount,
           capacity: cap,
+          // A camp date carries two sessions and one attendance table, so both
+          // rows report the same marks. Honest: the camp roll is per day.
+          ...facts(d),
         });
       }
     }
@@ -1423,20 +1541,6 @@ export class DatabaseStorage implements IStorage {
   // the player. This is the academy shape (storage.getProgramPlayers "Shape 1")
   // and it carries no per-date rows, so these people are on the roll for every
   // session of the term.
-  private async countTermEnrolments(campId: number): Promise<number> {
-    const program = await this.getProgram(campId);
-    if (program?.scheduleType !== "term") return 0;
-    const [r] = await db.select({ count: sql<number>`count(*)::int` })
-      .from(registrations)
-      .innerJoin(contacts, eq(registrations.contactId, contacts.id))
-      .where(and(
-        eq(registrations.programId, campId),
-        eq(registrations.status, "confirmed"),
-        eq(contacts.type, "player"),
-      ));
-    return r?.count || 0;
-  }
-
   async getSessionRoll(campId: number, campDateId: number, sessionType: string): Promise<{ child: Child & { medical?: ChildMedical }; parent: Contact; attendance?: Attendance; productType: string }[]> {
     // Term-mode programs: each camp_date IS the session, so we don't filter
     // by product type — every registration item attached to this date is
