@@ -398,10 +398,13 @@ export default function AdminSessionRoll() {
     ? (sessionInfo?.name || "Session")
     : sessionType === "MORNING" ? "Morning" : "Afternoon";
 
+  // Alphabetical by the name as shown — first name, then surname. A coach
+  // reading a roll out loud reads the first name, and the Players tab now
+  // orders the same way so the two screens agree.
   const sortedRoll = (roll || []).slice().sort((a, b) => {
-    const firstCmp = a.child.firstName.localeCompare(b.child.firstName);
+    const firstCmp = (a.child.firstName || "").localeCompare(b.child.firstName || "", "en-NZ");
     if (firstCmp !== 0) return firstCmp;
-    return a.child.lastName.localeCompare(b.child.lastName);
+    return (a.child.lastName || "").localeCompare(b.child.lastName || "", "en-NZ");
   });
 
   const filteredRoll = searchQuery.trim()

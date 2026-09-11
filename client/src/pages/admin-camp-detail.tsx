@@ -1865,6 +1865,8 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
   const [termFilter, setTermFilter] = useTermParam();
+  // Opens alphabetical (A→Z by the name as shown), and stays wherever the user
+  // puts it after that — "unless sorted otherwise by the user".
   const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const toggleSort = (key: PlayerSortKey) => {
@@ -1948,7 +1950,13 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // nobody has recorded, and for a paid amount that was never captured.
   const sortValue = (p: ProgramPlayer, key: PlayerSortKey): string | number | null => {
     switch (key) {
-      case "player": return `${p.lastName ?? ""} ${p.firstName ?? ""}`.trim().toLowerCase() || null;
+      // 🔴 Sorted the way the column READS, first name then surname — the same
+      // order the attendance roll already uses. Daniel, 2026-09-11: "make player
+      // list here and for roll taking attendance default to show in alphabetical
+      // order unless sorted otherwise by the user." Keyed on the SURNAME this
+      // showed Luca Zhong, Ethan Young, Theo Yoo — correct by surname and
+      // obviously not alphabetical to anyone reading the screen.
+      case "player": return `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim().toLowerCase() || null;
       // Sort on the DATE OF BIRTH, not the rendered "5 yrs" — age is derived
       // from it and two children a day apart can read the same number of years.
       case "age": return p.dateOfBirth || null;
