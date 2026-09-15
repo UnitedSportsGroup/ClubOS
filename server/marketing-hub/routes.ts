@@ -55,7 +55,7 @@ const rangeInfo = (s: HubScope) => ({ range: s.range, previousRange: s.previous,
 
 // ── Overview ────────────────────────────────────────────────────────────────
 
-async function overview(scope: HubScope): Promise<OverviewResponse> {
+export async function overview(scope: HubScope): Promise<OverviewResponse> {
   const [traffic, forms, paid, revenue, ads, adsConnected, organic, orgMap] = await Promise.all([
     trafficOverview(scope),
     formsSummary(scope),
@@ -157,16 +157,16 @@ async function overview(scope: HubScope): Promise<OverviewResponse> {
 
 // ── Sections ────────────────────────────────────────────────────────────────
 
-async function websites(scope: HubScope): Promise<WebsitesResponse> {
+export async function websites(scope: HubScope): Promise<WebsitesResponse> {
   const [firstParty, ga4] = await Promise.all([trafficDetail(scope), ga4Data(scope)]);
   return { ...rangeInfo(scope), firstParty, ga4 };
 }
 
-async function forms(scope: HubScope): Promise<FormsResponse> {
+export async function forms(scope: HubScope): Promise<FormsResponse> {
   return { ...rangeInfo(scope), ...(await formsDetail(scope)) };
 }
 
-async function ads(scope: HubScope): Promise<AdsResponse> {
+export async function ads(scope: HubScope): Promise<AdsResponse> {
   const [data, platforms] = await Promise.all([adsData(scope), adPlatforms()]);
   return {
     ...rangeInfo(scope),
@@ -179,7 +179,7 @@ async function ads(scope: HubScope): Promise<AdsResponse> {
   };
 }
 
-async function tracked(scope: HubScope): Promise<TrackedResponse> {
+export async function tracked(scope: HubScope): Promise<TrackedResponse> {
   // The attribution layer takes epoch ms; the NZ midnights come from Postgres
   // so daylight saving is right on both ends of the range.
   const [b] = await q<{ start_ms: number; end_ms: number }>(
@@ -218,7 +218,7 @@ async function tracked(scope: HubScope): Promise<TrackedResponse> {
   };
 }
 
-async function organic(scope: HubScope): Promise<OrganicResponse> {
+export async function organic(scope: HubScope): Promise<OrganicResponse> {
   const d = await organicData(scope);
   return {
     ...rangeInfo(scope),
@@ -229,7 +229,7 @@ async function organic(scope: HubScope): Promise<OrganicResponse> {
   };
 }
 
-async function sources(): Promise<SourcesResponse> {
+export async function sources(): Promise<SourcesResponse> {
   const [rows, runs, spans, recent, next, orgMap] = await Promise.all([
     q<{ id: number; platform: PlatformKey; label: string; external_id: string; organization_id: number | null; site: string | null; active: boolean }>(
       `SELECT id, platform, label, external_id, organization_id, site, active FROM marketing_sources ORDER BY platform, id`,
