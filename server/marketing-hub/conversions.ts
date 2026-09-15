@@ -142,7 +142,7 @@ async function programmeRevenue(scope: HubScope, metric: DashboardMetric): Promi
      FROM registrations t
      WHERE t.program_id = $3
        AND ${nzBounds(`t.${part.dateColumn}`, kind, "$1", "$2")}
-       ${statuses.length ? `AND t.${part.statusColumn ?? "status"} = ANY($4::text[])` : ""}
+       ${statuses.length ? `AND t.${part.statusColumn ?? "status"}::text = ANY($4::text[])` : ""}
      GROUP BY 1`,
     statuses.length
       ? [scope.previous.from, scope.range.to, scope.programme.id, statuses]

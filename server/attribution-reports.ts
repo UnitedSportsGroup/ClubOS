@@ -12,6 +12,16 @@
  */
 
 import { sql } from "drizzle-orm";
+
+// 🔴 `= ANY(${array})` in a drizzle sql template expands the array into a
+// parenthesised parameter LIST, not an array, and Postgres answers "op ANY/ALL
+// (array) requires array on right side". Found 2026-09-15 when the Marketing hub
+// asked for more than one workspace at once. IN (...) is the house pattern; an
+// empty list becomes (NULL), which matches nothing rather than being a syntax error.
+function inList(values: readonly (string | number)[]) {
+  if (!values.length) return sql`(NULL)`;
+  return sql`(${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
+}
 import { db } from "./db";
 import { mapHdyhauToChannel } from "@shared/attribution";
 import { nzDateString } from "@shared/meta-insights";
@@ -106,7 +116,7 @@ async function fetchConversions(opts: {
         r.person_id, r.visitor_id, r.click_id, r.meta_ad_id, r.meta_adset_id,
         r.meta_campaign_id, r.meta_platform, r.attribution_channel, r.referral_source AS hdyhau
       FROM registrations r JOIN programs p ON p.id = r.program_id
-      WHERE p.organization_id = ANY(${orgIds}) AND r.status = 'confirmed'
+      WHERE p.organization_id IN ${inList(orgIds)} AND r.status = 'confirmed'
         AND ${rangeSql("r.registered_at")} ${personSql("r.person_id")}
 
       UNION ALL
@@ -114,7 +124,7 @@ async function fetchConversions(opts: {
         c.person_id, c.visitor_id, c.click_id, c.meta_ad_id, c.meta_adset_id,
         c.meta_campaign_id, c.meta_platform, c.attribution_channel, c.heard_via
       FROM cugc_registrations c
-      WHERE c.organization_id = ANY(${orgIds}) AND c.status = 'paid'
+      WHERE c.organization_id IN ${inList(orgIds)} AND c.status = 'paid'
         AND ${rangeSql("c.created_at")} ${personSql("c.person_id")}
 
       UNION ALL
@@ -123,7 +133,7 @@ async function fetchConversions(opts: {
         po.person_id, po.visitor_id, po.click_id, po.meta_ad_id, po.meta_adset_id,
         po.meta_campaign_id, po.meta_platform, po.attribution_channel, po.hdyhau
       FROM print_orders po
-      WHERE po.organization_id = ANY(${orgIds})
+      WHERE po.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("po.created_at")} ${personSql("po.person_id")}
 
       UNION ALL
@@ -131,7 +141,7 @@ async function fetchConversions(opts: {
         f.person_id, f.visitor_id, f.click_id, f.meta_ad_id, f.meta_adset_id,
         f.meta_campaign_id, f.meta_platform, f.attribution_channel, f.hdyhau
       FROM cugc_free_sessions f
-      WHERE f.organization_id = ANY(${orgIds})
+      WHERE f.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("f.created_at")} ${personSql("f.person_id")}
 
       UNION ALL
@@ -139,7 +149,7 @@ async function fetchConversions(opts: {
         w.person_id, w.visitor_id, w.click_id, w.meta_ad_id, w.meta_adset_id,
         w.meta_campaign_id, w.meta_platform, w.attribution_channel, w.hdyhau
       FROM league_waitlist w
-      WHERE w.organization_id = ANY(${orgIds})
+      WHERE w.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("w.created_at")} ${personSql("w.person_id")}
 
       UNION ALL
@@ -147,7 +157,7 @@ async function fetchConversions(opts: {
         x.person_id, x.visitor_id, x.click_id, x.meta_ad_id, x.meta_adset_id,
         x.meta_campaign_id, x.meta_platform, x.attribution_channel, x.hdyhau
       FROM cic7s_registrations x
-      WHERE x.organization_id = ANY(${orgIds})
+      WHERE x.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("x.created_at")} ${personSql("x.person_id")}
 
       UNION ALL
@@ -155,7 +165,7 @@ async function fetchConversions(opts: {
         fi.person_id, fi.visitor_id, fi.click_id, fi.meta_ad_id, fi.meta_adset_id,
         fi.meta_campaign_id, fi.meta_platform, fi.attribution_channel, fi.hdyhau
       FROM football_institute_applications fi
-      WHERE fi.organization_id = ANY(${orgIds})
+      WHERE fi.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("fi.created_at")} ${personSql("fi.person_id")}
 
       UNION ALL
@@ -163,7 +173,7 @@ async function fetchConversions(opts: {
         b.person_id, b.visitor_id, b.click_id, b.meta_ad_id, b.meta_adset_id,
         b.meta_campaign_id, b.meta_platform, b.attribution_channel, b.hdyhau
       FROM booking_requests b
-      WHERE b.organization_id = ANY(${orgIds})
+      WHERE b.organization_id IN ${inList(orgIds)}
         AND ${rangeSql("b.created_at")} ${personSql("b.person_id")}
     ) u
     ORDER BY ts_ms ASC
@@ -210,7 +220,7 @@ async function fetchTouches(
     WHERE is_bot = false
       AND event_type IN ('session_start', 'page_view')
       AND timestamp >= ${sinceIso}::timestamptz
-      AND (person_id = ANY(${personIds}) OR visitor_id = ANY(${visitorIds}))
+      AND (person_id IN ${inList(personIds)} OR visitor_id IN ${inList(visitorIds)})
     ORDER BY timestamp ASC
   `);
 
@@ -545,7 +555,7 @@ export async function personJourney(personId: number, orgIds: number[]) {
     FROM analytics_events
     WHERE is_bot = false
       AND event_type IN ('session_start', 'page_view')
-      AND (person_id = ${personId} OR visitor_id = ANY(${visitorIds}))
+      AND (person_id = ${personId} OR visitor_id IN ${inList(visitorIds)})
     ORDER BY timestamp ASC
   `);
   const touches: JourneyItem[] = (touchRes.rows as any[]).map((r) => ({

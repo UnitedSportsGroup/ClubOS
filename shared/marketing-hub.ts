@@ -217,7 +217,8 @@ export function workspaceForCampaign(
 
 // ── Websites ────────────────────────────────────────────────────────────────
 
-export type SiteKind = "site" | "checkout" | "shop";
+/** `alias` = another domain for a listed site. Counted, never reported as "no tracking seen". */
+export type SiteKind = "site" | "checkout" | "shop" | "alias";
 export type SiteDef = { workspace: string; label: string; kind: SiteKind };
 
 /**
@@ -237,6 +238,8 @@ export const SITES: Record<string, SiteDef> = {
   "join.southislandunited.com": { workspace: "south-island-united", label: "join.southislandunited.com", kind: "checkout" },
   "shop.southislandunited.com": { workspace: "south-island-united", label: "shop.southislandunited.com", kind: "shop" },
   "minifootball.co.nz": { workspace: "mini-football-leagues", label: "minifootball.co.nz", kind: "site" },
+  // Seen in the tracker with real visits (2026-09-15): the hyphenated domain.
+  "mini-football.co.nz": { workspace: "mini-football-leagues", label: "mini-football.co.nz", kind: "alias" },
   "join.minifootball.co.nz": { workspace: "mini-football-leagues", label: "join.minifootball.co.nz", kind: "checkout" },
   "shop.minifootball.co.nz": { workspace: "mini-football-leagues", label: "shop.minifootball.co.nz", kind: "shop" },
   "cicyouth.com": { workspace: "christchurch-international-cup", label: "cicyouth.com", kind: "site" },
@@ -275,6 +278,9 @@ export function normaliseHost(host: string | null | undefined): string {
     .trim()
     .toLowerCase()
     .replace(/:\d+$/, "")
+    // "cufc.co.nz." is a legal fully-qualified host and it reached the tracker
+    // as its own site; the trailing dot names the same place.
+    .replace(/\.$/, "")
     .replace(/^www\./, "");
 }
 
