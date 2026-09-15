@@ -10,6 +10,7 @@ import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { OFFICE_PAYMENT_METHODS } from "@shared/payments";
+import { agreedPriceError } from "@shared/office-price";
 import { GENDERS } from "@shared/academy";
 import { NZF_COUNTRIES, NZF_ETHNICITY_GROUPS } from "@shared/nzf-vocabulary";
 import {
@@ -318,20 +319,37 @@ export function RegisterPlayerModal({
     return { subtotalCents: subtotal, discountCents: discount, totalCents: subtotal - discount };
   }, [items, pricing, validChildren.length, campData]);
 
-  // What the programme charges, before any agreed reduction.
+  // What the programme quotes for this family today — the pro-rated figure for
+  // an academy term, the summed sessions for a camp.
   const listTotalCents = shape === "academy"
     ? academyData?.quote?.totalCents ?? 0
     : campTotals.totalCents;
+
+  // 🔴 The CEILING is the programme's published fee, which is NOT the quote. On
+  // 15 September a $150 Technification term quoted $30 because two sessions
+  // were left, and Olga — recording a family settling up for a term they had
+  // already trained — could not enter the $135 they actually owed. The old test
+  // measured against `listTotalCents` and silently discarded anything above it.
+  const priceCeilingCents = shape === "academy"
+    ? academyData?.quote?.subtotalCents ?? 0
+    : campTotals.subtotalCents;
 
   // The agreed price for THIS family, if one has been typed. null = none, so a
   // blank box means "charge the list price" rather than "charge nothing" — the
   // distinction MoneyInput cannot make for us.
   const agreedCents = priceOverride.trim() === "" ? null : dollarInputToCents(priceOverride);
 
-  // What they actually owe. Only a valid reduction with a reason counts, so a
-  // half-typed override can never quietly undercharge a family.
-  const priceApplies =
-    agreedCents != null && agreedCents >= 0 && agreedCents <= listTotalCents && !!priceReason.trim();
+  // 🔴 Same function the server uses (@shared/office-price), so a price this
+  // form accepts is a price the server accepts. null = fine.
+  const priceProblem = agreedPriceError({
+    agreedCents,
+    listSubtotalCents: priceCeilingCents,
+    reason: priceReason,
+  });
+
+  // What they actually owe. An override that cannot be applied NEVER falls back
+  // silently — `missingForStep` blocks the submit and names the problem.
+  const priceApplies = agreedCents != null && !priceProblem;
   const totalCents = priceApplies ? agreedCents! : listTotalCents;
 
   // Keep the amount box in step with the price until the user edits it — a
@@ -414,6 +432,12 @@ export function RegisterPlayerModal({
         },
         children: validChildren,
         items: expandedItems,
+        // The camp branch ignored an agreed price entirely until 2026-09-15,
+        // so a discounted walk-up was written at full price and the money taken
+        // read as a short payment — leaving the family `pending` and therefore
+        // invisible under the unpaid-is-not-registered rule.
+        priceOverrideCents: priceApplies ? agreedCents : undefined,
+        priceOverrideReason: priceApplies ? priceReason.trim() : undefined,
         payment,
         servedByUserId: servedById,
         ...posLink,
@@ -595,9 +619,15 @@ export function RegisterPlayerModal({
     }
     if (stepName === "Children") need(validChildren.length > 0, "at least one child with a first name");
     if (stepName === "Sessions") need(items.length > 0, "at least one session");
-    if (stepName === "Payment" && isPaid) {
-      need(!!method, "how they paid");
-      need(paidCents > 0, "the amount taken");
+    if (stepName === "Payment") {
+      // 🔴 A typed price that cannot be applied is NEVER ignored. This is the
+      // exact failure Olga hit: she entered $135, Apply accepted it, and the
+      // registration was written at $30 with nothing said.
+      if (agreedCents != null && priceProblem) out.push(priceProblem);
+      if (isPaid) {
+        need(!!method, "how they paid");
+        need(paidCents > 0, "the amount taken");
+      }
     }
     return out;
   };
@@ -617,6 +647,10 @@ export function RegisterPlayerModal({
     if (stepName === "Children") return validChildren.length > 0;
     if (stepName === "Sessions") return items.length > 0;
     if (stepName === "Payment") {
+      // A price that cannot be applied blocks the save whether or not money
+      // changed hands — the number on the registration has to be the number
+      // the person at the counter meant.
+      if (agreedCents != null && priceProblem) return false;
       if (!isPaid) return true;
       return !!method && paidCents > 0;
     }
@@ -1183,7 +1217,11 @@ export function RegisterPlayerModal({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] text-foreground/70">Total owing</span>
                   <div className="flex items-center gap-2">
-                    {agreedCents != null && agreedCents !== listTotalCents && (
+                    {/* Only strike the quote out when the agreed price REPLACED
+                        it. Keyed on `priceApplies`, not on the typed value —
+                        otherwise an unusable entry struck out a price that was
+                        still the one being charged. */}
+                    {priceApplies && agreedCents !== listTotalCents && (
                       <span className="text-[13px] text-foreground/45 line-through">
                         {formatCurrency(listTotalCents, { fromCents: true })}
                       </span>
@@ -1194,8 +1232,11 @@ export function RegisterPlayerModal({
                   </div>
                 </div>
                 {/* Olga, item 6: "Payment page. I don't have option to change
-                    price." It can only go DOWN, and it needs a reason — that
-                    reason is what answers "why is this one $140" months later. */}
+                    price." A reason is required — that reason is what answers
+                    "why is this one $135" months later. 🔴 The ceiling is the
+                    programme's PUBLISHED fee, not today's pro-rated quote:
+                    measuring against the quote is what silently threw away the
+                    $135 she typed on 15 September. */}
                 {!editingPrice ? (
                   <button
                     onClick={() => setEditingPrice(true)}
@@ -1206,7 +1247,14 @@ export function RegisterPlayerModal({
                   </button>
                 ) : (
                   <div className="mt-3 pt-3 border-t border-white/[0.10] grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Agreed price" hint={`The programme's price is ${formatCurrency(listTotalCents, { fromCents: true })}. You can only go lower.`}>
+                    <Field
+                      label="Agreed price"
+                      hint={
+                        priceCeilingCents !== listTotalCents
+                          ? `This term quotes ${formatCurrency(listTotalCents, { fromCents: true })} (pro-rated). You can charge anything up to the programme's full fee of ${formatCurrency(priceCeilingCents, { fromCents: true })}.`
+                          : `The programme's fee is ${formatCurrency(priceCeilingCents, { fromCents: true })}. You can't go above it.`
+                      }
+                    >
                       <MoneyInput value={priceOverride} onChange={setPriceOverride} className={FIELD} data-testid="input-agreed-price" />
                     </Field>
                     <Field label="Why" required hint="Goes on the registration so the figure can be explained later.">
@@ -1216,13 +1264,23 @@ export function RegisterPlayerModal({
                       <Button size="sm" variant="outline" onClick={() => { setPriceOverride(""); setPriceReason(""); setEditingPrice(false); }} data-testid="button-price-cancel">
                         Use the programme's price
                       </Button>
-                      <Button size="sm" onClick={() => setEditingPrice(false)} disabled={agreedCents == null || !priceReason.trim()} data-testid="button-price-apply">
+                      {/* 🔴 Apply is refused while the price cannot be used. It
+                          used to accept anything and then collapse the panel,
+                          taking the warning with it and leaving the quote in
+                          place — which is how a $135 registration was written
+                          at $30 with nobody told. */}
+                      <Button
+                        size="sm"
+                        onClick={() => setEditingPrice(false)}
+                        disabled={agreedCents == null || !!priceProblem}
+                        data-testid="button-price-apply"
+                      >
                         Apply
                       </Button>
                     </div>
-                    {agreedCents != null && agreedCents > listTotalCents && (
-                      <p className="sm:col-span-2 text-[12.5px] text-amber-600">
-                        That's more than the programme's price. Reduce it, or pick a different programme.
+                    {agreedCents != null && priceProblem && (
+                      <p className="sm:col-span-2 text-[12.5px] text-red-600" data-testid="text-price-problem">
+                        {priceProblem}
                       </p>
                     )}
                   </div>

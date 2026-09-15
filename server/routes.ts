@@ -67,6 +67,11 @@ import {
   bandForAgeGrade,
   checkSquadEligibility,
 } from "@shared/squads";
+// The ONE decider for a price a staff member agrees at the counter. The browser
+// calls the same function, so what it lets somebody type and what the server
+// will accept can never drift apart. See the file for why the ceiling is the
+// published fee and not the pro-rated total.
+import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -5163,17 +5168,23 @@ export async function registerRoutes(
           return res.status(409).json({ message: "That works out to nothing owing. Check the programme's fee and term dates." });
         }
 
-        // ── Agreed price (Olga, 2026-08-18, item 6) ─────────────────────────
+        // ── Agreed price (Olga, 2026-08-18 item 6; reopened 2026-09-15) ─────
         // "Payment page. I don't have option to change price." The total was
         // read-only, so a family with an agreed discount could only be recorded
         // as a SHORT PAYMENT — which leaves the registration `pending` and the
         // family looking like debtors in her reconciliation forever.
         //
-        // 🔴 It can only ever go DOWN. Charging more than the published fee at a
-        // counter is a different decision with consumer-law weight, and a late
-        // fee is already its own field. 🔴 A reason is REQUIRED and is written
-        // into the notes with the amount, because "why is this one $140" is
-        // exactly the question Victor asks three months later.
+        // 🔴 The ceiling is the programme's PUBLISHED FEE (`subtotalCents`),
+        // not the pro-rated total. It used to be the total, and that is the bug
+        // Olga reported on 15 September: "I entered price $135. But it's shown
+        // as $30." $150 Technification, two sessions left in Term 3, so the
+        // quote was $30 — and a family settling up for a term they had already
+        // trained could not be recorded at all. See shared/office-price.ts for
+        // the full reasoning; that module is the ONE decider and the browser
+        // uses the same function, so the two ends cannot drift.
+        // 🔴 A reason is REQUIRED and is written into the notes with the amount,
+        // because "why is this one $135" is exactly the question Victor asks
+        // three months later.
         // 🔴 `subtotal_cents` keeps the LIST price and the difference lands in
         // `discount_cents` — those columns already mean this, and overwriting
         // the subtotal would lose what the programme actually charges.
@@ -5184,21 +5195,22 @@ export async function registerRoutes(
         const overrideRaw = body.priceOverrideCents;
         if (overrideRaw != null && String(overrideRaw).trim() !== "") {
           const want = Math.round(Number(overrideRaw));
-          if (!Number.isFinite(want) || want < 0) {
+          const reason = String(body.priceOverrideReason ?? "");
+          const problem = agreedPriceError({
+            agreedCents: Number.isFinite(want) ? want : null,
+            listSubtotalCents: quote.subtotalCents,
+            reason,
+          });
+          if (!Number.isFinite(want)) {
             return res.status(400).json({ message: "That agreed price isn't a valid amount." });
           }
-          if (want > quote.totalCents) {
-            return res.status(400).json({
-              message: `The agreed price can't be more than the programme's ${(quote.totalCents / 100).toFixed(2)}. Reduce it, or change the programme.`,
-            });
-          }
-          const reason = String(body.priceOverrideReason ?? "").trim();
-          if (!reason) {
-            return res.status(400).json({ message: "Say why the price was changed — it goes on the registration." });
-          }
-          priceTotal = want;
-          priceDiscount = priceSubtotal - want;
-          priceNote = `Price adjusted from ${(quote.totalCents / 100).toFixed(2)} to ${(want / 100).toFixed(2)} — ${reason}`;
+          if (problem) return res.status(400).json({ message: problem });
+
+          const cols = agreedPriceColumns(want, quote.subtotalCents);
+          priceSubtotal = cols.subtotalCents;
+          priceDiscount = cols.discountCents;
+          priceTotal = cols.totalCents;
+          priceNote = agreedPriceNote(quote.totalCents, want, reason);
         }
 
         const seasonYear: number = program.seasonYear ?? Number(nzTodayIso().slice(0, 4));
@@ -5412,7 +5424,10 @@ export async function registerRoutes(
           entityId: reg.id,
           details:
             `Office registration: ${playerFirst} ${playerLast} → ${program.name} (${option.name}), ` +
-            `${(quote.totalCents / 100).toFixed(2)} NZD, ${isPaid ? `paid by ${paymentMethod}` : "unpaid"}` +
+            // 🔴 The AGREED total, not the quote. An audit line that reports a
+            // figure nobody was charged is worse than no audit line.
+            `${(priceTotal / 100).toFixed(2)} NZD, ${isPaid ? `paid by ${paymentMethod}` : "unpaid"}` +
+            (priceNote ? ` (${priceNote})` : "") +
             (servedByUserId ? `, served by user ${servedByUserId}` : ""),
         });
 
@@ -5430,7 +5445,10 @@ export async function registerRoutes(
 
         return res.json({
           registrationId: reg.id,
-          totalCents: quote.totalCents,
+          // What was actually charged. The success toast reads this, so quoting
+          // the list price here would tell staff the wrong number at the one
+          // moment they are looking.
+          totalCents: priceTotal,
           status: reg.status,
           shape: "academy",
           player: { id: player.id, firstName: player.firstName, lastName: player.lastName, grade: eligibility.grade },
@@ -5514,7 +5532,38 @@ export async function registerRoutes(
       if (applicableDiscount) {
         discountCents = Math.round(subtotalCents * Number(applicableDiscount.discountPercent) / 100);
       }
-      const totalCents = subtotalCents - discountCents;
+      let totalCents = subtotalCents - discountCents;
+
+      // ── Agreed price, camps (2026-09-15) ──────────────────────────────────
+      // The office form has always OFFERED an agreed price on the payment step
+      // whatever the programme, but only the academy branch ever read it — so a
+      // camp walk-up with an agreed figure was written at full price and the
+      // money taken looked like a SHORT PAYMENT, leaving the registration
+      // `pending`. Under the unpaid-is-not-registered rule a pending row is
+      // hidden from staff, so that family would have vanished from every list.
+      // Same decider as the academy branch; the ceiling is the camp's own
+      // subtotal, before the multi-booking discount.
+      let campPriceNote = "";
+      const campOverrideRaw = body.priceOverrideCents;
+      if (campOverrideRaw != null && String(campOverrideRaw).trim() !== "") {
+        const want = Math.round(Number(campOverrideRaw));
+        const reason = String(body.priceOverrideReason ?? "");
+        if (!Number.isFinite(want)) {
+          return res.status(400).json({ message: "That agreed price isn't a valid amount." });
+        }
+        const problem = agreedPriceError({
+          agreedCents: want,
+          listSubtotalCents: subtotalCents,
+          reason,
+        });
+        if (problem) return res.status(400).json({ message: problem });
+
+        const quotedCents = totalCents;
+        const cols = agreedPriceColumns(want, subtotalCents);
+        discountCents = cols.discountCents;
+        totalCents = cols.totalCents;
+        campPriceNote = agreedPriceNote(quotedCents, want, reason);
+      }
 
       const { fullyPaid, fields } = paymentFieldsFor(totalCents);
 
@@ -5529,6 +5578,10 @@ export async function registerRoutes(
         currency: "NZD",
         registrationLocation: "cufc_office",
         source: "admin_manual",
+        // The price note is appended, never replaces what staff typed — same
+        // shape as the academy branch.
+        notes: [typeof body.notes === "string" ? body.notes.trim() : "", campPriceNote]
+          .filter(Boolean).join(" · ") || null,
         ...fields,
         ...posLink,
       } as any);
@@ -5561,6 +5614,7 @@ export async function registerRoutes(
         details:
           `Office registration: ${camp.name}, ${(totalCents / 100).toFixed(2)} NZD, ` +
           `${isPaid ? `paid by ${paymentMethod}` : "unpaid"}` +
+          (campPriceNote ? ` (${campPriceNote})` : "") +
           (servedByUserId ? `, served by user ${servedByUserId}` : ""),
       });
 
