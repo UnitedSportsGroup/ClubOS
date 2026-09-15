@@ -25,6 +25,31 @@ export async function q<T = any>(text: string, params: unknown[] = []): Promise<
   return r.rows as T[];
 }
 
+/**
+ * A read that needs more sort memory than a pooled connection's default.
+ *
+ * Distinct visitor counts over tens of thousands of page views spill their sorts
+ * to disk at the default work_mem ("Sort Method: external merge Disk"). Raised
+ * for this one transaction only — SET LOCAL ends with it, so the pooled
+ * connection goes back unchanged. Measured on production data: a year to date
+ * went from 6.9s to 1.5s.
+ */
+export async function qSorted<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL work_mem = '64MB'");
+    const r = await client.query(text, params as any[]);
+    await client.query("COMMIT");
+    return r.rows as T[];
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 /** Thrown when something a platform needs has not been set up on this server. */
 export class NotConfiguredError extends Error {}
 

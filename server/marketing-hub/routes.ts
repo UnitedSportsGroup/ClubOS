@@ -337,9 +337,25 @@ export function registerMarketingHubRoutes(app: Express) {
       if (process.env.MARKETING_HUB_SYNC !== "1") {
         return res.status(409).json({ message: "Automatic pulls are switched off on this server, so there's nothing to start." });
       }
-      const next = await nextManualSyncAt();
-      if (next) {
-        return res.status(429).json({ message: "A pull was started in the last ten minutes.", nextManualSyncAt: next });
+      // 🔴 The press is recorded BEFORE answering, in one conditional insert. The
+      // pull starts in the background and writes its own rows a few seconds
+      // later, so a check that only looked for those let a second press straight
+      // through (caught by _verify-marketing-hub-live.ts on production). The lease
+      // still stops two pulls running at once; this is what tells the person so.
+      const [claim] = await q<{ id: number }>(
+        `INSERT INTO marketing_sync_runs (platform, trigger, status, finished_at)
+         SELECT 'all', 'manual', 'requested', now()
+         WHERE NOT EXISTS (
+           SELECT 1 FROM marketing_sync_runs
+           WHERE trigger = 'manual' AND started_at > now() - interval '10 minutes'
+         )
+         RETURNING id`,
+      );
+      if (!claim) {
+        return res.status(429).json({
+          message: "A pull was started in the last ten minutes.",
+          nextManualSyncAt: await nextManualSyncAt(),
+        });
       }
       // Runs in the background on this long-lived server; the page polls the
       // sources list to see it finish. The lease stops a second machine joining in.

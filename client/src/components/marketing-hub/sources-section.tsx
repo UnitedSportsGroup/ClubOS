@@ -1,3 +1,4 @@
+import { workspaceName } from "./palette";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -110,7 +111,7 @@ export function SourcesSection() {
                     <TableRow key={s.id}>
                       <TableCell>{s.platform}</TableCell>
                       <TableCell>{s.label}</TableCell>
-                      <TableCell className="text-muted-foreground">{s.workspace ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{workspaceName(s.workspace)}</TableCell>
                       <TableCell className="text-muted-foreground">{s.firstDay ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{s.lastDay ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{relativeTime(s.lastRunAt)}</TableCell>

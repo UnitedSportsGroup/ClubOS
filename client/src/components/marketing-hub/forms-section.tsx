@@ -1,3 +1,4 @@
+import { workspaceName } from "./palette";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -60,7 +61,7 @@ export function FormsSection({ query }: { query: string }) {
                   return (
                     <TableRow key={`${f.key}-${f.workspace ?? "all"}`}>
                       <TableCell>{f.label}</TableCell>
-                      <TableCell className="text-muted-foreground">{f.workspace ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{workspaceName(f.workspace)}</TableCell>
                       <TableCell className="text-right tabular-nums">{compact(f.current)}</TableCell>
                       <TableCell className="text-right tabular-nums">{compact(f.previous)}</TableCell>
                       <TableCell className="text-right tabular-nums">
@@ -95,7 +96,7 @@ export function FormsSection({ query }: { query: string }) {
                   {data.byProgramme.map((p) => (
                     <TableRow key={p.programId}>
                       <TableCell>{p.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{p.workspace ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{workspaceName(p.workspace)}</TableCell>
                       <TableCell className="text-right tabular-nums">{compact(p.current)}</TableCell>
                       <TableCell className="text-right tabular-nums">{compact(p.previous)}</TableCell>
                     </TableRow>
