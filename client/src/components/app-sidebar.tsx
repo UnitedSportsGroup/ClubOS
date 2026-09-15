@@ -193,7 +193,15 @@ const campsNav = [
   { tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { tab: "contacts", title: "Contacts", url: "/admin/contacts", icon: Users },
   { tab: "volunteers", title: "Volunteers", url: "/admin/volunteers", icon: HeartHandshake },
-  { tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // 🔴 A sub-page still has to be DRAWN here. `tabs.ts` and the route Switch
+    // are not enough — this array is what renders the link, and a page nobody
+    // can reach is a page nobody knows exists.
+    children: [
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "predictor", title: "Play Predictor", url: "/admin/predictor", icon: Trophy },
   // 10 years of Friendly Manager registrations + payments (imported 2026-07-14).
   { tab: "fm-history", title: "History", url: "/admin/fm-history", icon: HistoryIcon },

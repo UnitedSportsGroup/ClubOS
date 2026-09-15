@@ -53,13 +53,44 @@ the record whose form was actually filled in — and report. Worth a look:
 
 Full list: `outputs/contact-merges/conflicts.txt`.
 
+## 🟢 Done 15 Sep — the four years with no enrolments at all
+
+🔴 **A correction to what this file first said.** The gap was never "registrations for 2017–2025".
+History does not belong in `registrations` — it belongs in `fm_registration_history`, and that table
+already covered 2021–2026 because Friendly Manager's export went back to 2021 and no further. The
+real hole was **2017, 2018, 2019 and 2020: zero enrolments against 6,951 payments and $1,098,495.77.**
+
+**3,821 enrolments written. Ten unbroken years now on file:**
+
+| | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| enrolments | 865 | 1,237 | 1,107 | 612 | 792 | 1,608 | 2,148 | 2,440 | 1,750 | 1,146 |
+| people | 418 | 540 | 490 | 311 | 355 | 517 | 730 | 878 | 886 | 724 |
+
+Money unchanged at **$5,383,699.18**; live registrations untouched; **0 enrolments landed on a
+missing or retired contact**.
+
+🔴 **The payment reference is useless for those years and the LINE ITEM is gold.** 2,629 of the 2,867
+distinct references are a bare number — "2679", "3119". The invoice line items say
+*"Term 4 - U13 - U17 players: U17"*. (That bare-number reference is also the bug behind the ~50
+payments filed under season_year 2031–2099: the import's `\b(20\d\d)\b` matched one.)
+
+🔴 **A line item is not automatically an enrolment.** Uniform, socks, name prints, Mainland levies,
+referee fees, sanitiser, Spiideo and yellow-card fines sit on the same invoices: **4,201 lines were
+recognised and deliberately excluded**, and 851 more were left unclassified rather than guessed.
+
+🔴 **People were resolved through work already proven** — the invoice number reaches a payment row
+the earlier migration had already matched on child name AND payer email, then that answer carries
+across to the same Xero contact's other invoices. Re-matching names here would be a second,
+divergent answer to a settled question. Merged duplicates resolve to their survivor.
+
+Engine: `script/migrate-xero-enrolments.ts [--commit] [--from 2017] [--to 2020]`
+
 ## ⏳ What is genuinely still missing
 
-1. **Registrations for 2017–2025.** The money is all in; the ENROLMENTS are not. Live registrations
-   exist only for 2026 (1,234). Every prior year reads 0 against real Xero money:
-   2022 $376,872 · 2023 $405,387 · 2024 $595,305 · 2025 $797,182. The 2026 pass derived term and
-   programme from the invoice reference wording, so the same method extends backwards — the single
-   biggest remaining piece.
+1. **2,163 invoices in 2017–2020 belong to nobody we can name** (24%), and **851 line items are
+   unclassified** — "Auckland trip rest amount U13", "Waimak U9 white", "Affiliation fee". Both are
+   reported rather than guessed; teaching the rules a few more phrases would lift coverage.
 2. **429 payments are attached to no person at all.**
 3. **~50 payments carry a nonsense `season_year`** (2031–2099) — the year was parsed out of an
    invoice reference containing a number. Small amounts, but they land in the wrong year on any
