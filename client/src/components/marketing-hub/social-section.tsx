@@ -1,3 +1,4 @@
+import { workspaceName } from "./palette";
 import { useQuery } from "@tanstack/react-query";
 import { Facebook, Instagram } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -64,7 +65,7 @@ export function SocialSection({ query }: { query: string }) {
                           {a.label}
                         </span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{a.workspace ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{workspaceName(a.workspace)}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {a.followers == null ? "—" : compact(a.followers)}
                       </TableCell>

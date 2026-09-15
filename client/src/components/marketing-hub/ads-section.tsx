@@ -1,3 +1,4 @@
+import { workspaceName } from "./palette";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -64,7 +65,7 @@ export function AdsSection({ query }: { query: string }) {
           <Card key={p.key}>
             <CardContent className="p-4 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-foreground truncate">{p.label}</p>
+                <p className="text-sm font-medium text-foreground leading-snug">{p.label}</p>
                 <PlatformBadge status={p.status} />
               </div>
               {p.status === "error" && p.lastError && (
@@ -93,7 +94,7 @@ export function AdsSection({ query }: { query: string }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
         <StatTile
           label="Spend"
           value={money(data.totals.spendCents.current)}
@@ -151,7 +152,7 @@ export function AdsSection({ query }: { query: string }) {
             kind="money"
             items={data.byWorkspace.map((w) => ({
               key: w.workspace ?? "unassigned",
-              label: w.workspace ?? "Unassigned",
+              label: w.workspace ? workspaceName(w.workspace) : "Unassigned",
               value: w.spendCents,
               color: workspaceColor(w.workspace),
             }))}
@@ -185,7 +186,7 @@ export function AdsSection({ query }: { query: string }) {
                     <TableRow key={c.sourceId + c.campaignId}>
                       <TableCell className="max-w-xs truncate">{c.name}</TableCell>
                       <TableCell className="text-muted-foreground">
-                        {c.workspace ?? "—"}
+                        {workspaceName(c.workspace)}
                         <span className="block text-[11px]">{BASIS_LABEL[c.basis]}</span>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{money(c.spendCents)}</TableCell>

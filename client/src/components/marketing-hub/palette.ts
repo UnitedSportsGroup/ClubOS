@@ -1,3 +1,4 @@
+import { hubWorkspace } from "@shared/marketing-hub";
 import { HUB_WORKSPACES } from "@shared/marketing-hub";
 
 /**
@@ -26,4 +27,10 @@ export function workspaceColor(slug: string | null | undefined): string {
   const index = HUB_WORKSPACES.findIndex((w) => w.slug === slug);
   if (index === -1) return UNKNOWN_COLOR;
   return SERIES[index % SERIES.length];
+}
+
+/** A workspace's name for display — never its internal slug ("christchurch-united"). */
+export function workspaceName(slug: string | null | undefined): string {
+  if (!slug) return "—";
+  return hubWorkspace(slug)?.name ?? slug;
 }

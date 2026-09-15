@@ -1,3 +1,4 @@
+import { workspaceName } from "./palette";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -61,7 +62,7 @@ export function WebsitesSection({ query }: { query: string }) {
                       return (
                         <TableRow key={site.host}>
                           <TableCell>{site.label}</TableCell>
-                          <TableCell className="text-muted-foreground">{site.workspace ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{workspaceName(site.workspace)}</TableCell>
                           <TableCell className="text-right tabular-nums">{compact(site.visitors)}</TableCell>
                           <TableCell className="text-right tabular-nums">
                             {change == null ? "—" : `${change > 0 ? "+" : ""}${change.toFixed(0)}%`}

@@ -43,7 +43,7 @@ async function account(tag: string, workspace: string, role: string, tabs: strin
   const { rows: org } = await pool.query(`SELECT id FROM organizations WHERE slug = $1`, [workspace]);
   await pool.query(
     `INSERT INTO user_organizations (user_id, organization_id, role, tabs) VALUES ($1, $2, $3, $4)`,
-    [rows[0].id, org[0].id, role, tabs],
+    [rows[0].id, org[0].id, role, tabs == null ? null : JSON.stringify(tabs)],
   );
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
