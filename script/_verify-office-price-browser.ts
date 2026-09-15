@@ -203,23 +203,25 @@ async function main() {
   // reason, and the form says so rather than failing silently.
   await tap("checkbox-defer-nzf");
   await settle(1000);
-  const reasonSet = await page.evaluate(() => {
-    const t = document.querySelector('[data-testid="select-defer-reason"]') as HTMLElement | null;
-    if (!t) return false;
-    t.click();
-    return true;
-  });
-  await settle(800);
-  if (reasonSet) {
-    await page.evaluate(() => {
-      const opt = Array.from(document.querySelectorAll("[role=option]"))
-        .find((o) => /other/i.test(o.textContent || ""));
-      if (opt) (opt as HTMLElement).click();
-    });
+  // 🔴 A Radix Select opens on POINTERDOWN, not click — a synthetic el.click()
+  // does nothing (the same trap as a Radix tab). Drive it from the keyboard,
+  // which is also how a person at a counter with a full hand would.
+  const trigger = await page.$(`${MODAL} [data-testid="select-defer-reason"]`);
+  let reasonSet = false;
+  if (trigger) {
+    await page.evaluate((sel: string) => (document.querySelector(sel) as HTMLElement)?.focus(),
+      `${MODAL} [data-testid="select-defer-reason"]`);
+    await page.keyboard.press("Enter");
     await settle(700);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await settle(800);
+    reasonSet = await page.evaluate((sel: string) =>
+      !/choose a reason/i.test((document.querySelector(sel) as HTMLElement)?.innerText ?? "choose a reason"),
+      `${MODAL} [data-testid="select-defer-reason"]`);
     await typeIn("input-defer-note", "verification probe");
   }
-  ok("a reason for skipping the NZ Football details can be given", reasonSet);
+  ok("a reason for skipping the NZ Football details can be chosen", reasonSet);
   await settle(900);
   await page.screenshot({ path: `${SHOTS}/03-family.png` });
   await tap("button-next");
@@ -270,6 +272,20 @@ async function main() {
     (document.querySelector(`${sel} [data-testid="text-price-problem"]`) as HTMLElement)?.innerText ?? "", MODAL);
   ok("…and says why, on screen, in red", problem.includes("$150.00"), problem);
   await page.screenshot({ path: `${SHOTS}/07-refused.png` });
+
+  // 🔴 And the SUBMIT is blocked, not just the Apply button. The old form let a
+  // discarded price walk all the way through to a written registration; the
+  // Next button here deliberately always clicks (Olga's item 5 — a disabled
+  // button tells a person nothing) and names what is wrong instead.
+  await tap("button-next");
+  await settle(900);
+  const banner = await page.evaluate((sel: string) =>
+    (document.querySelector(`${sel} [data-testid="banner-missing-fields"]`) as HTMLElement)?.innerText ?? "", MODAL);
+  ok("pressing Next refuses, and names the price as the reason",
+    /agreed price/i.test(banner) && banner.includes("$150.00"), banner || "(no banner)");
+  const stillOnPayment = (await page.$(`${MODAL} [data-testid="text-total-owing"]`)) !== null;
+  ok("…and the form stays put rather than saving a price nobody chose", stillOnPayment);
+  await page.screenshot({ path: `${SHOTS}/08-submit-blocked.png` });
 
   ok("nothing threw a runtime error (a white screen is invisible to every other check)",
     errors.length === 0, errors.join(" | "));
