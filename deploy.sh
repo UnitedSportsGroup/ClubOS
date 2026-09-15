@@ -30,6 +30,11 @@
 #   2. WAKE THE LEGACY BUILDER and use it:
 #        fly machine list -a fly-builder-mellow-lagoon-2640
 #        fly machine start -a fly-builder-mellow-lagoon-2640 <machine-id>
+#      ⚠️ 2026-09-15: that builder app NO LONGER EXISTS ("app not found") — Fly
+#      moved everyone to depot. flyctl will provision a fresh classic builder on
+#      demand, but that is an ORG-level operation and the app-scoped token this
+#      script exports cannot do it (fails `unauthorized`). Use:
+#            ./deploy.sh --cli-login --depot=false --remote-only
 #
 #   Then:
 #     env -u FLY_API_TOKEN flyctl deploy -a clubos --depot=false --remote-only \
@@ -67,6 +72,7 @@ cd "$(dirname "$0")"
 # Strip our own flags out of "$@" before the rest is passed through to flyctl.
 _ALLOW_BEHIND=0
 _CHECK_ONLY=0
+_CLI_LOGIN=0
 _ARGS=()
 for _a in "$@"; do
   case "$_a" in
@@ -77,6 +83,15 @@ for _a in "$@"; do
     # 2026-09-09 before they were killed. A guard you cannot test safely is a
     # guard nobody will test.
     --check-only) _CHECK_ONLY=1 ;;
+    # 🔴 BUILD AS THE LOGGED-IN USER, not the app-scoped token from .env.
+    # The .env token is right for a normal deploy (see below) but it is scoped
+    # to the `clubos` APP, and provisioning a classic remote builder is an ORG
+    # operation. So when depot is down, the fallback this script's own header
+    # prescribes (--depot=false --remote-only) fails `unauthorized` — the token
+    # that makes deploys reliable is the same token that blocks the workaround.
+    # Read from ARGV, never an env var: an export would survive the whole shell
+    # session and silently change which identity every later deploy used.
+    --cli-login) _CLI_LOGIN=1 ;;
     *) _ARGS+=("$_a") ;;
   esac
 done
@@ -90,7 +105,12 @@ VITE_META_PIXEL_ID=$(grep -E '^VITE_META_PIXEL_ID=' .env | cut -d= -f2- | tr -d 
 # account the Fly CLI happens to be logged into (the CLI login drifts between
 # Daniel's accounts — broke the 2026-07-02 deploy).
 _FLY_TOKEN=$(grep -E '^FLY_API_TOKEN=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^"//;s/"$//')
-[ -n "$_FLY_TOKEN" ] && export FLY_API_TOKEN="$_FLY_TOKEN"
+if [ "$_CLI_LOGIN" = "1" ]; then
+  unset FLY_API_TOKEN
+  echo "  ⚠️  --cli-login: building as $(flyctl auth whoami 2>/dev/null || echo 'the logged-in CLI user'), NOT the app token."
+elif [ -n "$_FLY_TOKEN" ]; then
+  export FLY_API_TOKEN="$_FLY_TOKEN"
+fi
 
 if [ -z "$VITE_STRIPE_PUBLISHABLE_KEY" ]; then
   echo "❌ VITE_STRIPE_PUBLISHABLE_KEY missing in .env — refusing to ship a broken checkout."
