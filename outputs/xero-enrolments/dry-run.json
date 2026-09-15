@@ -1,0 +1,1525 @@
+{
+ "stat": {
+  "invoices": 8936,
+  "resolved": 6773,
+  "unresolved": 2163,
+  "lines": 9780,
+  "enrolments": 4728,
+  "notAProgramme": 4201,
+  "unclassified": 851,
+  "wroteRows": 0,
+  "already": 907
+ },
+ "byProgramme": [
+  [
+   "Trials U9",
+   30
+  ],
+  [
+   "Trials U10",
+   1
+  ],
+  [
+   "Registration (programme not stated) U6",
+   5
+  ],
+  [
+   "FUNiño / U4–U8 U8",
+   199
+  ],
+  [
+   "Registration (programme not stated) U11",
+   17
+  ],
+  [
+   "Academy",
+   749
+  ],
+  [
+   "Registration (programme not stated)",
+   159
+  ],
+  [
+   "Registration (programme not stated) U9",
+   25
+  ],
+  [
+   "Programme (unspecified)",
+   275
+  ],
+  [
+   "Morning Programme",
+   147
+  ],
+  [
+   "Registration (programme not stated) U13",
+   3
+  ],
+  [
+   "Academy U13",
+   260
+  ],
+  [
+   "Registration (programme not stated) U8",
+   12
+  ],
+  [
+   "Trials",
+   7
+  ],
+  [
+   "Winter Season U12",
+   49
+  ],
+  [
+   "Programme (unspecified) U10",
+   2
+  ],
+  [
+   "Winter Season U10",
+   73
+  ],
+  [
+   "Programme (unspecified) U9",
+   7
+  ],
+  [
+   "Winter Season U9",
+   57
+  ],
+  [
+   "Registration (programme not stated) U17",
+   1
+  ],
+  [
+   "Winter Season",
+   121
+  ],
+  [
+   "Winter Season U4",
+   4
+  ],
+  [
+   "Winter Season U13",
+   24
+  ],
+  [
+   "Winter Season U7",
+   9
+  ],
+  [
+   "Winter Season U11",
+   36
+  ],
+  [
+   "Winter Season U14",
+   17
+  ],
+  [
+   "Winter Season U8",
+   82
+  ],
+  [
+   "Registration (programme not stated) U10",
+   5
+  ],
+  [
+   "Holiday Programme",
+   49
+  ],
+  [
+   "FUNiño / U4–U8 U6",
+   39
+  ],
+  [
+   "Winter Season U6",
+   52
+  ],
+  [
+   "FUNiño / U4–U8",
+   1
+  ],
+  [
+   "Registration (programme not stated) U14",
+   3
+  ],
+  [
+   "Registration (programme not stated) U5",
+   2
+  ],
+  [
+   "FUNiño / U4–U8 U4",
+   209
+  ],
+  [
+   "Academy U9",
+   247
+  ],
+  [
+   "Registration (programme not stated) U7",
+   2
+  ],
+  [
+   "Tournament U11",
+   24
+  ],
+  [
+   "Tournament U13",
+   39
+  ],
+  [
+   "Tournament U9",
+   33
+  ],
+  [
+   "Tournament U8",
+   1
+  ],
+  [
+   "Tournament U14",
+   26
+  ],
+  [
+   "Registration (programme not stated) U12",
+   2
+  ],
+  [
+   "Tournament U10",
+   47
+  ],
+  [
+   "Tournament U12",
+   36
+  ],
+  [
+   "Academy U12",
+   11
+  ],
+  [
+   "Tournament",
+   355
+  ],
+  [
+   "Programme (unspecified) U12",
+   1
+  ],
+  [
+   "Registration (programme not stated) U4",
+   1
+  ],
+  [
+   "FUNiño / U4–U8 U7",
+   38
+  ],
+  [
+   "Programme (unspecified) U11",
+   4
+  ],
+  [
+   "Goalkeeper U9",
+   33
+  ],
+  [
+   "Skill Centre U4",
+   86
+  ],
+  [
+   "Skill Centre U13",
+   4
+  ],
+  [
+   "Goalkeeper U13",
+   3
+  ],
+  [
+   "Morning Programme U12",
+   46
+  ],
+  [
+   "Trials U13",
+   69
+  ],
+  [
+   "Skill Centre U9",
+   45
+  ],
+  [
+   "Academy U15",
+   201
+  ],
+  [
+   "Academy U14",
+   283
+  ],
+  [
+   "Skill Centre U7",
+   28
+  ],
+  [
+   "Winter Season U15",
+   16
+  ],
+  [
+   "Skill Centre U6",
+   18
+  ],
+  [
+   "Winter Season U17",
+   13
+  ],
+  [
+   "Goalkeeper",
+   1
+  ],
+  [
+   "Training Clinic U9",
+   37
+  ],
+  [
+   "Training Clinic U11",
+   30
+  ],
+  [
+   "Training Clinic U13",
+   21
+  ],
+  [
+   "Training Clinic",
+   6
+  ],
+  [
+   "Programme (unspecified) U17",
+   3
+  ],
+  [
+   "Programme (unspecified) U13",
+   1
+  ],
+  [
+   "Academy U17",
+   11
+  ],
+  [
+   "Academy U10",
+   30
+  ],
+  [
+   "Academy U11",
+   2
+  ],
+  [
+   "Technification",
+   78
+  ],
+  [
+   "Programme (unspecified) U15",
+   1
+  ],
+  [
+   "Online Course",
+   64
+  ]
+ ],
+ "unclassified": [
+  [
+   "Auckland trip rest amount U13",
+   15
+  ],
+  [
+   "September",
+   15
+  ],
+  [
+   "Bagpack CFA",
+   14
+  ],
+  [
+   "Nelson SIT U11 blues",
+   13
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $111.43 (starting 15 June to 15 December.",
+   13
+  ],
+  [
+   "old overpayment",
+   13
+  ],
+  [
+   "Seniors - Seniors: Reserves",
+   11
+  ],
+  [
+   "Waimak U9 white",
+   10
+  ],
+  [
+   "Affiliation fee",
+   10
+  ],
+  [
+   "Pride membership fee",
+   10
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice.",
+   9
+  ],
+  [
+   "Trck Pants size 14",
+   8
+  ],
+  [
+   "10GB email storage package for ecoquip.co.nz. One month. Provides 10GB of additional email storage that exceeds the allocated 5GB.",
+   8
+  ],
+  [
+   "Goal Keeper Kit size 12",
+   7
+  ],
+  [
+   "email storage overuse",
+   6
+  ],
+  [
+   "1 month website hosting.",
+   6
+  ],
+  [
+   "Monthly Fees for the services including: Accounts Receivables management,",
+   6
+  ],
+  [
+   "Accounts Payables management",
+   6
+  ],
+  [
+   "Monthly Management Reports, Payroll Processing and GST Returns",
+   6
+  ],
+  [
+   "Annual Financial Reports",
+   6
+  ],
+  [
+   "Annual Budget and Forecast",
+   6
+  ],
+  [
+   "Accountability reports for funding organisations 6 x $60",
+   6
+  ],
+  [
+   "Filing Annual Reports, AGM, Resolution with Societies and Trusts Registrar.",
+   6
+  ],
+  [
+   "Spreydon u14",
+   5
+  ],
+  [
+   "Rounding adjustment",
+   5
+  ],
+  [
+   "container hire",
+   5
+  ],
+  [
+   "Name & Number",
+   5
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $154.29 (starting 1 June to 15 December",
+   5
+  ],
+  [
+   "Monthly Management Reports, Payroll Processing and GST returns.",
+   4
+  ],
+  [
+   "Valencia trip",
+   4
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $154.29 (starting 15 June to 15 December",
+   4
+  ],
+  [
+   "Transport: $100 per term",
+   4
+  ],
+  [
+   "Polo Grey size M",
+   3
+  ],
+  [
+   "Full field lights usage per hour Mondays from 5:15-6:45pm (4 days x 1.5 hours)",
+   3
+  ],
+  [
+   "Full field lights usage per hour Tuesdays from 5:00 - 8:15pm (5 days x 3.25 hours )",
+   3
+  ],
+  [
+   "Full field lights usage per hour Thursdays from 5:00- 8:15pm (4 days x 3.25 hours)",
+   3
+  ],
+  [
+   "Half field lights usage per hour Fridays from 5:00- 5:15pm (3 days x 0.25 hours)",
+   3
+  ],
+  [
+   "U7-U12 girls only",
+   3
+  ],
+  [
+   "Email storage overuse for cufc.co.nz. One month. Per GB of storage that exceeds allocated 5GB of email storage.",
+   3
+  ],
+  [
+   "Accounts Receivables management, including: Reconciliation payments to invoices, issuing invoices as required, sending statements, sending reminders for overdue invoices, correcting all coding errors. (Invoice issued on agreed amount based on $5,000 per annum ($5000/12month=$416))",
+   3
+  ],
+  [
+   "This is your invoice for 2019 (full package) All payments paid on previous invoices were allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of 191.43 (startring 1 June to 15 December)",
+   3
+  ],
+  [
+   "This is your invoice for 2019 (full package) All your previous payments were allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $334.29 (starting 1 June to 15 December)",
+   3
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $68.57 (starting 15 June to 15 December.",
+   3
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $82.86 (starting 15 June to 15 December.",
+   3
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted. You may choose to pay the full amount, in which case your due date is 20 June. Alternatively you can choose to make 7 monthly payments of $137.14 (starting 18 June to 15 December)",
+   3
+  ],
+  [
+   "1 training per week",
+   3
+  ],
+  [
+   "Goal Keeper Kit size 14",
+   2
+  ],
+  [
+   "CUFC Badges",
+   2
+  ],
+  [
+   "monthly management reports",
+   2
+  ],
+  [
+   "Full field lights usage per hour",
+   2
+  ],
+  [
+   "Auckland trip",
+   2
+  ],
+  [
+   "Monthly field hire",
+   2
+  ],
+  [
+   "Valencia trip deposit",
+   2
+  ],
+  [
+   "Goal Keeper Kit size S",
+   2
+  ],
+  [
+   "10GB additional email storage for one month.",
+   2
+  ],
+  [
+   "Valencia Trip",
+   2
+  ],
+  [
+   "Valencia balance",
+   2
+  ],
+  [
+   "test",
+   2
+  ],
+  [
+   "This is your invoice for 2019 (full package) All your previous payments were allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of$277.71 (starting 1 June to 15 December)",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $152.85 (starting 1 June to 15 December",
+   2
+  ],
+  [
+   "This is your invoice for 2019 (full package) All your previous payments were allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $184.86 (starting 1 June to 15 December)",
+   2
+  ],
+  [
+   "This is your invoice for 2019 (full package) All your previous payments were allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $372.86 (starting 1 June to 15 December)",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $164.29 (starting 1 June to 15 December",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $154.29 (starting 15 June to 15 December.",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 20 June. Alternatively you can choose to make 7 monthly payments of $94.29 (starting 18 June to 15 December)",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $197.14 (starting 1 June to 15 December",
+   2
+  ],
+  [
+   "All your previous 2019 invoices have now been deleted and payments allocated to this invoice. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $102.86 (starting 1 June to 15 December",
+   2
+  ],
+  [
+   "This is your invoice for 2019. You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $197.14 (starting 1 June to 15 December)",
+   2
+  ],
+  [
+   "20% - technical glitch FM",
+   2
+  ],
+  [
+   "You may choose to pay the full amount, in which case your due date is 15 June. Alternatively you can choose to make 7 monthly payments of $154.29 (starting 15 June to 15 December.",
+   2
+  ],
+  [
+   "2. Hardship applied: $68.77",
+   2
+  ],
+  [
+   "Term fee: -2 trainings per week; -1 game day;",
+   2
+  ],
+  [
+   "CFA Backpack",
+   1
+  ],
+  [
+   "Balance of CFA fees 2016 Inv#3900 & Inv#3039",
+   1
+  ],
+  [
+   "01 Feb, 04 Feb, 08 Feb, 11 Feb, 15 Feb, 18 Feb, 22 Feb and 25 Feb",
+   1
+  ],
+  [
+   "Polo Grey size XXL",
+   1
+  ],
+  [
+   "Goal Keeping",
+   1
+  ],
+  [
+   "Less Skills Centre payment",
+   1
+  ],
+  [
+   "Credit. For the date 21 Feb 2017",
+   1
+  ],
+  [
+   "18/19 April 2 full days",
+   1
+  ],
+  [
+   "Polytesting",
+   1
+  ],
+  [
+   "credit",
+   1
+  ],
+  [
+   "Less $3.50 paid on invoice #0341",
+   1
+  ],
+  [
+   "CFC Cusion",
+   1
+  ],
+  [
+   "CFC Cushion",
+   1
+  ],
+  [
+   "Saturday 1 April and Saturday 8 April",
+   1
+  ],
+  [
+   "Field Hire March inv 0371",
+   1
+  ],
+  [
+   "Light usage March inv 0388",
+   1
+  ],
+  [
+   "21 April and 26 April - 2 full days",
+   1
+  ],
+  [
+   "20/21 April - 2 full days",
+   1
+  ],
+  [
+   "Size 6 Blue",
+   1
+  ],
+  [
+   "U6 PDP",
+   1
+  ],
+  [
+   "CFA Jersey S6",
+   1
+  ],
+  [
+   "Over charged on product. (To be reimbursed)",
+   1
+  ],
+  [
+   "Badge",
+   1
+  ],
+  [
+   "Polo Grey size XL",
+   1
+  ],
+  [
+   "Field Hire in May Senior team inv 0435 dated 5/06/17",
+   1
+  ],
+  [
+   "Monday 17 July, Tuesday 18 July and Friday 21 July",
+   1
+  ],
+  [
+   "PDP 26/06 and 03/07",
+   1
+  ],
+  [
+   "Spreydon u12",
+   1
+  ],
+  [
+   "Credit to be allocated",
+   1
+  ],
+  [
+   "18, 20 and 21st July Full day camps",
+   1
+  ],
+  [
+   "Container hire June",
+   1
+  ],
+  [
+   "Polo Grey size S",
+   1
+  ],
+  [
+   "Foldable Seat Cushion",
+   1
+  ],
+  [
+   "Field Hire Senior Team June",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 1/06, 8/06, 22/06, 29/06 from 5:15pm-6:45pm U13 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 2/06, 9/06, 16/06, 23/06, 30/06 from 4:00pm- 5:15 pm U9-10 (5 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 2/06, 9/06, 16/06, 23/06, 30/06 from 5:15pm- 6:45pm U11-12 and U13-14 (5 days x 1.5 hours )",
+   1
+  ],
+  [
+   "Half field hire (TUESDAY) 2/06, 9/06, 16/06, 23/06, 30/06 from 6:45 pm - 8:15 pm U14 (5 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (WEDNESDAY) 3/06, 10/06, 17/06, 24/06 from 4:00pm - 5:00pm U 6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 4/06, 11/06, 18/06, 25/06 from 4:00pm - 5:15pm U9-10 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 4/06, 11/06, 18/05, 25/06 from 5:15pm -6:45pm U11-12 and U13 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire x(THURSDAY) 4/06, 11/06, 18/06, 25/06 from 6:45 pm - 8:15 pm U13/14 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/06, 13/06, 20/06, 27/06 from 9:15am-10:30 am U13 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire(SATURDAY) 6/06, 13/06, 20/06, 27/06 from 9:30am - 10:30 am U10 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/06, 13/06, 20/06, 27/06 from 9:45am - 10:45 am U11 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/06, 13/06, 20/06, 27/06 from 10:30am - 11:30 am U9 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/06, 27/06 from 10:45am - 12:00pm U14 (2 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/06, 13/06, 20/06, 27/06 from 10:45am- 12:15pm U12 (4 days x 1.5 hour). On 6/05 x two halfs, 20/05 x two halfs,",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/06, 13/06, 20/06, 27/06 from 12:15pm -1:15pm U6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (FRIDAY) 12/06, 19/06, 26/06 PDP & GOALKEEPING from 4:00pm - 5:30 pm (3 days x 1.5 hour)",
+   1
+  ],
+  [
+   "Half field hire UNLIMITED 2/06, 4/06, 9/06, 11/06, 16/06, 18/06, 23/06, 25/06, 30/06 from 9:00 am - 9:45 am (9 days x 0.75 hour)",
+   1
+  ],
+  [
+   "Field Hire UNLIMITED",
+   1
+  ],
+  [
+   "Field Hire PDP/Goalkeeping",
+   1
+  ],
+  [
+   "Field hire",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 12/06, 19/06, 26/06 from 5:15pm-6:45pm U13 (3 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 6/06, 13/06, 20/06, 27/06 from 4:00pm- 5:15 pm U9-10 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 6/06, 13/06, 20/06, 27/06 from 5:15pm- 6:45pm U11-12 and U13 (4 days x 1.5 hours ) x 2 fields",
+   1
+  ],
+  [
+   "Half field hire (TUESDAY) 6/06, 20/06, 27/06 from 6:45 pm - 8:15 pm U14 (4 days x 1.5 hours) (*13/06 is canceled due to triple booking)",
+   1
+  ],
+  [
+   "Full field hire (WEDNESDAY) 7/06, 14/06, 21/06, 28/06 from 4:00pm - 5:00pm U 6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 1/06, 8/06, 15/06, 22/06, 29/06 from 4:00pm - 5:15pm U9-10 (5 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 1/06, 8/06, 15/06, 22/06, 29/06 from 5:15pm -6:45pm U11-12 and U13 (5 days x 1.5 hours) x 2 fields",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 1/06, 8/06, 15/06, 22/06, 29/06 from 6:45pm-8:15 pm U13White/U-14 (5 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 3/06, 10/06, 17/06, 24/06 from 9:15am-10:30 am U13 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire(SATURDAY) 3/06, 10/06, 17/06, 24/06 from 9:30am - 10:30 am U10 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 3/06, 10/06, 17/06, 24/06 from 9:45am - 10:45 am U11 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 3/06, 10/06, 24/06 from 10:30am - 11:30 am U9 (3 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 10/06, 17/06, 24/06 from 10:45am - 12:00pm U14 (3 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 3/06, 10/06, 17/06, from 10:45am- 12:15pm U12 (3 days x 1.5 hour + one day 3/06 full field)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 3/06, 10/06, 17/06, 24/06 from 12:15pm -1:15pm U6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (FRIDAY) 2/06, 9/06, 16/06, 23/06, 30/06 PDP & GOALKEEPING from 4:00pm - 5:30 pm (5 days x 1.5 hour)",
+   1
+  ],
+  [
+   "Half field hire UNLIMITED 1/06, 6/06, 8/06, 13/06, 15/06, 20/06, 22/06, 27/06, 29/06 from 9:00 am - 9:45 am (9 days x 0.75 hour)",
+   1
+  ],
+  [
+   "Full field lights usage per hour Mondays from 4:45 -6:45pm (3 days x 2 hours)",
+   1
+  ],
+  [
+   "Full field lights usage per hour Tuesdays from 4:45 - 8:15pm (4 days x 3.5 hours )",
+   1
+  ],
+  [
+   "Full field lights usage per hour Thursdays from 4:45- 8:15pm (5 days x 3.5 hours)",
+   1
+  ],
+  [
+   "Half field lights usage per hour Fridays from 4:45- 5:30pm (5 days x 0.75 hours)",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 1/05, 8/05, 22/05, 29/05 from 5:15pm-6:45pm U13 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 2/05, 9/05, 16/05, 23/05, 30/05 from 4:00pm- 5:15 pm U9-10 (5 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 2/05, 9/05, 16/05, 23/05, 30/05 from 5:15pm- 6:45pm U11-12 and U13-14 (5 days x 1.5 hours )",
+   1
+  ],
+  [
+   "Half field hire (TUESDAY) 2/05, 9/05, 16/05, 23/05, 30/05 from 6:45 pm - 8:15 pm U14 (5 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (WEDNESDAY) 3/05, 10/05, 17/05, 24/05 from 4:00pm - 5:00pm U 6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 4/05, 11/05, 18/05, 25/05 from 4:00pm - 5:15pm U9-10 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 4/05, 11/05, 18/05, 25/05 from 5:15pm -6:45pm U11-12 and U13 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire x(THURSDAY) 4/05, 11/05, 18/06, 25/06 from 6:45 pm - 8:15 pm U13/14 (4 days x 1.5 hours)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/05, 13/05, 20/05, 27/05 from 9:15am-10:30 am U13 (4 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire(SATURDAY) 6/05, 13/05, 20/05, 27/05 from 9:30am - 10:30 am U10 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/05, 13/05, 20/05, 27/05 from 9:45am - 10:45 am U11 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/05, 13/05, 20/05, 27/05 from 10:30am - 11:30 am U9 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/05, 27/05 from 10:45am - 12:00pm U14 (2 days x 1.25 hours)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 6/05, 13/05, 20/05, 27/05 from 10:45am- 12:15pm U12 (4 days x 1.5 hour). On 6/05 x two halfs, 20/05 x two halfs,",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 6/05, 13/05, 20/05, 27/05 from 12:15pm -1:15pm U6-8 (4 days x 1 hour)",
+   1
+  ],
+  [
+   "Half field hire (FRIDAY) 12/05, 19/05, 26/05 PDP & GOALKEEPING from 4:00pm - 5:30 pm (3 days x 1.5 hour)",
+   1
+  ],
+  [
+   "Half field hire UNLIMITED 2/05, 4/05, 9/05, 11/05, 16/05, 18/05, 23/05, 25/05, 30/05 from 9:00 am - 9:45 am (9 days x 0.75 hour)",
+   1
+  ],
+  [
+   "Physio - Senior Team June",
+   1
+  ],
+  [
+   "$6.25 x 8 sessions (T3 - Tues only)",
+   1
+  ],
+  [
+   "trail",
+   1
+  ],
+  [
+   "U9 Tuesday/Thursday",
+   1
+  ],
+  [
+   "Game Day (4)",
+   1
+  ],
+  [
+   "Size 8 CFA Kit",
+   1
+  ],
+  [
+   "Marat 5 Aug - 3 Sept",
+   1
+  ],
+  [
+   "Lew 21 Aug - 3 Sept",
+   1
+  ],
+  [
+   "Tony 21Aug- 3 Sept",
+   1
+  ],
+  [
+   "Container hire August",
+   1
+  ],
+  [
+   "Printer August",
+   1
+  ],
+  [
+   "Container hire August inv NZLU2225703 dated 31/08",
+   1
+  ],
+  [
+   "media adviser",
+   1
+  ],
+  [
+   "Field Hire August Senior Team",
+   1
+  ],
+  [
+   "Tony 18/09-1/10",
+   1
+  ],
+  [
+   "Lew 18/09-1/10",
+   1
+  ],
+  [
+   "Web installements inv 0375 dated 1/10/17",
+   1
+  ],
+  [
+   "September container hire (Seniors) inv 211830 dated 30/09/17",
+   1
+  ],
+  [
+   "Printer September inv 48232 dated 30/09/17",
+   1
+  ],
+  [
+   "Container hire September inv 0586 dated 5/10/17",
+   1
+  ],
+  [
+   "Annual domain charge Dec 2017/2018",
+   1
+  ],
+  [
+   "Christchurch United FC Jersey - Blue - Y10 (sizes: Y10)",
+   1
+  ],
+  [
+   "Physio Senior team inv 2950 dated 31/08/17",
+   1
+  ],
+  [
+   "Christchurch United FC Jersey - Blue - Y8 (sizes: Y8)",
+   1
+  ],
+  [
+   "Web update and changes inv 0220 dated 4/06/17",
+   1
+  ],
+  [
+   "inv 2909 dated 31/07/17",
+   1
+  ],
+  [
+   "inv 3012 dated 30/09/17 INTERST CHARGED",
+   1
+  ],
+  [
+   "Coen service provided October",
+   1
+  ],
+  [
+   "website installment Inv 0399 dated 1 /11/17",
+   1
+  ],
+  [
+   "website hosting from 1 /11/17 inv 0393",
+   1
+  ],
+  [
+   "printer meter (October)",
+   1
+  ],
+  [
+   "Container hire October - Seniors",
+   1
+  ],
+  [
+   "Monthly report, GST filing",
+   1
+  ],
+  [
+   "Accountancy October",
+   1
+  ],
+  [
+   "Accountig",
+   1
+  ],
+  [
+   "Monthly reports, GST",
+   1
+  ],
+  [
+   "accounts management, invoicig",
+   1
+  ],
+  [
+   "This invoice has been raised in order to substitute FM-145, which has been credited in FM as Harry has a credit of 75$ due to overpayment. Since applying credit to FM-145 in Xero would cause disruption in FM, therefore FM has been credited in FM for 75$ and INV-1689 has been issued instead.",
+   1
+  ],
+  [
+   "This invoice has been raised as the previous FM-154 had been credited due to the club's policy of writing-off outstanding invoices with the balance due below 20$. As the client has eventually paid for FM-154, we had to create a new invoice to reconcile his payment and record sales revenue.",
+   1
+  ],
+  [
+   "generated in order to delete it",
+   1
+  ],
+  [
+   "U9 transfer from U8",
+   1
+  ],
+  [
+   "James Robert Stewart",
+   1
+  ],
+  [
+   "Printer January",
+   1
+  ],
+  [
+   "Wellington trip funding",
+   1
+  ],
+  [
+   "Budget 2018",
+   1
+  ],
+  [
+   "Statement of financial performance COMMUNITY",
+   1
+  ],
+  [
+   "Statement of financial performance 1st TEAM",
+   1
+  ],
+  [
+   "Website upgrades, changes inv 0220 dated 4/06/17",
+   1
+  ],
+  [
+   "website upgrade, changes inv 0173 dated 18/04/17",
+   1
+  ],
+  [
+   "E-mail Storage overuse one month, inv 0493 dated 5/02/18",
+   1
+  ],
+  [
+   "Full field hire (Thursday) 1, 8 February from 6:30pm-8:00pm 15, 22 February from 8:00pm-9:30 pm",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 10, 17, 24 Feb from 9:00am-10:00am",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 17 Feb from 4:30pm-6:30 pm",
+   1
+  ],
+  [
+   "Full field hire (Monday) 5, 19, 26 Feb from 7:00pm-8:30pm , on 12 February 6:30pm-8:00pm",
+   1
+  ],
+  [
+   "Full field hire (Tuesday) 13, 27 Feb from 6:30pm-8:00pm",
+   1
+  ],
+  [
+   "credit $8.00",
+   1
+  ],
+  [
+   "acc receivables management",
+   1
+  ],
+  [
+   "documents for trusts (funding accounting)",
+   1
+  ],
+  [
+   "entering budget to xero",
+   1
+  ],
+  [
+   "March 2018 plan",
+   1
+  ],
+  [
+   "container hire March 2018",
+   1
+  ],
+  [
+   "Friendly Manager 500 Get your life back with Friendly Manager club administration. Your plan is for up to 500 members for the month of April 2018.",
+   1
+  ],
+  [
+   "repair of Frontrunner banner",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 1, 8 , 15, 22, 29 March from 4-8 pm S1, from 4-7 pm S2, (5 days x 7 hours)",
+   1
+  ],
+  [
+   "Full field hire (FRIDAY) 2 March rom 4:30-5:30 pm S1+S2, from 7-8:15 pm S1,",
+   1
+  ],
+  [
+   "Full field hire(FRIDAY) 9 March from 4:30-5:30 pm S1+S2, from 6:00-7:30pm S2",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 3 March from 10am -12pm S1, 10am-12:15 pm S2",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 10 March from from 10am-12pm S1+ S2",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 17 March from 10am-11am (Grass)",
+   1
+  ],
+  [
+   "Half field hire (SATURDAY) 24 Feb from 10am-11am I2",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 5, 12, 19, 26 March from 4:00pm-5:15 pm S2(4 days x 1.25hours)",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 6, 13, 20 , 27 March from 4- 8 pm S1, from 4-6:45 pm S2,",
+   1
+  ],
+  [
+   "Full field hire (WEDNESDAY) 7, 14, 21, 28 March from 4-5 pm",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 24 March from 10am-1pm S1, from 10 am-12pm S2",
+   1
+  ],
+  [
+   "Full field hire (FRIDAY) 16 March from 4:30-6:00pm S2",
+   1
+  ],
+  [
+   "Full field hire (FRIDAY) 23 March from 4:30-5:30pm S1, from 5:00-8:00pm S2",
+   1
+  ],
+  [
+   "Full field hire (Thursday) 1, 8 , 15, 22, 29 March from 8:00pm-9:30pm",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 3 March from 4:30pm-6:30pm, from 9am-10am S2",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 10, 17 March from 9am-10am S2",
+   1
+  ],
+  [
+   "Full field hire (Monday) 5, 12, 19, 26 March from 7:00pm-8:30pm",
+   1
+  ],
+  [
+   "Full field hire (Tuesday) 6, 13, 20, 27 March from 8pm-9:30pm",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 24 March from 2:30pm-4:30pm S1, from 9am-10am S2",
+   1
+  ],
+  [
+   "Full field hire (Thursday) 5, 12, 19, 26 April from 8:00pm-9:30pm",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 7 April 12 pm - 4:30 pm S1,",
+   1
+  ],
+  [
+   "Full field hire (Saturday) 17 April from 2pm-4:30pm2",
+   1
+  ],
+  [
+   "Full field hire (Monday) 30 April from 8:00pm-9:00 pm, 4:00pm-6:45pm",
+   1
+  ],
+  [
+   "Full field hire (Tuesday) 3, 10, 17, 24 April from 8:00pm-9:30 pm",
+   1
+  ],
+  [
+   "Full field hire (THURSDAY) 5, 12 April from 4-8 pm S1, from 4-7 pm S2, (2 days x 7 hours)",
+   1
+  ],
+  [
+   "Full field hire (Thursday) 26 April rom 4:00 pm-8:00 pm S1",
+   1
+  ],
+  [
+   "Full field hire(FRIDAY) 6, 13 April from 4:30-5:30 pm S1, from 4:30 pm-5:30 pm S2, 27 April from 6:00pm-7:00pm",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 7 April from 9 am -12pm S1, 9 am-2:00 pm S2, from 9:45am-10:45 am S3, from 9:15am-10:30am S4",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 17 April from from 9am-12pm S1+ S2",
+   1
+  ],
+  [
+   "Full field hire (SATURDAY) 28 April from 9am-12pm S1, from 10:00am-2:00 pm S2",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 9 April from 4:00pm-5:15 pm S2, from 7:00pm-8:30pm S2",
+   1
+  ],
+  [
+   "Full field hire (MONDAY) 16, 23 April from 7:00pm-8:30 pm S2",
+   1
+  ],
+  [
+   "Full field hire (WEDNESDAY) 4, 11 from 4-5 pm",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 3, 10 April from 4- 8 pm S1, from 4-6:45 pm S2,",
+   1
+  ],
+  [
+   "Full field hire (TUESDAY) 24 April from 4:00pm-5:00pm S2, from 7:00 pm-8:00pm S1",
+   1
+  ],
+  [
+   "Full field lights usage per hour - Monday 3 hours, Tuesday 8 hours, Thursday 7 hours, Friday 1.5 hours,",
+   1
+  ],
+  [
+   "advanced package website hosting, 1 month website hosting",
+   1
+  ],
+  [
+   "playing for the CUFC first team",
+   1
+  ],
+  [
+   "First Team costs",
+   1
+  ],
+  [
+   "April 2018 plan",
+   1
+  ],
+  [
+   "Monthly invoice March 2018",
+   1
+  ],
+  [
+   "email storage",
+   1
+  ],
+  [
+   "Advanced package website hosting - cufc.co.nz. Three calendar months beginning from 1st May 2018. Includes up to 30 minutes of free maintenance per month. 1GB website disk space and 5GB of email storage per domain name.",
+   1
+  ],
+  [
+   "May 2018",
+   1
+  ],
+  [
+   "Media and communications support for April",
+   1
+  ],
+  [
+   "22/02/2018 For Winds - Preparation of information for Accountability report: including collection of appropriate bank statements and invoices.",
+   1
+  ],
+  [
+   "24/04/2018 - Processing payables",
+   1
+  ],
+  [
+   "29/05/2018 - The Lion Foundation - Preparation of information for Accountability report: including collection of appropriate bank statements and invoices.",
+   1
+  ],
+  [
+   "Monthly retainer for Communications and Media engagement support",
+   1
+  ],
+  [
+   "Friendly Manager 500 for up to 500 members for June 2018.",
+   1
+  ],
+  [
+   "weekly fees",
+   1
+  ],
+  [
+   "accounting fees",
+   1
+  ],
+  [
+   "Reimburse CFCT legal costs to Linwood Law",
+   1
+  ],
+  [
+   "Friendly Manager 500 for up to 500 members for July 2018.",
+   1
+  ],
+  [
+   "consulting",
+   1
+  ],
+  [
+   "Monthly Retainer for Media communications: - Writing articles and media releases around Todd Beane visit - Pitch, organise and manage TVNZ crew to film item with Todd Beane and get CUFC on One News bulletin",
+   1
+  ],
+  [
+   "Alarm guard attendance (Fernando site visit after 10 pm)",
+   1
+  ],
+  [
+   "Guard alarm attendance (gates left opened for overnight).",
+   1
+  ],
+  [
+   "Goal Keeper Kit size M",
+   1
+  ],
+  [
+   "website hosting",
+   1
+  ],
+  [
+   "Friendly Manager 500 for up to 500 members for August 2018.",
+   1
+  ],
+  [
+   "Sin Bin",
+   1
+  ],
+  [
+   "ground plugs for Spreydon fields",
+   1
+  ],
+  [
+   "23 Jul 2018 - as per Slava's email processed payments, wages.",
+   1
+  ],
+  [
+   "24 Jul 2018 - as per Slava's email processed payments, wages.",
+   1
+  ],
+  [
+   "30 Aug 2018 - correspondence re Fernando's annual leave",
+   1
+  ],
+  [
+   "Updating Club's Balance Sheet for Aug 2018 as required by The Board",
+   1
+  ],
+  [
+   "Auckland trip U13",
+   1
+  ],
+  [
+   "reimbursing field hire paid to us to Canterbury Sport",
+   1
+  ],
+  [
+   "monthly subscription",
+   1
+  ],
+  [
+   "Monthly Retainer for communications, marketing and media support.",
+   1
+  ],
+  [
+   "email overuse",
+   1
+  ],
+  [
+   "email account maintenance",
+   1
+  ]
+ ]
+}

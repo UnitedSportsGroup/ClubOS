@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-11T05:02:44.284Z",
+ "generated": "2026-09-15T00:26:18.280Z",
  "sources": [
   {
    "source": "xero",
@@ -27,10 +27,10 @@
   }
  ],
  "groups": {
-  "total": 39,
-  "records": 106,
+  "total": 40,
+  "records": 108,
   "safe": 1,
-  "ask": 38,
+  "ask": 39,
   "detail": [
    {
     "who": "charlie salmond",
@@ -96,19 +96,6 @@
     ]
    },
    {
-    "who": "jasper wu",
-    "family": "wuyujia24@gmail.com",
-    "records": 4,
-    "distinct_dobs": 2,
-    "no_dob": 2,
-    "ids": [
-     31591,
-     36393,
-     36394,
-     36395
-    ]
-   },
-   {
     "who": "oscar oughton",
     "family": "amymarie.oughton@gmail.com",
     "records": 4,
@@ -122,15 +109,16 @@
     ]
    },
    {
-    "who": "willem farrant",
-    "family": "amywfarrant@gmail.com",
-    "records": 3,
+    "who": "jasper wu",
+    "family": "wuyujia24@gmail.com",
+    "records": 4,
     "distinct_dobs": 2,
-    "no_dob": 0,
+    "no_dob": 2,
     "ids": [
-     32426,
-     36211,
-     36212
+     31591,
+     36393,
+     36394,
+     36395
     ]
    },
    {
@@ -143,18 +131,6 @@
      35853,
      35958,
      36367
-    ]
-   },
-   {
-    "who": "patrick finn",
-    "family": "finncarpentryservices@gmail.com",
-    "records": 3,
-    "distinct_dobs": 2,
-    "no_dob": 1,
-    "ids": [
-     35915,
-     35992,
-     37244
     ]
    },
    {
@@ -179,6 +155,30 @@
      36295,
      36296,
      36453
+    ]
+   },
+   {
+    "who": "willem farrant",
+    "family": "amywfarrant@gmail.com",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     32426,
+     36211,
+     36212
+    ]
+   },
+   {
+    "who": "patrick finn",
+    "family": "finncarpentryservices@gmail.com",
+    "records": 3,
+    "distinct_dobs": 2,
+    "no_dob": 1,
+    "ids": [
+     35915,
+     35992,
+     37244
     ]
    },
    {
@@ -256,6 +256,17 @@
     "ids": [
      30583,
      37232
+    ]
+   },
+   {
+    "who": "mitch mardon",
+    "family": "khai.mardon@gmail.com",
+    "records": 2,
+    "distinct_dobs": 2,
+    "no_dob": 0,
+    "ids": [
+     33012,
+     37841
     ]
    },
    {
@@ -492,8 +503,8 @@
   ]
  },
  "move": {
-  "losers": 67,
-  "rows": 308,
+  "losers": 68,
+  "rows": 316,
   "moneyOnLosers": 9078.9
  },
  "collisions": 0,
@@ -873,7 +884,7 @@
   "registrationsByYear": [
    [
     2026,
-    1234
+    1242
    ]
   ]
  }
