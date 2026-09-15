@@ -1112,17 +1112,22 @@ export function RegisterPlayerModal({
                 {deferIdentity && (
                   <div className="mt-3 space-y-3 rounded-md p-3" style={{ background: "rgba(255,193,7,0.06)", border: "1px solid rgba(255,193,7,0.25)" }}>
                     <Field label="Why" required>
-                      <select
-                        value={deferReason}
-                        onChange={(e) => setDeferReason(e.target.value)}
-                        className={`w-full h-10 rounded-md px-3 text-sm ${FIELD} border`}
-                        data-testid="select-defer-reason"
-                      >
-                        <option value="">Choose a reason…</option>
-                        {IDENTITY_DEFER_REASONS.map((r) => (
-                          <option key={r} value={r} className="bg-background text-foreground">{r}</option>
-                        ))}
-                      </select>
+                      {/* shadcn, not a bare <select> — the same standing rule the
+                          Gender picker above already follows, and the same reason:
+                          a native select paints its options with the OS panel, so
+                          this control looks different on Olga's Windows machine
+                          from everyone's Mac. It was the last bare select left in
+                          the form staff use every day. */}
+                      <Select value={deferReason || undefined} onValueChange={setDeferReason}>
+                        <SelectTrigger className={FIELD} data-testid="select-defer-reason">
+                          <SelectValue placeholder="Choose a reason…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {IDENTITY_DEFER_REASONS.map((r) => (
+                            <SelectItem key={r} value={r}>{r}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field label={deferReason === "Other" ? "Note (required)" : "Note (optional)"}>
                       <Input

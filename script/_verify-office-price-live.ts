@@ -106,8 +106,19 @@ async function cleanup() {
     await pool.query(`DELETE FROM registration_items WHERE registration_id=$1`, [id]).catch(() => {});
     await pool.query(`DELETE FROM registrations WHERE id=$1`, [id]).catch(() => {});
   }
-  for (const id of madeContacts) {
-    await pool.query(`DELETE FROM contact_relationships WHERE from_contact_id=$1 OR to_contact_id=$1`, [id]).catch(() => {});
+  // 🔴 Sweep by the probe's own naming, not just by the registrations we
+  // remembered. A request that is REFUSED still mints the guardian and player
+  // before it reaches the price check, so an assertion that fails leaves people
+  // behind — five real rows were orphaned in production the first time this ran.
+  // Nothing with a registration tied to it is ever removed.
+  const { rows: strays } = await pool.query(
+    `SELECT id FROM contacts
+      WHERE email LIKE '\_price\_probe\_%' OR last_name LIKE 'Probe17%' OR last_name LIKE 'Child17%'`);
+  for (const id of [...new Set([...madeContacts, ...strays.map((r: any) => r.id)])]) {
+    const { rows: tied } = await pool.query(
+      `SELECT count(*)::int n FROM registrations WHERE contact_id=$1 OR guardian_id=$1`, [id]);
+    if (Number(tied[0].n) > 0) continue;
+    await pool.query(`DELETE FROM contact_relationships WHERE guardian_id=$1 OR player_id=$1`, [id]).catch(() => {});
     await pool.query(`DELETE FROM contacts WHERE id=$1`, [id]).catch(() => {});
   }
   if (tempUserId) {
@@ -221,7 +232,11 @@ async function main() {
   await cleanup();
   const { rows: gone } = await pool.query(
     `SELECT count(*)::int n FROM registrations WHERE id = ANY($1::int[])`, [madeRegistrations]);
-  ok("the probe registration was removed from production", Number(gone[0].n) === 0);
+  ok("the probe registrations were removed from production", Number(gone[0].n) === 0, String(gone[0].n));
+  const { rows: left } = await pool.query(
+    `SELECT count(*)::int n FROM contacts
+      WHERE email LIKE '\_price\_probe\_%' OR last_name LIKE 'Probe17%' OR last_name LIKE 'Child17%'`);
+  ok("…and so were the people they created", Number(left[0].n) === 0, `${left[0].n} left behind`);
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   await pool.end();
