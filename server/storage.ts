@@ -2257,6 +2257,9 @@ export class DatabaseStorage implements IStorage {
         sentAt: emailCampaigns.sentAt,
         createdAt: emailCampaigns.createdAt,
         createdByUserId: emailCampaigns.createdByUserId,
+        senderSource: emailCampaigns.senderSource,
+        senderRecordedByUserId: emailCampaigns.senderRecordedByUserId,
+        senderRecordedAt: emailCampaigns.senderRecordedAt,
       })
       .from(emailCampaigns)
       .where(where)
@@ -2272,7 +2275,8 @@ export class DatabaseStorage implements IStorage {
     // 🔴 The NAME is resolved at read time, never denormalised onto the row —
     // people get corrected, and a name frozen at send time goes stale. One
     // batched query, the same shape as servedByName.
-    const senderIds = Array.from(new Set(rows.map(r => r.createdByUserId).filter((x): x is number => !!x)));
+    const senderIds = Array.from(new Set(
+      rows.flatMap(r => [r.createdByUserId, r.senderRecordedByUserId]).filter((x): x is number => !!x)));
     const staff = senderIds.length
       ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
           .from(users).where(inArray(users.id, senderIds))
@@ -2285,6 +2289,8 @@ export class DatabaseStorage implements IStorage {
         // A campaign sent before the column existed reads as the ADDRESS it went
         // out under — which is true and useful — and never as an invented person.
         senderName: r.createdByUserId ? nameById.get(r.createdByUserId) ?? null : null,
+        // Who ASSERTED it, when it was not ClubOS itself.
+        senderRecordedByName: r.senderRecordedByUserId ? nameById.get(r.senderRecordedByUserId) ?? null : null,
       })) as any,
       total: Number(counted?.n ?? 0),
     };

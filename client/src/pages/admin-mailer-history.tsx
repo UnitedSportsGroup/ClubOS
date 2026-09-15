@@ -11,12 +11,12 @@
 // search box, sortable Date / Subject / Sender / Recipients, the recipient count
 // as a link, View Message, and "Showing X to Y of Z entries".
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle, BadgeCheck, UserPen } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
 
 type Campaign = {
@@ -24,6 +24,8 @@ type Campaign = {
   recipientCount: number | null; sentCount: number | null; failedCount: number | null;
   status: string | null; sentAt: string | null; createdAt: string;
   createdByUserId: number | null; senderName: string | null;
+  senderSource: "authenticated" | "recorded_by_hand" | null;
+  senderRecordedByName: string | null; senderRecordedAt: string | null;
 };
 type SortKey = "date" | "subject" | "sender" | "recipients";
 
@@ -40,16 +42,107 @@ function whenLabel(iso: string | null): string {
 
 /**
  * 🔴 WHO SENT IT — and never an invented person.
- * A campaign sent before the sender was recorded reads as the ADDRESS it went
- * out under, which is true and still useful, visibly marked as not-a-person.
+ *
+ * A name with the tick means ClubOS knows the ACCOUNT that pressed send, so it
+ * is an authenticated fact about a person, not a label somebody typed. A
+ * campaign sent before that was recorded shows the ADDRESS it went out under,
+ * in italics and with NO tick — true, still useful, and visibly not a person.
+ * The tick is the whole distinction; putting one on both would erase it.
  */
-function Sender({ c }: { c: Campaign }) {
-  if (c.senderName) return <span className="text-[13px] text-white/70">{c.senderName}</span>;
+function Sender({ c, canEdit, onSet }: { c: Campaign; canEdit: boolean; onSet: () => void }) {
+  if (c.senderName) {
+    // 🔴 RECORDED BY HAND — a person's recollection, not something ClubOS saw.
+    // Same name, deliberately NO tick, and it says who vouched for it.
+    if (c.senderSource === "recorded_by_hand") {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[13px] text-white/70" data-testid={`sender-${c.id}`} data-verified="false"
+          title={`Recorded by ${c.senderRecordedByName ?? "a super admin"}${c.senderRecordedAt ? ` on ${whenLabel(c.senderRecordedAt)}` : ""} — ClubOS did not see this send, so it is not verified.`}>
+          {c.senderName}
+          <UserPen className="w-3.5 h-3.5 text-white/30 shrink-0" aria-label="Recorded by hand, not verified" />
+          {canEdit && (
+            <button onClick={onSet} className="text-[11px] text-blue-400/70 hover:underline cursor-pointer" data-testid={`change-sender-${c.id}`}>change</button>
+          )}
+        </span>
+      );
+    }
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-[13px] text-white/75"
+        data-testid={`sender-${c.id}`} data-verified="true"
+        title={`Sent from ${c.senderName}'s ClubOS account`}
+      >
+        {c.senderName}
+        {/* Authenticated, not typed: ClubOS knows which account pressed send. */}
+        <BadgeCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" aria-label="Sent from this person's ClubOS account" />
+      </span>
+    );
+  }
   const addr = (c.fromEmail ?? "").replace(/\s*<[^>]*>\s*/, "").trim() || c.fromEmail || "—";
   return (
-    <span className="text-[13px] text-white/40 italic" title="Sender not recorded — this campaign predates the sender being stored. Showing the address it was sent from.">
-      {addr}
+    <span className="inline-flex items-center gap-2" data-testid={`sender-${c.id}`} data-verified="false">
+      <span className="text-[13px] text-white/40 italic"
+        title="Sent before ClubOS recorded who pressed send — this is the address it went out under, not a person.">
+        {addr}
+      </span>
+      {canEdit && (
+        <button onClick={onSet} className="text-[11px] text-blue-400/70 hover:underline cursor-pointer whitespace-nowrap" data-testid={`set-sender-${c.id}`}>
+          who sent this?
+        </button>
+      )}
     </span>
+  );
+}
+
+/** Pick the staff member who sent a campaign from before ClubOS stamped it. */
+function SetSenderDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data } = useQuery<any>({ queryKey: ["/api/admin/users"] });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const people = (data?.users ?? data ?? []).filter((u: any) => u?.active !== false);
+
+  const save = async (userId: number | null) => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await workspaceFetch(`/api/admin/mailer/campaigns/${campaign.id}/sender`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Could not record that");
+      await qc.invalidateQueries({ queryKey: ["/api/admin/mailer/campaigns"] });
+      onClose();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle className="text-[15px]">Who sent this?</DialogTitle></DialogHeader>
+        <p className="text-[12px] text-white/45 -mt-2">{campaign.subject}</p>
+        {/* 🔴 Say plainly what this is worth. */}
+        <p className="text-[11px] text-white/40 leading-relaxed">
+          ClubOS didn't record who pressed send on this one, so there's nothing to look up — this is
+          your recollection. It'll show the name <strong>without</strong> the verified tick, and note
+          that you recorded it.
+        </p>
+        {err && <p className="text-[12px] text-red-500">{err}</p>}
+        <div className="max-h-[40vh] overflow-y-auto rounded-xl border border-blue-500/[0.08]">
+          {people.map((u: any) => (
+            <button key={u.id} disabled={busy} onClick={() => save(u.id)}
+              className="w-full text-left px-4 py-2.5 text-[13px] text-white/75 border-b border-blue-500/[0.03] last:border-0 hover:bg-blue-500/[0.05] transition-colors cursor-pointer disabled:opacity-50"
+              data-testid={`pick-sender-${u.id}`}>
+              {u.firstName} {u.lastName}
+              <span className="text-white/30 ml-2 text-[11px]">{u.email}</span>
+            </button>
+          ))}
+        </div>
+        {campaign.senderName && (
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => save(null)}
+            className="h-8 text-[12px] border-white/[0.08]" data-testid="button-clear-sender">
+            Clear it — I'm not sure
+          </Button>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -224,6 +317,9 @@ export default function AdminMailerHistory() {
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [seeRecipients, setSeeRecipients] = useState<Campaign | null>(null);
   const [seeMessage, setSeeMessage] = useState<Campaign | null>(null);
+  const [setSenderOn, setSetSenderOn] = useState<Campaign | null>(null);
+  const { data: me } = useQuery<any>({ queryKey: ["/api/auth/me"] });
+  const canEdit = me?.role === "super_admin";
 
   const { data, isLoading } = useQuery<{ campaigns: Campaign[]; total: number }>({
     queryKey: ["/api/admin/mailer/campaigns", q, perPage, page],
@@ -296,7 +392,7 @@ export default function AdminMailerHistory() {
                 <SortHead label="Date" k="date" sort={sort} dir={dir} onSort={onSort} />
                 <SortHead label="Subject" k="subject" sort={sort} dir={dir} onSort={onSort} />
                 <SortHead label="Sender" k="sender" sort={sort} dir={dir} onSort={onSort} />
-                <SortHead label="Recipients" k="recipients" sort={sort} dir={dir} onSort={onSort} />
+                <SortHead label="Recipients" k="recipients" sort={sort} dir={dir} onSort={onSort} className="whitespace-nowrap" />
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -309,10 +405,10 @@ export default function AdminMailerHistory() {
                   <tr key={c.id} className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors" data-testid={`row-campaign-${c.id}`}>
                     <td className="px-4 py-3 text-[13px] text-white/60 whitespace-nowrap">{whenLabel(c.sentAt ?? c.createdAt)}</td>
                     <td className="px-4 py-3 text-[13px] text-white/80">{c.subject}</td>
-                    <td className="px-4 py-3"><Sender c={c} /></td>
+                    <td className="px-4 py-3"><Sender c={c} canEdit={canEdit} onSet={() => setSetSenderOn(c)} /></td>
                     <td className="px-4 py-3">
                       <button onClick={() => setSeeRecipients(c)}
-                        className="text-[13px] text-blue-400 hover:underline cursor-pointer"
+                        className="text-[13px] text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
                         data-testid={`link-recipients-${c.id}`}>
                         {n} {n === 1 ? "person" : "people"}
                       </button>
@@ -352,6 +448,7 @@ export default function AdminMailerHistory() {
 
       {seeRecipients && <RecipientsDialog campaign={seeRecipients} onClose={() => setSeeRecipients(null)} />}
       {seeMessage && <MessageDialog campaign={seeMessage} onClose={() => setSeeMessage(null)} />}
+      {setSenderOn && <SetSenderDialog campaign={setSenderOn} onClose={() => setSetSenderOn(null)} />}
     </div>
   );
 }
