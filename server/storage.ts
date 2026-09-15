@@ -17,7 +17,7 @@ import {
   sessionBookings, programDiscounts,
   campPricing, campDates, campSettings,
   children, childMedical, registrationItems,
-  attendance, emailLogs, metaEventLogs, emailCampaigns,
+  attendance, emailLogs, metaEventLogs, emailCampaigns, emailCampaignRecipients,
   organizations, userOrganizations,
   facilities, facilityPricingRules, facilityBookings, facilityAddons, venueSettings, venueHolidayPeriods,
   leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueCoupons, leagueWaitlist,
@@ -524,6 +524,7 @@ export interface IStorage {
   getEmailCampaigns(): Promise<EmailCampaign[]>;
   searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
   getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
+  getCampaignRecipients(campaignId: number): Promise<{ email: string; name: string | null; status: string | null; sentAt: Date | null; firstOpenedAt: Date | null; openCount: number }[]>;
   createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
   updateEmailCampaign(id: number, data: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined>;
 
@@ -2255,6 +2256,7 @@ export class DatabaseStorage implements IStorage {
         status: emailCampaigns.status,
         sentAt: emailCampaigns.sentAt,
         createdAt: emailCampaigns.createdAt,
+        createdByUserId: emailCampaigns.createdByUserId,
       })
       .from(emailCampaigns)
       .where(where)
@@ -2267,7 +2269,69 @@ export class DatabaseStorage implements IStorage {
       .from(emailCampaigns)
       .where(where);
 
-    return { rows, total: Number(counted?.n ?? 0) };
+    // 🔴 The NAME is resolved at read time, never denormalised onto the row —
+    // people get corrected, and a name frozen at send time goes stale. One
+    // batched query, the same shape as servedByName.
+    const senderIds = Array.from(new Set(rows.map(r => r.createdByUserId).filter((x): x is number => !!x)));
+    const staff = senderIds.length
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+          .from(users).where(inArray(users.id, senderIds))
+      : [];
+    const nameById = new Map(staff.map(u => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()]));
+
+    return {
+      rows: rows.map(r => ({
+        ...r,
+        // A campaign sent before the column existed reads as the ADDRESS it went
+        // out under — which is true and useful — and never as an invented person.
+        senderName: r.createdByUserId ? nameById.get(r.createdByUserId) ?? null : null,
+      })) as any,
+      total: Number(counted?.n ?? 0),
+    };
+  }
+
+  /**
+   * Everyone one campaign went to, by NAME where we can find them.
+   *
+   * 🔴 `email_campaign_recipients` stores an ADDRESS and nothing else, so the
+   * name is looked up against `contacts` on read. A merged duplicate never
+   * answers (it is not a person you can reach), and an address we cannot place
+   * is shown as itself rather than left blank.
+   *
+   * 🔴 "Delivered" here means RESEND ACCEPTED IT. There is no delivery webhook,
+   * so a hard bounce is invisible to us and this must never claim an inbox.
+   */
+  async getCampaignRecipients(campaignId: number): Promise<{
+    email: string; name: string | null; status: string | null;
+    sentAt: Date | null; firstOpenedAt: Date | null; openCount: number;
+  }[]> {
+    const rows = await db.select().from(emailCampaignRecipients)
+      .where(eq(emailCampaignRecipients.campaignId, campaignId))
+      .orderBy(asc(emailCampaignRecipients.email));
+    if (rows.length === 0) return [];
+
+    const addresses = Array.from(new Set(rows.map(r => String(r.email ?? "").toLowerCase()).filter(Boolean)));
+    const people = await db.select({
+      email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName,
+    }).from(contacts).where(and(
+      inArray(sql`lower(${contacts.email})`, addresses),
+      isNull(contacts.mergedIntoContactId),
+    ));
+    const byEmail = new Map<string, string>();
+    for (const p of people) {
+      const k = String(p.email ?? "").toLowerCase();
+      const nm = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
+      if (k && nm && !byEmail.has(k)) byEmail.set(k, nm);
+    }
+
+    return rows.map(r => ({
+      email: String(r.email ?? ""),
+      name: byEmail.get(String(r.email ?? "").toLowerCase()) ?? null,
+      status: r.status ?? null,
+      sentAt: r.sentAt ?? null,
+      firstOpenedAt: r.firstOpenedAt ?? null,
+      openCount: Number(r.openCount ?? 0),
+    }));
   }
 
   async getEmailCampaign(id: number): Promise<EmailCampaign | undefined> {

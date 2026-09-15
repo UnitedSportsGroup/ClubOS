@@ -723,6 +723,12 @@ export const emailCampaigns = pgTable("email_campaigns", {
   scheduledAt: timestamp("scheduled_at"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // 🔴 WHO PRESSED SEND. Before this, "who sent this" was unanswerable, not
+  // merely unshown: the table recorded the from ADDRESS, and a shared address
+  // is not a person. NULLABLE with no default — 24 campaigns predate it and
+  // read "not recorded", never a guess. RESTRICT on the user, so deleting a
+  // staff member can never erase who emailed 3,800 families.
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "restrict" }),
 });
 
 // ── League Builders (referral / affiliate rewards) ──────────────────────────

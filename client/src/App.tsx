@@ -20,6 +20,7 @@ import AdminRegistrations from "@/pages/admin-registrations";
 import AdminContacts from "@/pages/admin-contacts";
 import AdminPersonDetail from "@/pages/admin-person-detail";
 import AdminMailer from "@/pages/admin-mailer";
+import AdminMailerHistory from "@/pages/admin-mailer-history";
 import Predictor from "@/pages/predictor";
 import FootballInstitute from "@/pages/football-institute";
 import AdminSettings from "@/pages/admin-settings";
@@ -657,6 +658,9 @@ function AdminRouter() {
       <Route path="/admin/contacts/player/:id">
         {(params: any) => <Redirect to={`/admin/people/child-${params.id}${window.location.search}`} />}
       </Route>
+      {/* History before the bare route: wouter matches in order, and a
+          sub-page of a tab must never be swallowed by the tab itself. */}
+      <Route path="/admin/mailer/history" component={AdminMailerHistory} />
       <Route path="/admin/mailer" component={AdminMailer} />
       <Route path="/admin/predictor" component={Predictor} />
       {/* Friendly Manager History — CUFC's 10-year archive (default/camps

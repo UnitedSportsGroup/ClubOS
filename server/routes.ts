@@ -5708,6 +5708,40 @@ export async function registerRoutes(
     }
   });
 
+  // Everyone one campaign went to, by name, and whether they opened it.
+  //
+  // Daniel, 2026-09-15: "really important to be able to click recipients and see
+  // who has received, not received, opened etc… with actual name of person next
+  // to it."
+  //
+  // 🔴 "Delivered" MEANS RESEND ACCEPTED IT, and the page says so. There is no
+  // delivery webhook, so a hard bounce is invisible to us; claiming an inbox we
+  // cannot see would be worse than admitting the gap.
+  app.get("/api/admin/mailer/campaigns/:id/recipients", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
+      const campaign = await storage.getEmailCampaign(id);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      const people = await storage.getCampaignRecipients(id);
+      res.json({
+        subject: campaign.subject,
+        // 🔴 The per-person list only exists for sends that went through the
+        // broadcast queue. An older campaign has a COUNT and no list, and the
+        // page must say that rather than render an empty table that reads as
+        // "nobody got it".
+        tracked: people.length > 0,
+        recipientCount: campaign.recipientCount ?? 0,
+        sentCount: campaign.sentCount ?? 0,
+        failedCount: campaign.failedCount ?? 0,
+        openedCount: people.filter(p => p.firstOpenedAt).length,
+        people,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/mailer/segments", requireAuth, async (_req, res) => {
     try {
       const allCamps = await storage.getPrograms();
@@ -5855,6 +5889,10 @@ export async function registerRoutes(
         sentCount: 0,
         failedCount: 0,
         status: "sending",
+        // 🔴 WHO PRESSED SEND. The from address is a shared mailbox and says
+        // nothing about a person. View As is read-only, so this can never be
+        // stamped with a staff member's name by someone impersonating them.
+        createdByUserId: (req.session as any)?.userId ?? null,
       });
 
       const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
