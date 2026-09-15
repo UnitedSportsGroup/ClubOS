@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle, BadgeCheck } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
 
 type Campaign = {
@@ -40,14 +40,31 @@ function whenLabel(iso: string | null): string {
 
 /**
  * 🔴 WHO SENT IT — and never an invented person.
- * A campaign sent before the sender was recorded reads as the ADDRESS it went
- * out under, which is true and still useful, visibly marked as not-a-person.
+ *
+ * A name with the tick means ClubOS knows the ACCOUNT that pressed send, so it
+ * is an authenticated fact about a person, not a label somebody typed. A
+ * campaign sent before that was recorded shows the ADDRESS it went out under,
+ * in italics and with NO tick — true, still useful, and visibly not a person.
+ * The tick is the whole distinction; putting one on both would erase it.
  */
 function Sender({ c }: { c: Campaign }) {
-  if (c.senderName) return <span className="text-[13px] text-white/70">{c.senderName}</span>;
+  if (c.senderName) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-[13px] text-white/75"
+        data-testid={`sender-${c.id}`} data-verified="true"
+        title={`Sent from ${c.senderName}'s ClubOS account`}
+      >
+        {c.senderName}
+        {/* Authenticated, not typed: ClubOS knows which account pressed send. */}
+        <BadgeCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" aria-label="Sent from this person's ClubOS account" />
+      </span>
+    );
+  }
   const addr = (c.fromEmail ?? "").replace(/\s*<[^>]*>\s*/, "").trim() || c.fromEmail || "—";
   return (
-    <span className="text-[13px] text-white/40 italic" title="Sender not recorded — this campaign predates the sender being stored. Showing the address it was sent from.">
+    <span className="text-[13px] text-white/40 italic" data-testid={`sender-${c.id}`} data-verified="false"
+      title="Sent before ClubOS recorded who pressed send — this is the address it went out under, not a person.">
       {addr}
     </span>
   );
@@ -296,7 +313,7 @@ export default function AdminMailerHistory() {
                 <SortHead label="Date" k="date" sort={sort} dir={dir} onSort={onSort} />
                 <SortHead label="Subject" k="subject" sort={sort} dir={dir} onSort={onSort} />
                 <SortHead label="Sender" k="sender" sort={sort} dir={dir} onSort={onSort} />
-                <SortHead label="Recipients" k="recipients" sort={sort} dir={dir} onSort={onSort} />
+                <SortHead label="Recipients" k="recipients" sort={sort} dir={dir} onSort={onSort} className="whitespace-nowrap" />
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -312,7 +329,7 @@ export default function AdminMailerHistory() {
                     <td className="px-4 py-3"><Sender c={c} /></td>
                     <td className="px-4 py-3">
                       <button onClick={() => setSeeRecipients(c)}
-                        className="text-[13px] text-blue-400 hover:underline cursor-pointer"
+                        className="text-[13px] text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
                         data-testid={`link-recipients-${c.id}`}>
                         {n} {n === 1 ? "person" : "people"}
                       </button>
