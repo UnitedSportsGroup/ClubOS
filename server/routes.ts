@@ -5279,8 +5279,20 @@ export async function registerRoutes(
         // and some genuinely cannot answer on the spot; but a skip is now an
         // attributed decision with a reason that puts the child on the
         // follow-up list, rather than a silent gap. Never guess an answer.
-        if (body.deferIdentity === true) {
-          const d = validateIdentityDeferral(body.deferReason, body.deferNote);
+        // 🔴 Read from BOTH levels (2026-09-15). The form has always sent this
+        // INSIDE `player` and the server has always read it at the top level,
+        // so the "skip the NZ Football details" tick had never once worked at
+        // the counter: staff passed the Family step, then the save was refused
+        // with "Please choose the player's country of birth from the list" — an
+        // error about a step they had already cleared, naming the very field
+        // the tick exists to make unnecessary. Accepting either shape also
+        // means a staff member still on a cached bundle is fixed the moment
+        // this deploys, without waiting for their browser to reload.
+        const deferIdentityFlag = playerIn.deferIdentity === true || body.deferIdentity === true;
+        const deferReasonIn = playerIn.deferReason ?? body.deferReason;
+        const deferNoteIn = playerIn.deferNote ?? body.deferNote;
+        if (deferIdentityFlag) {
+          const d = validateIdentityDeferral(deferReasonIn, deferNoteIn);
           if (!d.ok) return res.status(400).json({ message: d.error });
           playerFields.identityDeferredAt = new Date();
           playerFields.identityDeferredReason = d.reason;
@@ -5319,7 +5331,7 @@ export async function registerRoutes(
           playerFields.identityDeferredByUserId = null;
         }
         const anyIdentity =
-          body.deferIdentity !== true &&
+          !deferIdentityFlag &&
           (playerIn.countryOfBirthCode || playerIn.nationalityCode || playerIn.ethnicityGroupId != null);
         if (anyIdentity) {
           const parsed = validateNzfIdentity({

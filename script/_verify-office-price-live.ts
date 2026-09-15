@@ -68,15 +68,28 @@ const asStaff = (path: string, init: RequestInit = {}) =>
   });
 
 /** A walk-up exactly like the one Olga took, with the price she meant to charge. */
-function payload(overrideCents: number | null, reason: string, amountPaidCents: number) {
-  const stamp = Date.now();
+function payload(
+  overrideCents: number | null,
+  reason: string,
+  amountPaidCents: number,
+  /** Where the "skip the NZ Football details" tick rides. The FORM has always
+   *  sent it nested; the server used to read only the flat one, so the tick had
+   *  never worked at the counter. Both must now be honoured. */
+  deferAt: "nested" | "flat" = "nested",
+) {
+  const stamp = Date.now() + Math.floor(Math.random() * 1000);
+  const defer = { deferIdentity: true, deferReason: "Other", deferNote: "verification probe" };
   return {
     programId: TECHNIFICATION,
     programOptionId: 13,              // U9–U10, $150 a term
     paymentPlan: "term",
     termId: TERM_3,                   // the term that was nearly over
     guardian: { firstName: "Price", lastName: `Probe${stamp}`, email: `_price_probe_${stamp}@usg.co.nz`, phone: "0200000000", relationship: "parent" },
-    player: { firstName: "Probe", lastName: `Child${stamp}`, dateOfBirth: "2016-08-22", gender: "male", deferIdentity: true, deferReason: "Other", deferNote: "verification probe" },
+    player: {
+      firstName: "Probe", lastName: `Child${stamp}`, dateOfBirth: "2016-08-22", gender: "male",
+      ...(deferAt === "nested" ? defer : {}),
+    },
+    ...(deferAt === "flat" ? defer : {}),
     emergency: { name: "", phone: "" },
     policyAccepted: true,
     acknowledgeAgeWarning: true,
@@ -165,6 +178,28 @@ async function main() {
     ok("the audit line reports what was charged, not the list price",
       typeof al[0]?.details === "string" && al[0].details.includes("135.00") && !al[0].details.includes("30.00 NZD"),
       al[0]?.details);
+  }
+
+  // ── 3b. The skip tick, found by this harness on 2026-09-15 ────────────────
+  // The form sends the deferral INSIDE `player`; the server read only the flat
+  // one, so "skip the NZ Football details" was silently ignored and the save
+  // was refused naming a field the tick exists to make unnecessary.
+  console.log("\nThe \"skip NZ Football details\" tick");
+  ok("honoured when sent the way the FORM sends it (nested in player)",
+    res.ok, `HTTP ${res.status} ${body.message ?? ""}`);
+  {
+    const flat = await asStaff("/api/admin/registrations/manual", {
+      method: "POST", body: JSON.stringify(payload(13500, "Attended all term, settling up", 13500, "flat")),
+    });
+    const flatBody: any = await flat.json().catch(() => ({}));
+    ok("…and still honoured at the top level (the old shape)", flat.ok, `HTTP ${flat.status} ${flatBody.message ?? ""}`);
+    if (flatBody.registrationId) {
+      madeRegistrations.push(flatBody.registrationId);
+      const { rows } = await pool.query(`SELECT contact_id, guardian_id FROM registrations WHERE id=$1`, [flatBody.registrationId]);
+      if (rows[0]) { madeContacts.push(rows[0].contact_id); if (rows[0].guardian_id && rows[0].guardian_id !== rows[0].contact_id) madeContacts.push(rows[0].guardian_id); }
+    }
+    ok("neither shape invented an identity for the child",
+      !flatBody.nzfMissing || flatBody.nzfMissing.length > 0, JSON.stringify(flatBody.nzfMissing ?? []));
   }
 
   // ── 4. What Olga's real rows still say ────────────────────────────────────

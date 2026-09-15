@@ -404,6 +404,13 @@ export function RegisterPlayerModal({
             allergies, medicalNotes,
           },
           emergency: { name: emergencyContact, phone: emergencyPhone },
+          // Also sent at the TOP level. It has always ridden inside `player`
+          // while the server read it from here, so the skip tick never worked;
+          // the server now accepts either, and sending both means neither end
+          // can quietly become the only one that is right again.
+          deferIdentity: deferIdentity || undefined,
+          deferReason: deferIdentity ? deferReason : undefined,
+          deferNote: deferIdentity ? deferNote.trim() || undefined : undefined,
           policyAccepted,
           acknowledgeAgeWarning: ackAgeWarning,
           notes: notes.trim() || null,
