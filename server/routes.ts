@@ -5742,6 +5742,60 @@ export async function registerRoutes(
     }
   });
 
+  // Record who sent a campaign from before ClubOS stamped it.
+  //
+  // Daniel: "is there a way to update the past ones?" Not automatically — no
+  // trail exists (audit_logs holds 105 rows, none about the mailer), so the only
+  // source is a human who remembers.
+  //
+  // 🔴 SUPER ADMIN ONLY, and it records WHO ASSERTED IT. This writes a claim
+  // about which staff member emailed thousands of families; an unsourced claim
+  // like that is worth very little, and a wrong one is worse than a blank.
+  // It is stored as 'recorded_by_hand', never 'authenticated' — the page shows
+  // the name without the verified tick.
+  app.patch("/api/admin/mailer/campaigns/:id/sender", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
+      const campaign = await storage.getEmailCampaign(id);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+      // 🔴 Never overwrite a send ClubOS stamped itself. An authenticated fact
+      // outranks somebody's recollection, and letting a hand edit replace it
+      // would make the tick meaningless.
+      if ((campaign as any).senderSource === "authenticated") {
+        return res.status(409).json({ message: "This campaign's sender was recorded by ClubOS at send time and cannot be overwritten." });
+      }
+
+      const raw = req.body?.userId;
+      const actor = (req.session as any)?.userId ?? null;
+      if (!actor) return res.status(401).json({ message: "Not signed in" });
+
+      if (raw === null) {
+        await storage.updateEmailCampaign(id, {
+          createdByUserId: null, senderSource: null,
+          senderRecordedByUserId: null, senderRecordedAt: null,
+        } as any);
+        return res.json({ ok: true, cleared: true });
+      }
+
+      const userId = parseInt(String(raw));
+      if (!Number.isFinite(userId)) return res.status(400).json({ message: "Pick a staff member" });
+      const person = await storage.getUser(userId);
+      if (!person) return res.status(404).json({ message: "No such staff member" });
+
+      await storage.updateEmailCampaign(id, {
+        createdByUserId: userId,
+        senderSource: "recorded_by_hand",
+        senderRecordedByUserId: actor,
+        senderRecordedAt: new Date(),
+      } as any);
+      res.json({ ok: true, senderName: `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim() });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/mailer/segments", requireAuth, async (_req, res) => {
     try {
       const allCamps = await storage.getPrograms();
@@ -5893,6 +5947,8 @@ export async function registerRoutes(
         // nothing about a person. View As is read-only, so this can never be
         // stamped with a staff member's name by someone impersonating them.
         createdByUserId: (req.session as any)?.userId ?? null,
+        // Stamped by the send path itself, so ClubOS can vouch for it.
+        senderSource: (req.session as any)?.userId ? "authenticated" : null,
       });
 
       const RESEND_API_KEY = process.env.RESEND_API_KEY || "";

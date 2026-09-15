@@ -729,6 +729,14 @@ export const emailCampaigns = pgTable("email_campaigns", {
   // read "not recorded", never a guess. RESTRICT on the user, so deleting a
   // staff member can never erase who emailed 3,800 families.
   createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  // 🔴 HOW we know, which is not the same as WHO. 'authenticated' = ClubOS
+  // stamped the account that pressed send. 'recorded_by_hand' = a super admin
+  // asserted it afterwards for a campaign sent before the column existed — a
+  // weaker claim, so it never gets the verified tick, and who asserted it is
+  // itself recorded.
+  senderSource: text("sender_source"),
+  senderRecordedByUserId: integer("sender_recorded_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  senderRecordedAt: timestamp("sender_recorded_at"),
 });
 
 // ── League Builders (referral / affiliate rewards) ──────────────────────────
