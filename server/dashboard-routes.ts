@@ -39,7 +39,9 @@ import {
 // asserted here too. A registry entry with a typo should fail loudly at the
 // boundary rather than become a query.
 const SAFE_IDENT = /^[a-z_][a-z0-9_]*$/;
-function ident(name: string): string {
+// Exported, with dateKind/dateExprFor below, for the Marketing hub
+// (server/marketing-hub/) — the NZ-day rule lives in exactly one place.
+export function ident(name: string): string {
   if (!SAFE_IDENT.test(name)) throw new Error(`Unsafe SQL identifier: ${name}`);
   return name;
 }
@@ -65,7 +67,7 @@ function ident(name: string): string {
  */
 const dateKindCache = new Map<string, "date" | "timestamptz" | "timestamp">();
 
-async function dateKind(table: string, column: string) {
+export async function dateKind(table: string, column: string) {
   const key = `${table}.${column}`;
   const hit = dateKindCache.get(key);
   if (hit) return hit;
@@ -83,7 +85,7 @@ async function dateKind(table: string, column: string) {
   return kind;
 }
 
-function dateExprFor(column: string, kind: "date" | "timestamptz" | "timestamp"): string {
+export function dateExprFor(column: string, kind: "date" | "timestamptz" | "timestamp"): string {
   const col = `t.${ident(column)}`;
   if (kind === "date") return `${col}`;
   if (kind === "timestamptz") return `(${col} AT TIME ZONE 'Pacific/Auckland')::date`;

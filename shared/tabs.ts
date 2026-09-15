@@ -296,6 +296,12 @@ const groupTabs: TabDef[] = [
   // NOT super-admin-locked — the whole point is any staff member recording
   // tutorials; grant the tab per-member in Team as usual.
   { slug: "videos", title: "Videos", url: "/admin/videos" },
+  // Marketing (2026-09-15, Daniel): every marketing number across the group —
+  // websites, forms, ads, social — for the whole organisation, each workspace
+  // and each programme. Its own slug because `marketing` is MarketingOS
+  // (email/SMS), which is hidden in every sidebar. NOT locked: every figure is
+  // an aggregate, with no names, emails or salaries in it.
+  { slug: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "studio", title: "Studio", url: "/admin/studio", secondary: true },
   { slug: "esign", title: "E-Sign", url: "/admin/esign", secondary: true },
