@@ -5981,18 +5981,23 @@ export async function registerRoutes(
       void runBroadcastQueue(
         campaign.id,
         emails,
-        async (email) => {
+        // 🔴 NAME THE SECOND ARGUMENT. Written as `(email) => …` this still
+        // compiles and still sends — it just embeds no pixel, so every open is
+        // invisible. That is exactly how the CUFC mailer shipped, and why
+        // Daniel opened a test of his own and watched it read "Not opened".
+        async (email, pixelUrl) => {
           const ok = await sendEmail({
             to: email,
             from: senderEmail,
             replyTo: replyAddress,
             subject,
-            // Per recipient: merge tags resolved, and an unsubscribe link
-            // guaranteed even when the design forgot one.
+            // Per recipient: merge tags resolved, an unsubscribe link
+            // guaranteed even when the design forgot one, and the open pixel.
             html: renderForRecipient(body, {
               email,
               firstName: nameByEmail.get(email.trim().toLowerCase()) ?? null,
               unsubscribeUrl: cufcUnsubUrl(orgId, email),
+              pixelUrl,
             }),
           });
           return ok;

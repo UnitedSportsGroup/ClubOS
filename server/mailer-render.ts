@@ -25,6 +25,18 @@ export interface RecipientContext {
   unsubscribeUrl: string;
   firstName?: string | null;
   lastName?: string | null;
+  /**
+   * 🔴 THE OPEN PIXEL, AND WITHOUT IT AN OPEN CAN NEVER BE RECORDED.
+   *
+   * `runBroadcastQueue` has always handed each `sendOne` a per-recipient pixel
+   * URL as its SECOND argument — but a callback written as `(email) => …` is
+   * still valid TypeScript, so a mailer could silently opt out by not naming the
+   * parameter. The CUFC mailer did exactly that, which is why every one of its
+   * campaigns read "Not opened" for every recipient, forever, including a test
+   * Daniel opened himself. Passing it here puts the pixel in the ONE place every
+   * email already goes through, instead of relying on each mailer to remember.
+   */
+  pixelUrl?: string | null;
 }
 
 /** A name out of the database lands inside markup, so `Tom & Jerry's` must not
@@ -94,8 +106,18 @@ function appendToBody(html: string, block: string): string {
  *  the unsubscribe link. */
 export function renderForRecipient(html: string, ctx: RecipientContext): string {
   const merged = applyMergeTags(html, ctx);
-  if (hasUnsubscribeLink(merged, ctx.unsubscribeUrl)) return merged;
-  return appendToBody(merged, unsubscribeFooter(ctx.unsubscribeUrl));
+  const withFooter = hasUnsubscribeLink(merged, ctx.unsubscribeUrl)
+    ? merged
+    : appendToBody(merged, unsubscribeFooter(ctx.unsubscribeUrl));
+  // Last, and inside </body> — a tracking image after the closing tag is at the
+  // mercy of the client's parser, and the whole point is that it loads.
+  return ctx.pixelUrl ? appendToBody(withFooter, openPixel(ctx.pixelUrl)) : withFooter;
+}
+
+/** A 1×1 transparent beacon. `alt=""` and `display:none` so no client renders a
+ *  broken-image box in the middle of a campaign. */
+function openPixel(url: string): string {
+  return `<img src="${url.replace(/"/g, "&quot;")}" width="1" height="1" alt="" style="display:none;max-height:0;overflow:hidden;" />`;
 }
 
 /** A campaign is only worth sending if it says something. The builder can emit

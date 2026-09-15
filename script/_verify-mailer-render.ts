@@ -86,5 +86,33 @@ ok(visibleTextLength("<html><head><style>p{color:red}</style></head><body></body
 ok(visibleTextLength('<div style="height:20px">&nbsp;</div>') === 0, "a spacer counts as empty");
 ok(visibleTextLength("<html><body><h1>Camp is on</h1></body></html>") > 5, "real copy counts as content");
 
+
+// ── the open pixel ──────────────────────────────────────────────────────────
+// 🔴 Without this the Mailer can never record an open, and it shipped that way:
+// runBroadcastQueue always passed a pixel URL as sendOne's SECOND argument, but
+// a callback written `(email) => …` is valid TypeScript, so the CUFC mailer
+// silently opted out. Every campaign read "Not opened" for everyone, forever.
+{
+  const base = "<html><body><p>Hello</p></body></html>";
+  const withPixel = renderForRecipient(base, { email: "a@b.c", unsubscribeUrl: "https://x/u", pixelUrl: "https://app.usg.co.nz/api/public/email/open?c=1" });
+  ok(withPixel.includes("https://app.usg.co.nz/api/public/email/open?c=1"), "the pixel URL is embedded when one is given");
+  ok(/<img[^>]+width="1"[^>]+height="1"/.test(withPixel), "it is a 1x1 image");
+  ok(withPixel.indexOf("<img") < withPixel.indexOf("</body>"), "the pixel sits INSIDE </body>, not after it");
+  ok(withPixel.includes('alt=""') && withPixel.includes("display:none"), "it is invisible — no broken-image box mid-campaign");
+
+  const without = renderForRecipient(base, { email: "a@b.c", unsubscribeUrl: "https://x/u" });
+  ok(!without.includes("<img"), "no pixel is added when none is given — other mailers are untouched");
+
+  // ⚠️ The obvious assertion here is wrong and passed for the wrong reason at
+  // first: `src="…"` is followed by width="1", so a regex looking for "another
+  // quote after the src" matches whatever the escaping does. Pull out the src
+  // VALUE and check that, which is the thing that could actually break out.
+  const quoted = renderForRecipient(base, { email: "a@b.c", unsubscribeUrl: "https://x/u", pixelUrl: 'https://x/p?a="b onerror=alert(1)' });
+  const src = /<img[^>]*\ssrc="([^"]*)"/.exec(quoted)?.[1] ?? "";
+  ok(src.includes("&quot;"), "a quote in the URL is escaped to &quot;");
+  ok(!src.includes('"'), "the src value carries no raw quote to close the attribute with");
+  ok(!/onerror\s*=/.test(quoted.slice(quoted.indexOf("<img")).split(">")[0].replace(src, "")), "nothing escapes into a new attribute");
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nALL CHECKS PASSED");
 process.exit(failures ? 1 : 0);
