@@ -96,6 +96,7 @@ import {
   HelpCircle,
   HardDrive,
   QrCode,
+  TrendingUp,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -386,6 +387,9 @@ const gymnasticsSecondary = [
 
 const groupNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
+  // hidden, and two "Marketing" megaphones would be one too many if it returns.
+  { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
   { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },

@@ -123,6 +123,7 @@ import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerDashboardRoutes } from "./dashboard-routes";
+import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import { registerParentRoutes, resolveOwnedChildContactId } from "./parent-routes";
 import { registerPrintAccountRoutes, registerPrintAccountAdminRoutes } from "./print-account-routes";
@@ -25529,6 +25530,11 @@ export async function registerRoutes(
   // answered 200-with-zeros for a failed request, a missing workspace header
   // and a genuinely empty workspace alike. See server/dashboard-routes.ts.
   registerDashboardRoutes(app, requireAuth, workspaceOrg);
+
+  // Marketing hub — United Sports Group → Marketing. Every marketing number
+  // across the group (websites, forms, ads, social) in one place; group
+  // workspace only. See server/marketing-hub/ and shared/marketing-hub.ts.
+  registerMarketingHubRoutes(app);
 
   // United Prints customer accounts — a print customer's own view of their
   // orders and their own prices, on join.unitedprints.co.nz/account. A CUSTOMER

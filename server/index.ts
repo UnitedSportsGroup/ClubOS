@@ -470,6 +470,11 @@ app.use(attributionCookieMiddleware);
   // journey/hour-of-day) + behavior_events partition maintenance + 13-month prune.
   const { startBehaviorRollupCron } = await import("./behavior-rollup-cron");
   startBehaviorRollupCron();
+
+  // Marketing hub: pull Google Analytics + Meta ads/pages/Instagram into
+  // marketing_daily every 6h (no-op unless MARKETING_HUB_SYNC=1).
+  const { startMarketingHubCron } = await import("./marketing-hub/cron");
+  startMarketingHubCron();
   // Marketing Suite ("MarketingOS", Phase B) — durable send worker (graphile-worker).
   // Self-guards on DATABASE_URL / MARKETING_WORKER_DISABLED and never crashes boot.
   const { startMarketingWorker } = await import("./marketing/worker");

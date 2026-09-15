@@ -132,6 +132,9 @@ const CANARIES: Canary[] = [
   // front of every parent who tapped it. 200: the event is public information.
   { feature: "club events (dinner)", path: "/api/public/club-events/club-dinner-2026", expect: [200] },
   { feature: "club events admin",    path: "/api/admin/club-events",                    expect: [401] },
+  // Marketing hub (2026-09-15): Daniel's one-stop marketing dashboard. A deploy
+  // without it would leave a sidebar link to a page whose every section 404s.
+  { feature: "marketing hub",        path: "/api/admin/marketing-hub/overview",         expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree
@@ -171,6 +174,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/teampay/overview":          { file: "server/teampay-routes.ts",      needle: "/api/admin/teampay/overview" },
   "/api/public/club-events/club-dinner-2026": { file: "server/club-events-routes.ts", needle: "/api/public/club-events/:slug" },
   "/api/admin/club-events":               { file: "server/club-events-routes.ts",  needle: "/api/admin/club-events" },
+  "/api/admin/marketing-hub/overview":    { file: "server/marketing-hub/routes.ts", needle: "/overview" },
 };
 
 import { readFileSync, existsSync } from "fs";
