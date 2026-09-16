@@ -20,7 +20,23 @@ import path from "path";
 
 const BASE = process.env.VERIFY_BASE || "https://app.usg.co.nz";
 const WORKSPACE = "christchurch-international-cup";
-const SRC = path.join(process.cwd(), "../../outputs/cic7s/2026-import/source");
+/**
+ * 🔴 Walk up to find it. A relative "../../outputs" breaks the moment this runs
+ * from a detached worktree — which is exactly what the deploy doctrine tells
+ * everyone to use, so the path that looks right is the one that fails in the
+ * situation it is needed.
+ */
+const SRC = (() => {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const c = path.join(dir, "outputs/cic7s/2026-import/source");
+    if (fs.existsSync(c)) return c;
+    // A worktree lives under apps/clubos/.worktrees/<x>; the repo it belongs to
+    // is the one holding outputs/, so keep climbing past both.
+    dir = path.dirname(dir);
+  }
+  throw new Error("could not find outputs/cic7s/2026-import/source from " + process.cwd());
+})();
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 let pass = 0, fail = 0;
@@ -152,6 +168,19 @@ async function main() {
     const tile = (body.editions ?? []).find((e: any) => e.year === year)?.count;
     ok(`…and the picker's count agrees with the list (${year})`, tile === rows.length, `tile ${tile} vs list ${rows.length}`);
   }
+  // 🔴 The 12 rows created from the registered-teams sheet must be identifiable,
+  // because that sheet records no date — their created_at is when the import ran
+  // and the page must say "not recorded" rather than print it as a sign-up date.
+  const y26 = await asStaff("/api/admin/cic7s/registrations?year=2026");
+  const rows26: any[] = y26.ok ? (await y26.json()).registrations ?? [] : [];
+  const fromTeamSheet = rows26.filter((r) => r.sourceUrl === "google-sheet:registered-team-contacts-2026");
+  ok("the team-sheet rows are identifiable by source", fromTeamSheet.length === 12, `${fromTeamSheet.length}`);
+  ok("…and every one of them carries a team", fromTeamSheet.every((r) => r.teamName));
+  ok("the interest rows kept their real submission dates",
+    rows26.filter((r) => r.sourceUrl === "google-sheet:registrations-of-interest-2026")
+          .every((r) => new Date(r.createdAt) < new Date("2026-06-01")),
+    "some are dated after the 2026 tournament");
+
   const bad = await asStaff("/api/admin/cic7s/registrations?year=banana");
   ok("a nonsense year is refused, not ignored", bad.status === 400, `HTTP ${bad.status}`);
 

@@ -33,7 +33,23 @@ import type { Cic7sEntryPayment } from "@shared/cic7s";
 
 const COMMIT = process.argv.includes("--commit");
 const EDITION = 2026;
-const SRC = path.join(process.cwd(), "../../outputs/cic7s/2026-import/source");
+/**
+ * 🔴 Walk up to find it. A relative "../../outputs" breaks the moment this runs
+ * from a detached worktree — which is exactly what the deploy doctrine tells
+ * everyone to use, so the path that looks right is the one that fails in the
+ * situation it is needed.
+ */
+const SRC = (() => {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const c = path.join(dir, "outputs/cic7s/2026-import/source");
+    if (fs.existsSync(c)) return c;
+    // A worktree lives under apps/clubos/.worktrees/<x>; the repo it belongs to
+    // is the one holding outputs/, so keep climbing past both.
+    dir = path.dirname(dir);
+  }
+  throw new Error("could not find outputs/cic7s/2026-import/source from " + process.cwd());
+})();
 
 /** Minimal RFC-4180 CSV reader — the source has quoted fields with commas. */
 function readCsv(file: string): Record<string, string>[] {

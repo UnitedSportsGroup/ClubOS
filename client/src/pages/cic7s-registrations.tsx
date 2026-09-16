@@ -52,6 +52,9 @@ const PAYMENT_STYLE: Record<Cic7sEntryPayment, string> = {
   refunded: "text-rose-300 bg-rose-400/10 border-rose-400/25",
 };
 
+/** Rows imported from the 2026 registered-teams sheet, which carries no dates. */
+const TEAM_SHEET_SOURCE = "google-sheet:registered-team-contacts-2026";
+
 function fmtDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" });
@@ -245,7 +248,15 @@ export default function Cic7sRegistrations() {
                       {r.editionYear ?? <span className="text-white/25">not recorded</span>}
                     </td>
                   )}
-                  <td className="px-4 py-3 text-white/45 whitespace-nowrap">{fmtDate(r.createdAt)}</td>
+                  {/* 🔴 The registered-teams sheet records NO date. For a row that
+                      came from it, created_at is when the import ran, not when
+                      they entered — and printing that would tell Isaac a 2026
+                      team registered this week. Say we don't know instead. */}
+                  <td className="px-4 py-3 text-white/45 whitespace-nowrap">
+                    {r.sourceUrl === TEAM_SHEET_SOURCE
+                      ? <span className="text-white/25">not recorded</span>
+                      : fmtDate(r.createdAt)}
+                  </td>
                 </tr>
               ))}
             </tbody>
