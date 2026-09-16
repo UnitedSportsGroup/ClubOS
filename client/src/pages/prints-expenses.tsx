@@ -29,6 +29,8 @@ type Expense = {
   gstTreatment: string; spentOn: string; paidWith: string | null;
   invoiceFileName: string | null; invoiceMime: string | null; hasInvoice: boolean;
   notes: string | null; createdByName: string | null;
+  currency: string; foreignCents: number | null;
+  fxRate: string | null; fxRateOn: string | null; fxSource: string | null;
   /** What it was for. [] = not allocated — nobody has said yet. */
   allocations: { brand: string; amountCents: number }[];
 };
@@ -37,7 +39,7 @@ type Payload = {
   totals: { count: number; totalCents: number; gstCents: number; netCents: number };
   byCategory: Record<string, { totalCents: number; gstCents: number; count: number }>;
   byMonth: Record<string, number>;
-  vocab: { categories: string[]; treatments: string[]; paidWith: string[]; brands: { key: string; label: string }[] };
+  vocab: { categories: string[]; treatments: string[]; paidWith: string[]; brands: { key: string; label: string }[]; currencies: string[] };
 };
 
 const CAT_LABEL: Record<string, string> = {
@@ -51,7 +53,7 @@ const TREAT_LABEL: Record<string, string> = {
   overseas_no_gst: "Overseas — no NZ GST",
 };
 const PAID_LABEL: Record<string, string> = {
-  card: "Card", eftpos: "EFTPOS", bank_transfer: "Bank transfer", cash: "Cash",
+  card: "Card", eftpos: "EFTPOS", bank_transfer: "Bank transfer", alipay: "AliPay", cash: "Cash",
   account: "On account", other: "Other",
 };
 
@@ -87,6 +89,8 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
     spentOn: existing?.spentOn ?? nzToday(),
     paidWith: existing?.paidWith ?? "card",
     notes: existing?.notes ?? "",
+    currency: existing?.currency ?? "NZD",
+    foreign: existing?.foreignCents != null ? centsToDollarInput(existing.foreignCents) : "",
   });
   // What the money was FOR. [] means NOT ALLOCATED — a real answer, and the
   // one the six expenses already on file honestly have.
@@ -128,6 +132,11 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
         // The server re-checks that this sums to the total — this is a
         // courtesy so Dima sees the remainder while he types, never the gate.
         allocations: alloc,
+        currency: f.currency,
+        // 🔴 The foreign amount is the FACT. The server fetches the rate for the
+        // invoice's own date and computes the NZD from it; the amount above is
+        // the fallback for when no rate can be had.
+        foreignCents: f.currency === "NZD" ? null : dollarInputToCents(f.foreign),
       };
       if (file) { body.invoiceData = file.dataUrl; body.invoiceFileName = file.name; }
       else if (removeInvoice) { body.invoiceData = null; }
@@ -210,10 +219,49 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-white/40">{amountLabel}</label>
+                <label className="text-[10px] uppercase tracking-wider text-white/40">
+                  {amountLabel}{f.currency !== "NZD" ? " (NZD)" : ""}
+                </label>
                 <MoneyInput value={f.amount} onChange={(v) => setF({ ...f, amount: v })}
                   className="bg-white/[0.02] border-white/10 text-white" />
+                {f.currency !== "NZD" && (
+                  <div className="text-[10px] text-white/30 mt-0.5">Only used if we can't get a rate</div>
+                )}
               </div>
+              {/* ── Paid in another currency ────────────────────────────────
+                  Daniel, 2026-09-16: "a lot of payments go to china — he'd
+                  select yuan and enter the amount", and show the NZD "with ~
+                  for the conversion on that date, and obviously we have exact
+                  accurate numbers in xero and anz when paid."
+
+                  🔴 That last clause is the design. The FOREIGN amount is what
+                  Dima knows and what gets recorded; the NZD beside it is an
+                  estimate, because what the club is really out is whatever ANZ
+                  settled the card at, margin included. The rate comes from the
+                  ECB for the INVOICE'S OWN DATE and is stored with its source —
+                  never today's rate, and never a made-up one. */}
+              <div className="col-span-2 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-white/40">Paid in</label>
+                  <SelectInput value={f.currency}
+                    onChange={(e) => setF({ ...f, currency: e.target.value, foreign: e.target.value === "NZD" ? "" : f.foreign })}
+                    className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
+                    data-testid="select-currency">
+                    {vocab.currencies.map((c) => <option key={c} value={c} className="bg-[#02060E]">{c}</option>)}
+                  </SelectInput>
+                </div>
+                {f.currency !== "NZD" && (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-white/40">Amount in {f.currency}</label>
+                    <MoneyInput value={f.foreign} onChange={(v) => setF({ ...f, foreign: v })}
+                      className="bg-white/[0.02] border-white/10 text-white" data-testid="input-foreign-amount" />
+                    <div className="text-[10px] text-white/30 mt-0.5">
+                      We'll convert at the rate for {f.spentOn || "the invoice date"} and show it as approximate.
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {f.gstTreatment === "inclusive" && (
                 <div>
                   <label className="text-[10px] uppercase tracking-wider text-white/40">GST on the invoice</label>
@@ -403,6 +451,7 @@ export default function PrintsExpenses() {
     treatments: data?.vocab?.treatments ?? Object.keys(TREAT_LABEL),
     paidWith: data?.vocab?.paidWith ?? Object.keys(PAID_LABEL),
     brands: data?.vocab?.brands ?? [],
+    currencies: data?.vocab?.currencies ?? ["NZD"],
   };
 
   const csv = () => {
@@ -548,7 +597,18 @@ export default function PrintsExpenses() {
                     <td className="px-3 py-2.5 text-white/70">{e.supplier || "—"}</td>
                     <td className="px-3 py-2.5 text-right font-mono text-white/70">{money(e.netCents)}</td>
                     <td className="px-3 py-2.5 text-right font-mono text-white/50">{money(e.gstCents)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-white font-bold">{money(e.totalCents)}</td>
+                    {/* 🔴 A foreign invoice shows what was ACTUALLY paid, with the
+                        NZD marked ~ because it is a conversion, not the figure
+                        the bank settled at. Xero and ANZ hold the exact number
+                        — Daniel's own words, and the reason for the tilde. */}
+                    <td className="px-3 py-2.5 text-right font-mono text-white font-bold">
+                      {e.currency !== "NZD" && e.foreignCents != null ? (
+                        <span title={e.fxSource ?? undefined}>
+                          {e.currency} {(e.foreignCents / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <span className="block text-[10px] font-normal text-white/35">~{money(e.totalCents)} NZD</span>
+                        </span>
+                      ) : money(e.totalCents)}
+                    </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center justify-end gap-2">
                         {e.hasInvoice ? (

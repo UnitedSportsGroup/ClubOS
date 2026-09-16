@@ -49,7 +49,36 @@ function parseAllocations(raw: any, totalCents: number):
 
 const CATEGORIES = ["merchandise", "materials", "equipment", "services", "freight", "software", "other"] as const;
 const TREATMENTS = ["inclusive", "plus_gst", "zero_rated", "overseas_no_gst"] as const;
-const PAID_WITH = ["card", "eftpos", "bank_transfer", "cash", "account", "other"] as const;
+// AliPay added 2026-09-16 — it is how the shop pays its Chinese suppliers.
+const PAID_WITH = ["card", "eftpos", "bank_transfer", "alipay", "cash", "account", "other"] as const;
+
+/** Currencies the shop actually buys in. NZD first because almost everything is. */
+const CURRENCIES = ["NZD", "CNY", "USD", "AUD", "EUR", "GBP"] as const;
+
+/**
+ * Today's — or a given day's — rate, from the European Central Bank via
+ * Frankfurter. Free, no key, and it answers for a specific DATE, which is the
+ * whole point: an invoice from 10 September should be converted at the 10
+ * September rate, not at whatever today's happens to be.
+ *
+ * 🔴 Returns null rather than a guess. If the rate cannot be fetched, the NZD
+ * figure is whatever Dima typed from his own statement — the system never
+ * invents a conversion and never presents one as fact.
+ */
+async function fxToNzd(currency: string, onDate: string): Promise<{ rate: number; source: string } | null> {
+  if (currency === "NZD") return null;
+  try {
+    const res = await fetch(`https://api.frankfurter.dev/v1/${onDate}?base=${encodeURIComponent(currency)}&symbols=NZD`,
+      { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const body: any = await res.json();
+    const rate = Number(body?.rates?.NZD);
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+    // The date it ANSWERED for, not the one asked — ECB does not publish on a
+    // weekend, so a Sunday invoice gets Friday's rate and should say so.
+    return { rate, source: `ECB via Frankfurter, ${body?.date ?? onDate}` };
+  } catch { return null; }
+}
 
 const NZ_GST_RATE = 0.15;
 
@@ -121,6 +150,41 @@ function resolveMoney(body: any): { totalCents: number; gstCents: number; gstTre
   return { totalCents: rawTotal, gstCents: gst, gstTreatment: "inclusive" };
 }
 
+/**
+ * Work out what to store for a purchase made in another currency.
+ *
+ * 🔴 The FOREIGN amount is the fact; the NZD figure is an estimate. What the
+ * club is really out is whatever ANZ settled the card at, margin included, and
+ * only the bank and Xero know that. So the rate is fetched for the invoice's
+ * OWN date and recorded with its source, and anything derived from it is shown
+ * with a ~. A converted number stored as if it were the truth is how a ledger
+ * quietly stops matching the bank.
+ */
+async function resolveCurrency(body: any, spentOn: string, fallbackNzdCents: number) {
+  const currency = CURRENCIES.includes(body?.currency) ? body.currency : "NZD";
+  if (currency === "NZD") {
+    return { currency: "NZD", foreignCents: null, fxRate: null, fxRateOn: null, fxSource: null, nzdCents: fallbackNzdCents };
+  }
+  const foreignCents = cents(body?.foreignCents);
+  if (foreignCents <= 0) throw new ExpenseError("Add the amount in that currency");
+
+  const fx = await fxToNzd(currency, spentOn);
+  if (!fx) {
+    // No rate available — keep the NZD figure the human typed and say plainly
+    // that nothing converted it. Never fabricate a rate to fill the column.
+    return {
+      currency, foreignCents, fxRate: null, fxRateOn: null,
+      fxSource: "entered by hand — no rate available",
+      nzdCents: fallbackNzdCents,
+    };
+  }
+  return {
+    currency, foreignCents,
+    fxRate: fx.rate, fxRateOn: spentOn, fxSource: fx.source,
+    nzdCents: Math.round(foreignCents * fx.rate),
+  };
+}
+
 async function workspaceOrg(req: Request): Promise<{ id: number; slug: string } | null> {
   const slug = String(req.headers["x-workspace-slug"] || "").trim();
   if (!slug) return null;
@@ -169,6 +233,11 @@ export function registerPrintExpenseRoutes(app: Express) {
         // 🔴 NOT invoiceData — a list of 300 expenses would be hundreds of
         // megabytes of base64. The file is fetched one at a time by its own route.
         hasInvoice: sql<boolean>`${printExpenses.invoiceData} IS NOT NULL`,
+        currency: printExpenses.currency,
+        foreignCents: printExpenses.foreignCents,
+        fxRate: printExpenses.fxRate,
+        fxRateOn: sql<string | null>`${printExpenses.fxRateOn}::text`,
+        fxSource: printExpenses.fxSource,
         notes: printExpenses.notes,
         createdByUserId: printExpenses.createdByUserId,
         createdAt: printExpenses.createdAt,
@@ -225,7 +294,7 @@ export function registerPrintExpenseRoutes(app: Express) {
         totals: { count: rows.length, totalCents, gstCents, netCents: totalCents - gstCents },
         byCategory,
         byMonth,
-        vocab: { categories: CATEGORIES, treatments: TREATMENTS, paidWith: PAID_WITH, brands: TT_BRANDS },
+        vocab: { categories: CATEGORIES, treatments: TREATMENTS, paidWith: PAID_WITH, brands: TT_BRANDS, currencies: CURRENCIES },
       });
     } catch (e: any) { handle(res, e, "list"); }
   });
@@ -241,6 +310,10 @@ export function registerPrintExpenseRoutes(app: Express) {
       if (!spentOn) throw new ExpenseError("Add the invoice date");
       const category = CATEGORIES.includes(req.body?.category) ? req.body.category : "other";
       const money = resolveMoney(req.body);
+      const fx = await resolveCurrency(req.body, spentOn, money.totalCents);
+      // The NZD figure is what the books hold — converted where we had a rate,
+      // typed by a human where we did not.
+      money.totalCents = fx.nzdCents;
       if (money.totalCents <= 0) throw new ExpenseError("Add the amount");
       const invoice = cleanInvoice(req.body);
 
@@ -251,6 +324,11 @@ export function registerPrintExpenseRoutes(app: Express) {
         description,
         reference: s(req.body?.reference, 120) || null,
         ...money,
+        currency: fx.currency,
+        foreignCents: fx.foreignCents,
+        fxRate: fx.fxRate != null ? String(fx.fxRate) : null,
+        fxRateOn: fx.fxRateOn,
+        fxSource: fx.fxSource,
         spentOn,
         paidWith: PAID_WITH.includes(req.body?.paidWith) ? req.body.paidWith : (s(req.body?.paidWith, 40) || null),
         notes: s(req.body?.notes, 2000) || null,
@@ -288,8 +366,20 @@ export function registerPrintExpenseRoutes(app: Express) {
       }
       // Money moves together or not at all — a total without its treatment is
       // how you end up with GST that doesn't match the invoice.
-      if (req.body?.totalCents !== undefined || req.body?.gstTreatment !== undefined || req.body?.gstCents !== undefined) {
-        Object.assign(patch, resolveMoney(req.body));
+      if (req.body?.totalCents !== undefined || req.body?.gstTreatment !== undefined
+          || req.body?.gstCents !== undefined || req.body?.currency !== undefined) {
+        const m = resolveMoney(req.body);
+        const when = patch.spentOn ?? (await db.select({ d: sql<string>`${printExpenses.spentOn}::text` })
+          .from(printExpenses).where(eq(printExpenses.id, id)))[0]?.d ?? isoDate(new Date().toISOString());
+        const fx = await resolveCurrency(req.body, String(when), m.totalCents);
+        Object.assign(patch, m, {
+          totalCents: fx.nzdCents,
+          currency: fx.currency,
+          foreignCents: fx.foreignCents,
+          fxRate: fx.fxRate != null ? String(fx.fxRate) : null,
+          fxRateOn: fx.fxRateOn,
+          fxSource: fx.fxSource,
+        });
         if (patch.totalCents <= 0) throw new ExpenseError("Add the amount");
       }
       const invoice = cleanInvoice(req.body);

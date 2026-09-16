@@ -3553,6 +3553,18 @@ export const printExpenses = pgTable("print_expenses", {
   spentOn: date("spent_on").notNull(),
   paidWith: text("paid_with"),
 
+  /**
+   * 🔴 What the invoice was actually in, and the rate we used.
+   * `totalCents` is always NZD and, for a foreign invoice, an ESTIMATE — what
+   * the club is really out is whatever ANZ settled the card at. Xero and the
+   * bank hold the exact figure; this is the working number, shown with a ~.
+   */
+  currency: text("currency").notNull().default("NZD"),
+  foreignCents: integer("foreign_cents"),
+  fxRate: decimal("fx_rate", { precision: 18, scale: 8 }),
+  fxRateOn: date("fx_rate_on"),
+  fxSource: text("fx_source"),
+
   // The invoice itself, base64 — the same pattern as esignDocuments.sourcePdf,
   // because ClubOS Supabase storage is egress-restricted (402). Capped and
   // validated server-side.
