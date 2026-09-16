@@ -14,7 +14,7 @@ import {
   brandFor, FILLIN_ABILITIES, FILLIN_MOTIVATIONS, FILLIN_POSITIONS,
 } from "@shared/teampay";
 import {
-  Button, Card, Field, Loading, NotFoundPage, Notice, TeampayShell, inputStyle, money,
+  Button, Card, Field, Loading, NotFoundPage, Notice, Select, TeampayShell, inputStyle, money,
 } from "./shell";
 
 const api = async (url: string, init?: RequestInit) => {
@@ -146,16 +146,12 @@ export default function TeampayFillinPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field brand={brand} label="Where do you play?">
-              <select value={f.position} onChange={(e) => set("position", e.target.value)} style={inputStyle(brand)}>
-                <option value="">Choose…</option>
-                {FILLIN_POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              <Select brand={brand} value={f.position} onChange={(v) => set("position", v)}
+                      options={FILLIN_POSITIONS} />
             </Field>
             <Field brand={brand} label="How would you rate yourself?">
-              <select value={f.ability} onChange={(e) => set("ability", e.target.value)} style={inputStyle(brand)}>
-                <option value="">Choose…</option>
-                {FILLIN_ABILITIES.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
+              <Select brand={brand} value={f.ability} onChange={(v) => set("ability", v)}
+                      options={FILLIN_ABILITIES} />
             </Field>
           </div>
 
@@ -172,10 +168,8 @@ export default function TeampayFillinPage() {
           </Field>
 
           <Field brand={brand} label="What are you after?">
-            <select value={f.motivation} onChange={(e) => set("motivation", e.target.value)} style={inputStyle(brand)}>
-              <option value="">Choose…</option>
-              {FILLIN_MOTIVATIONS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <Select brand={brand} value={f.motivation} onChange={(v) => set("motivation", v)}
+                      options={FILLIN_MOTIVATIONS} />
           </Field>
 
           <Field brand={brand} label="Anything else?" hint="Optional. A line or two is plenty.">

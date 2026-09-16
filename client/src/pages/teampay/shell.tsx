@@ -6,7 +6,8 @@
  * login. The brand comes from the competition row, so the Ethnic Cup renders
  * black and gold and MFL does not, from one component.
  */
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import type { TeampayBrand } from "@shared/teampay";
 import { DEFAULT_BRAND } from "@shared/teampay";
 import { initPixel } from "@/lib/meta-pixel";
@@ -223,5 +224,92 @@ export function NotFoundPage({ brand = DEFAULT_BRAND }: { brand?: TeampayBrand }
         </p>
       </Card>
     </TeampayShell>
+  );
+}
+
+/**
+ * A dropdown we draw ourselves.
+ *
+ * 🔴 Standing rule: a native `<select>` is rendered by the BROWSER, so it
+ * changes shape per browser, per OS and per version, and no amount of CSS fixes
+ * it — Daniel's Mac and Paul's Safari showed the same screen differently. These
+ * pages are opened on whatever phone a player happens to own, which is the
+ * worst possible case for a control we do not control.
+ *
+ * Deliberately NOT shadcn's Select: that lives in the admin design system and
+ * would drag the light theme into a deliberately dark public surface. This is
+ * the same idea in ~60 lines against the teampay brand tokens.
+ *
+ * Keyboard and screen readers: it is a real `<button>` with `aria-expanded` and
+ * a `listbox`, closes on Escape and on outside click, and every option is 44px.
+ */
+export function Select({
+  brand, value, onChange, options, placeholder = "Choose…",
+}: {
+  brand: TeampayBrand;
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly string[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={wrap}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        style={{ ...inputStyle(brand), textAlign: "left", cursor: "pointer",
+                 display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+      >
+        <span style={{ color: value ? brand.ink : brand.mute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value || placeholder}
+        </span>
+        <ChevronDown size={16} style={{ color: brand.mute, flexShrink: 0,
+          transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute left-0 right-0 z-30 mt-1.5 max-h-64 overflow-y-auto rounded-[10px] py-1"
+          style={{ background: brand.card, border: `1px solid ${brand.line}`,
+                   boxShadow: "0 18px 40px rgba(0,0,0,.55)" }}
+        >
+          {options.map((o) => (
+            <li key={o}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === o}
+                onClick={() => { onChange(o); setOpen(false); }}
+                className="flex w-full items-center px-3.5 text-left text-[14px]"
+                style={{ minHeight: 44, color: value === o ? brand.accent : brand.ink,
+                         background: value === o ? `${brand.accent}14` : "transparent" }}
+              >
+                {o}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
