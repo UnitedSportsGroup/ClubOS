@@ -14,6 +14,38 @@ import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import { organizations, users, printExpenses } from "@shared/schema";
+import { TT_BRANDS, TT_BRAND_KEYS } from "@shared/task-tracker";
+
+/**
+ * Parse and check a brand split.
+ *
+ * 🔴 The amounts must sum to the expense total EXACTLY. A split that does not
+ * add up makes every report built on it wrong, in a way nobody notices for a
+ * year. 🔴 Brands are checked against TT_BRAND_KEYS — the list ClubOS already
+ * uses everywhere else — rather than a second list that would drift.
+ */
+function parseAllocations(raw: any, totalCents: number):
+  { ok: true; rows: { brand: string; amountCents: number }[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: "Brand split must be a list." };
+  const rows: { brand: string; amountCents: number }[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    const brand = String(r?.brand ?? "").trim();
+    const amountCents = Math.round(Number(r?.amountCents));
+    if (!TT_BRAND_KEYS.includes(brand)) return { ok: false, error: `"${brand}" isn't one of our brands.` };
+    if (!Number.isFinite(amountCents) || amountCents <= 0) return { ok: false, error: "Every brand needs an amount above zero." };
+    if (seen.has(brand)) return { ok: false, error: "That brand is in the split twice — make it one amount." };
+    seen.add(brand);
+    rows.push({ brand, amountCents });
+  }
+  if (rows.length === 0) return { ok: true, rows };   // cleared back to "not allocated"
+  const sum = rows.reduce((a, b) => a + b.amountCents, 0);
+  if (sum !== totalCents) {
+    const d = (n: number) => `$${(n / 100).toFixed(2)}`;
+    return { ok: false, error: `The split comes to ${d(sum)} but the invoice is ${d(totalCents)} — they have to match.` };
+  }
+  return { ok: true, rows };
+}
 
 const CATEGORIES = ["merchandise", "materials", "equipment", "services", "freight", "software", "other"] as const;
 const TREATMENTS = ["inclusive", "plus_gst", "zero_rated", "overseas_no_gst"] as const;
@@ -166,17 +198,34 @@ export function registerPrintExpenseRoutes(app: Express) {
         byMonth[key] = (byMonth[key] ?? 0) + r.totalCents;
       });
 
+      // The brand split, in one query rather than one per row.
+      const allocByExpense = new Map<number, { brand: string; amountCents: number }[]>();
+      if (rows.length) {
+        const allocRows: any = await db.execute(sql`
+          SELECT expense_id, brand, amount_cents FROM print_expense_allocations
+          WHERE expense_id IN (${sql.join(rows.map((r) => sql`${r.id}`), sql`, `)})
+          ORDER BY amount_cents DESC`);
+        for (const a of (allocRows.rows ?? allocRows) as any[]) {
+          const list = allocByExpense.get(a.expense_id) ?? [];
+          list.push({ brand: a.brand, amountCents: Number(a.amount_cents) });
+          allocByExpense.set(a.expense_id, list);
+        }
+      }
+
       res.json({
         expenses: rows.map((r) => ({
           ...r,
           createdByName: r.createdByUserId ? (names.get(r.createdByUserId) ?? null) : null,
           // net is derived, never stored
           netCents: r.totalCents - r.gstCents,
+          // [] means NOT ALLOCATED — nobody has said what it was for. It is
+          // never filled in with a guess.
+          allocations: allocByExpense.get(r.id) ?? [],
         })),
         totals: { count: rows.length, totalCents, gstCents, netCents: totalCents - gstCents },
         byCategory,
         byMonth,
-        vocab: { categories: CATEGORIES, treatments: TREATMENTS, paidWith: PAID_WITH },
+        vocab: { categories: CATEGORIES, treatments: TREATMENTS, paidWith: PAID_WITH, brands: TT_BRANDS },
       });
     } catch (e: any) { handle(res, e, "list"); }
   });
@@ -248,8 +297,66 @@ export function registerPrintExpenseRoutes(app: Express) {
 
       await db.update(printExpenses).set(patch)
         .where(and(eq(printExpenses.id, id), eq(printExpenses.organizationId, org.id)));
+
+      // ── What the money was FOR ────────────────────────────────────────────
+      // Daniel, 2026-09-16: "allow him to breakdown and select what it's for
+      // like cic, cufc, siu, united prints, mfl etc... then we'll be able to
+      // have a view how much was spent on what for reporting."
+      //
+      // 🔴 Replace-all inside the same request, and the amounts must sum to the
+      // expense total EXACTLY. A split that does not add up makes every report
+      // built on it wrong, and it is the kind of wrong nobody notices for a
+      // year. An empty list clears the allocation back to "not allocated",
+      // which is a real answer.
+      if (req.body?.allocations !== undefined) {
+        const total = patch.totalCents ?? (await db.select({ t: printExpenses.totalCents })
+          .from(printExpenses).where(eq(printExpenses.id, id)))[0]?.t ?? 0;
+        const parsed = parseAllocations(req.body.allocations, Number(total));
+        if (!parsed.ok) throw new ExpenseError(parsed.error);
+        await db.execute(sql`DELETE FROM print_expense_allocations WHERE expense_id = ${id}`);
+        for (const a of parsed.rows) {
+          await db.execute(sql`
+            INSERT INTO print_expense_allocations (expense_id, brand, amount_cents)
+            VALUES (${id}, ${a.brand}, ${a.amountCents})`);
+        }
+      }
       res.json({ ok: true });
     } catch (e: any) { handle(res, e, "update"); }
+  });
+
+  // Spend by brand — the report the allocation exists for.
+  app.get("/api/admin/print-expenses/by-brand", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await workspaceOrg(req);
+      if (!org) return res.status(400).json({ message: "X-Workspace-Slug header required" });
+      const from = isoDate(req.query.from);
+      const to = isoDate(req.query.to);
+
+      const rows: any = await db.execute(sql`
+        SELECT a.brand, sum(a.amount_cents)::int AS cents, count(DISTINCT a.expense_id)::int AS purchases
+        FROM print_expense_allocations a
+        JOIN print_expenses e ON e.id = a.expense_id
+        WHERE e.organization_id = ${org.id}
+          ${from ? sql`AND e.spent_on >= ${from}` : sql``}
+          ${to ? sql`AND e.spent_on <= ${to}` : sql``}
+        GROUP BY a.brand ORDER BY 2 DESC`);
+
+      // 🔴 Unallocated is REPORTED, never hidden and never spread across the
+      // brands. "We don't know what $1,345 was for" is the useful answer; a
+      // silent omission makes the brand totals look like the whole picture.
+      const un: any = await db.execute(sql`
+        SELECT coalesce(sum(e.total_cents), 0)::int AS cents, count(*)::int AS purchases
+        FROM print_expenses e
+        WHERE e.organization_id = ${org.id}
+          AND NOT EXISTS (SELECT 1 FROM print_expense_allocations a WHERE a.expense_id = e.id)
+          ${from ? sql`AND e.spent_on >= ${from}` : sql``}
+          ${to ? sql`AND e.spent_on <= ${to}` : sql``}`);
+
+      res.json({
+        brands: (rows.rows ?? rows).map((r: any) => ({ brand: r.brand, cents: Number(r.cents), purchases: Number(r.purchases) })),
+        unallocated: { cents: Number((un.rows ?? un)[0]?.cents ?? 0), purchases: Number((un.rows ?? un)[0]?.purchases ?? 0) },
+      });
+    } catch (e: any) { handle(res, e, "by-brand"); }
   });
 
   app.delete("/api/admin/print-expenses/:id", requireAuth, tab, async (req, res) => {

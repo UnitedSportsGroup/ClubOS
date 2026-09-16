@@ -201,6 +201,42 @@ function EditModal({
             <div className="text-[10px] text-white/30 mt-0.5">Shown under the product on the website quote form.</div>
           </div>
 
+          {/* 🔴 Signage or merch FIRST when adding, because it decides which
+              of the questions below mean anything. A roll width is nonsense on
+              a t-shirt and a stock sheet size is nonsense on a hoodie — the old
+              form asked both of every product. Daniel, 2026-09-16. */}
+          {isNew && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2">What kind of product is this?</div>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { side: "signage", label: "Signage", blurb: "Printed by size off a roll or sheet", cat: "banner", method: "per_m2" },
+                  { side: "merch", label: "Clothing & merch", blurb: "Priced per garment, decorated", cat: "garment", method: "garment_decoration" },
+                ] as const).map((o) => {
+                  const active = (form.category === "garment") === (o.side === "merch");
+                  return (
+                    <button
+                      key={o.side} type="button"
+                      data-testid={`button-product-side-${o.side}`}
+                      onClick={() => setForm({
+                        ...form, category: o.cat, pricingMethod: o.method,
+                        // A garment is not roll-fed, so the limit has no meaning.
+                        maxRollWidthMm: o.side === "merch" ? "" : (form.maxRollWidthMm || "1600"),
+                        sizeTiers: o.side === "merch" ? [] : form.sizeTiers,
+                      })}
+                      className={`rounded-lg border px-3 py-2.5 text-left transition ${
+                        active ? "border-blue-500/50 bg-blue-500/[0.10]" : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
+                      }`}
+                    >
+                      <span className="block text-[12.5px] font-semibold text-white/90">{o.label}</span>
+                      <span className="block text-[10.5px] text-white/40 mt-0.5">{o.blurb}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {isNew && (
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -250,7 +286,9 @@ function EditModal({
           </div>
 
           {/* The machine limit. Explained rather than labelled, because the
-              non-obvious part is that it applies to the SHORTER side. */}
+              non-obvious part is that it applies to the SHORTER side.
+              🔴 Signage only — a garment is not printed off a roll. */}
+          {form.category !== "garment" && (
           <div>
             <label className="text-[10px] uppercase tracking-wider text-white/40">Printer roll width (mm)</label>
             <Input
@@ -266,6 +304,7 @@ function EditModal({
                 : "Leave blank for anything not printed off a roll — panels, garments."}
             </div>
           </div>
+          )}
 
           {/* ── Stock sizes ────────────────────────────────────────────────
               Dima, 2026-09-16: the sheets already come in standard sizes, so
@@ -276,6 +315,7 @@ function EditModal({
               area. The engine matches a customer's size to the nearest tier
               (orientation-insensitive, 5mm tolerance), so these are also what
               gets charged if somebody types the size by hand. */}
+          {form.category !== "garment" && (
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -356,6 +396,7 @@ function EditModal({
               </div>
             )}
           </div>
+          )}
 
           {/* The website switch gets its own block — it is the one setting on
               this form with a consequence outside ClubOS. */}
@@ -431,6 +472,10 @@ export default function PrintsMaterials() {
   const { currentOrg } = useWorkspace();
   const orgId = currentOrg?.id;
   const [search, setSearch] = useState("");
+  // Same split the customer sees on the website, so Dima works in the same
+  // vocabulary his customers do. Derived from the category the product already
+  // carries — never a second taxonomy.
+  const [side, setSide] = useState<"all" | "signage" | "merch">("all");
   const [editing, setEditing] = useState<PrintMaterial | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -458,9 +503,16 @@ export default function PrintsMaterials() {
     enabled: !!orgId,
   });
 
+  const isMerch = (m: PrintMaterial) => m.category === "garment";
   const filtered = materials.filter(m =>
-    !search || m.name.toLowerCase().includes(search.toLowerCase()) || m.slug.toLowerCase().includes(search.toLowerCase())
+    (side === "all" || (side === "merch") === isMerch(m)) &&
+    (!search || m.name.toLowerCase().includes(search.toLowerCase()) || m.slug.toLowerCase().includes(search.toLowerCase()))
   );
+  const sideCounts = {
+    all: materials.length,
+    signage: materials.filter(m => !isMerch(m)).length,
+    merch: materials.filter(m => isMerch(m)).length,
+  };
 
   const onWebsiteCount = materials.filter(m => (m as any).quoteOnWebsite && m.isActive).length;
 
@@ -488,6 +540,31 @@ export default function PrintsMaterials() {
           </Button>
         </div>
       </div>
+
+      {/* Signage or merch — the same split the customer sees on the website.
+          Only drawn when there is actually something on both sides. */}
+      {sideCounts.signage > 0 && sideCounts.merch > 0 && (
+        <div className="flex items-center gap-1.5" data-testid="picker-material-side">
+          {([
+            { key: "all", label: "Everything" },
+            { key: "signage", label: "Signage" },
+            { key: "merch", label: "Clothing & merch" },
+          ] as const).map((o) => (
+            <button
+              key={o.key}
+              onClick={() => setSide(o.key)}
+              data-testid={`button-materials-${o.key}`}
+              className={`px-3.5 py-2 rounded-lg border text-[12.5px] transition-colors ${
+                side === o.key
+                  ? "bg-blue-500/15 border-blue-500/35 text-white/90"
+                  : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.06]"
+              }`}
+            >
+              {o.label}<span className="ml-1.5 text-white/35">{sideCounts[o.key]}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* States the connection plainly, so nobody edits a price without
           realising the public sees it. */}

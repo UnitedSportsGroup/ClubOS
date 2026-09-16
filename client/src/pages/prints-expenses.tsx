@@ -13,7 +13,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Plus, X, Trash2, Paperclip, FileText, Receipt, TrendingDown, Filter, Download,
+  Plus, X, Trash2, Paperclip, FileText, Receipt, TrendingDown, Filter, Download, Pencil,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,13 +26,15 @@ type Expense = {
   gstTreatment: string; spentOn: string; paidWith: string | null;
   invoiceFileName: string | null; invoiceMime: string | null; hasInvoice: boolean;
   notes: string | null; createdByName: string | null;
+  /** What it was for. [] = not allocated — nobody has said yet. */
+  allocations: { brand: string; amountCents: number }[];
 };
 type Payload = {
   expenses: Expense[];
   totals: { count: number; totalCents: number; gstCents: number; netCents: number };
   byCategory: Record<string, { totalCents: number; gstCents: number; count: number }>;
   byMonth: Record<string, number>;
-  vocab: { categories: string[]; treatments: string[]; paidWith: string[] };
+  vocab: { categories: string[]; treatments: string[]; paidWith: string[]; brands: { key: string; label: string }[] };
 };
 
 const CAT_LABEL: Record<string, string> = {
@@ -83,9 +85,15 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
     paidWith: existing?.paidWith ?? "card",
     notes: existing?.notes ?? "",
   });
+  // What the money was FOR. [] means NOT ALLOCATED — a real answer, and the
+  // one the six expenses already on file honestly have.
+  const [alloc, setAlloc] = useState<{ brand: string; amountCents: number }[]>(
+    () => existing?.allocations ? [...existing.allocations] : [],
+  );
   const [file, setFile] = useState<{ name: string; dataUrl: string } | null>(null);
   const [removeInvoice, setRemoveInvoice] = useState(false);
 
+  const allocTotal = alloc.reduce((a, b) => a + b.amountCents, 0);
   // Live preview of exactly what will be stored — he sees the GST before saving.
   const preview = useMemo(() => {
     const entered = dollarInputToCents(f.amount);
@@ -114,6 +122,9 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
         spentOn: f.spentOn,
         paidWith: f.paidWith,
         notes: f.notes.trim() || null,
+        // The server re-checks that this sums to the total — this is a
+        // courtesy so Dima sees the remainder while he types, never the gate.
+        allocations: alloc,
       };
       if (file) { body.invoiceData = file.dataUrl; body.invoiceFileName = file.name; }
       else if (removeInvoice) { body.invoiceData = null; }
@@ -256,6 +267,75 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
             </div>
           </div>
 
+          {/* ── What was this for? ────────────────────────────────────────
+              Daniel, 2026-09-16: "allow him to breakdown and select what it's
+              for like cic, cufc, siu, united prints, mfl etc... then we'll be
+              able to have a view how much was spent on what for reporting."
+
+              🔴 A SPLIT, not one brand. The first row on Dima's screen is
+              "CEC 2026 and CIC S7s trophies" — one $1,320 invoice covering two
+              brands. Forcing it onto one would make every report wrong. Most
+              purchases are one brand, which is just a split of one line. */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/40">What was it for?</div>
+                <div className="text-[10px] text-white/30 mt-0.5">Which brand this spend belongs to. Split it if one invoice covered more than one.</div>
+              </div>
+              {alloc.length === 0 && preview.total > 0 && (
+                <Button
+                  size="sm" variant="outline" type="button" data-testid="button-allocate-all"
+                  onClick={() => setAlloc([{ brand: "prints", amountCents: preview.total }])}
+                >
+                  Allocate
+                </Button>
+              )}
+            </div>
+
+            {alloc.length === 0 ? (
+              <div className="text-[11px] text-white/25">Not allocated — it won't appear in the spend-by-brand view.</div>
+            ) : (
+              <div className="space-y-2">
+                {alloc.map((a, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_8rem_2rem] items-center gap-2" data-testid={`row-alloc-${i}`}>
+                    <select
+                      value={a.brand}
+                      onChange={(e) => setAlloc(alloc.map((x, j) => j === i ? { ...x, brand: e.target.value } : x))}
+                      className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
+                      data-testid={`select-alloc-brand-${i}`}
+                    >
+                      {(vocab.brands ?? []).map((b) => <option key={b.key} value={b.key} className="bg-[#02060E]">{b.label}</option>)}
+                    </select>
+                    <MoneyInput
+                      value={centsToDollarInput(a.amountCents)}
+                      onChange={(v) => setAlloc(alloc.map((x, j) => j === i ? { ...x, amountCents: dollarInputToCents(v) } : x))}
+                      className="bg-white/[0.02] border-white/10 text-white"
+                      data-testid={`input-alloc-amount-${i}`}
+                    />
+                    <button type="button" aria-label="Remove" onClick={() => setAlloc(alloc.filter((_, j) => j !== i))}
+                      className="text-white/25 hover:text-red-300 justify-self-center">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1">
+                  <button type="button" onClick={() => setAlloc([...alloc, { brand: "cufc", amountCents: Math.max(0, preview.total - allocTotal) }])}
+                    className="text-[11.5px] text-blue-300 hover:underline" data-testid="button-add-alloc">
+                    + Split across another brand
+                  </button>
+                  {/* 🔴 Say the remainder out loud. The server refuses a split
+                      that does not sum to the invoice, and a silent refusal at
+                      Save is a worse way to learn that. */}
+                  <span className={`text-[11.5px] ${allocTotal === preview.total ? "text-white/35" : "text-amber-300"}`} data-testid="text-alloc-remainder">
+                    {allocTotal === preview.total
+                      ? `${money(allocTotal)} allocated`
+                      : `${money(allocTotal)} of ${money(preview.total)} — ${money(preview.total - allocTotal)} left`}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="text-[10px] uppercase tracking-wider text-white/40">Notes</label>
             <textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })}
@@ -312,7 +392,15 @@ export default function PrintsExpenses() {
 
   const expenses = data?.expenses ?? [];
   const totals = data?.totals;
-  const vocab = data?.vocab ?? { categories: Object.keys(CAT_LABEL), treatments: Object.keys(TREAT_LABEL), paidWith: Object.keys(PAID_LABEL) };
+    // Falls back to the labels this file already knows, so the form still works
+  // if the vocab call is in flight. `brands` has no local fallback on purpose —
+  // it is the server's list (TT_BRANDS) and a second copy here would drift.
+  const vocab: Payload["vocab"] = {
+    categories: data?.vocab?.categories ?? Object.keys(CAT_LABEL),
+    treatments: data?.vocab?.treatments ?? Object.keys(TREAT_LABEL),
+    paidWith: data?.vocab?.paidWith ?? Object.keys(PAID_LABEL),
+    brands: data?.vocab?.brands ?? [],
+  };
 
   const csv = () => {
     const head = ["Date", "Category", "Supplier", "Description", "Their invoice no.", "Net", "GST", "Total", "GST treatment", "Paid with", "Invoice attached", "Notes", "Added by"];
@@ -466,6 +554,13 @@ export default function PrintsExpenses() {
                             <Paperclip className="w-4 h-4" />
                           </a>
                         ) : <span className="text-white/15" title="No invoice attached"><Paperclip className="w-4 h-4" /></span>}
+                        {/* Editing an expense after it is entered — Dima types
+                            these from an invoice and a typo should not mean
+                            deleting the record and its attachment to fix it. */}
+                        <button onClick={() => setEditing(e)} title="Edit" aria-label="Edit"
+                          className="text-white/25 hover:text-blue-300" data-testid={`button-edit-expense-${e.id}`}>
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button onClick={() => { if (confirm(`Delete "${e.description}"?`)) remove.mutate(e.id); }}
                           className="text-white/25 hover:text-red-400" aria-label="Delete">
                           <Trash2 className="w-4 h-4" />
