@@ -9082,6 +9082,18 @@ export const teampayFillins = pgTable("teampay_fillins", {
   /** Their own link, to withdraw or update without a login. */
   playerToken: text("player_token").notNull(),
 
+  /**
+   * The football CV, added 2026-09-17.
+   *
+   * 🔴 NEITHER IS PUBLIC. The marketplace page on ethniccup.com lists the pool
+   * (first name, position, ability, where they're from); the photo and the
+   * highlight video appear only to a signed-in captain. Several of these
+   * players are newcomers, and a page of named photographs anyone can scrape is
+   * a different product from a list of people looking for a game.
+   */
+  photoKey: text("photo_key"),
+  highlightUrl: text("highlight_url"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
@@ -9117,6 +9129,9 @@ export const teampayFillinHolds = pgTable("teampay_fillin_holds", {
   /** The roster row created when they accepted. */
   playerId: integer("player_id").references(() => teampayPlayers.id, { onDelete: "set null" }),
 
+  /** Which captain account asked, when there was one. Attribution, not auth. */
+  requestedByCaptainId: integer("requested_by_captain_id"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
   uniqueHoldToken: uniqueIndex("teampay_fillin_holds_hold_token_unique").on(t.holdToken),
@@ -9124,6 +9139,81 @@ export const teampayFillinHolds = pgTable("teampay_fillin_holds", {
   entryIdx: index("teampay_fillin_holds_entry_idx").on(t.entryId, t.state),
 }));
 export type TeampayFillinHold = typeof teampayFillinHolds.$inferSelect;
+
+/**
+ * A team captain's own account — email and password, so they can manage their
+ * team from anywhere instead of hunting for the magic link we emailed once.
+ *
+ * 🔴 A CUSTOMER credential, never a staff one. Its own cookie, its own table,
+ * its own expiry; it can never reach ClubOS admin. Modelled on the United
+ * Prints customer accounts, the reference implementation for this shape here.
+ *
+ * 🔴 The token links are NOT replaced. `/team/:organiserToken` keeps working;
+ * a captain who never makes an account loses nothing. The session is a second
+ * door to the same dashboard.
+ */
+export const teampayCaptains = pgTable("teampay_captains", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  /** Lower-cased by the app; a unique index on lower(email) enforces it. */
+  email: text("email").notNull(),
+  /**
+   * 🔴 NULLABLE, and a NULL must FAIL CLOSED. The row is created when somebody
+   * asks to set a password, before they have proved control of the address —
+   * until they follow the emailed link it must not sign anyone in.
+   */
+  passwordHash: text("password_hash"),
+  name: text("name"),
+  phone: text("phone"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastSignInAt: timestamp("last_sign_in_at"),
+  /** Retire, never delete — entries and payments outlive the account. */
+  disabledAt: timestamp("disabled_at"),
+});
+export type TeampayCaptain = typeof teampayCaptains.$inferSelect;
+
+/**
+ * 🔴 Only the HASH of the token is stored — a read of this table cannot sign
+ * anyone in. Server-side so "sign out everywhere" is true, not hopeful.
+ */
+export const teampayCaptainSessions = pgTable("teampay_captain_sessions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  captainId: integer("captain_id").notNull().references(() => teampayCaptains.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  userAgent: text("user_agent"),
+  ip: text("ip"),
+});
+
+/**
+ * 🔴 How control of the email address is PROVEN. Single-use (`usedAt`) and
+ * hash-only, so a link sitting in a mail archive is already spent.
+ */
+export const teampayCaptainTokens = pgTable("teampay_captain_tokens", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  captainId: integer("captain_id").notNull().references(() => teampayCaptains.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  /** set | reset — same machinery, different wording. Validated in app code. */
+  kind: text("kind").notNull().default("set"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+});
+
+/** A row for EVERY attempt. Both the rate-limit store and the record of who got in. */
+export const teampayCaptainAuthEvents = pgTable("teampay_captain_auth_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  email: text("email"),
+  captainId: integer("captain_id").references(() => teampayCaptains.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  ok: boolean("ok").notNull(),
+  reason: text("reason"),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 /**
  * Append-only audit. Every nudge sent, every open, every fill-in request and

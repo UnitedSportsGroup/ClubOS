@@ -184,6 +184,9 @@ import TeampayEnterPage from "@/pages/teampay/enter";
 import TeampayDashboard from "@/pages/teampay/dashboard";
 import TeampayPlayerPage from "@/pages/teampay/player";
 import TeampayFillinPage, { TeampayHoldPage } from "@/pages/teampay/fillin";
+import {
+  CaptainSignInPage, CaptainSetPasswordPage, CaptainTeamsPage, CaptainTeamPage,
+} from "@/pages/teampay/captain";
 import CicSkillsLandingPage from "@/pages/cic-skills-landing";
 import PrintsDashboard from "@/pages/prints-dashboard";
 import PrintsCRM from "@/pages/prints-crm";
@@ -916,6 +919,12 @@ function App() {
             <Route path="/events/:slug" component={ClubEventPage} />
             <Route path="/enter/:slug" component={TeampayEnterPage} />
             <Route path="/team/:token" component={TeampayDashboard} />
+            {/* 🔴 The specific captain routes MUST precede /captain, or wouter
+                matches the bare path first and the set-password link 404s. */}
+            <Route path="/captain/set-password" component={CaptainSetPasswordPage} />
+            <Route path="/captain/teams/:id" component={CaptainTeamPage} />
+            <Route path="/captain/teams" component={CaptainTeamsPage} />
+            <Route path="/captain" component={CaptainSignInPage} />
             <Route path="/pay/:token" component={TeampayPlayerPage} />
             <Route path="/fill-in/reply/:token" component={TeampayHoldPage} />
             <Route path="/fill-in/:slug" component={TeampayFillinPage} />

@@ -36,18 +36,26 @@ const api = async (url: string, init?: RequestInit) => {
   return body;
 };
 
-export default function TeampayDashboard() {
-  const [, params] = useRoute("/team/:token");
-  const token = params?.token || "";
+/**
+ * The dashboard itself, addressed by an API BASE rather than by a token.
+ *
+ * 🔴 There are two doors to this screen — the organiser-token link a captain
+ * gets by email, and their own signed-in account — and this is deliberately ONE
+ * implementation of it. The two bases expose the identical set of sub-paths, so
+ * the only thing that differs is who the server decided you are. A second copy
+ * of this component would drift, and the first thing to drift would be a rule
+ * about money.
+ */
+export function TeampayDashboardView({ base, header }: { base: string; header?: React.ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ tone: "good" | "error"; text: string } | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showFillins, setShowFillins] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<any>({
-    queryKey: ["teampay-team", token],
-    queryFn: () => api(`/api/public/teampay/team/${token}`),
-    enabled: !!token,
+    queryKey: ["teampay-team", base],
+    queryFn: () => api(`${base}`),
+    enabled: !!base,
     retry: false,
   });
 
@@ -88,6 +96,7 @@ export default function TeampayDashboard() {
 
   return (
     <TeampayShell brand={brand} wide eyebrow={competition.name} title={entry.teamName}>
+      {header}
       {flash && (
         <div className="mb-5">
           <Notice brand={brand} tone={flash.tone}>{flash.text}</Notice>
@@ -145,7 +154,7 @@ export default function TeampayDashboard() {
           <div className="mt-5 border-t pt-5" style={{ borderColor: brand.line }}>
             <TeamPayPanel
               brand={brand}
-              token={token}
+              base={base}
               amountCents={teamChargeCents}
               isWhole={isWhole}
               onPaid={() => { refetch(); setFlash({ tone: "good", text: "Payment received — thank you." }); }}
@@ -163,7 +172,7 @@ export default function TeampayDashboard() {
               disabled={busy === "mode"}
               onClick={() => run(
                 "mode",
-                () => api(`/api/public/teampay/team/${token}/payment-mode`, {
+                () => api(`${base}/payment-mode`, {
                   method: "PATCH",
                   body: JSON.stringify({ paymentMode: isWhole ? "split" : "whole" }),
                 }),
@@ -194,7 +203,7 @@ export default function TeampayDashboard() {
           variant="ghost"
           disabled={!outstanding.length || busy === "nudge-all"}
           onClick={() => run("nudge-all", async () => {
-            const r = await api(`/api/public/teampay/team/${token}/nudge-all`, { method: "POST" });
+            const r = await api(`${base}/nudge-all`, { method: "POST" });
             setFlash(r.sent
               ? { tone: "good", text: `Reminder sent to ${r.sent} ${r.sent === 1 ? "player" : "players"}.${r.skipped.length ? ` ${r.skipped.length} skipped.` : ""}` }
               : { tone: "error", text: r.skipped[0]?.reason || "Nobody to remind right now." });
@@ -231,7 +240,7 @@ export default function TeampayDashboard() {
       {showAdd && (
         <AddPlayers
           brand={brand}
-          token={token}
+          base={base}
           emptySlots={m.emptySlots}
           onDone={(msg) => { setShowAdd(false); setFlash({ tone: "good", text: msg }); refetch(); }}
           onError={(msg) => setFlash({ tone: "error", text: msg })}
@@ -247,7 +256,7 @@ export default function TeampayDashboard() {
             Your squad
           </h2>
           <SquadSize
-            brand={brand} token={token} current={entry.squadSize} canResize={canResize}
+            brand={brand} base={base} current={entry.squadSize} canResize={canResize}
             onDone={(msg, tone) => { setFlash({ tone, text: msg }); refetch(); }}
           />
         </div>
@@ -308,7 +317,7 @@ export default function TeampayDashboard() {
                       disabled={!p.nudge.allowed || busy === `n${p.id}`}
                       title={p.nudge.reason}
                       onClick={() => run(`n${p.id}`, () =>
-                        api(`/api/public/teampay/team/${token}/players/${p.id}/nudge`, { method: "POST" }),
+                        api(`${base}/players/${p.id}/nudge`, { method: "POST" }),
                         `Reminder sent to ${p.name}.`)}
                     >
                       {busy === `n${p.id}`
@@ -322,7 +331,7 @@ export default function TeampayDashboard() {
                       disabled={busy === `r${p.id}`}
                       title={`Remove ${p.name}`}
                       onClick={() => run(`r${p.id}`, () =>
-                        api(`/api/public/teampay/team/${token}/players/${p.id}`, { method: "DELETE" }),
+                        api(`${base}/players/${p.id}`, { method: "DELETE" }),
                         `${p.name} removed.`)}
                     >
                       <Trash2 size={15} />
@@ -343,7 +352,7 @@ export default function TeampayDashboard() {
 
       {showFillins && (
         <FillinDrawer
-          brand={brand} token={token}
+          brand={brand} base={base}
           onClose={() => { setShowFillins(false); refetch(); }}
           onFlash={(tone, text) => setFlash({ tone, text })}
         />
@@ -367,8 +376,8 @@ export default function TeampayDashboard() {
  * The page never computes a price.
  */
 function TeamPayPanel({
-  brand, token, amountCents, isWhole, onPaid,
-}: { brand: any; token: string; amountCents: number; isWhole: boolean; onPaid: () => void }) {
+  brand, base, amountCents, isWhole, onPaid,
+}: { brand: any; base: string; amountCents: number; isWhole: boolean; onPaid: () => void }) {
   const [open, setOpen] = useState(isWhole);
   const [secret, setSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -377,13 +386,13 @@ function TeamPayPanel({
     if (!open) return;
     let live = true;
     setError(null);
-    api(`/api/public/teampay/team/${token}/pay-intent`, { method: "POST" })
+    api(`${base}/pay-intent`, { method: "POST" })
       .then((r) => { if (live) setSecret(r.clientSecret); })
       .catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
     // 🔴 amountCents is a dependency: two players paying while this panel sits
     // open changes what is owed, and a stale intent would charge the old figure.
-  }, [open, token, amountCents]);
+  }, [open, base, amountCents]);
 
   if (!open) {
     return (
@@ -449,7 +458,7 @@ function TeamPayPanel({
       }}
     >
       <TeamPayForm
-        brand={brand} token={token} amountCents={amountCents}
+        brand={brand} base={base} amountCents={amountCents}
         isWhole={isWhole} onPaid={onPaid} onCancel={() => setOpen(false)}
       />
     </Elements>
@@ -457,9 +466,9 @@ function TeamPayPanel({
 }
 
 function TeamPayForm({
-  brand, token, amountCents, isWhole, onPaid, onCancel,
+  brand, base, amountCents, isWhole, onPaid, onCancel,
 }: {
-  brand: any; token: string; amountCents: number;
+  brand: any; base: string; amountCents: number;
   isWhole: boolean; onPaid: () => void; onCancel: () => void;
 }) {
   const stripe = useStripe();
@@ -486,7 +495,7 @@ function TeamPayForm({
     // 🔴 Ask OUR server, which asks Stripe. The browser saying "it worked" is
     // not evidence that money moved.
     try {
-      const r = await api(`/api/public/teampay/team/${token}/pay-confirm`, { method: "POST" });
+      const r = await api(`${base}/pay-confirm`, { method: "POST" });
       if (r.paid) onPaid();
       else setError("Your bank is still processing that. Give it a moment and refresh.");
     } catch (e: any) {
@@ -548,8 +557,8 @@ function CopyLink({ brand, url }: { brand: any; url: string }) {
 
 // ── squad size ────────────────────────────────────────────────────────────────
 function SquadSize({
-  brand, token, current, canResize, onDone,
-}: { brand: any; token: string; current: number; canResize: boolean; onDone: (m: string, t: "good" | "error") => void }) {
+  brand, base, current, canResize, onDone,
+}: { brand: any; base: string; current: number; canResize: boolean; onDone: (m: string, t: "good" | "error") => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(current));
   const [saving, setSaving] = useState(false);
@@ -582,7 +591,7 @@ function SquadSize({
         onClick={async () => {
           setSaving(true);
           try {
-            await api(`/api/public/teampay/team/${token}/squad-size`, {
+            await api(`${base}/squad-size`, {
               method: "PATCH", body: JSON.stringify({ squadSize: Number(value) }),
             });
             setEditing(false);
@@ -602,9 +611,9 @@ function SquadSize({
 
 // ── add players ───────────────────────────────────────────────────────────────
 function AddPlayers({
-  brand, token, emptySlots, onDone, onError, onClose,
+  brand, base, emptySlots, onDone, onError, onClose,
 }: {
-  brand: any; token: string; emptySlots: number;
+  brand: any; base: string; emptySlots: number;
   onDone: (m: string) => void; onError: (m: string) => void; onClose: () => void;
 }) {
   const [rows, setRows] = useState([{ name: "", email: "", phone: "" }]);
@@ -649,7 +658,7 @@ function AddPlayers({
           onClick={async () => {
             setSaving(true);
             try {
-              const r = await api(`/api/public/teampay/team/${token}/players`, {
+              const r = await api(`${base}/players`, {
                 method: "POST",
                 body: JSON.stringify({ players: rows.filter((x) => x.name.trim()) }),
               });
@@ -677,19 +686,24 @@ function AddPlayers({
 
 // ── the fill-in marketplace ───────────────────────────────────────────────────
 function FillinDrawer({
-  brand, token, onClose, onFlash,
-}: { brand: any; token: string; onClose: () => void; onFlash: (t: "good" | "error", m: string) => void }) {
+  brand, base, onClose, onFlash,
+}: { brand: any; base: string; onClose: () => void; onFlash: (t: "good" | "error", m: string) => void }) {
   const [asking, setAsking] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [openNote, setOpenNote] = useState<number | null>(null);
 
   const { data, isLoading, refetch } = useQuery<any>({
-    queryKey: ["teampay-fillins", token],
-    queryFn: () => api(`/api/public/teampay/team/${token}/fill-ins`),
+    queryKey: ["teampay-fillins", base],
+    queryFn: () => api(`${base}/fill-ins`),
     retry: false,
   });
 
-  const fillins: FillinPublic[] = data?.fillins ?? [];
+  /* The captain view carries two fields the public list does not: a short-lived
+     signed photo URL and a validated highlight link. */
+  const fillins: Array<FillinPublic & {
+    photoUrl?: string | null;
+    highlight?: { url: string; host: string } | null;
+  }> = data?.fillins ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
@@ -730,16 +744,38 @@ function FillinDrawer({
             <ul className="space-y-3">
               {fillins.map((f) => (
                 <li key={f.id} className="rounded-xl p-4" style={{ border: `1px solid ${brand.line}` }}>
-                  <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                    <span className="text-[15px] font-semibold" style={{ color: brand.ink }}>{f.firstName}</span>
-                    {f.position && <span className="text-[13px]" style={{ color: brand.accent }}>{f.position}</span>}
-                    {f.ability && <span className="text-[12px]" style={{ color: brand.mute }}>· {f.ability}</span>}
-                  </div>
-                  <div className="mt-1.5 space-y-0.5 text-[13px]" style={{ color: brand.mute }}>
-                    {f.highestLevel && <div>Highest level: {f.highestLevel}</div>}
-                    {f.fromWhere && <div>From: {f.fromWhere}</div>}
-                    {f.motivation && <div>Wants to: {f.motivation.toLowerCase()}</div>}
-                    {f.note && <div className="italic" style={{ color: brand.ink }}>“{f.note}”</div>}
+                  <div className="flex gap-3.5">
+                    {f.photoUrl && (
+                      /* A signed URL that dies in five minutes. `referrerPolicy`
+                         so the storage host is never told which team was looking. */
+                      <img src={f.photoUrl} alt="" loading="lazy" referrerPolicy="no-referrer"
+                           style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover",
+                                    flexShrink: 0, border: `1px solid ${brand.line}` }} />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                        <span className="text-[15px] font-semibold" style={{ color: brand.ink }}>{f.firstName}</span>
+                        {f.position && <span className="text-[13px]" style={{ color: brand.accent }}>{f.position}</span>}
+                        {f.ability && <span className="text-[12px]" style={{ color: brand.mute }}>· {f.ability}</span>}
+                      </div>
+                      <div className="mt-1.5 space-y-0.5 text-[13px]" style={{ color: brand.mute }}>
+                        {f.highestLevel && <div>Highest level: {f.highestLevel}</div>}
+                        {f.fromWhere && <div>From: {f.fromWhere}</div>}
+                        {f.motivation && <div>Wants to: {f.motivation.toLowerCase()}</div>}
+                        {f.note && <div className="italic" style={{ color: brand.ink }}>“{f.note}”</div>}
+                      </div>
+                      {/* 🔴 A link a stranger supplied. It opens in a new tab with
+                          noopener, and the HOSTNAME is shown — a captain should see
+                          where they are about to go, not just the word "highlights". */}
+                      {f.highlight && (
+                        <a href={f.highlight.url} target="_blank" rel="noopener noreferrer nofollow"
+                           className="mt-2 inline-flex items-center gap-1.5 text-[13px] underline underline-offset-2"
+                           style={{ color: brand.accent, minHeight: 44 }}>
+                          Watch highlights
+                          <span style={{ color: brand.mute }}>({f.highlight.host})</span>
+                        </a>
+                      )}
+                    </div>
                   </div>
 
                   {openNote === f.id ? (
@@ -755,7 +791,7 @@ function FillinDrawer({
                           onClick={async () => {
                             setAsking(f.id);
                             try {
-                              await api(`/api/public/teampay/team/${token}/fill-ins/${f.id}/request`, {
+                              await api(`${base}/fill-ins/${f.id}/request`, {
                                 method: "POST", body: JSON.stringify({ note }),
                               });
                               onFlash("good", `Asked ${f.firstName}. They've got 48 hours to answer.`);
@@ -787,4 +823,12 @@ function FillinDrawer({
       </div>
     </div>
   );
+}
+
+/** The emailed link. Unchanged behaviour, unchanged URL. */
+export default function TeampayDashboard() {
+  const [, params] = useRoute("/team/:token");
+  const token = params?.token || "";
+  if (!token) return <NotFoundPage />;
+  return <TeampayDashboardView base={`/api/public/teampay/team/${token}`} />;
 }

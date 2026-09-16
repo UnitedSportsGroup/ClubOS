@@ -41,7 +41,9 @@ export default function TeampayFillinPage() {
   const [f, setF] = useState({
     firstName: "", lastName: "", email: "", phone: "",
     position: "", ability: "", highestLevel: "", fromWhere: "", motivation: "", note: "",
+    highlightUrl: "",
   });
+  const [photo, setPhoto] = useState<{ type: string; data: string; preview: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -99,9 +101,22 @@ export default function TeampayFillinPage() {
             e.preventDefault();
             setBusy(true); setError(null);
             try {
-              await api(`/api/public/teampay/competition/${slug}/fill-in`, {
+              const r = await api(`/api/public/teampay/competition/${slug}/fill-in`, {
                 method: "POST", body: JSON.stringify(f),
               });
+              /* 🔴 The photo is a SECOND request, on purpose. The token that
+                 authorises the upload is minted by the signup above, so there
+                 is nothing to authorise an upload against until the row exists.
+                 A failed photo must never fail the signup — they are on the
+                 list either way, and can add a photo from their own link. */
+              if (photo && r?.playerToken) {
+                try {
+                  await api(`/api/public/teampay/fill-in/${r.playerToken}/photo`, {
+                    method: "POST",
+                    body: JSON.stringify({ contentType: photo.type, data: photo.data }),
+                  });
+                } catch (e) { console.error("photo upload failed", e); }
+              }
               setDone(true);
             } catch (err: any) { setError(err.message); }
             finally { setBusy(false); }
@@ -167,6 +182,15 @@ export default function TeampayFillinPage() {
             <textarea value={f.note} onChange={(e) => set("note", e.target.value)} rows={3}
                       style={{ ...inputStyle(brand), minHeight: 84, resize: "vertical" }} />
           </Field>
+
+          <Field brand={brand} label="Highlight video"
+                 hint="Optional. Paste a link — YouTube, Instagram, Veo, anywhere.">
+            <input type="url" inputMode="url" placeholder="https://"
+                   value={f.highlightUrl} onChange={(e) => set("highlightUrl", e.target.value)}
+                   style={inputStyle(brand)} />
+          </Field>
+
+          <PhotoField brand={brand} photo={photo} onPick={setPhoto} />
 
           {error && <Notice brand={brand} tone="error">{error}</Notice>}
 
@@ -295,5 +319,84 @@ export function TeampayHoldPage() {
         Don't answer within 48 hours and you go back on the list automatically.
       </p>
     </TeampayShell>
+  );
+}
+
+/**
+ * A player's photo.
+ *
+ * 🔴 Read in the browser and sent as base64 with the signup, rather than through
+ * a multipart form: this app has no multipart parser on the public routes, and a
+ * head-and-shoulders photo under 5MB is small enough that the simple path is the
+ * right one. The server re-checks the type and the size from the bytes — an
+ * `accept=` attribute is a suggestion, not a control.
+ *
+ * 🔴 The photo is NOT public. It is shown to signed-in captains only, and the
+ * label says so, because somebody deciding whether to upload a picture of
+ * themselves is entitled to know who will see it.
+ */
+function PhotoField({
+  brand, photo, onPick,
+}: {
+  brand: any;
+  photo: { type: string; data: string; preview: string } | null;
+  onPick: (p: { type: string; data: string; preview: string } | null) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  const read = (file: File) => {
+    setError(null);
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      return setError("Please pick a JPEG, PNG or WebP image.");
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return setError("That image is over 5MB — please pick a smaller one.");
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      onPick({ type: file.type, data: result.slice(comma + 1), preview: result });
+    };
+    reader.onerror = () => setError("Couldn't read that file. Try another one.");
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <Field brand={brand} label="Photo"
+           hint="Optional. Only team captains see it — it is never on the public list.">
+      <div className="flex items-center gap-4">
+        {photo ? (
+          <img src={photo.preview} alt=""
+               style={{ width: 64, height: 64, borderRadius: 12, objectFit: "cover",
+                        border: `1px solid ${brand.line}` }} />
+        ) : (
+          <div style={{ width: 64, height: 64, borderRadius: 12, background: brand.card,
+                        border: `1px dashed ${brand.line}` }} />
+        )}
+        <div className="min-w-0 flex-1">
+          {/* A real <input type="file"> is the ONE browser control we cannot
+              draw ourselves — there is no other way to open a file picker — so
+              it is hidden behind a label we do draw. */}
+          <label
+            className="inline-flex cursor-pointer items-center justify-center rounded-full px-4 text-[14px] font-semibold"
+            style={{ minHeight: 44, background: "transparent", color: brand.ink,
+                     border: `1px solid ${brand.line}` }}
+          >
+            {photo ? "Choose another" : "Choose a photo"}
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only"
+                   onChange={(e) => { const f = e.target.files?.[0]; if (f) read(f); }} />
+          </label>
+          {photo && (
+            <button type="button" className="ml-3 text-[13px] underline underline-offset-2"
+                    style={{ color: brand.mute, minHeight: 44 }}
+                    onClick={() => onPick(null)}>
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <div className="mt-2 text-[12px]" style={{ color: "#FF6961" }}>{error}</div>}
+    </Field>
   );
 }

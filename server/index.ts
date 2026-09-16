@@ -254,6 +254,11 @@ app.use(attributionCookieMiddleware);
   const { registerTeampayRoutes } = await import("./teampay-routes");
   registerTeampayRoutes(app);
 
+  // The captain's own account — a second door to the same dashboard, never a
+  // replacement for the organiser-token links, which keep working untouched.
+  const { registerTeampayCaptainRoutes } = await import("./teampay-captain-routes");
+  registerTeampayCaptainRoutes(app);
+
   // Club Events — ticketed club events (first: the CUFC Club Dinner, 13 Nov
   // 2026). Public pages by slug/token, no login; the staff tab is gated by
   // requireTab("club-events"); refunds by requireRefundPermission.

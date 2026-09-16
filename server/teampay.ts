@@ -939,7 +939,9 @@ export async function createFillin(input: {
   email: string; phone?: string | null;
   position?: string | null; ability?: string | null; highestLevel?: string | null;
   fromWhere?: string | null; motivation?: string | null; note?: string | null;
-}): Promise<{ error?: string; ok?: boolean; alreadyIn?: boolean }> {
+  /** A link to a highlight video. Validated, never rendered raw. */
+  highlightUrl?: string | null;
+}): Promise<{ error?: string; ok?: boolean; alreadyIn?: boolean; playerToken?: string }> {
   const comp = await competitionBySlug(input.slug);
   if (!comp) return { error: "not_found" };
   if (!comp.fillinsOpen) return { error: "The fill-in list isn't open yet." };
@@ -962,6 +964,13 @@ export async function createFillin(input: {
     fromWhere: input.fromWhere?.trim() || null,
     motivation: input.motivation?.trim() || null,
     note: input.note?.trim().slice(0, 1000) || null,
+    /**
+     * 🔴 Only http(s) is stored. A link a stranger typed is rendered to a
+     * captain who will click it, and `javascript:`/`data:` is how a pasted link
+     * becomes script. Anything else is dropped rather than rejected — a bad
+     * link must not cost somebody their place in the pool.
+     */
+    highlightUrl: safeHighlight(input.highlightUrl),
     playerToken: token(),
   };
 
@@ -987,7 +996,7 @@ export async function createFillin(input: {
       ))
       .returning();
     if (!row) return { error: "Couldn't save that just now." };
-    return { ok: true, alreadyIn: true };
+    return { ok: true, alreadyIn: true, playerToken: row.playerToken };
   }
 
   await logEvent({ fillinId: row.id, kind: "fillin_joined", actor: "player" });
@@ -1001,7 +1010,17 @@ export async function createFillin(input: {
        <p style="color:#9A9A9A;font-size:13px;">Managers can't see your email address or phone number until you accept.</p>`),
   }).catch(() => {});
 
-  return { ok: true, alreadyIn: false };
+  return { ok: true, alreadyIn: false, playerToken: row.playerToken };
+}
+
+/** http(s) only, normalised. Returns null for anything else. */
+function safeHighlight(raw: string | null | undefined): string | null {
+  const v = String(raw ?? "").trim();
+  if (!v) return null;
+  try {
+    const u = new URL(v);
+    return (u.protocol === "http:" || u.protocol === "https:") ? u.toString() : null;
+  } catch { return null; }
 }
 
 /**

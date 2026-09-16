@@ -246,6 +246,7 @@ export function registerTeampayRoutes(app: Express) {
         fromWhere: req.body?.fromWhere ?? null,
         motivation: req.body?.motivation ?? null,
         note: req.body?.note ?? null,
+        highlightUrl: req.body?.highlightUrl ?? null,
       });
       if (r.error === "not_found") return notFound(res);
       if (r.error) return res.status(400).json({ message: r.error });
