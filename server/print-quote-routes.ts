@@ -205,6 +205,37 @@ const num = (v: any): number | null => {
  */
 const STOCK_SIZE_TOLERANCE_MM = 5;
 
+/**
+ * ── Merch: sizes, colour and how it is decorated ────────────────────────────
+ * Modelled on the Apparel NZ proposal form Daniel sent (Blake Bamford, 2026-09-16),
+ * which gets the shape right where ours did not: **you do not order "10 tees",
+ * you order 2×S, 4×M, 3×L, 1×XL.** A single Quantity box cannot express that,
+ * and the size split is the first thing the shop needs in order to buy blanks.
+ *
+ * 🔴 The QUANTITY the engine prices is the SUM of the size grid, computed here.
+ * The browser sends the breakdown, never a total — otherwise a total and its
+ * own breakdown could disagree and the shop would buy the wrong garments.
+ */
+const GARMENT_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"] as const;
+
+/** Only what the engine can actually price. 🔴 DTF is NOT here: the shop runs
+ *  it, but the engine has no DTF rate and inventing one would quote a price
+ *  nobody set. A print job is priced DTG under 20 and screen print at 20+,
+ *  which is the trade norm and what the engine already does. */
+const DECORATION_METHODS = new Set(["print", "embroidery"]);
+
+function parseSizeBreakdown(raw: any): { sizes: { size: string; qty: number }[]; total: number; label: string | null } {
+  if (!raw || typeof raw !== "object") return { sizes: [], total: 0, label: null };
+  const sizes: { size: string; qty: number }[] = [];
+  for (const size of GARMENT_SIZES) {
+    const n = Number((raw as any)[size]);
+    if (Number.isFinite(n) && n > 0) sizes.push({ size, qty: Math.min(Math.round(n), 10_000) });
+  }
+  const total = sizes.reduce((a, b) => a + b.qty, 0);
+  return { sizes, total, label: sizes.length ? sizes.map((x) => `${x.qty}×${x.size}`).join(", ") : null };
+}
+
+
 function matchStockTier(material: PrintMaterial, widthMm: number | null, heightMm: number | null): string | undefined {
   if (!widthMm || !heightMm) return undefined;
   const tiers = Array.isArray(material.sizeTiersJson) ? (material.sizeTiersJson as any[]) : [];
@@ -249,12 +280,18 @@ async function priceQuoteLines(
     const heightMm = num(it?.heightMm);
     const qtyRaw = Number(it?.quantity);
     const quantity = Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.min(Math.round(qtyRaw), 10_000) : 1;
-    const designName = s(it?.design, 200) || null;
+    // The colour rides with the design name, because that is the field Dima
+    // reads on the quote and there is nowhere else for it to go without a
+    // migration. "Club hoodie — Navy" tells him everything he needs.
+    const designNameRaw = s(it?.design, 200) || null;
+    const colourName = s(it?.colour, 60) || null;
+    const designName = [designNameRaw, colourName].filter(Boolean).join(" — ") || null;
     const designFileName = s(it?.design_file, 300) || null;
 
     const material = bySlug.get(materialSlug);
     const base = {
-      index, materialSlug, designName, designFileName, widthMm, heightMm, quantity,
+      index, materialSlug, designName, designFileName, widthMm, heightMm,
+      quantity: parseSizeBreakdown(it?.sizeBreakdown).total || quantity,
       breakdown: [] as { label: string; cents: number }[],
       turnaroundDays: null as number | null,
     };
@@ -268,17 +305,37 @@ async function priceQuoteLines(
       };
     }
 
-    const sizeLabel = widthMm && heightMm ? `${widthMm} × ${heightMm} mm` : null;
+    // For merch the "size" is the run: "4×S, 6×M, 2×L" — which is what the shop
+    // reads when it buys blanks, and is far more use than a millimetre figure.
+    const sizeLabel = parseSizeBreakdown(it?.sizeBreakdown).label
+      ?? (widthMm && heightMm ? `${widthMm} × ${heightMm} mm` : null);
     const areaM2 = widthMm && heightMm ? (widthMm * heightMm) / 1_000_000 : null;
 
     const tierId = matchStockTier(material, widthMm, heightMm);
+
+    // Merch. The size grid decides the quantity; a bare Quantity box is only
+    // used when no breakdown was given (a product with no sizes).
+    const breakdownSizes = parseSizeBreakdown(it?.sizeBreakdown);
+    const effectiveQty = breakdownSizes.total > 0 ? breakdownSizes.total : quantity;
+    const rawMethod = s(it?.method, 20).toLowerCase();
+    // 🔴 An unknown method is DROPPED, not passed through — the engine would
+    // fall to its cheapest branch on a typo and quote the wrong money.
+    const method = DECORATION_METHODS.has(rawMethod)
+      // "print" means: let the engine pick DTG or screen print by quantity,
+      // which is the trade norm. Only embroidery is named explicitly.
+      ? (rawMethod === "embroidery" ? "embroidery" : undefined)
+      : undefined;
+    const extra: Record<string, unknown> = {};
+    if (tierId) extra.tierId = tierId;
+    if (method) extra.method = method;
+
     const outcome = quotePrintItem(material, {
       widthMm: widthMm ?? undefined,
       heightMm: heightMm ?? undefined,
-      quantity,
+      quantity: effectiveQty,
       sides: 1,
       accountDiscountPct,
-      ...(tierId ? { extra: { tierId } } : {}),
+      ...(Object.keys(extra).length ? { extra } : {}),
     });
 
     if (!outcome.ok) {
