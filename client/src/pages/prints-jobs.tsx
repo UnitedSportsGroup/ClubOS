@@ -9,6 +9,9 @@ import { Search, Filter, Clock, AlertCircle, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MoneyInput } from "@/components/ui/money-input";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import { dollarInputToCents } from "@/lib/format";
 import type { PrintOrder } from "@shared/schema";
 
@@ -118,10 +121,10 @@ function AddJobModal({ open, onClose, orgId }: { open: boolean; onClose: () => v
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">Starts in</label>
-              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+              <SelectInput value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
                 className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                 {COLUMNS.map(c => <option key={c.id} value={STATUS_TARGET_BY_COL[c.id]} className="bg-[#02060E]">{c.label}</option>)}
-              </select>
+              </SelectInput>
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">Email</label>

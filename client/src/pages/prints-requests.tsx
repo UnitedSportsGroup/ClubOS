@@ -21,6 +21,9 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 
 type GarmentLine = { size: string; qty: number; name: string; number: string };
 
@@ -165,11 +168,11 @@ function NewRequestModal({ open, onClose, brands }: { open: boolean; onClose: ()
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">Which brand / team</label>
-              <select value={f.forBrand} onChange={e => setF({ ...f, forBrand: e.target.value })}
+              <SelectInput value={f.forBrand} onChange={e => setF({ ...f, forBrand: e.target.value })}
                 className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                 <option value="" className="bg-[#02060E]">Not sure / general</option>
                 {brands.map(b => <option key={b} value={b} className="bg-[#02060E]">{b}</option>)}
-              </select>
+              </SelectInput>
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">Needed by</label>
@@ -212,11 +215,11 @@ function NewRequestModal({ open, onClose, brands }: { open: boolean; onClose: ()
               <div className="space-y-2">
                 {garment.map((g, i) => (
                   <div key={i} className="grid grid-cols-[80px_60px_1fr_70px_28px] gap-2 items-center">
-                    <select value={g.size} onChange={e => setGarment(garment.map((x, j) => j === i ? { ...x, size: e.target.value } : x))}
+                    <SelectInput value={g.size} onChange={e => setGarment(garment.map((x, j) => j === i ? { ...x, size: e.target.value } : x))}
                       className="px-2 py-1.5 rounded-md bg-white/[0.02] border border-white/10 text-white text-xs">
                       <option value="" className="bg-[#02060E]">Size</option>
                       {GARMENT_SIZES.map(s => <option key={s} value={s} className="bg-[#02060E]">{s}</option>)}
-                    </select>
+                    </SelectInput>
                     <Input type="number" min={1} value={g.qty}
                       onChange={e => setGarment(garment.map((x, j) => j === i ? { ...x, qty: Number(e.target.value) || 1 } : x))}
                       className="bg-white/[0.02] border-white/10 text-white text-xs h-[34px]" />
@@ -268,11 +271,11 @@ function NewRequestModal({ open, onClose, brands }: { open: boolean; onClose: ()
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">How urgent</label>
-              <select value={f.urgency} onChange={e => setF({ ...f, urgency: e.target.value })}
+              <SelectInput value={f.urgency} onChange={e => setF({ ...f, urgency: e.target.value })}
                 className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                 <option value="standard" className="bg-[#02060E]">Standard</option>
                 <option value="urgent" className="bg-[#02060E]">Urgent</option>
-              </select>
+              </SelectInput>
             </div>
           </div>
         </div>

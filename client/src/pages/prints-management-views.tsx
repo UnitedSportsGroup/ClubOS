@@ -6,6 +6,9 @@
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { useState, useMemo, useRef } from "react";
 import { Input } from "@/components/ui/input";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import {
   Plus, X, Check, Diamond, ChevronDown, ChevronRight, MessageSquare,
   Calendar as CalIcon, ChevronLeft, Flag, Inbox, AlertTriangle,
@@ -364,17 +367,17 @@ export function TableView({ projects, tasks, team, today, onTask, onPatch, onDel
       {selected.size > 0 && (
         <div className="mb-3 rounded-xl border border-indigo-500/30 bg-indigo-500/[0.06] px-3 py-2 flex items-center gap-2 flex-wrap text-xs">
           <span className="font-semibold text-indigo-200">{selected.size} selected</span>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) { batch({ assigneeId: e.target.value === "none" ? null : Number(e.target.value) }); e.target.value = ""; } }}
+          <SelectInput defaultValue="" onChange={(e) => { if (e.target.value) { batch({ assigneeId: e.target.value === "none" ? null : Number(e.target.value) }); e.target.value = ""; } }}
             className="h-7 rounded-md bg-white/[0.04] border border-white/10 px-1.5">
             <option value="">Assign…</option>
             <option value="none">Nobody</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
-          </select>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) { batch({ priority: e.target.value }); e.target.value = ""; } }}
+          </SelectInput>
+          <SelectInput defaultValue="" onChange={(e) => { if (e.target.value) { batch({ priority: e.target.value }); e.target.value = ""; } }}
             className="h-7 rounded-md bg-white/[0.04] border border-white/10 px-1.5">
             <option value="">Priority…</option>
             {TASK_PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-          </select>
+          </SelectInput>
           <DatePickerInput onChange={(e) => { if (e.target.value) { batch({ dueDate: e.target.value }); e.target.value = ""; } }}
             className="h-7 rounded-md bg-white/[0.04] border border-white/10 px-1.5 [color-scheme:dark]" title="Set due date" />
           {confirmBatchDel
@@ -441,25 +444,25 @@ export function TableView({ projects, tasks, team, today, onTask, onPatch, onDel
                               {!!t.tags.length && <div className="flex gap-1 mt-0.5">{t.tags.slice(0, 4).map((tag) => <span key={tag} className="text-[9px] text-white/40 bg-white/[0.05] px-1 rounded">{tag}</span>)}</div>}
                             </td>
                             <td className="px-2 py-1.5">
-                              <select value={t.statusId} disabled={!editable} onChange={(e) => onPatch(t.id, { statusId: Number(e.target.value) })}
+                              <SelectInput value={t.statusId} disabled={!editable} onChange={(e) => onPatch(t.id, { statusId: Number(e.target.value) })}
                                 className="h-7 rounded-md border-0 px-1.5 text-xs font-semibold cursor-pointer w-full disabled:cursor-default disabled:appearance-none"
                                 style={{ background: `${st?.color ?? "#64748b"}22`, color: st?.color ?? "#94a3b8" }}>
                                 {p.statuses.map((s) => <option key={s.id} value={s.id} className="bg-[#0a0e1a] text-white">{s.label}</option>)}
-                              </select>
+                              </SelectInput>
                             </td>
                             <td className="px-2 py-1.5">
-                              <select value={t.assigneeId ?? ""} disabled={!editable} onChange={(e) => onPatch(t.id, { assigneeId: e.target.value ? Number(e.target.value) : null })}
+                              <SelectInput value={t.assigneeId ?? ""} disabled={!editable} onChange={(e) => onPatch(t.id, { assigneeId: e.target.value ? Number(e.target.value) : null })}
                                 className="h-7 rounded-md bg-transparent border border-transparent hover:border-white/15 px-1 text-xs text-white/70 w-full cursor-pointer disabled:cursor-default disabled:appearance-none">
                                 <option value="" className="bg-[#0a0e1a]">—</option>
                                 {team.map((m) => <option key={m.id} value={m.id} className="bg-[#0a0e1a]">{m.first_name} {m.last_name}</option>)}
-                              </select>
+                              </SelectInput>
                             </td>
                             <td className="px-2 py-1.5">
-                              <select value={t.priority} disabled={!editable} onChange={(e) => onPatch(t.id, { priority: e.target.value })}
+                              <SelectInput value={t.priority} disabled={!editable} onChange={(e) => onPatch(t.id, { priority: e.target.value })}
                                 className="h-7 rounded-md bg-transparent border border-transparent hover:border-white/15 px-1 text-xs w-full cursor-pointer disabled:cursor-default disabled:appearance-none"
                                 style={{ color: PRIORITY_META[t.priority as TaskPriority]?.color }}>
                                 {TASK_PRIORITIES.map((pr) => <option key={pr} value={pr} className="bg-[#0a0e1a] text-white">{PRIORITY_META[pr].label}</option>)}
-                              </select>
+                              </SelectInput>
                             </td>
                             <td className="px-2 py-1.5">
                               <DatePickerInput value={t.startDate ?? ""} max={t.dueDate ?? undefined} disabled={!editable}

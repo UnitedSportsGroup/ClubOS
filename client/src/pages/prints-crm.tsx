@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import { Plus, X, Search, Users, Mail, Phone, Building2, Trash2, Edit } from "lucide-react";
 import type { PrintContact } from "@shared/schema";
 import PrintCustomerAccounts from "@/components/print-customer-accounts";
@@ -158,11 +161,11 @@ export default function PrintsCRM() {
             <Input placeholder="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-email" />
             <Input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-phone" />
             <Input placeholder="Company" value={company} onChange={e => setCompany(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-company" />
-            <select value={type} onChange={e => setType(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/70 text-sm" data-testid="select-contact-type">
+            <SelectInput value={type} onChange={e => setType(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/70 text-sm" data-testid="select-contact-type">
               <option value="customer">Customer</option>
               <option value="supplier">Supplier</option>
               <option value="partner">Partner</option>
-            </select>
+            </SelectInput>
             <Textarea placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} className="premium-input text-white/70 rounded-xl min-h-[60px]" data-testid="input-notes" />
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={!firstName.trim() || !lastName.trim()} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex-1" data-testid="button-save-contact">

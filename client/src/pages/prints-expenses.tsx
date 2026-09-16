@@ -18,6 +18,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MoneyInput } from "@/components/ui/money-input";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import { centsToDollarInput, dollarInputToCents } from "@/lib/format";
 
 type Expense = {
@@ -165,10 +168,10 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">What kind</label>
-              <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}
+              <SelectInput value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}
                 className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                 {vocab.categories.map((c) => <option key={c} value={c} className="bg-[#02060E]">{CAT_LABEL[c] ?? c}</option>)}
-              </select>
+              </SelectInput>
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">Invoice date</label>
@@ -200,10 +203,10 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-3">
             <div>
               <label className="text-[10px] uppercase tracking-wider text-white/40">How the price is quoted</label>
-              <select value={f.gstTreatment} onChange={(e) => setF({ ...f, gstTreatment: e.target.value })}
+              <SelectInput value={f.gstTreatment} onChange={(e) => setF({ ...f, gstTreatment: e.target.value })}
                 className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                 {vocab.treatments.map((t) => <option key={t} value={t} className="bg-[#02060E]">{TREAT_LABEL[t] ?? t}</option>)}
-              </select>
+              </SelectInput>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -221,10 +224,10 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
               )}
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-white/40">Paid with</label>
-                <select value={f.paidWith} onChange={(e) => setF({ ...f, paidWith: e.target.value })}
+                <SelectInput value={f.paidWith} onChange={(e) => setF({ ...f, paidWith: e.target.value })}
                   className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
                   {vocab.paidWith.map((p) => <option key={p} value={p} className="bg-[#02060E]">{PAID_LABEL[p] ?? p}</option>)}
-                </select>
+                </SelectInput>
               </div>
             </div>
             {/* What will actually be stored — shown before saving, not after. */}
@@ -298,14 +301,14 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
               <div className="space-y-2">
                 {alloc.map((a, i) => (
                   <div key={i} className="grid grid-cols-[1fr_8rem_2rem] items-center gap-2" data-testid={`row-alloc-${i}`}>
-                    <select
+                    <SelectInput
                       value={a.brand}
                       onChange={(e) => setAlloc(alloc.map((x, j) => j === i ? { ...x, brand: e.target.value } : x))}
                       className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
                       data-testid={`select-alloc-brand-${i}`}
                     >
                       {(vocab.brands ?? []).map((b) => <option key={b.key} value={b.key} className="bg-[#02060E]">{b.label}</option>)}
-                    </select>
+                    </SelectInput>
                     <MoneyInput
                       value={centsToDollarInput(a.amountCents)}
                       onChange={(v) => setAlloc(alloc.map((x, j) => j === i ? { ...x, amountCents: dollarInputToCents(v) } : x))}
@@ -455,11 +458,11 @@ export default function PrintsExpenses() {
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="text-[10px] uppercase tracking-wider text-white/40 flex items-center gap-1"><Filter className="w-3 h-3" /> Category</label>
-          <select value={category} onChange={(e) => setCategory(e.target.value)}
+          <SelectInput value={category} onChange={(e) => setCategory(e.target.value)}
             className="px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
             <option value="all" className="bg-[#02060E]">All</option>
             {vocab.categories.map((c) => <option key={c} value={c} className="bg-[#02060E]">{CAT_LABEL[c] ?? c}</option>)}
-          </select>
+          </SelectInput>
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-white/40">From</label>

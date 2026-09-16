@@ -17,6 +17,9 @@ import { Plus, X, Search, Globe, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import { centsToDollarInput, dollarInputToCents } from "@/lib/format";
 import type { PrintMaterial } from "@shared/schema";
 
@@ -241,23 +244,23 @@ function EditModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-white/40">Category</label>
-                <select
+                <SelectInput
                   value={form.category}
                   onChange={e => setForm({ ...form, category: e.target.value })}
                   className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
                 >
                   {Object.entries(CATEGORY_LABEL).map(([k, v]) => <option key={k} value={k} className="bg-[#02060E]">{v}</option>)}
-                </select>
+                </SelectInput>
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-white/40">How it's priced</label>
-                <select
+                <SelectInput
                   value={form.pricingMethod}
                   onChange={e => setForm({ ...form, pricingMethod: e.target.value })}
                   className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
                 >
                   {Object.entries(PRICING_LABEL).map(([k, v]) => <option key={k} value={k} className="bg-[#02060E]">{v}</option>)}
-                </select>
+                </SelectInput>
                 <div className="text-[10px] text-white/30 mt-0.5">Can't be changed later.</div>
               </div>
             </div>

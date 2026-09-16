@@ -272,6 +272,24 @@ async function main() {
     }
     await db.query(`DELETE FROM print_customer_codes WHERE email LIKE '\\_verify-%' OR email LIKE '\\_nobody-%'`);
     await db.query(`DELETE FROM print_customer_auth_events WHERE email LIKE '\\_verify-%' OR email LIKE '\\_nobody-%'`);
+
+    // 🔴 Sweep EVERY account on the reserved .test domain, not just the one this
+    // run made. Six were found sitting in Dima's CRM on 2026-09-16 — left by the
+    // password and account rehearsal scripts, which tracked nothing and cleaned
+    // up nothing, and they had been on his screen for a fortnight. A cleanup
+    // that only knows about its own id cannot catch a sibling script's mess.
+    // Anything with a real order against it is left alone.
+    await db.query(`
+      DELETE FROM print_customer_sessions WHERE customer_id IN (
+        SELECT c.id FROM print_customers c
+        WHERE lower(c.email) LIKE '%@example.test'
+          AND NOT EXISTS (SELECT 1 FROM print_orders o WHERE lower(o.customer_email) = lower(c.email)))`);
+    const swept = await db.query(`
+      DELETE FROM print_customers c
+      WHERE lower(c.email) LIKE '%@example.test'
+        AND NOT EXISTS (SELECT 1 FROM print_orders o WHERE lower(o.customer_email) = lower(c.email))
+      RETURNING c.email`);
+    if (swept.rowCount) console.log(`  swept ${swept.rowCount} leftover .test account(s)`);
     await db.end();
   }
 

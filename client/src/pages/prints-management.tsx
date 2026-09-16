@@ -2,7 +2,7 @@
 // home): projects → per-project workflow columns → tasks, viewed as
 // Overview / My Work / Board / Table / Calendar / Gantt over ONE dataset.
 //
-// Conventions match group-content.tsx: native <select>, hand-rolled modals,
+// Conventions match group-content.tsx: native <SelectInput>, hand-rolled modals,
 // apiRequest + react-query, dark-theme tokens. Derivation logic (overdue,
 // due buckets, bar ranges, cycles) comes from @shared/management via
 // lib/management so screen and server never disagree. `today` always comes
@@ -18,6 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+// 🔴 Never a bare <select> — its option panel is painted by the OS, so it is
+// unreadable on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import {
   Plus, X, Check, Trash2, Calendar as CalIcon, LayoutGrid, Table as TableIcon,
   Gauge, UserCircle2, GanttChart, ClipboardList, Filter, Diamond, Link2,
@@ -381,11 +384,11 @@ export default function PrintsManagement() {
 // ── shared little pieces ──────────────────────────────────────────────────────
 function FilterSelect({ value, onChange, placeholder, options }: { value: string; onChange: (v: string) => void; placeholder: string; options: { value: string; label: string }[] }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
+    <SelectInput value={value} onChange={(e) => onChange(e.target.value)}
       className={`h-7 rounded-md border px-2 text-xs ${value ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-100" : "bg-white/[0.04] border-white/10 text-white/70"}`}>
       <option value="">{placeholder}</option>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    </SelectInput>
   );
 }
 
@@ -558,30 +561,30 @@ function TaskModal({ mode, task, draft, projects, allTasks, deps, team, today, s
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div>
           <FieldLabel>Project</FieldLabel>
-          <select value={projectId ?? ""} onChange={(e) => setProjectId(Number(e.target.value))} className={selCls} disabled={mode === "edit"}>
+          <SelectInput value={projectId ?? ""} onChange={(e) => setProjectId(Number(e.target.value))} className={selCls} disabled={mode === "edit"}>
             {(mode === "create" ? creatable : projects).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </SelectInput>
         </div>
         <div>
           <FieldLabel>Column</FieldLabel>
-          <select value={statusId ?? src?.statusId ?? ""} onChange={(e) => setStatusId(Number(e.target.value))} className={selCls}>
+          <SelectInput value={statusId ?? src?.statusId ?? ""} onChange={(e) => setStatusId(Number(e.target.value))} className={selCls}>
             {statuses.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
+          </SelectInput>
         </div>
         <div>
           <FieldLabel>Priority</FieldLabel>
-          <select value={priority} onChange={(e) => setPriority(e.target.value)} className={selCls}>
+          <SelectInput value={priority} onChange={(e) => setPriority(e.target.value)} className={selCls}>
             {TASK_PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-          </select>
+          </SelectInput>
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
         <div>
           <FieldLabel>Owner</FieldLabel>
-          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={selCls}>
+          <SelectInput value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={selCls}>
             <option value="">—</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
-          </select>
+          </SelectInput>
         </div>
         <div>
           <FieldLabel>Start</FieldLabel>
@@ -679,10 +682,10 @@ function TaskModal({ mode, task, draft, projects, allTasks, deps, team, today, s
             ))}
             {editable && (
               <div className="flex items-center gap-2 pt-1">
-                <select value={depPick} onChange={(e) => setDepPick(e.target.value)} className={`${selCls} h-8 text-xs flex-1`}>
+                <SelectInput value={depPick} onChange={(e) => setDepPick(e.target.value)} className={`${selCls} h-8 text-xs flex-1`}>
                   <option value="">This task waits on…</option>
                   {depCandidates.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-                </select>
+                </SelectInput>
                 <button onClick={addDep} disabled={!depPick} className="w-8 h-8 rounded-md bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center shrink-0 disabled:opacity-30"><Plus className="w-4 h-4" /></button>
               </div>
             )}
@@ -865,18 +868,18 @@ function ProjectModal({ mode, project, liveProject, team, taskCountByStatus, onC
                   <ColorDot color={st.color} onPick={(c) => patchColumn(st.id, { color: c })} />
                   <Input defaultValue={st.label} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== st.label) patchColumn(st.id, { label: v }); }}
                     className={`${inputCls} h-8 flex-1 text-sm`} />
-                  <select value={st.kind} onChange={(e) => patchColumn(st.id, { kind: e.target.value })}
+                  <SelectInput value={st.kind} onChange={(e) => patchColumn(st.id, { kind: e.target.value })}
                     className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
                     <option value="todo">To do</option>
                     <option value="active">In progress</option>
                     <option value="done">Done</option>
-                  </select>
+                  </SelectInput>
                   {n > 0 && (
-                    <select value={moveTargets[st.id] ?? ""} onChange={(e) => setMoveTargets({ ...moveTargets, [st.id]: e.target.value })}
+                    <SelectInput value={moveTargets[st.id] ?? ""} onChange={(e) => setMoveTargets({ ...moveTargets, [st.id]: e.target.value })}
                       className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs max-w-[110px]" title={`${n} task(s) — pick where they go if you delete this column`}>
                       <option value="">{n} task{n === 1 ? "" : "s"} →</option>
                       {others.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
+                    </SelectInput>
                   )}
                   <button onClick={() => deleteColumn(st.id)} disabled={statuses.length <= 1 || (n > 0 && !moveTargets[st.id])}
                     className="text-white/20 hover:text-red-300 disabled:opacity-20 shrink-0" title={n > 0 && !moveTargets[st.id] ? "Pick a column for its tasks first" : "Delete column"}>
@@ -889,11 +892,11 @@ function ProjectModal({ mode, project, liveProject, team, taskCountByStatus, onC
               <Input value={colTitle} onChange={(e) => setColTitle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") addColumn(); }}
                 placeholder="Add a column…" className={`${inputCls} h-8 flex-1`} />
-              <select value={colKind} onChange={(e) => setColKind(e.target.value)} className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
+              <SelectInput value={colKind} onChange={(e) => setColKind(e.target.value)} className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
                 <option value="todo">To do</option>
                 <option value="active">In progress</option>
                 <option value="done">Done</option>
-              </select>
+              </SelectInput>
               <button onClick={addColumn} className="w-8 h-8 rounded-md bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center shrink-0"><Plus className="w-4 h-4" /></button>
             </div>
             <div className="text-[10px] text-white/30">The “kind” keeps Done logic working however you name a column.</div>
@@ -906,34 +909,34 @@ function ProjectModal({ mode, project, liveProject, team, taskCountByStatus, onC
           <div className="text-xs uppercase tracking-wider text-white/40 font-semibold mb-2">People & access</div>
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xs text-white/60 flex-1">Everyone else with the Management tab</span>
-            <select value={src.defaultRole} onChange={(e) => setDefaultRole(e.target.value)}
+            <SelectInput value={src.defaultRole} onChange={(e) => setDefaultRole(e.target.value)}
               className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
               <option value="none">No access</option>
               {COLLAB_ROLES.map((r) => <option key={r} value={r}>{COLLAB_ROLE_META[r].label}</option>)}
-            </select>
+            </SelectInput>
           </div>
           <div className="space-y-2">
             {(src.collaborators ?? []).map((c: CollabRow) => (
               <div key={c.id} className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-white/10 text-[9px] font-bold flex items-center justify-center text-white/80 border border-white/10 shrink-0">{initials(memberName(team, c.userId))}</span>
                 <span className="flex-1 min-w-0 truncate text-sm">{memberName(team, c.userId) || `User #${c.userId}`}</span>
-                <select value={c.role} onChange={(e) => patchCollab(c.id, e.target.value)}
+                <SelectInput value={c.role} onChange={(e) => patchCollab(c.id, e.target.value)}
                   className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs"
                   title={COLLAB_ROLE_META[c.role as keyof typeof COLLAB_ROLE_META]?.hint}>
                   {COLLAB_ROLES.map((r) => <option key={r} value={r}>{COLLAB_ROLE_META[r].label}</option>)}
-                </select>
+                </SelectInput>
                 <button onClick={() => removeCollab(c.id)} className="text-white/20 hover:text-red-300 shrink-0" title="Remove from project"><X className="w-3.5 h-3.5" /></button>
               </div>
             ))}
             <div className="flex items-center gap-2 pt-1">
-              <select value={addPick} onChange={(e) => setAddPick(e.target.value)} className={`${selCls} h-8 text-xs flex-1`}>
+              <SelectInput value={addPick} onChange={(e) => setAddPick(e.target.value)} className={`${selCls} h-8 text-xs flex-1`}>
                 <option value="">Add a person…</option>
                 {team.filter((t) => !(src.collaborators ?? []).some((c: CollabRow) => c.userId === t.id))
                   .map((t) => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
-              </select>
-              <select value={addRole} onChange={(e) => setAddRole(e.target.value)} className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
+              </SelectInput>
+              <SelectInput value={addRole} onChange={(e) => setAddRole(e.target.value)} className="h-8 rounded-md bg-white/[0.04] border border-white/10 px-1.5 text-xs">
                 {COLLAB_ROLES.map((r) => <option key={r} value={r}>{COLLAB_ROLE_META[r].label}</option>)}
-              </select>
+              </SelectInput>
               <button onClick={addCollab} disabled={!addPick} className="w-8 h-8 rounded-md bg-white/[0.06] hover:bg-white/[0.1] flex items-center justify-center shrink-0 disabled:opacity-30"><Plus className="w-4 h-4" /></button>
             </div>
             <div className="text-[10px] text-white/30">

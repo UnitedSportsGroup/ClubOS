@@ -12,7 +12,8 @@
     "db:migrate:camps-term": "tsx script/migrate-camps-term-mode.ts",
     "build:light-theme": "node script/build-light-theme.mjs",
     "check:light-theme": "node script/build-light-theme.mjs --check",
-    "check:workspace-fetch": "node script/check-workspace-fetch.mjs"
+    "check:workspace-fetch": "node script/check-workspace-fetch.mjs",
+    "check:native-select": "node script/check-native-select.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

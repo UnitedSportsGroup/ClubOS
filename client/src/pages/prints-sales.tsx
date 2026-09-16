@@ -18,11 +18,14 @@
 // ISO string — never through `new Date()`.
 //
 // House style copied from group-vehicles.tsx / group-sponsorship.tsx: stat
-// chips that filter, a shadcn Dialog for create/edit, inline <select>
+// chips that filter, a shadcn Dialog for create/edit, inline <SelectInput>
 // mutations, dark-glass Tailwind, page-local types mirroring the server.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+// 🔴 Never a bare <SelectInput>: its option panel is painted by the OS, so it is
+// dark-on-light on one machine and fine on another. Drawn by us instead.
+import { SelectInput } from "@/components/ui/select-input";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -385,14 +388,14 @@ function FilterSelect({ value, onChange, label, children }: {
   value: string; onChange: (v: string) => void; label: string; children: React.ReactNode;
 }) {
   return (
-    <select
+    <SelectInput
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/25 [&>option]:bg-neutral-900"
+      className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/25"
     >
       <option value="">{label}</option>
       {children}
-    </select>
+    </SelectInput>
   );
 }
 
@@ -449,13 +452,13 @@ function ProspectsTable({ rows, today, onOpen, onStage }: {
                   ) : <span className="text-white/25">—</span>}
                 </td>
                 <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                  <select
+                  <SelectInput
                     value={p.stage}
                     onChange={(e) => onStage(p.id, e.target.value as SalesStage)}
-                    className="bg-transparent border border-white/10 rounded px-1.5 py-1 text-[11px] text-white/70 focus:outline-none [&>option]:bg-neutral-900"
+                    className="bg-transparent border border-white/10 rounded px-1.5 py-1 text-[11px] text-white/70 focus:outline-none"
                   >
                     {SALES_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                  </select>
+                  </SelectInput>
                 </td>
                 <td className="px-2 py-2 whitespace-nowrap">
                   {p.nextFollowUpOn ? (
@@ -728,14 +731,14 @@ function ProspectDetail({ id, onClose, onSave, onLog }: {
                 {p.source === "research-fleet" && <span className="text-emerald-300/60">researched</span>}
               </div>
             </div>
-            <select
+            <SelectInput
               value={p.stage}
               onChange={(e) => onSave({ stage: e.target.value })}
-              className="bg-white/[0.05] border border-white/15 rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none [&>option]:bg-neutral-900"
+              className="bg-white/[0.05] border border-white/15 rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none"
               data-testid="detail-stage"
             >
               {SALES_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-            </select>
+            </SelectInput>
           </div>
 
           {/* Contact card */}
@@ -826,16 +829,16 @@ function ProspectDetail({ id, onClose, onSave, onLog }: {
           <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-white/40">Log activity</div>
             <div className="flex gap-2 flex-wrap">
-              <select value={logType} onChange={(e) => setLogType(e.target.value)} className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs [&>option]:bg-neutral-900">
+              <SelectInput value={logType} onChange={(e) => setLogType(e.target.value)} className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs">
                 <option value="call">Call</option>
                 <option value="email">Email</option>
                 <option value="meeting">Meeting</option>
                 <option value="note">Note</option>
-              </select>
-              <select value={logOutcome} onChange={(e) => setLogOutcome(e.target.value)} className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs [&>option]:bg-neutral-900">
+              </SelectInput>
+              <SelectInput value={logOutcome} onChange={(e) => setLogOutcome(e.target.value)} className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs">
                 <option value="">Outcome…</option>
                 {SALES_OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
-              </select>
+              </SelectInput>
               <input
                 value={logNote}
                 onChange={(e) => setLogNote(e.target.value)}
@@ -899,7 +902,10 @@ function AddProspectDialog({ categories, onClose }: { categories: string[]; onCl
     name: "", website: "", category: "", city: "", region: "christchurch",
     phone: "", email: "", contactName: "", contactRole: "", whyFit: "", tier: "B", notes: "",
   });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+  // Takes the minimal event shape, so the same setter serves a real <input> and
+  // a SelectInput — which hands back { target: { value } } exactly as the
+  // native element did, and is why migrating a call site is a rename.
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) =>
     setF((prev) => ({ ...prev, [k]: e.target.value }));
 
   const create = useMutation({
@@ -955,9 +961,9 @@ function AddProspectDialog({ categories, onClose }: { categories: string[]; onCl
             </label>
             <label className="space-y-1 text-[10px] uppercase tracking-wider text-white/40">
               <span>Region</span>
-              <select value={f.region} onChange={set("region")} className={`${field} [&>option]:bg-neutral-900`}>
+              <SelectInput value={f.region} onChange={set("region")} className={`${field}`}>
                 {SALES_REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-[10px] uppercase tracking-wider text-white/40">
               <span>Phone</span>
@@ -977,9 +983,9 @@ function AddProspectDialog({ categories, onClose }: { categories: string[]; onCl
             </label>
             <label className="space-y-1 text-[10px] uppercase tracking-wider text-white/40">
               <span>Tier</span>
-              <select value={f.tier} onChange={set("tier")} className={`${field} [&>option]:bg-neutral-900`}>
+              <SelectInput value={f.tier} onChange={set("tier")} className={`${field}`}>
                 {SALES_TIERS.map((t) => <option key={t} value={t}>Tier {t}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="sm:col-span-2 space-y-1 text-[10px] uppercase tracking-wider text-white/40">
               <span>Why they fit</span>
