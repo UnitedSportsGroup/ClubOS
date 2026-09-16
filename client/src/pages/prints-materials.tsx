@@ -75,6 +75,8 @@ type FormState = {
   quoteOnWebsite: boolean;
   /** Stock sizes Dima sells off the shelf, priced per piece. */
   sizeTiers: SizeTier[];
+  /** Merch only: the swatches the website offers. [] = use its built-in list. */
+  colourOptions: { name: string; hex: string }[];
 };
 
 function blankForm(): FormState {
@@ -96,6 +98,7 @@ function blankForm(): FormState {
     // checked before the public can be quoted from it.
     quoteOnWebsite: false,
     sizeTiers: [],
+    colourOptions: [],
   };
 }
 
@@ -115,6 +118,7 @@ function formFrom(material: PrintMaterial): FormState {
     humanQuoteRequired: material.humanQuoteRequired,
     quoteOnWebsite: (material as any).quoteOnWebsite ?? false,
     sizeTiers: Array.isArray((material as any).sizeTiersJson) ? ((material as any).sizeTiersJson as SizeTier[]) : [],
+    colourOptions: Array.isArray((material as any).colourOptionsJson) ? ((material as any).colourOptionsJson as any[]) : [],
   };
 }
 
@@ -128,7 +132,7 @@ function EditModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, sizeTiers, ...rest } = form;
+      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, sizeTiers, colourOptions, ...rest } = form;
       const rollWidth = parseInt(maxRollWidthMm, 10);
       const payload = {
         ...rest,
@@ -141,6 +145,7 @@ function EditModal({
         // The server re-validates these (@shared/print-size-tiers) — this is a
         // courtesy so Dima sees the problem before he presses Save, never the gate.
         sizeTiersJson: sizeTiers,
+        colourOptionsJson: colourOptions.filter((c) => c.name.trim() && /^#[0-9a-f]{3,8}$/i.test(c.hex)),
       };
       const res = isNew
         // The server derives the slug and takes the org from the workspace —
@@ -396,6 +401,53 @@ function EditModal({
                     <p className="text-[11.5px] text-red-300 pt-1" data-testid="text-stock-size-problem">{check.error}</p>
                   );
                 })()}
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* ── Colours (merch) ────────────────────────────────────────────
+              Daniel, 2026-09-16: "allow us in backend to be able to edit colour
+              options that get displayed on front end customer facing site."
+              🔴 An empty list means NOT SET, and the website keeps its built-in
+              swatches — clearing this must not silently remove the colour
+              picker from a live customer page. */}
+          {form.category === "garment" && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/40">Colours on the website</div>
+                <div className="text-[10px] text-white/30 mt-0.5">
+                  {form.colourOptions.length === 0
+                    ? "None set — the website shows its standard swatches."
+                    : "These replace the standard swatches on the quote form."}
+                </div>
+              </div>
+              <Button size="sm" variant="outline" type="button" data-testid="button-add-colour"
+                onClick={() => setForm({ ...form, colourOptions: [...form.colourOptions, { name: "", hex: "#000000" }] })}>
+                Add a colour
+              </Button>
+            </div>
+            {form.colourOptions.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {form.colourOptions.map((c, i) => (
+                  <div key={i} className="grid grid-cols-[2.25rem_1fr_7rem_2rem] items-center gap-2" data-testid={`row-colour-${i}`}>
+                    {/* A real preview, because a hex code is not a colour to a human. */}
+                    <span className="h-8 w-8 rounded-full border-2 border-white/15" style={{ backgroundColor: /^#[0-9a-f]{3,8}$/i.test(c.hex) ? c.hex : "transparent" }} />
+                    <Input value={c.name} placeholder="Navy"
+                      onChange={(e) => setForm({ ...form, colourOptions: form.colourOptions.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })}
+                      className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-colour-name-${i}`} />
+                    <Input value={c.hex} placeholder="#1B2A4A"
+                      onChange={(e) => setForm({ ...form, colourOptions: form.colourOptions.map((x, j) => j === i ? { ...x, hex: e.target.value } : x) })}
+                      className="bg-white/[0.02] border-white/10 text-white font-mono text-xs" data-testid={`input-colour-hex-${i}`} />
+                    <button type="button" aria-label="Remove this colour"
+                      onClick={() => setForm({ ...form, colourOptions: form.colourOptions.filter((_, j) => j !== i) })}
+                      className="text-white/25 hover:text-red-300 justify-self-center">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="text-[10px] text-white/30 pt-1">Hex like #1B2A4A. A colour with no name or a bad hex is dropped on save.</div>
               </div>
             )}
           </div>

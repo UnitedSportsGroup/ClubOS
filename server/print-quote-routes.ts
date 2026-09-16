@@ -142,6 +142,10 @@ function publicMaterialView(m: PrintMaterial) {
     maxRollWidthMm: m.maxRollWidthMm,
     turnaroundDays: m.turnaroundDays,
     humanQuoteRequired: m.humanQuoteRequired,
+    // Dima's colour list, or [] meaning "not set" — the site falls back.
+    colourOptions: (Array.isArray(m.colourOptionsJson) ? (m.colourOptionsJson as any[]) : [])
+      .filter((c) => c && typeof c.name === "string" && typeof c.hex === "string")
+      .map((c) => ({ name: String(c.name).slice(0, 40), hex: String(c.hex).slice(0, 9) })),
     stockSizes: stockSizes.map((t) => ({
       id: String(t?.id ?? ""),
       label: String(t?.label ?? ""),

@@ -339,7 +339,7 @@ const printsTabs: TabDef[] = [
   { slug: "projects", title: "Projects", url: "/admin/print-projects" },
   { slug: "analytics", title: "Analytics", url: "/admin/print-analytics" },
   { slug: "landing", title: "Landing Pages", url: "/admin/print-landing" },
-  { slug: "email", title: "Email Sender", url: "/admin/print-email" },
+  { slug: "email", title: "Mailer", url: "/admin/print-email" },
   { slug: "warehouse", title: "Warehouse", url: "/admin/warehouse" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "integrations", title: "Integrations", url: "/admin/integrations", secondary: true },

@@ -3293,6 +3293,12 @@ export const printMaterials = pgTable("print_materials", {
   qtyTiersJson: jsonb("qty_tiers_json").notNull().default(sql`'[]'::jsonb`),
   // For stock-size + bundle products: [{label, w, h, priceCents}, ...]
   sizeTiersJson: jsonb("size_tiers_json").notNull().default(sql`'[]'::jsonb`),
+  /**
+   * Garment colours offered on the website: [{name, hex}, ...].
+   * 🔴 Empty means NOT SET — the website falls back to its built-in swatches.
+   * An empty list must never silently remove the colour picker from a live page.
+   */
+  colourOptionsJson: jsonb("colour_options_json").notNull().default(sql`'[]'::jsonb`),
 
   turnaroundDays: integer("turnaround_days").notNull().default(3),
   rushAvailable: boolean("rush_available").notNull().default(true),

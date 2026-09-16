@@ -461,7 +461,7 @@ const printsNav = [
   { tab: "projects", title: "Projects", url: "/admin/print-projects", icon: FolderKanban },
   { tab: "analytics", title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
   { tab: "landing", title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
-  { tab: "email", title: "Email Sender", url: "/admin/print-email", icon: Send },
+  { tab: "email", title: "Mailer", url: "/admin/print-email", icon: Send },
   { tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];

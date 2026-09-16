@@ -606,7 +606,9 @@ function CallList({ rows, today, onOpen, onQuickLog }: {
   }, [rows, today]);
 
   return (
-    <div className="p-4 space-y-2 max-w-3xl">
+    // Full width — the queue was pinned to max-w-3xl and left half the screen
+    // empty, which wasted the room the "why they fit" blurb actually needs.
+    <div className="p-4 space-y-2">
       <p className="text-[11px] text-white/35">
         {queue.length} callable prospect{queue.length === 1 ? "" : "s"} — overdue follow-ups first, then today's, then the best fresh leads. One tap logs the call and sets the follow-up.
       </p>
@@ -626,7 +628,7 @@ function CallList({ rows, today, onOpen, onQuickLog }: {
                   {fu === "overdue" && <span className="text-red-300 font-medium">follow-up overdue ({formatNzDate(p.nextFollowUpOn)})</span>}
                   {fu === "due_today" && <span className="text-amber-300 font-medium">follow-up today</span>}
                 </div>
-                {p.whyFit && <p className="text-[11px] text-white/45 mt-1 max-w-xl">{p.whyFit}</p>}
+                {p.whyFit && <p className="text-[11px] text-white/45 mt-1 max-w-4xl">{p.whyFit}</p>}
               </div>
               <a
                 href={`tel:${p.phone!.replace(/\s+/g, "")}`}

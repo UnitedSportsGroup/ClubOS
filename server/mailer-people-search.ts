@@ -119,4 +119,71 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
       res.status(500).json({ message: error.message });
     }
   });
+
+  /**
+   * The same type-ahead, for UNITED PRINTS — where the people worth emailing
+   * are not players and guardians but the shop's own customers and the sales
+   * list it is working through.
+   *
+   * Daniel, 2026-09-16: *"instead of search and find contacts like players in
+   * cufc you can find people from our sales outreach list or our united prints
+   * clients to autofill it by clicking it and speed it up."*
+   *
+   * 🔴 Same doctrine as the club search above: a person with NO reachable
+   * address is still returned, greyed, with the reason — hiding them makes
+   * somebody search twice for a contact who is really there and says nothing
+   * about why they cannot be reached.
+   *
+   * 🔴 Three sources, each labelled, because "who is this?" is the question a
+   * name alone does not answer: a trade account holder, a CRM contact, and a
+   * sales prospect are three different relationships with the shop.
+   */
+  app.get("/api/admin/print-mailer/search-people", requireAuth, async (req, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim();
+      if (q.length < 2) return res.json({ people: [] });
+      const like = `%${q.toLowerCase()}%`;
+
+      const { rows }: any = await db.execute(sql`
+        -- Trade accounts: people who signed in at join.unitedprints.co.nz
+        SELECT 'account-' || c.id AS key, coalesce(c.name, c.email) AS name, c.email,
+               coalesce(c.company, 'Trade account') AS detail, 'Account' AS source, 1 AS rank
+          FROM print_customers c
+         WHERE c.disabled_at IS NULL
+           AND (lower(coalesce(c.name,'')) LIKE ${like} OR lower(c.email) LIKE ${like}
+                OR lower(coalesce(c.company,'')) LIKE ${like})
+        UNION ALL
+        -- CRM contacts: everyone the shop has actually done work for
+        SELECT 'contact-' || k.id, trim(coalesce(k.first_name,'') || ' ' || coalesce(k.last_name,'')),
+               k.email, coalesce(k.company, 'Customer'), 'Customer', 2
+          FROM print_contacts k
+         WHERE lower(coalesce(k.first_name,'') || ' ' || coalesce(k.last_name,'')) LIKE ${like}
+            OR lower(coalesce(k.email,'')) LIKE ${like} OR lower(coalesce(k.company,'')) LIKE ${like}
+        UNION ALL
+        -- The sales list being worked through
+        SELECT 'prospect-' || s.id, coalesce(s.contact_name, s.name), s.email,
+               coalesce(s.name, s.category), 'Prospect', 3
+          FROM sales_prospects s
+         WHERE s.stage <> 'declined'
+           AND (lower(coalesce(s.name,'')) LIKE ${like} OR lower(coalesce(s.contact_name,'')) LIKE ${like}
+                OR lower(coalesce(s.email,'')) LIKE ${like})
+        ORDER BY rank, 2
+        LIMIT 30`);
+
+      res.json({
+        people: rows.map((r: any) => ({
+          key: r.key,
+          name: r.name || r.email || "Unnamed",
+          type: r.source,
+          email: r.email || null,
+          emailOwner: null,
+          // Say WHY, rather than dropping them off the list.
+          unreachable: r.email ? null : "no email on file",
+          detail: r.detail ?? null,
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 }

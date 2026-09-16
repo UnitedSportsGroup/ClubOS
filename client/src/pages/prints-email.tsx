@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,22 @@ export default function PrintsEmail() {
   const [showCompose, setShowCompose] = useState(false);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  // Chosen recipients. Empty = everyone, which is what this page did before and
+  // is still the right default for a shop-wide announcement.
+  type Hit = { key: string; name: string; type: string; email: string | null; unreachable: string | null; detail: string | null };
+  const [picked, setPicked] = useState<Hit[]>([]);
+  const [search, setSearch] = useState("");
+
+  const { data: hitData } = useQuery<{ people: Hit[] }>({
+    queryKey: ["/api/admin/print-mailer/search-people", search],
+    enabled: search.trim().length >= 2,
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/print-mailer/search-people?q=${encodeURIComponent(search.trim())}`);
+      if (!r.ok) throw new Error("Search failed");
+      return r.json();
+    },
+  });
+  const hits = hitData?.people ?? [];
 
   const { data: emails = [], isLoading } = useQuery<PrintEmail[]>({
     queryKey: ["/api/admin/print-emails", orgId],
@@ -74,7 +90,7 @@ export default function PrintsEmail() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center"><Send className="w-5 h-5 text-white" /></div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Email Sender</h1>
+            <h1 className="text-2xl font-bold text-white">Mailer</h1>
             <p className="text-sm text-white/40">{contactsWithEmail.length} contacts with email addresses</p>
           </div>
         </div>
@@ -138,9 +154,79 @@ export default function PrintsEmail() {
               <Button variant="ghost" size="icon" onClick={closeCompose} className="text-white/30 h-8 w-8"><X className="w-4 h-4" /></Button>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-white/40 py-2 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-              <Users className="w-3.5 h-3.5" />
-              <span>To: All contacts with email ({contactsWithEmail.length} recipients)</span>
+            {/* ── Who it goes to ────────────────────────────────────────────
+                Daniel, 2026-09-16: "instead of search and find contacts like
+                players in cufc you can find people from our sales outreach list
+                or our united prints clients to autofill it by clicking it."
+
+                🔴 Same shape and doctrine as the club's Mailer search: a person
+                with NO address is still shown, greyed, with the reason —
+                hiding them makes somebody search twice for a contact who is
+                really there. Each hit says WHICH relationship it is (account,
+                customer, prospect), because a name alone does not answer it. */}
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-white/40">
+                <Users className="w-3.5 h-3.5" />
+                <span>
+                  {picked.length === 0
+                    ? `Everyone with an email address (${contactsWithEmail.length})`
+                    : `${picked.length} chosen`}
+                </span>
+                {picked.length > 0 && (
+                  <button onClick={() => setPicked([])} className="ml-auto text-[11px] text-white/35 hover:text-white/70">
+                    Send to everyone instead
+                  </button>
+                )}
+              </div>
+
+              {picked.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {picked.map((r) => (
+                    <span key={r.key} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 border border-blue-500/25 px-2 py-1 text-[11.5px] text-blue-200/90">
+                      {r.name}
+                      <button onClick={() => setPicked(picked.filter((x) => x.key !== r.key))} aria-label={`Remove ${r.name}`}>
+                        <X className="w-3 h-3 opacity-60 hover:opacity-100" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <Input
+                placeholder="Search a client, a trade account or a prospect…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="premium-input text-white/70 rounded-lg text-sm"
+                data-testid="input-recipient-search"
+              />
+              {search.trim().length >= 2 && (
+                <div className="max-h-56 overflow-auto rounded-lg border border-white/[0.06] divide-y divide-white/[0.04]">
+                  {hits.length === 0 ? (
+                    <div className="px-3 py-2.5 text-[11.5px] text-white/30">Nobody by that name yet.</div>
+                  ) : hits.map((h) => {
+                    const already = picked.some((x) => x.key === h.key);
+                    return (
+                      <button
+                        key={h.key}
+                        disabled={!h.email || already}
+                        onClick={() => { setPicked([...picked, h]); setSearch(""); }}
+                        data-testid={`option-recipient-${h.key}`}
+                        className="w-full text-left px-3 py-2 hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12.5px] text-white/85">{h.name}</span>
+                          <span className="text-[10px] uppercase tracking-wider text-white/30">{h.type}</span>
+                          {already && <span className="text-[10px] text-blue-300/70">added</span>}
+                        </div>
+                        <div className="text-[11px] text-white/40">
+                          {h.email ?? <span className="text-amber-300/70">{h.unreachable}</span>}
+                          {h.detail ? ` · ${h.detail}` : ""}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <Input placeholder="Subject *" value={subject} onChange={e => setSubject(e.target.value)} className="premium-input text-white/70 rounded-xl" data-testid="input-email-subject" />
