@@ -167,16 +167,38 @@ const MAX_PER_IP = 40;        // in 15 minutes — a shared NAT is a whole team
 const WINDOW_MIN = 15;
 
 async function rateLimited(email: string, req: Request): Promise<boolean> {
-  const since = new Date(Date.now() - WINDOW_MIN * 60_000);
-  const ip = ipOf(req);
-  const [row] = await db.execute<{ by_email: number; by_ip: number }>(sql`
-    select
-      count(*) filter (where lower(email) = ${email.toLowerCase()})::int as by_email,
-      count(*) filter (where ip = ${ip} and ${ip}::text is not null)::int as by_ip
-    from teampay_captain_auth_events
-    where created_at > ${since} and ok = false
-  `) as any;
-  return (row?.by_email ?? 0) >= MAX_PER_EMAIL || (row?.by_ip ?? 0) >= MAX_PER_IP;
+  try {
+    const ip = ipOf(req);
+    const res = await db.execute(sql`
+      select
+        count(*) filter (where lower(email) = ${email.toLowerCase()})                  as by_email,
+        count(*) filter (where ${ip}::text is not null and ip = ${ip})                 as by_ip
+      from teampay_captain_auth_events
+      where created_at > now() - interval '15 minutes' and ok = false
+    `);
+    // 🔴 drizzle's db.execute returns the driver's own shape — a QueryResult
+    // with .rows on node-postgres, a bare array elsewhere. Destructuring it as
+    // an array threw "(intermediate value) is not iterable" and 500'd every
+    // sign-in on the first deploy. Read both shapes, as form-guard does.
+    const r: any = (res as any).rows?.[0] ?? (res as any)[0] ?? {};
+    return Number(r.by_email ?? 0) >= MAX_PER_EMAIL || Number(r.by_ip ?? 0) >= MAX_PER_IP;
+  } catch (e) {
+    /**
+     * 🔴 FAILS OPEN, and that is a deliberate trade with a condition attached.
+     *
+     * Failing closed would lock every captain out of their own team on a
+     * database blip, and a signed-in captain is not what this protects against
+     * anyway — sign-in cannot succeed while the database is unreachable,
+     * because it must read the captain row to check a password.
+     *
+     * The real risk is the one that actually happened: a BROKEN query failing
+     * open forever, silently, so there is no rate limiting at all and nobody
+     * finds out. That is why `_verify-captain-live.ts` asserts the limiter
+     * actually bites, rather than trusting this code to be reached.
+     */
+    console.error("[teampay-captain] rate check failed (failing OPEN):", e);
+    return false;
+  }
 }
 
 // ── who is signed in ─────────────────────────────────────────────────────────
