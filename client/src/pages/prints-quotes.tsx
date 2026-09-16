@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Receipt, Check, X, Clock, Mail, Phone, FileText } from "lucide-react";
+import { Receipt, Check, X, Clock, Mail, Phone, FileText, Paperclip } from "lucide-react";
 
 // ── Types (mirror server/print-quote-routes.ts response shapes) ────────────
 interface PrintQuoteItem {
@@ -39,6 +39,8 @@ interface PrintQuote {
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  customerCompany: string | null;
+  heardAbout: string | null;
   source: string | null;
   sourceUrl: string | null;
   subtotalCents: number;
@@ -230,22 +232,59 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
         </div>
       </div>
 
-      <div className="mt-3 border-t border-white/[0.06] pt-3 space-y-1.5">
+      <div className="mt-3 border-t border-white/[0.06] pt-3 space-y-2">
         {quote.items.map((it) => (
-          <div key={it.id} className="flex items-center justify-between text-[13px] text-white/70">
-            <span className="flex items-center gap-1.5 min-w-0 truncate">
-              <FileText className="w-3.5 h-3.5 text-white/25 shrink-0" />
-              <span className="truncate">
-                {it.designName || "Untitled"}{it.material ? ` · ${it.material}` : ""}{it.sizeLabel ? ` · ${it.sizeLabel}` : ""}
+          <div key={it.id} className="rounded-lg bg-white/[0.02] border border-white/[0.05] px-3 py-2">
+            <div className="flex items-start justify-between gap-3 text-[13px] text-white/75">
+              <span className="flex items-start gap-1.5 min-w-0">
+                <FileText className="w-3.5 h-3.5 text-white/25 shrink-0 mt-0.5" />
+                <span className="min-w-0">
+                  <span className="block text-white/90">{it.designName || "Untitled"}</span>
+                  <span className="block text-[11.5px] text-white/45">
+                    {[it.material, it.sizeLabel, it.areaM2 ? `${Number(it.areaM2).toFixed(3)} m²` : null]
+                      .filter(Boolean).join(" · ")}
+                  </span>
+                </span>
               </span>
-            </span>
-            <span className="shrink-0 flex items-center gap-3 text-white/50">
-              <span>×{it.quantity}</span>
-              <span className="font-medium text-white/80">{money(it.lineExGstCents)}</span>
-            </span>
+              <span className="shrink-0 flex items-center gap-3 text-white/50">
+                <span>×{it.quantity}</span>
+                <span className="font-medium text-white/80">{money(it.lineExGstCents)}</span>
+              </span>
+            </div>
+            {/* 🔴 The customer's artwork is NOT here. The quote form captures the
+                file NAME only — there is no upload transport yet — so saying
+                "attached" would send Dima looking for something that never
+                arrived. Name it, and say plainly that he has to ask for it. */}
+            {it.designFileName && (
+              <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-500/[0.07] border border-amber-500/20 px-2 py-1.5 text-[11px] text-amber-200/80">
+                <Paperclip className="w-3 h-3 shrink-0 mt-0.5" />
+                <span>
+                  They named a file — <span className="font-medium">{it.designFileName}</span> — but the form only
+                  records the name, it does not send the artwork. Reply and ask them for it.
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {/* Everything else the customer told us, which had nowhere to show before. */}
+      {(quote.note || quote.customerCompany || quote.heardAbout) && (
+        <div className="mt-3 border-t border-white/[0.06] pt-3 space-y-2 text-[12px]">
+          {quote.customerCompany && (
+            <div><span className="text-white/35">Company</span> <span className="text-white/75">{quote.customerCompany}</span></div>
+          )}
+          {quote.note && (
+            <div>
+              <div className="text-white/35 mb-0.5">Notes or special requests</div>
+              <p className="text-white/75 whitespace-pre-wrap leading-snug">{quote.note}</p>
+            </div>
+          )}
+          {quote.heardAbout && (
+            <div><span className="text-white/35">Heard about us via</span> <span className="text-white/75">{quote.heardAbout}</span></div>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-3 text-[12px]">
         <div className="text-white/40 space-x-3">

@@ -535,6 +535,10 @@ export function registerPrintQuoteRoutes(app: Express) {
         customerName: name,
         customerEmail: email,
         customerPhone: phone || null,
+        // From the Apparel NZ-shaped fields added 2026-09-16. Both optional:
+        // an existing quote genuinely does not have them.
+        customerCompany: s(body.company, 200) || null,
+        heardAbout: s(body.heardAbout, 120) || null,
         source: s(body.source, 200) || null,
         sourceUrl: s(body.sourceUrl, 500) || null,
         subtotalCents,

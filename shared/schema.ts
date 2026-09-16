@@ -3475,6 +3475,9 @@ export const printQuotes = pgTable("print_quotes", {
   customerName: text("customer_name"),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
+  /** From the Apparel NZ-shaped form fields (2026-09-16). Both optional. */
+  customerCompany: text("customer_company"),
+  heardAbout: text("heard_about"),
 
   source: text("source"),
   sourceUrl: text("source_url"),
