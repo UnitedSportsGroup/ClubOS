@@ -62,8 +62,19 @@ for (const file of walk(SERVER)) {
   }
 }
 
-/** "/api/admin/grants/funders?x=1" → "/api/admin/grants/funders" */
-const clean = (u) => u.split("?")[0].replace(/\$\{[^}]*\}/g, ":p").replace(/\/+$/, "");
+/** "/api/admin/grants/funders?x=1" → "/api/admin/grants/funders"
+ *
+ * 🔴 An interpolation that is NOT its own path segment is a query string, and
+ * everything from it on is not part of the route. Turning `${qs}` into a ":p"
+ * segment made `/api/admin/x${qs}` read as the route `/api/admin/x:p`, which
+ * matches nothing — so the guard reported a clean pass over a real bare fetch()
+ * (found 2026-09-16, on a call this very check was supposed to catch). An
+ * interpolation BETWEEN slashes is still a genuine `:id` segment. */
+const clean = (u) => u
+  .split("?")[0]
+  .replace(/(?<!\/)\$\{[^}]*\}.*$/, "")
+  .replace(/\$\{[^}]*\}/g, ":p")
+  .replace(/\/+$/, "");
 
 /** Does this called path match a gated route pattern (":id" wildcards)? */
 function isGated(path) {

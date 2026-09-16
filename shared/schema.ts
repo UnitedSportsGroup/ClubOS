@@ -4166,7 +4166,24 @@ export const cic7sRegistrations = pgTable("cic7s_registrations", {
   email: text("email").notNull(),
   location: text("location"),
   phone: text("phone"),
-  category: text("category"), // "Mens" | "Masters" | "Social"
+  category: text("category"), // 2026: "Mens" | "Masters" | "Social" · 2027: "Open" | "Social"
+  /**
+   * 🔴 WHICH EDITION this registration is for — stamped when it is taken, never
+   * derived from created_at. Interest in the January 2026 tournament was
+   * collected from September 2025; interest in January 2027 from August 2026.
+   * A date rule would re-file every past registration the moment the next
+   * edition opened. Nullable with no default: "not recorded" stays possible.
+   * One decider: CIC7S_CURRENT_EDITION in shared/cic7s.ts.
+   */
+  editionYear: integer("edition_year"),
+  /** The team they entered as, once they did. NULL = interest only. */
+  teamName: text("team_name"),
+  /**
+   * How that team's entry was paid — 'paid' | 'part_paid' | 'unpaid' | 'refunded'.
+   * Read from the 2026 tracking sheet's own boolean columns, never parsed out of
+   * its breakdown text. Postgres refuses a payment state with no team.
+   */
+  entryPayment: text("entry_payment"),
   sourceUrl: text("source_url"),
   status: text("status").notNull().default("new"), // "new" | "contacted" | "entered" | "confirmed" | "archived"
   // ── Team Pay bridge (2026-09-08) ──────────────────────────────────────────

@@ -72,6 +72,7 @@ import {
 // will accept can never drift apart. See the file for why the ceiling is the
 // published fee and not the pro-rated total.
 import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
+import { CIC7S_CURRENT_EDITION } from "@shared/cic7s";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -22712,6 +22713,12 @@ export async function registerRoutes(
         organizationId: orgId, firstName, lastName: lastName || null, email,
         location: location || null, phone: phone || null, category: category || null,
         sourceUrl: String(req.body.sourceUrl || "cic7s.com"), status: "new",
+        // 🔴 Stamp the edition at the moment it is taken. Never derive it from
+        // created_at later: interest in the January 2026 tournament was
+        // collected from September 2025 and interest in January 2027 from
+        // August 2026, so a date rule would re-file history at every rollover.
+        // One decider: CIC7S_CURRENT_EDITION in shared/cic7s.ts.
+        editionYear: CIC7S_CURRENT_EDITION,
         enterToken,
         ...cic7sAttribution,
       }).returning({ id: cic7sRegistrations.id });
@@ -22814,13 +22821,35 @@ export async function registerRoutes(
   });
 
   // Web admin: list CIC 7's registrations (Tournament workspace → CIC 7's view → Registrations).
-  app.get("/api/admin/cic7s/registrations", requireAuth, requireTab("cic7s-registrations"), async (_req, res) => {
+  // 🔴 Returns EVERY edition plus the list of editions on file, and the page
+  // filters. The years must come from the data, not a constant: a hardcoded
+  // list silently hides an edition the moment somebody imports one.
+  app.get("/api/admin/cic7s/registrations", requireAuth, requireTab("cic7s-registrations"), async (req, res) => {
     try {
       const orgId = await skillsOrgId();
+      const asked = req.query.year != null && String(req.query.year).trim() !== ""
+        ? Number(req.query.year) : null;
+      if (asked != null && !Number.isFinite(asked)) {
+        return res.status(400).json({ message: "That year isn't recognised." });
+      }
+
       const rows = await db.select().from(cic7sRegistrations)
-        .where(eq(cic7sRegistrations.organizationId, orgId))
+        .where(asked == null
+          ? eq(cic7sRegistrations.organizationId, orgId)
+          : and(eq(cic7sRegistrations.organizationId, orgId), eq(cic7sRegistrations.editionYear, asked)))
         .orderBy(desc(cic7sRegistrations.createdAt));
-      res.json(rows);
+
+      // Every edition that actually has rows, newest first, with its count — so
+      // the picker and the tiles can never disagree with the list beneath them.
+      const editions: any = await db.execute(sql`
+        SELECT edition_year AS year, count(*)::int AS n
+        FROM cic7s_registrations WHERE organization_id = ${orgId}
+        GROUP BY 1 ORDER BY 1 DESC NULLS LAST`);
+
+      res.json({
+        registrations: rows,
+        editions: (editions.rows ?? editions).map((e: any) => ({ year: e.year, count: Number(e.n) })),
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -23357,7 +23386,8 @@ export async function registerRoutes(
       const orgId = await skillsOrgId();
       const source = req.query.source === "7s" ? "7s" as const : "youth" as const;
       const tournamentId = req.query.tournamentId ? parseInt(String(req.query.tournamentId)) : null;
-      const recipients = await resolveCicAudience(orgId, { source, tournamentId, audience: "all" });
+      const edition = req.query.edition ? Number(req.query.edition) : null;
+      const recipients = await resolveCicAudience(orgId, { source, tournamentId, audience: "all", edition });
       const unsub = await getUnsubscribedEmails(orgId);
       const contacts = recipients.map((r) => ({ ...r, unsubscribed: unsub.has(r.email) }));
       res.json({ contacts, total: contacts.length, unsubscribedCount: contacts.filter((c) => c.unsubscribed).length });
@@ -23385,7 +23415,10 @@ export async function registerRoutes(
       const source = req.body.source === "7s" ? "7s" as const : "youth" as const;
       const tournamentId = req.body.tournamentId ? parseInt(String(req.body.tournamentId)) : null;
       const audience = req.body.audience === "contacts" ? "contacts" as const : req.body.audience === "staff" ? "staff" as const : "all" as const;
-      const recipients = await resolveCicAudience(orgId, { source, tournamentId, audience });
+      // 🔴 The preview MUST take the same edition filter as the send, or the
+      // count shown is not the count that gets the email.
+      const edition = req.body.edition ? Number(req.body.edition) : null;
+      const recipients = await resolveCicAudience(orgId, { source, tournamentId, audience, edition });
       res.json({ count: recipients.filter((r) => !unsub.has(r.email)).length });
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
@@ -23419,6 +23452,7 @@ export async function registerRoutes(
       if (!String(body || "").trim()) return res.status(400).json({ message: "Email body is required" });
       const aud = audience === "custom" ? "custom" as const : audience === "contacts" ? "contacts" as const : audience === "staff" ? "staff" as const : "all" as const;
       const tournId = tournamentId ? parseInt(String(tournamentId)) : null;
+      const sendEdition = req.body?.edition ? Number(req.body.edition) : null;
 
       let all: { email: string }[];
       if (aud === "custom") {
@@ -23426,7 +23460,7 @@ export async function registerRoutes(
         if (emails.length > 500) return res.status(400).json({ message: "Custom sends are capped at 500 addresses" });
         all = emails.map((email) => ({ email }));
       } else {
-        all = await resolveCicAudience(orgId, { source, tournamentId: tournId, audience: aud });
+        all = await resolveCicAudience(orgId, { source, tournamentId: tournId, audience: aud, edition: sendEdition });
       }
       const unsub = await getUnsubscribedEmails(orgId);
       const recipients = all.filter((r) => !unsub.has(r.email));
@@ -23437,7 +23471,7 @@ export async function registerRoutes(
         fromEmail: source === "7s" ? "CIC 7's <noreply@cic7s.com>" : "Christchurch International Cup <noreply@cicyouth.com>",
         replyTo: replyTo || "info@cicyouth.com",
         segmentType: `cic_${source}_${aud}`,
-        segmentConfig: JSON.stringify({ orgId, source, tournamentId: tournId, audience: aud, ...(aud === "custom" ? { customEmails: recipients.map((r) => r.email) } : {}) }),
+        segmentConfig: JSON.stringify({ orgId, source, tournamentId: tournId, audience: aud, edition: sendEdition, ...(aud === "custom" ? { customEmails: recipients.map((r) => r.email) } : {}) }),
         recipientCount: recipients.length, status: "sending",
       }).returning();
 
@@ -27111,7 +27145,7 @@ type CicContact = { name: string; email: string; phone: string; role: string; te
 //   "contacts" is only the team/club contacts. tournamentId narrows to one
 //   age group.
 // source "7s": every Summer 7's register-interest submission (except archived).
-async function resolveCicAudience(orgId: number, opts: { source: "youth" | "7s"; tournamentId: number | null; audience: "contacts" | "all" | "staff" }): Promise<CicContact[]> {
+async function resolveCicAudience(orgId: number, opts: { source: "youth" | "7s"; tournamentId: number | null; audience: "contacts" | "all" | "staff"; edition?: number | null }): Promise<CicContact[]> {
   const byEmail = new Map<string, CicContact>();
   const add = (c: CicContact) => {
     const email = c.email.trim().toLowerCase();
@@ -27121,9 +27155,24 @@ async function resolveCicAudience(orgId: number, opts: { source: "youth" | "7s";
 
   if (opts.source === "7s") {
     const regs = await db.select().from(cic7sRegistrations).where(eq(cic7sRegistrations.organizationId, orgId));
+    // 🔴 Newest submission first, so when one address appears more than once the
+    // audience keeps the most recent name and grade. Twelve addresses in the
+    // 2026 list are repeats, and `add()` keeps whichever it sees first.
+    regs.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
     for (const r of regs) {
       if (r.status === "archived") continue;
-      add({ name: `${r.firstName || ""}${r.lastName ? ` ${r.lastName}` : ""}`.trim(), email: r.email || "", phone: r.phone || "", role: r.category || "Interest", team: "", term: "CIC Summer 7's" });
+      // An edition filter, so Isaac can mail last year's list, this year's, or
+      // both. A row with no edition on file is only ever in the unfiltered view.
+      if (opts.edition != null && r.editionYear !== opts.edition) continue;
+      add({
+        name: `${r.firstName || ""}${r.lastName ? ` ${r.lastName}` : ""}`.trim(),
+        email: r.email || "", phone: r.phone || "",
+        role: r.category || "Interest",
+        // The team they entered as, where they entered one — it is the most
+        // useful thing to see beside a name when writing to last year's field.
+        team: r.teamName || "",
+        term: r.editionYear ? `CIC Summer 7's ${r.editionYear}` : "CIC Summer 7's",
+      });
     }
     return Array.from(byEmail.values());
   }
