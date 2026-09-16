@@ -73,6 +73,7 @@ import {
 // published fee and not the pro-rated total.
 import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
 import { CIC7S_CURRENT_EDITION } from "@shared/cic7s";
+import { normaliseSizeTiers } from "@shared/print-size-tiers";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -21212,8 +21213,13 @@ export async function registerRoutes(
       const materialSlug = rawSlug.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
       if (!materialSlug) return res.status(400).json({ message: "Couldn't build a web address from that name — try plain letters." });
 
+      // Same gate as the PATCH — a new product can arrive with stock sizes too.
+      const newTiers = normaliseSizeTiers(req.body?.sizeTiersJson);
+      if (!newTiers.ok) return res.status(400).json({ message: newTiers.error });
+
       const m = await storage.createPrintMaterial({
         ...req.body,
+        sizeTiersJson: newTiers.tiers,
         slug: materialSlug,
         name,
         organizationId: org.id,
@@ -21234,6 +21240,15 @@ export async function registerRoutes(
       // organizationId and slug are identity, not settings — a PATCH may not
       // move a product between brands or change its public address.
       const { organizationId: _o, slug: _s, id: _i, ...patch } = req.body ?? {};
+      // 🔴 Stock sizes carry PRICES and this route writes the body straight into
+      // the row, so they are validated here — not in the form. A malformed tier
+      // reaches the public quote generator and either breaks it or charges the
+      // wrong money. One decider: @shared/print-size-tiers.
+      if ("sizeTiersJson" in patch) {
+        const tiers = normaliseSizeTiers(patch.sizeTiersJson);
+        if (!tiers.ok) return res.status(400).json({ message: tiers.error });
+        patch.sizeTiersJson = tiers.tiers;
+      }
       const m = await storage.updatePrintMaterial(existing.id, patch);
       if (!m) return res.status(404).json({ message: "Not found" });
       res.json(m);

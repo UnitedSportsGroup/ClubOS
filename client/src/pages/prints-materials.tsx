@@ -11,6 +11,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
+import { normaliseSizeTiers, sizeTierId, sizeTierLabel, type SizeTier } from "@shared/print-size-tiers";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, X, Search, Globe, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,8 @@ type FormState = {
   rushAvailable: boolean;
   humanQuoteRequired: boolean;
   quoteOnWebsite: boolean;
+  /** Stock sizes Dima sells off the shelf, priced per piece. */
+  sizeTiers: SizeTier[];
 };
 
 function blankForm(): FormState {
@@ -89,6 +92,7 @@ function blankForm(): FormState {
     // Off by default even here: a brand-new product should be priced and
     // checked before the public can be quoted from it.
     quoteOnWebsite: false,
+    sizeTiers: [],
   };
 }
 
@@ -107,6 +111,7 @@ function formFrom(material: PrintMaterial): FormState {
     rushAvailable: material.rushAvailable,
     humanQuoteRequired: material.humanQuoteRequired,
     quoteOnWebsite: (material as any).quoteOnWebsite ?? false,
+    sizeTiers: Array.isArray((material as any).sizeTiersJson) ? ((material as any).sizeTiersJson as SizeTier[]) : [],
   };
 }
 
@@ -120,7 +125,7 @@ function EditModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, ...rest } = form;
+      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, sizeTiers, ...rest } = form;
       const rollWidth = parseInt(maxRollWidthMm, 10);
       const payload = {
         ...rest,
@@ -130,6 +135,9 @@ function EditModal({
         // Blank means "not a roll product" — send null, never 0. A 0 would
         // read as a limit and refuse every size.
         maxRollWidthMm: Number.isFinite(rollWidth) && rollWidth > 0 ? rollWidth : null,
+        // The server re-validates these (@shared/print-size-tiers) — this is a
+        // courtesy so Dima sees the problem before he presses Save, never the gate.
+        sizeTiersJson: sizeTiers,
       };
       const res = isNew
         // The server derives the slug and takes the org from the workspace —
@@ -257,6 +265,96 @@ function EditModal({
                 ? `One side of the sign must be ${(parseInt(form.maxRollWidthMm, 10) / 1000).toFixed(2).replace(/0$/, "")}m or under — the other side can be any length. A ${(parseInt(form.maxRollWidthMm, 10) / 1000).toFixed(2).replace(/0$/, "")}m limit still allows a 5m long banner.`
                 : "Leave blank for anything not printed off a roll — panels, garments."}
             </div>
+          </div>
+
+          {/* ── Stock sizes ────────────────────────────────────────────────
+              Dima, 2026-09-16: the sheets already come in standard sizes, so
+              the website should offer them rather than make a customer guess.
+              🔴 A stock size is priced PER PIECE at the price typed here — it
+              is not the per-m² rate above. That is the whole point: a
+              1200×1800 corflute is $115 off the price list, not $183.60 of
+              area. The engine matches a customer's size to the nearest tier
+              (orientation-insensitive, 5mm tolerance), so these are also what
+              gets charged if somebody types the size by hand. */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/40">Stock sizes</div>
+                <div className="text-[10px] text-white/30 mt-0.5">
+                  Sizes your sheets already come in. Customers pick one instead of typing — and pay this price, not the per-m² rate.
+                </div>
+              </div>
+              <Button
+                size="sm" variant="outline" type="button"
+                data-testid="button-add-stock-size"
+                onClick={() => setForm({ ...form, sizeTiers: [...form.sizeTiers, { id: "", label: "", w: 0, h: 0, priceCents: 0 } as SizeTier] })}
+              >
+                Add a size
+              </Button>
+            </div>
+
+            {form.sizeTiers.length === 0 ? (
+              <div className="text-[11px] text-white/25 mt-3">
+                None yet — the website will ask for a custom size and price it per m².
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {form.sizeTiers.map((t, i) => {
+                  const update = (patch: Partial<SizeTier>) => {
+                    const next = [...form.sizeTiers];
+                    const merged = { ...next[i], ...patch } as SizeTier;
+                    // The label follows the size until Dima writes his own, and
+                    // the id is always derived — never typed, never stale.
+                    const autoLabel = sizeTierLabel(next[i].w || 0, next[i].h || 0);
+                    if (!merged.label || merged.label === autoLabel) merged.label = sizeTierLabel(merged.w || 0, merged.h || 0);
+                    merged.id = sizeTierId(merged.w || 0, merged.h || 0);
+                    next[i] = merged;
+                    setForm({ ...form, sizeTiers: next });
+                  };
+                  return (
+                    <div key={i} className="grid grid-cols-[5rem_1rem_5rem_1fr_7rem_2rem] items-center gap-1.5" data-testid={`row-stock-size-${i}`}>
+                      <Input
+                        type="number" inputMode="numeric" placeholder="600" value={t.w || ""}
+                        onChange={(e) => update({ w: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-stock-w-${i}`}
+                      />
+                      <span className="text-center text-white/25 text-xs">×</span>
+                      <Input
+                        type="number" inputMode="numeric" placeholder="900" value={t.h || ""}
+                        onChange={(e) => update({ h: parseInt(e.target.value, 10) || 0 })}
+                        className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-stock-h-${i}`}
+                      />
+                      <Input
+                        placeholder="What customers see" value={t.label}
+                        onChange={(e) => update({ label: e.target.value })}
+                        className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-stock-label-${i}`}
+                      />
+                      <MoneyInput
+                        value={centsToDollarInput(t.priceCents)}
+                        onChange={(v) => update({ priceCents: dollarInputToCents(v) })}
+                        className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-stock-price-${i}`}
+                      />
+                      <button
+                        type="button" aria-label="Remove this size"
+                        onClick={() => setForm({ ...form, sizeTiers: form.sizeTiers.filter((_, j) => j !== i) })}
+                        className="text-white/25 hover:text-red-300 justify-self-center"
+                        data-testid={`button-remove-stock-${i}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="text-[10px] text-white/30 pt-1">Millimetres. Price is per piece, ex GST.</div>
+                {/* Say what is wrong before Save does — the server refuses it either way. */}
+                {(() => {
+                  const check = normaliseSizeTiers(form.sizeTiers);
+                  return check.ok ? null : (
+                    <p className="text-[11.5px] text-red-300 pt-1" data-testid="text-stock-size-problem">{check.error}</p>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           {/* The website switch gets its own block — it is the one setting on
