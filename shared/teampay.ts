@@ -444,6 +444,28 @@ export function brandFor(key?: string | null): TeampayBrand {
   return (key && TEAMPAY_BRANDS[key]) || DEFAULT_BRAND;
 }
 
+/**
+ * Does this competition ask a team which community it represents?
+ *
+ * 🔴 Only the Ethnic Cup. Daniel, 2026-09-17: *"community your representing not
+ * relevant for cic 7's … cic7s is for everyone and not an ethnic or community
+ * tournament it's just a 7 aside tournament and that's it."*
+ *
+ * The field is not merely noise on a 7's entry form — it tells a team the
+ * tournament is about representing a community, which is the Ethnic Cup's whole
+ * premise and the opposite of the 7's pitch. Every surface that renders
+ * `entry.community` (the player page, the fill-in ask, the captain view, the
+ * staff board) already renders nothing when it is null, so gating collection
+ * here is enough.
+ *
+ * Keyed on brand because brand is what distinguishes the competitions today and
+ * this needs no migration. If a future competition ever wants the question
+ * independent of its palette, THIS is the one function to change.
+ */
+export function collectsCommunity(brand?: string | null): boolean {
+  return brand === "ethniccup";
+}
+
 // ── tokens ────────────────────────────────────────────────────────────────────
 
 /**

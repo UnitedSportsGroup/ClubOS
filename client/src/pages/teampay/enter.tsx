@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { brandFor, shareCents, type PaymentMode } from "@shared/teampay";
+import { brandFor, collectsCommunity, shareCents, type PaymentMode } from "@shared/teampay";
 import {
   Button, Card, Field, Loading, NotFoundPage, Notice, TeampayShell, inputStyle, money,
 } from "./shell";
@@ -195,10 +195,13 @@ export default function TeampayEnterPage() {
                    style={inputStyle(brand)} placeholder="e.g. Samoa United" />
           </Field>
 
-          <Field brand={brand} label="Community you're representing" hint="Optional — the point of the Cup.">
-            <input value={form.community} onChange={(e) => set("community", e.target.value)}
-                   style={inputStyle(brand)} placeholder="e.g. Samoan community" />
-          </Field>
+          {/* The Ethnic Cup asks this; the 7's does not. See collectsCommunity(). */}
+          {collectsCommunity(comp.brand) && (
+            <Field brand={brand} label="Community you're representing" hint="Optional — the point of the Cup.">
+              <input value={form.community} onChange={(e) => set("community", e.target.value)}
+                     style={inputStyle(brand)} placeholder="e.g. Samoan community" />
+            </Field>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field brand={brand} label="Your name">

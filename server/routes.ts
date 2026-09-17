@@ -22809,10 +22809,13 @@ export async function registerRoutes(
         r = await tp.createEntry({
           slug: cic7sSlugFor(reg.category),
           teamName,
-          // The tournament category (Mens / Masters / Social) sits in the slot
-          // the Ethnic Cup uses for the community a team represents — it is the
-          // one fact the staff board needs beside the team name.
-          community: reg.category,
+          // 🔴 NOT the category. This slot is "the community this team
+          // represents", which is the Ethnic Cup's premise and the opposite of
+          // the 7's pitch (Daniel, 2026-09-17). Putting the grade here also made
+          // teams read as "Matakanui Rangers (Social)" on the player page, the
+          // fill-in ask and the staff board — and the grade is already implied
+          // by WHICH competition the team is in, so nothing is lost.
+          community: null,
           managerName: [reg.firstName, reg.lastName].filter(Boolean).join(" "),
           managerEmail: reg.email,
           managerPhone: reg.phone,
