@@ -84,7 +84,10 @@ export function registerTeampayRoutes(app: Express) {
     setCors(req, res);
     const c = await tp.competitionBySlug(String(req.params.slug));
     if (!c) return notFound(res);
-    res.json(tp.competitionPublic(c));
+    // `pool`: the sibling grades whose captains can also see a fill-in listed
+    // here (the CIC 7's Open + Social). One entry for a single-competition pool.
+    const pool = await tp.poolCompetitions(c);
+    res.json({ ...tp.competitionPublic(c), pool: pool.map((p) => ({ slug: p.slug, name: p.name })) });
   });
 
   // ── entering a team ────────────────────────────────────────────────────────

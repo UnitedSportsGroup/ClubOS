@@ -30,7 +30,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   teampayCaptains, teampayCaptainSessions, teampayCaptainTokens,
@@ -385,7 +385,10 @@ export function registerTeampayCaptainRoutes(app: Express) {
     });
 
     const comp = await tp.competitionById(entry.competitionId);
-    const url = `${PUBLIC_BASE_URL}/captain/set-password?token=${encodeURIComponent(token)}`;
+    // The brand rides in the link so the set-password screen wears the right
+    // palette before there is a signed-in team to take one from.
+    const url = `${PUBLIC_BASE_URL}/captain/set-password?token=${encodeURIComponent(token)}`
+      + (comp?.brand ? `&brand=${encodeURIComponent(comp.brand)}` : "");
     try {
       // 🔴 awaited. An un-awaited send on a serverless-shaped path may never
       // run, and the person would wait forever for a link that was never sent.
@@ -666,11 +669,15 @@ export function registerTeampayCaptainRoutes(app: Express) {
       const comp = await tp.competitionBySlug(String(req.params.slug));
       if (!comp) return res.status(404).json({ message: "We couldn't find that." });
 
-      await tp.sweepExpiredHolds(comp.id);
+      // 🔴 The pool is the TOURNAMENT — see tp.poolCompetitions(). A 7's
+      // captain in Social must see a player who listed under Open.
+      const pool = await tp.poolCompetitions(comp);
+      const ids = tp.poolIds(pool);
+      await tp.sweepExpiredHolds(ids);
 
       const rows = await db.select().from(teampayFillins)
         .where(and(
-          eq(teampayFillins.competitionId, comp.id),
+          inArray(teampayFillins.competitionId, ids),
           eq(teampayFillins.status, "available"),
         ))
         .orderBy(desc(teampayFillins.createdAt));
@@ -678,6 +685,10 @@ export function registerTeampayCaptainRoutes(app: Express) {
       const players = rows.map((row: any) => {
         const out: Record<string, unknown> = {};
         for (const f of FILLIN_PUBLIC_FIELDS) out[f] = row[f];
+        // Not a column: which grade they listed under, only when there is more
+        // than one. The allowlist above stays the one description of what is
+        // public from the row itself.
+        out.listedFor = tp.listedFor(pool, row.competitionId);
         // Not the URL, not the key — only that there IS one, so the page can
         // say "has a highlight video" and a captain knows signing in is worth it.
         out.hasPhoto = !!row.photoKey;
@@ -691,6 +702,7 @@ export function registerTeampayCaptainRoutes(app: Express) {
         competition: {
           slug: comp.slug, name: comp.name, brand: comp.brand,
           theme: brandFor(comp.brand), fillinsOpen: comp.fillinsOpen,
+          pool: pool.map((c) => ({ slug: c.slug, name: c.name })),
         },
         count: players.length,
         players,

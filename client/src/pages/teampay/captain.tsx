@@ -31,10 +31,26 @@ const api = async (url: string, init?: RequestInit) => {
 
 const MIN_PASSWORD = 12;
 
+/**
+ * The sign-in and set-password screens have no team to take a palette from
+ * yet, so the brand rides in the URL: cic7s.com links to /captain?brand=cic7s
+ * and the emailed set-password link carries the same. Unknown or absent →
+ * the default. A manager arriving from cic7s.com must not land on a gold page.
+ */
+function brandFromUrl() {
+  return brandFor(new URLSearchParams(window.location.search).get("brand"));
+}
+
+/** `?brand=x` if the current URL carries one, else "" — so a hop between the login screens keeps the palette. */
+function brandQs() {
+  const b = new URLSearchParams(window.location.search).get("brand");
+  return b ? `?brand=${encodeURIComponent(b)}` : "";
+}
+
 // ── sign in ──────────────────────────────────────────────────────────────────
 
 export function CaptainSignInPage() {
-  const brand = DEFAULT_BRAND;
+  const brand = useMemo(brandFromUrl, []);
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -130,7 +146,7 @@ export function CaptainSignInPage() {
 // ── set a password ───────────────────────────────────────────────────────────
 
 export function CaptainSetPasswordPage() {
-  const brand = DEFAULT_BRAND;
+  const brand = useMemo(brandFromUrl, []);
   const [, navigate] = useLocation();
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get("token") || "", []);
@@ -163,7 +179,7 @@ export function CaptainSetPasswordPage() {
             Open the link from your email exactly as it was sent, or ask for a new one.
           </p>
           <div className="mt-5">
-            <Button brand={brand} className="w-full" onClick={() => navigate("/captain")}>
+            <Button brand={brand} className="w-full" onClick={() => navigate(`/captain${brandQs()}`)}>
               Ask for a new link
             </Button>
           </div>

@@ -14,7 +14,8 @@ import pg from "pg";
 import crypto from "crypto";
 
 const BASE = process.env.TEAMPAY_VERIFY_BASE || "https://app.usg.co.nz";
-const SLUG = "ethnic-cup-2026";
+/** Any Team Pay competition with entries open. `TEAMPAY_VERIFY_SLUG=cic-summer-7s-2027-open` proves the 7's. */
+const SLUG = process.env.TEAMPAY_VERIFY_SLUG || "ethnic-cup-2026";
 const STAMP = Date.now();
 const MARK = `ZZ CAPTAIN ${STAMP}`;
 const PASSWORD = "correct horse battery staple";

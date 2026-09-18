@@ -13,7 +13,7 @@
  * file is the plumbing between them.
  */
 import { randomBytes } from "crypto";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   teampayCompetitions, teampayEntries, teampayPlayers,
@@ -136,6 +136,41 @@ export function competitionPublic(c: TeampayCompetition) {
     blurb: c.blurb,
     payByDate: c.payByDate,
   };
+}
+
+/**
+ * 🔴 The fill-in POOL is the TOURNAMENT, not the competition.
+ *
+ * The CIC Summer 7's is two competitions — Open $700 and Social $500 — because
+ * Team Pay carries one fee per competition. But a player with no team is a 7's
+ * player, not an "Open" player: keyed per competition, a Social captain could
+ * never see anyone who listed under Open, and a player wanting a game had to
+ * list twice. So every read of the pool (browse, request, the public
+ * marketplace, the hold sweep) spans every competition that shares the
+ * fill-in's tournament. A competition with no tournament (an MFL term) pools
+ * alone, and the Ethnic Cup is one competition under its own tournament, so
+ * nothing changes for it.
+ *
+ * The competition a player listed under is KEPT: it is the grade they picked,
+ * and a captain sees it as a preference (`listedFor`), not a wall.
+ */
+export async function poolCompetitions(comp: TeampayCompetition): Promise<TeampayCompetition[]> {
+  if (!comp.tournamentId) return [comp];
+  const rows = await db.select().from(teampayCompetitions)
+    .where(eq(teampayCompetitions.tournamentId, comp.tournamentId))
+    .orderBy(teampayCompetitions.id);
+  return rows.length ? rows : [comp];
+}
+
+export function poolIds(pool: TeampayCompetition[]): number[] {
+  return pool.map((c) => c.id);
+}
+
+/** Which grade a fill-in listed under — said only when the pool has more than one. */
+export function listedFor(pool: TeampayCompetition[], competitionId: number): { slug: string; name: string } | null {
+  if (pool.length < 2) return null;
+  const c = pool.find((p) => p.id === competitionId);
+  return c ? { slug: c.slug, name: c.name } : null;
 }
 
 // ── entries ──────────────────────────────────────────────────────────────────
@@ -982,6 +1017,35 @@ export async function createFillin(input: {
   // would race two taps on a slow connection into two pool entries.
   // Their token is deliberately NOT regenerated: it is the link in an email they
   // may already have.
+  // 🔴 One person, one place in the POOL — see poolCompetitions(). Listing
+  // again under the other grade updates the row they already have and moves
+  // their preferred grade with it, rather than listing them twice for the same
+  // weekend. Only a player still available moves: one already held by or
+  // placed in a team keeps the competition that team is in. The unique index
+  // below still guards the same-grade race; this guards the cross-grade one.
+  const pool = await poolCompetitions(comp);
+  if (pool.length > 1) {
+    const [existing] = await db.select().from(teampayFillins)
+      .where(and(
+        inArray(teampayFillins.competitionId, poolIds(pool)),
+        sql`lower(${teampayFillins.email}) = ${email}`,
+      ))
+      .limit(1);
+    if (existing) {
+      const { playerToken: _t, competitionId: _c, organizationId: _o, ...updatable } = values;
+      const [updated] = await db.update(teampayFillins)
+        .set({
+          ...updatable,
+          ...(existing.status === "available" ? { competitionId: comp.id } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(teampayFillins.id, existing.id))
+        .returning();
+      if (!updated) return { error: "Couldn't save that just now." };
+      return { ok: true, alreadyIn: true, playerToken: updated.playerToken };
+    }
+  }
+
   let row;
   try {
     [row] = await db.insert(teampayFillins).values(values).returning();
@@ -1030,13 +1094,16 @@ function safeHighlight(raw: string | null | undefined): string | null {
  * do the same, and it means the pool is correct on the screen that reads it,
  * with nothing to schedule and nothing to forget.
  */
-export async function sweepExpiredHolds(competitionId: number): Promise<number> {
+export async function sweepExpiredHolds(competitionIds: number[]): Promise<number> {
+  if (!competitionIds.length) return 0;
+  // 🔴 `IN (…)` via sql.join — `= ANY(${array})` in a drizzle template sends a
+  // parameter LIST, not an array (the attribution-reports footgun).
   const expired = await db.execute(sql`
     UPDATE teampay_fillin_holds h
        SET state = 'expired', responded_at = now()
       FROM teampay_fillins f
      WHERE h.fillin_id = f.id
-       AND f.competition_id = ${competitionId}
+       AND f.competition_id IN (${sql.join(competitionIds.map((id) => sql`${id}`), sql`, `)})
        AND h.state = 'active'
        AND h.expires_at <= now()
     RETURNING h.fillin_id`);
@@ -1063,7 +1130,9 @@ export async function browseFillins(organiserToken: string): Promise<{ error?: s
   if (!comp) return { error: "not_found" };
   if (!comp.fillinsOpen) return { error: "The fill-in list isn't open yet." };
 
-  await sweepExpiredHolds(comp.id);
+  const pool = await poolCompetitions(comp);
+  const ids = poolIds(pool);
+  await sweepExpiredHolds(ids);
 
   const [{ open }] = await db.select({ open: sql<number>`count(*)::int` })
     .from(teampayFillinHolds)
@@ -1081,6 +1150,7 @@ export async function browseFillins(organiserToken: string): Promise<{ error?: s
 
   const rows = await db.select({
     id: teampayFillins.id,
+    competitionId: teampayFillins.competitionId,
     firstName: teampayFillins.firstName,
     position: teampayFillins.position,
     ability: teampayFillins.ability,
@@ -1092,7 +1162,7 @@ export async function browseFillins(organiserToken: string): Promise<{ error?: s
   })
     .from(teampayFillins)
     .where(and(
-      eq(teampayFillins.competitionId, comp.id),
+      inArray(teampayFillins.competitionId, ids),
       eq(teampayFillins.status, "available"),
     ))
     .orderBy(desc(teampayFillins.createdAt));
@@ -1100,7 +1170,11 @@ export async function browseFillins(organiserToken: string): Promise<{ error?: s
   return {
     fillins: rows
       .filter((r) => !blocked.has(r.id))
-      .map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+      .map(({ competitionId, ...r }) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+        listedFor: listedFor(pool, competitionId),
+      })),
     holdsLeft: Math.max(0, FILLIN_MAX_CONCURRENT_HOLDS - Number(open ?? 0)),
   };
 }
@@ -1117,7 +1191,9 @@ export async function requestFillin(
   const comp = await competitionById(entry.competitionId);
   if (!comp || !comp.fillinsOpen) return { error: "The fill-in list isn't open yet." };
 
-  await sweepExpiredHolds(comp.id);
+  const pool = await poolCompetitions(comp);
+  const ids = poolIds(pool);
+  await sweepExpiredHolds(ids);
 
   const players = await playersOf(entry.id);
   const m = entryMoney(entry, players);
@@ -1131,7 +1207,7 @@ export async function requestFillin(
   }
 
   const [f] = await db.select().from(teampayFillins)
-    .where(and(eq(teampayFillins.id, fillinId), eq(teampayFillins.competitionId, comp.id)));
+    .where(and(eq(teampayFillins.id, fillinId), inArray(teampayFillins.competitionId, ids)));
   if (!f) return { error: "not_found" };
   if (f.status !== "available") return { error: "Someone just asked them — try another player." };
 

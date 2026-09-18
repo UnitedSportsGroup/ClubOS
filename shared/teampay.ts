@@ -351,6 +351,13 @@ export interface FillinPublic {
   motivation: string | null;
   note: string | null;
   createdAt: string;
+  /**
+   * The grade a player listed under, when the pool spans more than one
+   * competition (the CIC 7's Open + Social share a tournament). Absent or null
+   * for a single-competition pool like the Ethnic Cup. A preference, not a
+   * wall — a captain in either grade may ask them.
+   */
+  listedFor?: { slug: string; name: string } | null;
 }
 
 // ── competition binding ───────────────────────────────────────────────────────

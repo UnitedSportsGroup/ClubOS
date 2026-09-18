@@ -758,6 +758,14 @@ function FillinDrawer({
                         {f.position && <span className="text-[13px]" style={{ color: brand.accent }}>{f.position}</span>}
                         {f.ability && <span className="text-[12px]" style={{ color: brand.mute }}>· {f.ability}</span>}
                       </div>
+                      {/* Which grade they listed under, when the pool spans more
+                          than one (the 7's Open + Social). A preference: a
+                          captain in either grade may ask them. */}
+                      {f.listedFor && (
+                        <div className="mt-1 text-[12px]" style={{ color: brand.mute }}>
+                          Listed for <span style={{ color: brand.ink }}>{f.listedFor.name}</span>
+                        </div>
+                      )}
                       <div className="mt-1.5 space-y-0.5 text-[13px]" style={{ color: brand.mute }}>
                         {f.highestLevel && <div>Highest level: {f.highestLevel}</div>}
                         {f.fromWhere && <div>From: {f.fromWhere}</div>}
