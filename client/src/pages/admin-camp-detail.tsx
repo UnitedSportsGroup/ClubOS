@@ -10,9 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { CoachOverview } from "@/components/coach-overview";
 import { useWorkspace } from "@/lib/workspace-context";
-import { programBasePath, useProgramRoute } from "@/lib/program-path";
+import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
-import { withFrom } from "@/lib/back-to";
+import { withFrom, useBackTo } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
 import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog, Check } from "lucide-react";
@@ -2647,17 +2647,28 @@ export default function AdminCampDetail() {
     },
   });
 
-  // Where 'back' goes depends on the workspace AND the program type, since
-  // CUFC has a separate /admin/academy list for type === "academy" and
-  // /admin/camps for everything else (holiday_camp etc.). Gymnastics uses
-  // a single /admin/programs list. Until the camp record loads, fall back to
-  // the section in the URL so the back button is never wrong or undefined.
-  const listPath = camp
-    ? programBasePath(camp, currentOrg?.slug)
-    : route?.base ?? "/admin/camps";
+  // Which section this programme's pages sit in. CUFC has a separate
+  // /admin/academy list and /admin/camps; gymnastics has one /admin/programs.
+  // 🔴 The section you are STANDING IN wins, whenever that section really
+  // lists this programme. A holiday camp is shown on the Academy page as well
+  // as on Camps, so arriving at /admin/academy/39 must keep Back, the sidebar
+  // and every sub-page link on Academy. Deriving the section from the
+  // programme's TYPE instead is what returned Daniel to Camps after he opened a
+  // camp from Academy. The type-derived answer stays as the fallback, which is
+  // what heals a genuinely stale address.
+  const listPath = route && sectionShowsProgram(route.base, camp, currentOrg?.slug)
+    ? route.base
+    : camp
+      ? programBasePath(camp, currentOrg?.slug)
+      : route?.base ?? "/admin/camps";
   // Sub-pages (landing-page editor, session roll) live under the same section
   // as the page you opened them from — never hard-coded to /admin/camps.
   const detailPath = `${listPath}/${campId}`;
+
+  // An explicit `?from=` still wins — a programme is also opened from places
+  // that are not one of the three section lists (a registration, a search
+  // result), and those should return you where you were.
+  const backTo = useBackTo(listPath, "Back");
 
   // Heal a stale URL. Old bookmarks and any link we haven't caught still point
   // at /admin/camps/:id for an academy programme, which lights up the wrong
@@ -2672,7 +2683,10 @@ export default function AdminCampDetail() {
       ? tabsForOrgSlug(currentOrg.slug).some(t => t.url === listPath)
       : false;
     if (!sectionExists) return;
-    navigate(detailPath, { replace: true });
+    // Carry the query across — healing must not silently drop `?from=` and send
+    // Back somewhere the user never was.
+    const query = typeof window !== "undefined" ? window.location.search : "";
+    navigate(`${detailPath}${query}`, { replace: true });
   }, [camp, route?.base, listPath, detailPath, currentOrg?.slug, navigate]);
 
   const updateMutation = useMutation({
@@ -2733,8 +2747,8 @@ export default function AdminCampDetail() {
   return (
     <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 max-w-5xl mx-auto">
       <div className="flex items-start sm:items-center gap-3 animate-fade-in-up" style={{ animationDelay: '0ms', opacity: 0 }}>
-        <Link href={listPath}>
-          <button className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] transition-colors cursor-pointer flex-shrink-0 mt-0.5 sm:mt-0" data-testid="button-back">
+        <Link href={backTo.href}>
+          <button title={backTo.label} aria-label={backTo.label} className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.06] transition-colors cursor-pointer flex-shrink-0 mt-0.5 sm:mt-0" data-testid="button-back">
             <ArrowLeft className="w-4 h-4 text-white/40" />
           </button>
         </Link>

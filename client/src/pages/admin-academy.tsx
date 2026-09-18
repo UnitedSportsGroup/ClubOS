@@ -191,7 +191,12 @@ function ProgramTable({ programs, regCounts, navigate, emptyMessage }: {
             return (
               <tr
                 key={program.id}
-                onClick={() => navigate(programDetailPath(program))}
+                // 🔴 The section owns the URL. A holiday camp is listed here as
+                // well as on Camps, so opening one from THIS page keeps it under
+                // /admin/academy — which is what keeps the sidebar on Academy and
+                // sends Back to Academy. programDetailPath() picks the section by
+                // TYPE, which is right for a search result and wrong here.
+                onClick={() => navigate(`/admin/academy/${program.id}`)}
                 className={`group cursor-pointer transition-colors duration-200 hover:bg-blue-500/[0.04] ${idx < programs.length - 1 ? "border-b border-blue-500/[0.05]" : ""}`}
                 data-testid={`row-academy-${program.id}`}
               >

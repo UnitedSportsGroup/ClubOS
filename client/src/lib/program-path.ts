@@ -1,4 +1,5 @@
 import { useRoute } from "wouter";
+import { HIDDEN_BY_WORKSPACE } from "@shared/sidebar-hidden";
 
 /**
  * Where a programme's admin pages live.
@@ -26,7 +27,25 @@ export function programBasePath(
   // Gymnastics has a single Programs list for everything it runs.
   if (orgSlug === "united-gymnastics") return "/admin/programs";
   if (program?.type === "academy") return "/admin/academy";
+  // 🔴 Never route into a section this workspace does not DRAW. CUFC hides its
+  // Camps item because holiday camps became a section on the Academy page
+  // (Daniel, 2026-09-02) — so sending a camp to /admin/camps there lands on a
+  // page with no sidebar entry and nothing highlighted, which is the dead end
+  // Back was dropping him into.
+  if (sectionHiddenHere("/admin/camps", orgSlug)) return "/admin/academy";
   return "/admin/camps";
+}
+
+/** The tab slug that draws a section, so we can ask whether it is hidden. */
+const SECTION_TAB: Record<ProgramBasePath, string> = {
+  "/admin/academy": "academy",
+  "/admin/programs": "programs",
+  "/admin/camps": "camps",
+};
+
+/** Is this section hidden from the sidebar in this workspace? */
+export function sectionHiddenHere(base: ProgramBasePath, orgSlug?: string | null): boolean {
+  return (HIDDEN_BY_WORKSPACE[orgSlug ?? ""] ?? []).includes(SECTION_TAB[base]);
 }
 
 /** Detail page for a programme, under the section that owns it. */
@@ -66,4 +85,37 @@ export function useProgramRoute(suffix = ""): {
     }
   }
   return null;
+}
+
+/**
+ * Does this section's list page actually show this programme?
+ *
+ * 🔴 A programme can legitimately live at more than one address. Holiday camps
+ * are listed in a "Holiday Camps" section ON the Academy page as well as on
+ * Camps (Daniel, 2026-09-02: they don't get a tab of their own), so
+ * `/admin/academy/39` for a holiday camp is a real address a person arrived at
+ * by clicking — not a stale bookmark to be rewritten. Rewriting it to
+ * `/admin/camps/39` is what sent Daniel back to Camps after opening a camp from
+ * Academy.
+ *
+ * `programBasePath()` answers "where does this programme belong BY TYPE", which
+ * is the right question for a search result with no origin, and the wrong one
+ * for a page you are already standing on.
+ */
+export function sectionShowsProgram(
+  base: ProgramBasePath,
+  program: { type?: string | null } | null | undefined,
+  orgSlug?: string | null,
+): boolean {
+  // A section this workspace doesn't draw shows nothing — being parked on one
+  // is exactly the stranded state to heal out of, never a state to preserve.
+  if (sectionHiddenHere(base, orgSlug)) return false;
+  // Gymnastics has a single Programs list holding everything it runs, and that
+  // URL exists in no other workspace — being on it IS being in gymnastics.
+  if (base === "/admin/programs") return true;
+  // Academy lists the academy sections AND holiday camps.
+  if (base === "/admin/academy") return orgSlug !== "united-gymnastics";
+  // Camps lists everything that is not an academy programme.
+  if (base === "/admin/camps") return program?.type !== "academy";
+  return false;
 }
