@@ -123,6 +123,8 @@ const CANARIES: Canary[] = [
   { feature: "cic 7s team pay (open)",   path: "/api/public/teampay/competition/cic-summer-7s-2027-open",   expect: [200] },
   { feature: "cic 7s team pay (social)", path: "/api/public/teampay/competition/cic-summer-7s-2027-social", expect: [200] },
   { feature: "cic 7s enter bridge",  path: "/api/public/cic7s/register-interest/probe/enter", method: "OPTIONS", expect: [204] },
+  { feature: "cic 7s marketplace",   path: "/api/public/teampay/marketplace/cic-summer-7s-2027-open", expect: [200] },
+  { feature: "team pay captain login", path: "/api/public/teampay/captain/me", expect: [401] },
   // The rebuilt dashboard's only endpoint. Silent if it goes: the page falls
   // back to nothing and every workspace's revenue simply stops appearing,
   // which is indistinguishable from a quiet month.

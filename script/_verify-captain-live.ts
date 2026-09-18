@@ -14,7 +14,8 @@ import pg from "pg";
 import crypto from "crypto";
 
 const BASE = process.env.TEAMPAY_VERIFY_BASE || "https://app.usg.co.nz";
-const SLUG = "ethnic-cup-2026";
+/** Any Team Pay competition with entries open. `TEAMPAY_VERIFY_SLUG=cic-summer-7s-2027-open` proves the 7's. */
+const SLUG = process.env.TEAMPAY_VERIFY_SLUG || "ethnic-cup-2026";
 const STAMP = Date.now();
 const MARK = `ZZ CAPTAIN ${STAMP}`;
 const PASSWORD = "correct horse battery staple";
@@ -233,7 +234,10 @@ async function main() {
 
     const intent = await call(jar2, `/api/public/teampay/captain/entries/${teamA.id}/pay-intent`, { method: "POST" });
     eq("a team payment intent is minted through the session", intent.status, 200);
-    eq("for the whole outstanding fee", intent.body.amountCents, 80000);
+    // The fee is the COMPETITION's, read live — $800 for the Ethnic Cup, $700 for
+    // the 7's Open — never a number typed into this script.
+    const compFee = (await call(null, `/api/public/teampay/competition/${SLUG}`)).body?.feeCents;
+    eq("for the whole outstanding fee", intent.body.amountCents, compFee);
 
     // ── sign out revokes, server-side ──────────────────────────────────────
     await call(jar2, "/api/public/teampay/captain/sign-out", { method: "POST" });

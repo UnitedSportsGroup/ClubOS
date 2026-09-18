@@ -95,9 +95,21 @@ export default function TeampayFillinPage() {
           join them. You'll get their team's details and can say yes or no — nothing is decided
           without you.
           <br /><br />
-          {isLeague
-            ? "Teams can ask you to join for the rest of the term, or just to cover one night when they're short. Whether you chip in for the team fee is between you and the captain — Mini Football doesn't charge fill-ins."
-            : "If you join a team, you pay one share of that team's fee, the same as everyone else on it."}
+          {isLeague ? (
+            "Teams can ask you to join for the rest of the term, or just to cover one night when they're short. Whether you chip in for the team fee is between you and the captain — Mini Football doesn't charge fill-ins."
+          ) : (
+            <>
+              If you join a team, you pay one share of that team's fee, the same as everyone else on it.
+              {Array.isArray(comp.pool) && comp.pool.length > 1 && (
+                <>
+                  <br /><br />
+                  You're listing under <strong style={{ color: brand.ink }}>{comp.name}</strong>. Captains in
+                  every grade ({comp.pool.map((p: any) => p.name).join(" and ")}) can see you — the grade is a
+                  preference, not a wall.
+                </>
+              )}
+            </>
+          )}
         </p>
       </Card>
 

@@ -44,7 +44,8 @@ async function main() {
     check(comp.json?.feeCents === FEES[grade], `${grade}: fee is $${FEES[grade] / 100} (got ${comp.json?.feeCents})`);
     check(comp.json?.defaultSquadSize === 14, `${grade}: default squad 14 (got ${comp.json?.defaultSquadSize})`);
     check(comp.json?.entriesOpen === true && comp.json?.paymentsEnabled === true, `${grade}: entries OPEN, payments ON`);
-    check(comp.json?.fillinsOpen === false, `${grade}: fill-ins shut`);
+    // 🟢 ON since 2026-09-18 — the fill-in marketplace and captain login rolled out to the 7's.
+    check(comp.json?.fillinsOpen === true, `${grade}: fill-ins open`);
   }
 
   // 2. CORS for the site
@@ -95,7 +96,9 @@ async function main() {
     const e = team.json?.entry ?? team.json;
     check(e?.paymentMode === "whole", `payment mode is whole (got ${e?.paymentMode})`);
     check(e?.feeCents === FEES.social, `a Social registration entered the Social grade at $500 (got ${e?.feeCents})`);
-    check(e?.community === "Social", `category carried as community (got ${e?.community})`);
+    // 🔴 Since 2026-09-17 the bridge writes NO community — the 7's is not a
+    // community tournament (Daniel), and the grade is implied by the competition.
+    check(e?.community == null, `no community on a 7's team (got ${e?.community})`);
     check(e?.managerEmail === "delivered@resend.dev", `manager email from the registration`);
   }
 

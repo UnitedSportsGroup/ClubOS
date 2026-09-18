@@ -34,16 +34,22 @@ const MIN_PASSWORD = 12;
 
 /**
  * The sign-in and set-password screens have no team to take a palette from
- * yet. The brand rides in the URL (`?brand=cic7s`, which the emailed link
- * carries) or, failing that, comes from the HOST: join.minifootball.co.nz is
- * Mini Football, so a captain arriving from minifootball.co.nz lands on a
- * black-and-gold page and not a Cup one.
+ * yet. The brand rides in the URL (`?brand=cic7s`, which cic7s.com and the
+ * emailed set-password link carry) or, failing that, comes from the HOST:
+ * join.minifootball.co.nz is Mini Football, so a captain arriving from
+ * minifootball.co.nz lands on a black-and-gold page and not a Cup one.
  */
 function pageBrand() {
   const fromUrl = new URLSearchParams(window.location.search).get("brand");
   if (fromUrl && TEAMPAY_BRANDS[fromUrl]) return TEAMPAY_BRANDS[fromUrl];
   if (window.location.hostname.includes("minifootball")) return TEAMPAY_BRANDS.mfl;
   return DEFAULT_BRAND;
+}
+
+/** `?brand=x` if the current URL carries one, else "" — so a hop between the login screens keeps the palette. */
+function brandQs() {
+  const b = new URLSearchParams(window.location.search).get("brand");
+  return b ? `?brand=${encodeURIComponent(b)}` : "";
 }
 
 const isMflHost = () => window.location.hostname.includes("minifootball");
@@ -181,7 +187,7 @@ export function CaptainSetPasswordPage() {
             Open the link from your email exactly as it was sent, or ask for a new one.
           </p>
           <div className="mt-5">
-            <Button brand={brand} className="w-full" onClick={() => navigate("/captain")}>
+            <Button brand={brand} className="w-full" onClick={() => navigate(`/captain${brandQs()}`)}>
               Ask for a new link
             </Button>
           </div>

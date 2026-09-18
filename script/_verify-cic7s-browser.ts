@@ -45,9 +45,14 @@ async function main() {
     await page.type('input[placeholder="First Name"]', "Probe");
     await page.type('input[placeholder="Last Name"]', "Browser (ignore)");
     await page.type('input[type="email"]', EMAIL);
-    await page.type('input[placeholder="Location"]', "Christchurch");
-    await page.type('input[type="tel"]', "+64210000000");
-    await page.select("select", "Social");
+    // 2026-09-17: phone, city, country and grade are DRAWN controls (house rule:
+    // no native widgets). The dial code and country default to NZ, so a national
+    // number and a typed city are enough; the grade is a listbox of buttons.
+    await page.type('input[placeholder="City"]', "Christchurch");
+    await page.type('input[type="tel"]', "210000000");
+    await page.click('[data-testid="grade-select"]');
+    await page.waitForSelector('[data-testid="option-Social"]', { timeout: 5000 });
+    await page.click('[data-testid="option-Social"]');
     await Promise.all([
       page.waitForFunction(() => location.pathname === "/thank-you", { timeout: 30000 }),
       page.click('form button[type="submit"]'),
@@ -81,6 +86,28 @@ async function main() {
     const volt = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     check(volt === "rgb(10, 17, 34)", `Team Pay page is navy, the cic7s brand (got ${volt})`);
     await page.screenshot({ path: join(OUT, "team-page-mobile.png"), fullPage: true });
+    // 2026-09-18: the marketplace is open, so a captain can find a fill-in from here.
+    const findFillin = await page.evaluate(() => document.body.innerText.includes("Find a fill-in"));
+    check(findFillin, "team page offers 'Find a fill-in' (fill-ins open for the 7's)");
+
+    // 4b. the two new doors on /enter (2026-09-18): no team → the fill-in list; already entered → team login
+    await page.goto(`${SITE}/enter`, { waitUntil: "networkidle2" });
+    const fillinHref = await page.$eval('[data-testid="link-fill-in"]', (a) => (a as HTMLAnchorElement).href).catch(() => "");
+    check(fillinHref.includes("app.usg.co.nz/fill-in/cic-summer-7s-2027-open"), `/enter links the fill-in list under Open by default (${fillinHref.slice(0, 60)})`);
+    await page.click('[data-testid="fillin-grade-social"]');
+    const fillinHrefSocial = await page.$eval('[data-testid="link-fill-in"]', (a) => (a as HTMLAnchorElement).href).catch(() => "");
+    check(fillinHrefSocial.includes("/fill-in/cic-summer-7s-2027-social"), "picking Social re-points the fill-in link");
+    const loginHref = await page.$eval('[data-testid="link-team-login"]', (a) => (a as HTMLAnchorElement).href).catch(() => "");
+    check(loginHref === "https://app.usg.co.nz/captain?brand=cic7s", `/enter links the captain login with the 7's brand (${loginHref})`);
+
+    // 4c. the public marketplace reads the live pool
+    await page.goto(`${SITE}/marketplace`, { waitUntil: "networkidle2" });
+    const mkt = await page.evaluate(() => document.body.innerText);
+    // 🔴 innerText reflects text-transform: the empty-state heading is CSS-uppercased, so match case-insensitively.
+    check(/players? available|nobody on the list yet/i.test(mkt), "/marketplace rendered the pool (a count, or the honest empty state)");
+    check(!/Couldn't load the list/.test(mkt), "/marketplace loaded the list from ClubOS (CORS + endpoint)");
+    const noindex = await page.$eval('meta[name="robots"]', (m) => (m as HTMLMetaElement).content).catch(() => "");
+    check(noindex.includes("noindex"), "/marketplace is noindex");
 
     // 5. desktop look of the sales page (fresh session → direct-entry state)
     const desk = await browser.newPage();
@@ -95,6 +122,12 @@ async function main() {
     await desk.setViewport({ width: 1366, height: 768 });
     await desk.goto(`${SITE}/thank-you`, { waitUntil: "networkidle2" });
     await desk.screenshot({ path: join(OUT, "thank-you-1366.png") });
+  } catch (e: any) {
+    // 🔴 Without this, a selector that no longer exists on the page threw
+    // straight into `finally`, which exited with the cleanup's verdict — the
+    // 2026-09-17 form rebuild broke the walk and the script reported 3 checks
+    // and one cleanup failure instead of the actual error.
+    check(false, `walk threw: ${e?.message || e}`);
   } finally {
     await browser.close();
     const c = new pg.Client({ connectionString: process.env.DATABASE_URL });

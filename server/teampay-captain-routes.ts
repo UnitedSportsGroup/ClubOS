@@ -30,7 +30,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   teampayCaptains, teampayCaptainSessions, teampayCaptainTokens,
@@ -389,10 +389,14 @@ export function registerTeampayCaptainRoutes(app: Express) {
 
     const comp = entry ? await tp.competitionById(entry.competitionId) : undefined;
     // An MFL captain's link lives on the MFL host and reads as Mini Football;
-    // a tournament captain's stays exactly as it was.
+    // a tournament captain's stays exactly as it was. The brand rides in the
+    // link so the set-password screen wears the right palette before there is
+    // a signed-in team to take one from.
     const mflBase = process.env.MFL_PUBLIC_URL || "https://join.minifootball.co.nz";
     const base = entry ? PUBLIC_BASE_URL : mflBase;
-    const url = `${base}/captain/set-password?token=${encodeURIComponent(token)}`;
+    const brand = entry ? comp?.brand : "mfl";
+    const url = `${base}/captain/set-password?token=${encodeURIComponent(token)}`
+      + (brand ? `&brand=${encodeURIComponent(brand)}` : "");
     const from = entry
       ? `${comp?.name || "Team Pay"} <noreply@cufc.co.nz>`
       : "Mini Football Leagues <noreply@minifootball.co.nz>";
@@ -677,11 +681,15 @@ export function registerTeampayCaptainRoutes(app: Express) {
       const comp = await tp.competitionBySlug(String(req.params.slug));
       if (!comp) return res.status(404).json({ message: "We couldn't find that." });
 
-      await tp.sweepExpiredHolds(comp.id);
+      // 🔴 The pool is the TOURNAMENT — see tp.poolCompetitions(). A 7's
+      // captain in Social must see a player who listed under Open.
+      const pool = await tp.poolCompetitions(comp);
+      const ids = tp.poolIds(pool);
+      await tp.sweepExpiredHolds(ids);
 
       const rows = await db.select().from(teampayFillins)
         .where(and(
-          eq(teampayFillins.competitionId, comp.id),
+          inArray(teampayFillins.competitionId, ids),
           eq(teampayFillins.status, "available"),
         ))
         .orderBy(desc(teampayFillins.createdAt));
@@ -689,6 +697,10 @@ export function registerTeampayCaptainRoutes(app: Express) {
       const players = rows.map((row: any) => {
         const out: Record<string, unknown> = {};
         for (const f of FILLIN_PUBLIC_FIELDS) out[f] = row[f];
+        // Not a column: which grade they listed under, only when there is more
+        // than one. The allowlist above stays the one description of what is
+        // public from the row itself.
+        out.listedFor = tp.listedFor(pool, row.competitionId);
         // Not the URL, not the key — only that there IS one, so the page can
         // say "has a highlight video" and a captain knows signing in is worth it.
         out.hasPhoto = !!row.photoKey;
@@ -702,6 +714,7 @@ export function registerTeampayCaptainRoutes(app: Express) {
         competition: {
           slug: comp.slug, name: comp.name, brand: comp.brand,
           theme: brandFor(comp.brand), fillinsOpen: comp.fillinsOpen,
+          pool: pool.map((c) => ({ slug: c.slug, name: c.name })),
         },
         count: players.length,
         players,
