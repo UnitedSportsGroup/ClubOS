@@ -339,6 +339,9 @@ export const FILLIN_PUBLIC_FIELDS = [
   "motivation",
   "note",
   "createdAt",
+  // Which nights they can play — set only on a league (MFL) pool. A night is
+  // not a contact detail, and it is the one thing a Wednesday captain needs.
+  "availableDays",
 ] as const;
 
 export interface FillinPublic {
@@ -351,6 +354,7 @@ export interface FillinPublic {
   motivation: string | null;
   note: string | null;
   createdAt: string;
+  availableDays?: string[] | null;
 }
 
 // ── competition binding ───────────────────────────────────────────────────────

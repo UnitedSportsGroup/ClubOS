@@ -226,7 +226,7 @@ export async function currentCaptain(req: Request): Promise<TeampayCaptain | nul
   return cap;
 }
 
-async function requireCaptain(req: Request, res: Response, next: NextFunction) {
+export async function requireCaptain(req: Request, res: Response, next: NextFunction) {
   const cap = await currentCaptain(req);
   if (!cap) return res.status(401).json({ message: "Please sign in." });
   (req as any).captain = cap;
@@ -360,7 +360,10 @@ export function registerTeampayCaptainRoutes(app: Express) {
       .where(sql`lower(${teampayEntries.managerEmail}) = ${email}`)
       .limit(1);
 
-    if (!entry) {
+    // An address with no Team Pay entry may still captain an MFL league team
+    // (or be mid Player Pay for one). Same door, same rule: a team, or no link.
+    const league = entry ? null : await (await import("./league-captain")).leagueCaptainByEmail(email);
+    if (!entry && !league) {
       await audit({ req, email, action: "request_link", ok: false, reason: "no_entry" });
       return res.json({ message: LINK_SENT });
     }
@@ -369,7 +372,7 @@ export function registerTeampayCaptainRoutes(app: Express) {
       .where(sql`lower(${teampayCaptains.email}) = ${email}`).limit(1);
     if (!cap) {
       [cap] = await db.insert(teampayCaptains)
-        .values({ email, name: entry.name }).returning();
+        .values({ email, name: entry?.name ?? league?.name ?? null }).returning();
     }
     if (cap.disabledAt) {
       await audit({ req, email, captainId: cap.id, action: "request_link", ok: false, reason: "disabled" });
@@ -384,16 +387,24 @@ export function registerTeampayCaptainRoutes(app: Express) {
       expiresAt: new Date(Date.now() + LINK_TTL_MS),
     });
 
-    const comp = await tp.competitionById(entry.competitionId);
-    const url = `${PUBLIC_BASE_URL}/captain/set-password?token=${encodeURIComponent(token)}`;
+    const comp = entry ? await tp.competitionById(entry.competitionId) : undefined;
+    // An MFL captain's link lives on the MFL host and reads as Mini Football;
+    // a tournament captain's stays exactly as it was.
+    const mflBase = process.env.MFL_PUBLIC_URL || "https://join.minifootball.co.nz";
+    const base = entry ? PUBLIC_BASE_URL : mflBase;
+    const url = `${base}/captain/set-password?token=${encodeURIComponent(token)}`;
+    const from = entry
+      ? `${comp?.name || "Team Pay"} <noreply@cufc.co.nz>`
+      : "Mini Football Leagues <noreply@minifootball.co.nz>";
+    const compName = entry ? (comp?.name || "your team") : "Mini Football Leagues";
     try {
       // 🔴 awaited. An un-awaited send on a serverless-shaped path may never
       // run, and the person would wait forever for a link that was never sent.
       await sendEmail({
-        from: `${comp?.name || "Team Pay"} <noreply@cufc.co.nz>`,
+        from,
         to: cap.email,
         subject: cap.passwordHash ? "Reset your team password" : "Set your team password",
-        html: linkEmailHtml(cap.name, url, cap.passwordHash ? "reset" : "set", comp?.name || "your team"),
+        html: linkEmailHtml(cap.name, url, cap.passwordHash ? "reset" : "set", compName),
       });
       await audit({ req, email, captainId: cap.id, action: "request_link", ok: true });
     } catch (e: any) {

@@ -21895,26 +21895,13 @@ export async function registerRoutes(
       const teams = await db.select().from(leagueTeams).where(eq(leagueTeams.competitionId, id));
       const games = await db.select().from(leagueGames)
         .where(and(eq(leagueGames.competitionId, id), eq(leagueGames.status, "final")));
-      type Row = { teamId: number; teamName: string; divisionId: number | null; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; gd: number; pts: number };
-      const map = new Map<number, Row>();
-      for (const t of teams) map.set(t.id, { teamId: t.id, teamName: t.name, divisionId: t.divisionId, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, pts: 0 });
-      for (const g of games) {
-        if (g.homeTeamId == null || g.awayTeamId == null) continue;
-        const home = map.get(g.homeTeamId);
-        const away = map.get(g.awayTeamId);
-        if (!home || !away) continue;
-        const hs = (g as any).homeScore ?? 0;
-        const as = (g as any).awayScore ?? 0;
-        home.played++; away.played++;
-        home.gf += hs; home.ga += as;
-        away.gf += as; away.ga += hs;
-        if (hs > as)      { home.won++; home.pts += 3; away.lost++; }
-        else if (hs < as) { away.won++; away.pts += 3; home.lost++; }
-        else              { home.drawn++; home.pts += 1; away.drawn++; away.pts += 1; }
-      }
-      const standings = Array.from(map.values()).map(r => ({ ...r, gd: r.gf - r.ga }))
-        .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.teamName.localeCompare(b.teamName));
-      res.json(standings);
+      // ONE decider, shared with the captain's dashboard (2026-09-18) — a
+      // captain reading "3rd" here and "4th" in the app is a support message.
+      const { computeLeagueStandings } = await import("@shared/league-standings");
+      res.json(computeLeagueStandings(
+        teams.map((t) => ({ id: t.id, name: t.name, divisionId: t.divisionId })),
+        games,
+      ));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

@@ -32,6 +32,7 @@ import { createCardPaymentIntent, getOrCreateCustomer, retrievePaymentIntent } f
 import { sendEmail } from "./email";
 import { sendPurchaseEvent } from "./meta-capi";
 import { workspaceDomainByOrgId } from "@shared/org-domains";
+import { isMflDay } from "@shared/league-captain";
 
 const PUBLIC_BASE_URL = process.env.TEAMPAY_PUBLIC_URL || "https://app.usg.co.nz";
 
@@ -125,6 +126,8 @@ export function competitionPublic(c: TeampayCompetition) {
   return {
     slug: c.slug,
     name: c.name,
+    /** 'tournament' | 'program' — a programme pool (an MFL term) asks which nights a player can do. */
+    kind: c.kind,
     brand: c.brand,
     theme: brandFor(c.brand),
     feeCents: c.feeCents,
@@ -941,6 +944,8 @@ export async function createFillin(input: {
   fromWhere?: string | null; motivation?: string | null; note?: string | null;
   /** A link to a highlight video. Validated, never rendered raw. */
   highlightUrl?: string | null;
+  /** Nights they can play — only meaningful on a programme (league) pool. */
+  availableDays?: unknown;
 }): Promise<{ error?: string; ok?: boolean; alreadyIn?: boolean; playerToken?: string }> {
   const comp = await competitionBySlug(input.slug);
   if (!comp) return { error: "not_found" };
@@ -971,6 +976,11 @@ export async function createFillin(input: {
      * link must not cost somebody their place in the pool.
      */
     highlightUrl: safeHighlight(input.highlightUrl),
+    // Stored only for a league pool, and only the seven real days — anything
+    // else is dropped, never rejected: a bad chip must not cost a place in the pool.
+    availableDays: comp.kind === "program" && Array.isArray(input.availableDays)
+      ? (input.availableDays.filter(isMflDay) as string[])
+      : null,
     playerToken: token(),
   };
 
@@ -1089,6 +1099,7 @@ export async function browseFillins(organiserToken: string): Promise<{ error?: s
     motivation: teampayFillins.motivation,
     note: teampayFillins.note,
     createdAt: teampayFillins.createdAt,
+    availableDays: teampayFillins.availableDays,
   })
     .from(teampayFillins)
     .where(and(
@@ -1388,3 +1399,8 @@ export async function adminResendDashboardLink(entryId: number): Promise<{ error
   });
   return sent ? { ok: true, to: entry.managerEmail } : { error: "Send failed" };
 }
+
+// The MFL captain engine (server/league-captain.ts) sends its emails through
+// the same themed shell and the same per-organisation sender, so an MFL ask
+// is black and gold from noreply@minifootball.co.nz without a second template.
+export { shell as emailShell, fromFor, escapeHtml };

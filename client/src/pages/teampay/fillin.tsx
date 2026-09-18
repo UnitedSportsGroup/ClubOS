@@ -13,6 +13,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import {
   brandFor, FILLIN_ABILITIES, FILLIN_MOTIVATIONS, FILLIN_POSITIONS,
 } from "@shared/teampay";
+import { MFL_DAYS, nzDateLabel, hm } from "@shared/league-captain";
 import {
   Button, Card, Field, Loading, NotFoundPage, Notice, Select, TeampayShell, inputStyle, money,
 } from "./shell";
@@ -44,6 +45,9 @@ export default function TeampayFillinPage() {
     highlightUrl: "",
   });
   const [photo, setPhoto] = useState<{ type: string; data: string; preview: string } | null>(null);
+  // Nights they can play — asked on a league pool only (an MFL term runs six
+  // nights; a tournament runs one weekend).
+  const [days, setDays] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -52,6 +56,7 @@ export default function TeampayFillinPage() {
   if (isError || !comp) return <NotFoundPage />;
 
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+  const isLeague = comp.kind === "program";
 
   if (done) {
     return (
@@ -90,7 +95,9 @@ export default function TeampayFillinPage() {
           join them. You'll get their team's details and can say yes or no — nothing is decided
           without you.
           <br /><br />
-          If you join a team, you pay one share of that team's fee, the same as everyone else on it.
+          {isLeague
+            ? "Teams can ask you to join for the rest of the term, or just to cover one night when they're short. Whether you chip in for the team fee is between you and the captain — Mini Football doesn't charge fill-ins."
+            : "If you join a team, you pay one share of that team's fee, the same as everyone else on it."}
         </p>
       </Card>
 
@@ -102,7 +109,7 @@ export default function TeampayFillinPage() {
             setBusy(true); setError(null);
             try {
               const r = await api(`/api/public/teampay/competition/${slug}/fill-in`, {
-                method: "POST", body: JSON.stringify(f),
+                method: "POST", body: JSON.stringify({ ...f, availableDays: isLeague ? days : undefined }),
               });
               /* 🔴 The photo is a SECOND request, on purpose. The token that
                  authorises the upload is minted by the signup above, so there
@@ -172,6 +179,27 @@ export default function TeampayFillinPage() {
                       options={FILLIN_MOTIVATIONS} />
           </Field>
 
+          {isLeague && (
+            <Field brand={brand} label="Which nights can you play?"
+                   hint="Tap every night that works. Captains short on a Wednesday look for Wednesday people.">
+              <div className="flex flex-wrap gap-2">
+                {MFL_DAYS.map((d) => {
+                  const on = days.includes(d);
+                  return (
+                    <button key={d} type="button" aria-pressed={on}
+                            onClick={() => setDays((cur) => on ? cur.filter((x) => x !== d) : [...cur, d])}
+                            className="rounded-full px-3.5 text-[13px] font-semibold"
+                            style={{ minHeight: 44, border: `1px solid ${on ? brand.accent : brand.line}`,
+                                     background: on ? `${brand.accent}22` : "transparent",
+                                     color: on ? brand.accent : brand.ink }}>
+                      {d.slice(0, 3)}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
+
           <Field brand={brand} label="Anything else?" hint="Optional. A line or two is plenty.">
             <textarea value={f.note} onChange={(e) => set("note", e.target.value)} rows={3}
                       style={{ ...inputStyle(brand), minHeight: 84, resize: "vertical" }} />
@@ -226,19 +254,29 @@ export function TeampayHoldPage() {
   if (isError || !data) return <NotFoundPage />;
 
   const { competition, state, team, you, shareCents: share, managerNote } = data;
+  // A league ask (MFL): "join for the term" or "cover one night". No share —
+  // Mini Football does not charge fill-ins; the captain sorts that.
+  const league: boolean = !!data.league;
+  const ask: string = data.ask || "in their squad";
+  const night = league && data.kind === "game" && data.gameDate
+    ? `${nzDateLabel(data.gameDate)}${data.startTime ? `, ${hm(data.startTime)}` : ""}` : null;
 
   if (state === "accepted") {
     return (
-      <TeampayShell brand={brand} eyebrow={competition.name} title={`You're in ${team.name}`}>
+      <TeampayShell brand={brand} eyebrow={competition.name}
+                    title={night ? `You're in for ${night}` : `You're in ${team.name}`}>
         <Card brand={brand} className="p-6">
           <CheckCircle2 size={36} className="mb-3" style={{ color: "#34C759" }} />
           <p className="text-[15px] leading-relaxed">
-            You're on the squad. Your manager is <strong>{team.managerName}</strong>
+            {night ? <>You're covering <strong>{team.name}</strong> on {night}{data.venue ? ` at ${data.venue}` : ""}. </> : "You're on the squad. "}
+            Your {league ? "captain" : "manager"} is <strong>{team.managerName}</strong>
             {team.managerEmail ? <> — {team.managerEmail}</> : null}
             {team.managerPhone ? <>, {team.managerPhone}</> : null}.
           </p>
           <p className="mt-3 text-[14px]" style={{ color: brand.mute }}>
-            Your share of the team fee is {money(share)}. Check your email for your payment link.
+            {share != null
+              ? `Your share of the team fee is ${money(share)}. Check your email for your payment link.`
+              : "Get in touch with them to sort the details. Anything towards the team fee is between you and the captain."}
           </p>
         </Card>
       </TeampayShell>
@@ -252,6 +290,8 @@ export function TeampayHoldPage() {
           <p className="text-[15px] leading-relaxed" style={{ color: brand.mute }}>
             {state === "declined"
               ? "You turned this one down — you're still on the fill-in list for other teams."
+              : state === "cancelled"
+              ? "The captain withdrew this one. You're still on the list for other teams."
               : "This invitation ran out of time, so you went back on the list. Another team can ask you any time."}
           </p>
         </Card>
@@ -270,30 +310,39 @@ export function TeampayHoldPage() {
   };
 
   return (
-    <TeampayShell brand={brand} eyebrow={competition.name} title="A team wants you">
+    <TeampayShell brand={brand} eyebrow={competition.name} title={night ? "Can you play?" : "A team wants you"}>
       <Card brand={brand} className="mb-5 p-5 sm:p-6">
         <p className="text-[15px] leading-relaxed">
           Hi {you.firstName} — <strong>{team.name}</strong>
-          {team.community ? ` (${team.community})` : ""} is a player short for the{" "}
-          {competition.name} and would like you in their squad.
+          {team.community ? ` (${team.community})` : ""} is a player short
+          {league ? <> and would like you {ask}.</> : <> for the {competition.name} and would like you in their squad.</>}
         </p>
+
+        {night && (
+          <div className="mt-4 rounded-xl p-4" style={{ border: `1px solid ${brand.line}` }}>
+            <div className="text-[18px] font-bold" style={{ fontFamily: brand.fontHeading, color: brand.accent }}>{night}</div>
+            {data.venue && <div className="mt-1 text-[13px]" style={{ color: brand.mute }}>{data.venue}</div>}
+          </div>
+        )}
 
         {managerNote && (
           <blockquote className="mt-4 border-l-2 pl-4 text-[14px] italic leading-relaxed"
                       style={{ borderColor: brand.accent }}>
             “{managerNote}”
             <footer className="mt-1.5 not-italic text-[12px]" style={{ color: brand.mute }}>
-              — {team.managerName}, manager
+              — {team.managerName}, {league ? "captain" : "manager"}
             </footer>
           </blockquote>
         )}
 
-        <div className="mt-5 flex items-baseline justify-between border-t pt-4" style={{ borderColor: brand.line }}>
-          <span className="text-[13px]" style={{ color: brand.mute }}>Your share of the team fee</span>
-          <span className="text-[22px] font-bold" style={{ fontFamily: brand.fontHeading, color: brand.accent }}>
-            {money(share)}
-          </span>
-        </div>
+        {share != null && (
+          <div className="mt-5 flex items-baseline justify-between border-t pt-4" style={{ borderColor: brand.line }}>
+            <span className="text-[13px]" style={{ color: brand.mute }}>Your share of the team fee</span>
+            <span className="text-[22px] font-bold" style={{ fontFamily: brand.fontHeading, color: brand.accent }}>
+              {money(share)}
+            </span>
+          </div>
+        )}
       </Card>
 
       {error && <div className="mb-4"><Notice brand={brand} tone="error">{error}</Notice></div>}
@@ -309,8 +358,8 @@ export function TeampayHoldPage() {
         </Button>
       </div>
       <p className="mt-4 text-center text-[12px] leading-relaxed" style={{ color: brand.mute }}>
-        Say yes and we'll swap contact details with your manager. Say no and you stay on the list.
-        Don't answer within 48 hours and you go back on the list automatically.
+        Say yes and we'll swap contact details with your {league ? "captain" : "manager"}. Say no and you stay on the list.
+        Don't answer in time and you go back on the list automatically.
       </p>
     </TeampayShell>
   );

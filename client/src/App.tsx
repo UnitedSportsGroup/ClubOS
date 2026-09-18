@@ -187,6 +187,7 @@ import TeampayFillinPage, { TeampayHoldPage } from "@/pages/teampay/fillin";
 import {
   CaptainSignInPage, CaptainSetPasswordPage, CaptainTeamsPage, CaptainTeamPage,
 } from "@/pages/teampay/captain";
+import LeagueTeamPage from "@/pages/teampay/league-team";
 import CicSkillsLandingPage from "@/pages/cic-skills-landing";
 import PrintsDashboard from "@/pages/prints-dashboard";
 import PrintsCRM from "@/pages/prints-crm";
@@ -923,6 +924,8 @@ function App() {
                 matches the bare path first and the set-password link 404s. */}
             <Route path="/captain/set-password" component={CaptainSetPasswordPage} />
             <Route path="/captain/teams/:id" component={CaptainTeamPage} />
+            {/* An MFL league team, through the same session. */}
+            <Route path="/captain/league/:id" component={LeagueTeamPage} />
             <Route path="/captain/teams" component={CaptainTeamsPage} />
             <Route path="/captain" component={CaptainSignInPage} />
             <Route path="/pay/:token" component={TeampayPlayerPage} />

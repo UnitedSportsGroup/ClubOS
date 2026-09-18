@@ -13,7 +13,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Loader2, LogOut, Users } from "lucide-react";
-import { brandFor, DEFAULT_BRAND } from "@shared/teampay";
+import { brandFor, DEFAULT_BRAND, TEAMPAY_BRANDS } from "@shared/teampay";
+import { shortCompetitionName } from "@shared/league-captain";
 import {
   Button, Card, Field, Loading, Notice, TeampayShell, inputStyle, money,
 } from "./shell";
@@ -31,10 +32,26 @@ const api = async (url: string, init?: RequestInit) => {
 
 const MIN_PASSWORD = 12;
 
+/**
+ * The sign-in and set-password screens have no team to take a palette from
+ * yet. The brand rides in the URL (`?brand=cic7s`, which the emailed link
+ * carries) or, failing that, comes from the HOST: join.minifootball.co.nz is
+ * Mini Football, so a captain arriving from minifootball.co.nz lands on a
+ * black-and-gold page and not a Cup one.
+ */
+function pageBrand() {
+  const fromUrl = new URLSearchParams(window.location.search).get("brand");
+  if (fromUrl && TEAMPAY_BRANDS[fromUrl]) return TEAMPAY_BRANDS[fromUrl];
+  if (window.location.hostname.includes("minifootball")) return TEAMPAY_BRANDS.mfl;
+  return DEFAULT_BRAND;
+}
+
+const isMflHost = () => window.location.hostname.includes("minifootball");
+
 // ── sign in ──────────────────────────────────────────────────────────────────
 
 export function CaptainSignInPage() {
-  const brand = DEFAULT_BRAND;
+  const brand = useMemo(pageBrand, []);
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -86,7 +103,7 @@ export function CaptainSignInPage() {
       <Card brand={brand} className="p-5 sm:p-6">
         <form className="space-y-4" onSubmit={submit}>
           <Field brand={brand} label="Email"
-                 hint="The address you used when you entered your team.">
+                 hint="The address you used when you entered or registered your team.">
             <input required type="email" autoComplete="email" value={email}
                    onChange={(e) => setEmail(e.target.value)} style={inputStyle(brand)} />
           </Field>
@@ -120,8 +137,9 @@ export function CaptainSignInPage() {
       </Card>
 
       <p className="mt-5 text-center text-[13px]" style={{ color: brand.mute }}>
-        Haven't entered a team yet? You don't need an account to enter one —
-        an account just means you don't have to keep the email we send you.
+        {isMflHost()
+          ? "Registered a team for a Mini Football league? Sign in with the email you registered under to manage your squad, see how the fee is going and find fill-ins."
+          : "Haven't entered a team yet? You don't need an account to enter one — an account just means you don't have to keep the email we send you."}
       </p>
     </TeampayShell>
   );
@@ -130,7 +148,7 @@ export function CaptainSignInPage() {
 // ── set a password ───────────────────────────────────────────────────────────
 
 export function CaptainSetPasswordPage() {
-  const brand = DEFAULT_BRAND;
+  const brand = useMemo(pageBrand, []);
   const [, navigate] = useLocation();
   const token = useMemo(
     () => new URLSearchParams(window.location.search).get("token") || "", []);
@@ -211,29 +229,97 @@ export function CaptainSetPasswordPage() {
 
 // ── my teams ─────────────────────────────────────────────────────────────────
 
+/**
+ * Three kinds of team can sit under one email, and they open three different
+ * ways: a league team (MFL — squad, payments, fixtures, ladder), a team still
+ * being paid for through Player Pay (a link to its share page and nothing
+ * else, because it is not a team until it is paid), and a Team Pay entry (the
+ * tournament dashboard). One list, grouped, this term first.
+ */
 export function CaptainTeamsPage() {
   const [, navigate] = useLocation();
-  const { data, isLoading, isError } = useQuery<any>({
+  const me = useQuery<any>({
     queryKey: ["captain-me"],
     queryFn: () => api("/api/public/teampay/captain/me"),
+    retry: false,
+  });
+  const league = useQuery<any>({
+    queryKey: ["captain-league-mine"],
+    queryFn: () => api("/api/public/teampay/captain/league/mine"),
     retry: false,
   });
 
   // 🔴 A 401 here means the session is gone or was revoked — send them to sign
   // in rather than rendering an empty shell that looks like they have no teams.
-  useEffect(() => { if (isError) navigate("/captain"); }, [isError, navigate]);
+  useEffect(() => { if (me.isError) navigate("/captain"); }, [me.isError, navigate]);
 
-  const brand = useMemo(
-    () => brandFor(data?.entries?.[0]?.competition?.brand), [data]);
+  const fallback = useMemo(pageBrand, []);
+  const teams: any[] = league.data?.teams ?? [];
+  const pending: any[] = league.data?.pending ?? [];
+  const entries: any[] = me.data?.entries ?? [];
+  const brand = useMemo(() => {
+    if (teams.length || pending.length) return TEAMPAY_BRANDS.mfl;
+    if (entries[0]?.competition?.brand) return brandFor(entries[0].competition.brand);
+    return fallback;
+  }, [teams.length, pending.length, entries, fallback]);
 
-  if (isLoading) return <TeampayShell brand={DEFAULT_BRAND}><Loading brand={DEFAULT_BRAND} /></TeampayShell>;
-  if (isError || !data) return <TeampayShell brand={DEFAULT_BRAND}><Loading brand={DEFAULT_BRAND} /></TeampayShell>;
+  if (me.isLoading || league.isLoading) return <TeampayShell brand={fallback}><Loading brand={fallback} /></TeampayShell>;
+  if (me.isError || !me.data) return <TeampayShell brand={fallback}><Loading brand={fallback} /></TeampayShell>;
 
-  const { captain, entries } = data;
+  const { captain } = me.data;
+  const current = teams.filter((t) => t.competition?.current);
+  const past = teams.filter((t) => !t.competition?.current);
+  const nothing = !teams.length && !pending.length && !entries.length;
+
+  const Row = ({ onClick, href, title, sub, badge, badgeTone }: {
+    onClick?: () => void; href?: string; title: string; sub: string;
+    badge?: string | null; badgeTone?: "good" | "warn" | "mute";
+  }) => {
+    const tone = badgeTone === "good" ? { bg: "#34C75922", fg: "#34C759" }
+      : badgeTone === "warn" ? { bg: "#FF9F0A22", fg: "#FF9F0A" }
+      : { bg: brand.line, fg: brand.mute };
+    const inner = (
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="truncate text-[17px] font-semibold" style={{ fontFamily: brand.fontHeading }}>{title}</div>
+          <div className="mt-1 truncate text-[13px]" style={{ color: brand.mute }}>{sub}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {badge && (
+            <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ background: tone.bg, color: tone.fg }}>
+              {badge}
+            </span>
+          )}
+          <ArrowRight size={18} style={{ color: brand.mute }} />
+        </div>
+      </div>
+    );
+    const cls = "block w-full rounded-[14px] p-5 text-left transition-colors";
+    const style = { background: brand.card, border: `1px solid ${brand.line}`, minHeight: 72, color: brand.ink };
+    return href
+      ? <a href={href} className={cls} style={style}>{inner}</a>
+      : <button onClick={onClick} className={cls} style={style}>{inner}</button>;
+  };
+
+  const Group = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="mb-7">
+      <div className="mb-2.5 text-[11px] font-semibold uppercase" style={{ color: brand.mute, letterSpacing: "0.14em" }}>{label}</div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+
+  const leagueRow = (t: any) => (
+    <Row key={`l${t.id}`}
+         onClick={() => navigate(`/captain/league/${t.id}`)}
+         title={t.name}
+         sub={[t.division?.name, shortCompetitionName(t.competition?.name)].filter(Boolean).join(" · ")}
+         badge={t.paymentStatus === "paid_in_full" ? "Paid up" : t.paymentMode === "deposit_weekly" ? "Weekly plan" : t.paymentMode === "split" ? "Player Pay" : null}
+         badgeTone={t.paymentStatus === "paid_in_full" ? "good" : "mute"} />
+  );
 
   return (
     <TeampayShell brand={brand} eyebrow={captain.email} title="Your teams">
-      {entries.length === 0 ? (
+      {nothing ? (
         <Card brand={brand} className="p-6">
           <p className="text-[15px] leading-relaxed">
             There's no team under <strong>{captain.email}</strong> yet.
@@ -243,39 +329,38 @@ export function CaptainTeamsPage() {
           </p>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {entries.map((e: any) => (
-            <button
-              key={e.id}
-              onClick={() => navigate(`/captain/teams/${e.id}`)}
-              className="block w-full rounded-[14px] p-5 text-left transition-colors"
-              style={{ background: brand.card, border: `1px solid ${brand.line}`, minHeight: 72 }}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="truncate text-[17px] font-semibold"
-                       style={{ fontFamily: brand.fontHeading }}>
-                    {e.teamName}
-                  </div>
-                  <div className="mt-1 truncate text-[13px]" style={{ color: brand.mute }}>
-                    {e.competition?.name}
-                    {e.community ? ` · ${e.community}` : ""}
-                    {e.status === "withdrawn" ? " · withdrawn" : ""}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  {e.paidUpAt && (
-                    <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                          style={{ background: "#34C75922", color: "#34C759" }}>
-                      Paid up
-                    </span>
-                  )}
-                  <ArrowRight size={18} style={{ color: brand.mute }} />
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
+        <>
+          {current.length > 0 && <Group label="This term">{current.map(leagueRow)}</Group>}
+
+          {pending.length > 0 && (
+            <Group label="Still being paid for">
+              {pending.map((p) => (
+                <Row key={`p${p.registrationId}`}
+                     href={p.shareUrl || undefined}
+                     title={p.teamName || "Your team"}
+                     sub={`${[p.divisionName, shortCompetitionName(p.programName)].filter(Boolean).join(" · ")} · ${p.paidCount} of ${p.targetCount ?? "?"} paid`}
+                     badge="Player Pay open" badgeTone="warn" />
+              ))}
+              <p className="text-[12px] leading-relaxed" style={{ color: brand.mute }}>
+                A team is confirmed once everyone has paid their share. Open one to copy the link and chase your squad.
+              </p>
+            </Group>
+          )}
+
+          {entries.length > 0 && (
+            <Group label={current.length || pending.length ? "Tournaments" : "Your entries"}>
+              {entries.map((e: any) => (
+                <Row key={`e${e.id}`}
+                     onClick={() => navigate(`/captain/teams/${e.id}`)}
+                     title={e.teamName}
+                     sub={[e.competition?.name, e.community, e.status === "withdrawn" ? "withdrawn" : null].filter(Boolean).join(" · ")}
+                     badge={e.paidUpAt ? "Paid up" : null} badgeTone="good" />
+              ))}
+            </Group>
+          )}
+
+          {past.length > 0 && <Group label="Past terms">{past.map(leagueRow)}</Group>}
+        </>
       )}
 
       <div className="mt-6 text-center">

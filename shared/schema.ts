@@ -9093,6 +9093,11 @@ export const teampayFillins = pgTable("teampay_fillins", {
    */
   photoKey: text("photo_key"),
   highlightUrl: text("highlight_url"),
+  /**
+   * Which nights they can play — asked only when the pool belongs to a league
+   * (an MFL term), never on a tournament. NULL = never asked, not "no nights".
+   */
+  availableDays: text("available_days").array(),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -9530,3 +9535,56 @@ export const posDeclines = pgTable("pos_declines", {
   registerIdx: index("pos_declines_register_idx").on(t.registerId, t.createdAt),
 }));
 export type PosDecline = typeof posDeclines.$inferSelect;
+
+// ── MFL captain's dashboard (2026-09-18) ─────────────────────────────────────
+// The squad list a captain keeps for their league team, and their asks to the
+// fill-in pool — for the term or for one night. Rules and reasoning in
+// migrations/2026-09-18_league_captains.sql and shared/league-captain.ts.
+//
+// 🔴 Not league_team_members (keyed on a ClubOS `users` row nobody on a social
+// side has) and not teampay_players (a payment link on a teampay entry — MFL
+// money lives on the registration). Own tables.
+export const leagueSquadMembers = pgTable("league_squad_members", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  teamId: integer("team_id").notNull().references(() => leagueTeams.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  /** Optional for now (Daniel, 2026-09-18). NULL is "not given", never 0. */
+  shirtNumber: integer("shirt_number"),
+  position: text("position"),
+  isCaptain: boolean("is_captain").notNull().default(false),
+  /** 'captain' | 'fillin' | 'split' — validated in app code, not a CHECK. */
+  source: text("source").notNull().default("captain"),
+  fillinId: integer("fillin_id").references(() => teampayFillins.id, { onDelete: "set null" }),
+  addedByCaptainId: integer("added_by_captain_id").references(() => teampayCaptains.id, { onDelete: "set null" }),
+  removedAt: timestamp("removed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type LeagueSquadMember = typeof leagueSquadMembers.$inferSelect;
+
+export const leagueFillinRequests = pgTable("league_fillin_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  teamId: integer("team_id").notNull().references(() => leagueTeams.id, { onDelete: "cascade" }),
+  fillinId: integer("fillin_id").notNull().references(() => teampayFillins.id, { onDelete: "cascade" }),
+  /** 'season' | 'game' */
+  kind: text("kind").notNull(),
+  gameId: integer("game_id").references(() => leagueGames.id, { onDelete: "set null" }),
+  gameDate: date("game_date"),
+  /** active | accepted | declined | expired | cancelled */
+  state: text("state").notNull().default("active"),
+  requestToken: text("request_token").notNull(),
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  respondedAt: timestamp("responded_at"),
+  managerNote: text("manager_note"),
+  requestedByCaptainId: integer("requested_by_captain_id").references(() => teampayCaptains.id, { onDelete: "set null" }),
+  squadMemberId: integer("squad_member_id").references(() => leagueSquadMembers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  uniqueToken: uniqueIndex("league_fillin_requests_token_unique").on(t.requestToken),
+  teamIdx: index("league_fillin_requests_team_idx").on(t.teamId, t.state),
+  fillinIdx: index("league_fillin_requests_fillin_idx").on(t.fillinId),
+}));
+export type LeagueFillinRequest = typeof leagueFillinRequests.$inferSelect;

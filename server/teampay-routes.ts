@@ -247,6 +247,7 @@ export function registerTeampayRoutes(app: Express) {
         motivation: req.body?.motivation ?? null,
         note: req.body?.note ?? null,
         highlightUrl: req.body?.highlightUrl ?? null,
+        availableDays: req.body?.availableDays ?? null,
       });
       if (r.error === "not_found") return notFound(res);
       if (r.error) return res.status(400).json({ message: r.error });
@@ -257,9 +258,16 @@ export function registerTeampayRoutes(app: Express) {
     }
   });
 
+  // 🔴 A reply link is EITHER a Team Pay hold (a tournament squad seat) OR an
+  // MFL league ask (join for the term / cover one night). Same page, same URL
+  // shape, two tables — the hold is tried first, and the token spaces do not
+  // overlap because both are 128 random bits. server/league-captain.ts.
+  const lc = () => import("./league-captain");
+
   app.get("/api/public/teampay/hold/:token", async (req, res) => {
     setCors(req, res);
-    const v = await tp.holdView(String(req.params.token));
+    const t = String(req.params.token);
+    const v = (await tp.holdView(t)) ?? (await (await lc()).leagueAskView(t));
     if (!v) return notFound(res);
     res.set("X-Robots-Tag", "noindex, nofollow");
     res.json(v);
@@ -267,7 +275,9 @@ export function registerTeampayRoutes(app: Express) {
 
   app.post("/api/public/teampay/hold/:token/accept", async (req, res) => {
     setCors(req, res);
-    const r = await tp.acceptHold(String(req.params.token));
+    const t = String(req.params.token);
+    let r: any = await tp.acceptHold(t);
+    if (r.error === "not_found") r = await (await lc()).acceptLeagueAsk(t);
     if (r.error === "not_found") return notFound(res);
     if (r.error) return res.status(400).json({ message: r.error });
     res.json(r);
@@ -275,7 +285,9 @@ export function registerTeampayRoutes(app: Express) {
 
   app.post("/api/public/teampay/hold/:token/decline", async (req, res) => {
     setCors(req, res);
-    const r = await tp.declineHold(String(req.params.token));
+    const t = String(req.params.token);
+    let r: any = await tp.declineHold(t);
+    if (r.error === "not_found") r = await (await lc()).declineLeagueAsk(t);
     if (r.error === "not_found") return notFound(res);
     if (r.error) return res.status(400).json({ message: r.error });
     res.json(r);

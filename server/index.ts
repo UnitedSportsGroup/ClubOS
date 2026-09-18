@@ -259,6 +259,12 @@ app.use(attributionCookieMiddleware);
   const { registerTeampayCaptainRoutes } = await import("./teampay-captain-routes");
   registerTeampayCaptainRoutes(app);
 
+  // The MFL captain's dashboard — the same captain account, pointed at the
+  // league tables: squad list, how the team fee is being paid, fixtures, the
+  // ladder, and fill-ins for a night or for the term. Moves no money.
+  const { registerLeagueCaptainRoutes } = await import("./league-captain-routes");
+  registerLeagueCaptainRoutes(app);
+
   // Club Events — ticketed club events (first: the CUFC Club Dinner, 13 Nov
   // 2026). Public pages by slug/token, no login; the staff tab is gated by
   // requireTab("club-events"); refunds by requireRefundPermission.
