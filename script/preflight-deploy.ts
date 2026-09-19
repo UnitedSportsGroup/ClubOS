@@ -110,6 +110,12 @@ const CANARIES: Canary[] = [
   // OPTIONS, not GET: the route is POST-only, so a GET 404s and the canary
   // would sit at "absent" forever — protecting nothing while looking green.
   { feature: "ethnic cup form",     path: "/api/public/ethnic-cup/register-interest", method: "OPTIONS", expect: [204] },
+  // Football Fest (2026-09-19) — the festival that shares the Ethnic Cup's
+  // weekend. Same reasoning as above: footballfest.co.nz is a live public site,
+  // and a deploy that dropped the form would have it posting business expo
+  // enquiries into a 404 with nobody the wiser.
+  { feature: "football fest admin", path: "/api/admin/football-fest/registrations", expect: [401] },
+  { feature: "football fest form",  path: "/api/public/football-fest/register-interest", method: "OPTIONS", expect: [204] },
   // Team Pay. The public canary is the one that matters: a manager's dashboard
   // link and a player's payment link are both sitting in people's inboxes, and
   // a deploy that removed these routes would turn every one of them into a 404
@@ -178,6 +184,8 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/print-expenses":            { file: "server/print-expense-routes.ts", needle: "/api/admin/print-expenses" },
   "/api/admin/coding-budget":             { file: "server/coding-budget-routes.ts", needle: "/api/admin/coding-budget" },
   "/api/public/teampay/competition/ethnic-cup-2026": { file: "server/teampay-routes.ts", needle: "/api/public/teampay/competition/:slug" },
+  "/api/admin/football-fest/registrations": { file: "server/football-fest-routes.ts", needle: "/api/admin/football-fest/registrations" },
+  "/api/public/football-fest/register-interest": { file: "server/football-fest-routes.ts", needle: "/api/public/football-fest/register-interest" },
   "/api/admin/teampay/overview":          { file: "server/teampay-routes.ts",      needle: "/api/admin/teampay/overview" },
   "/api/public/club-events/club-dinner-2026": { file: "server/club-events-routes.ts", needle: "/api/public/club-events/:slug" },
   "/api/admin/club-events":               { file: "server/club-events-routes.ts",  needle: "/api/admin/club-events" },

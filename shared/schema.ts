@@ -4179,6 +4179,46 @@ export const ethnicCupRegistrations = pgTable("ethnic_cup_registrations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/**
+ * Football Fest — registrations of interest (business expo, food trucks, other).
+ *
+ * footballfest.co.nz's "Ask about a stall" form lands here. Deliberately NOT a
+ * column on ethnicCupRegistrations: that table is a community entering a FOOTBALL
+ * TEAM and is wired to Team Pay (an entry, a manager email, an $800 fee). A
+ * business asking about a stall shares none of that.
+ *
+ * Statuses and kinds are validated in app code, never by a DB CHECK — a stale
+ * CHECK is how the MFL checkout once 500'd.
+ */
+export const footballFestRegistrations = pgTable("football_fest_registrations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  /** expo | food_truck | sponsor | other — so the form can widen with no migration. */
+  kind: text("kind").notNull().default("expo"),
+  businessName: text("business_name").notNull(),
+  contactName: text("contact_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  /** "Saturday" | "Sunday" | "Both" | "Not sure" — free text, read by a human. */
+  days: text("days"),
+  about: text("about"),
+  message: text("message"),
+  sourceUrl: text("source_url"),
+  status: text("status").notNull().default("new"), // new | contacted | confirmed | declined | archived
+  /** Staff notes, never shown to the person who filled the form in. */
+  notes: text("notes"),
+  /**
+   * 🔴 The form guard's verdict AT THE TIME OF SUBMISSION. It depends on the IP,
+   * the timing and the token, so it cannot be recomputed later. A held row is
+   * still a real row a human works through — this only flags a second look.
+   * NULL means the column did not exist yet, never "clean".
+   */
+  held: boolean("held"),
+  heldReasons: text("held_reasons").array(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const cic7sRegistrations = pgTable("cic7s_registrations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),

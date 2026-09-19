@@ -25,6 +25,7 @@ import {
   Calculator,
   Home,
   Users,
+  Store,
   Mail,
   Settings,
   ChevronDown,
@@ -368,6 +369,8 @@ const tournamentEthnicNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "ethnic-cup-registrations", title: "Registrations", url: "/admin/ethnic-cup-registrations", icon: ClipboardCheck },
   { tab: "team-entries", title: "Team Entries", url: "/admin/team-entries", icon: Users },
+  // The festival that shares the Cup's weekend (footballfest.co.nz).
+  { tab: "football-fest", title: "Football Fest", url: "/admin/football-fest", icon: Store },
 ];
 
 const gymnasticsNav = [

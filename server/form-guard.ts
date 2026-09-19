@@ -23,7 +23,7 @@ import { contentSignals, GUARD_THRESHOLD } from "@shared/form-guard";
  * it keeps this change out of three separate tables and three admin screens.
  */
 
-export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register";
+export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register" | "football_fest_expo";
 
 /* 🔴 Per-form policy, because the same rule is right on one form and wrong on
  * another.
@@ -50,6 +50,13 @@ const FORM_POLICY: Record<FormName, { expectsToken: boolean; allowLinks: boolean
    * form is the DURABLE RATE LIMIT the website cannot have: it holds no
    * database of its own, only a relay. */
   ethnic_cup_register: { expectsToken: false, allowLinks: false },
+  /* 🔴 footballfest.co.nz DOES fetch a token on load, but this ships `false`
+   * and is flipped to `true` only once that is PROVEN in a live browser on the
+   * deployed site — not merely deployed with the code in it. Counting a missing
+   * token before then puts every genuine enquiry at one of the two signals
+   * needed to hold it. A business is allowed to link to its own website, which
+   * is the whole point of the enquiry. */
+  football_fest_expo: { expectsToken: false, allowLinks: true },
 };
 
 export interface GuardVerdict {
