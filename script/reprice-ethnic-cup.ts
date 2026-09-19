@@ -52,12 +52,18 @@ const NEW_FEE_CENTS = 50_000;   // $500 per team
  */
 const NEW_SQUAD_SIZE = 14;
 
+/**
+ * 🔴 The venue caveat is GONE from this blurb, and it was wrong from the start.
+ * Daniel, 2026-09-19: "it was always United Sports Centre, our facility, our
+ * ONLY facility." The "still being confirmed" line was an unchecked flag
+ * inherited from the site's first build and repeated here; the club has one
+ * ground and the Cup was always going to be on it.
+ */
 const NEW_BLURB =
-  "A nine-a-side tournament for teams representing Christchurch's communities. " +
-  "Pay the $500 team fee yourself, or split it across your squad so every player pays " +
-  "their own share on their own card — you choose, and you can change your mind until " +
-  "it is paid. The venue is still being confirmed; it will be in Christchurch and every " +
-  "entered team will hear as soon as it is locked in.";
+  "A nine-a-side tournament for teams representing Christchurch's communities, played at " +
+  "United Sports Centre, 466 Yaldhurst Road. Room for eight teams. Pay the $500 team fee " +
+  "yourself, or split it across your squad so every player pays their own share on their " +
+  "own card — you choose, and you can change your mind until it is paid.";
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
