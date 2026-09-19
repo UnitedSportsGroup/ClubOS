@@ -50,13 +50,11 @@ const FORM_POLICY: Record<FormName, { expectsToken: boolean; allowLinks: boolean
    * form is the DURABLE RATE LIMIT the website cannot have: it holds no
    * database of its own, only a relay. */
   ethnic_cup_register: { expectsToken: false, allowLinks: false },
-  /* 🔴 footballfest.co.nz DOES fetch a token on load, but this ships `false`
-   * and is flipped to `true` only once that is PROVEN in a live browser on the
-   * deployed site — not merely deployed with the code in it. Counting a missing
-   * token before then puts every genuine enquiry at one of the two signals
-   * needed to hold it. A business is allowed to link to its own website, which
-   * is the whole point of the enquiry. */
-  football_fest_expo: { expectsToken: false, allowLinks: true },
+  /* 🟢 Flipped 19 Sept 2026, once footballfest.co.nz was PROVEN to fetch a real
+   * token on load in a live browser — not merely deployed with the code in it.
+   * A business is allowed to link to its own website, which is the whole point
+   * of the enquiry, so links do not count against it. */
+  football_fest_expo: { expectsToken: true, allowLinks: true },
 };
 
 export interface GuardVerdict {
