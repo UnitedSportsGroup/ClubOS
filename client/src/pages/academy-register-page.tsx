@@ -568,6 +568,15 @@ export default function AcademyRegisterPage() {
         setNzfGroups(body.nzf?.ethnicityGroups || []);
         setNzfRegions(body.nzf?.regions || []);
         if (body.programme.options.length === 1) setSelectedOptionId(body.programme.options[0].id);
+        // A landing page that has already asked "which age group?" hands the
+        // answer over as ?option=<id>. Honour it only if it is an option this
+        // programme is actually SELLING right now — an id from an old link, a
+        // retired option or another programme is ignored and the parent simply
+        // chooses here, exactly as before. The price is never taken from the URL.
+        else {
+          const wanted = Number(new URLSearchParams(window.location.search).get("option"));
+          if (wanted && body.programme.options.some((o: ProgrammeOption) => o.id === wanted)) setSelectedOptionId(wanted);
+        }
         document.title = `Register — ${body.programme.name} | Christchurch United FC`;
 
         // Initialise the Meta pixel on the funnel itself. Without this there is
@@ -723,6 +732,7 @@ export default function AcademyRegisterPage() {
           discountCode: promo ? promo.code : undefined,
           utm,
           source: sp.get("source") || undefined,
+          sourceUrl: window.location.href.split("#")[0],
           child: {
             firstName: child.firstName.trim(),
             lastName: child.lastName.trim(),
@@ -772,6 +782,24 @@ export default function AcademyRegisterPage() {
         throw new Error(data.message || (Array.isArray(data.errors) && data.errors[0]) || "Something went wrong — please try again.");
       }
       setRegisterResponse(data as RegisterResponse);
+      // The parent has given their details and reached the card. The server has
+      // already told Meta (CAPI); this is the browser half of the SAME event —
+      // one eventId, so it is counted once. Programme and price only: nothing
+      // about the child ever goes to a tracker.
+      try {
+        if (data.leadEventId) {
+          trackEvent(
+            "Lead",
+            {
+              value: (data.quote?.totalCents ?? 0) / 100,
+              currency: "NZD",
+              content_name: `${data.programme?.name ?? "Academy"} — academy registration`,
+              content_ids: [data.programme?.slug ?? slug],
+            },
+            data.leadEventId,
+          );
+        }
+      } catch { /* never break a checkout for a tracker */ }
       setStep("payment");
     } catch (e: any) {
       setSubmitError(e.message || "Something went wrong — please try again.");
@@ -897,7 +925,22 @@ export default function AcademyRegisterPage() {
                 setPlan={setPlan}
                 selectedOption={selectedOption}
                 selectedQuote={selectedQuote}
-                onContinue={() => setStep("player")}
+                onContinue={() => {
+                  try {
+                    const cameWithOption = new URLSearchParams(window.location.search).has("option");
+                    if (!cameWithOption && selectedOption) {
+                      trackEvent("InitiateCheckout", {
+                        value: (selectedQuote?.totalCents ?? 0) / 100,
+                        currency: "NZD",
+                        content_name: `${selectedOption.name} — ${programme?.name ?? "Academy"}`,
+                        content_category: "Academy Programme",
+                        content_ids: [programme?.slug ?? slug],
+                        num_items: 1,
+                      });
+                    }
+                  } catch { /* never break a checkout for a tracker */ }
+                  setStep("player");
+                }}
                 disabled={!chooseValid}
               />
             )}
