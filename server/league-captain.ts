@@ -155,7 +155,7 @@ export async function pendingSplitsForEmail(email: string): Promise<PendingSplit
   const r = await db.execute(sql`
     select r.id as registration_id, r.team_name, p.name as program_name, d.name as division_name,
            c.first_name, c.last_name,
-           s.share_code, s.funding_type, s.total_cents, s.target_count, r.created_at,
+           s.share_code, s.funding_type, s.total_cents, s.target_count, r.registered_at as created_at,
            (select count(*)::int from split_members m where m.split_session_id = s.id and m.status = 'paid') as paid_count
       from registrations r
       join programs p on p.id = r.program_id and p.type = 'league_team'
@@ -167,7 +167,7 @@ export async function pendingSplitsForEmail(email: string): Promise<PendingSplit
          select 1 from contacts cc
           where cc.id in (r.contact_id, r.guardian_id) and lower(cc.email) = ${email.toLowerCase()}
        )
-     order by r.created_at desc`);
+     order by r.registered_at desc`);
   const rows: any[] = (r as any).rows ?? (r as any) ?? [];
   return rows.map((x) => ({
     registrationId: Number(x.registration_id),
