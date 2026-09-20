@@ -6,8 +6,24 @@ export interface FiNode {
 }
 export interface Model {
   generatedAt: string; months: string[]; sources: string; brands: string[]; incomeGroups: string[]; expenseGroups: string[]; ageOrder: string[];
-  receivables: Record<string, number>; receivablesTotal: number; nodes: FiNode[];
+  receivables: Record<string, number>; receivablesTotal: number; nodes: FiNode[]; dataThrough?: string;
 }
+/** A node's total over the months in view (the model handed to every view carries only the selected months). */
+export const nodeTotal = (n: FiNode, months: string[]) => months.reduce((x, m) => x + (n.vals[m] ?? 0), 0);
+export type Period = "all" | "ytd" | "q1" | "q2" | "q3" | "q4" | "h1" | "h2" | "custom";
+export const PERIODS: [Period, string][] = [["all", "Full period"], ["ytd", "Year to date"], ["q1", "Q1"], ["q2", "Q2"], ["q3", "Q3"], ["q4", "Q4"], ["h1", "H1"], ["h2", "H2"], ["custom", "Custom"]];
+/** The months a period covers, from the model's full month list (quarters/halves are calendar 2026; "all" includes Dec 2025). */
+export function monthsFor(model: Model, p: Period, from?: string, to?: string): string[] {
+  const M = model.months; const yr = M.filter((m) => m.startsWith("2026"));
+  const q = (a: number, b: number) => yr.filter((m) => { const k = Number(m.slice(5)); return k >= a && k <= b; });
+  if (p === "ytd") return M.filter((m) => m <= (model.dataThrough ?? M[M.length - 1]));
+  if (p === "q1") return q(1, 3); if (p === "q2") return q(4, 6); if (p === "q3") return q(7, 9); if (p === "q4") return q(10, 12);
+  if (p === "h1") return q(1, 6); if (p === "h2") return q(7, 12);
+  if (p === "custom" && from && to) return M.filter((m) => m >= from && m <= to);
+  return M;
+}
+/** The same model, narrowed to a window of months — every view computes from this. */
+export const narrow = (model: Model, months: string[]): Model => ({ ...model, months });
 export interface Scenario {
   offBrands: string[]; offPeople: string[]; offProgrammes: string[]; offGroups: string[]; offNodes: string[];
   pctGroup: Record<string, number>;       // % change applied to every node in a group (income or expense)
@@ -52,7 +68,7 @@ export function byKey(model: Model, s: Scenario, key: (n: FiNode) => string, fil
   for (const n of model.nodes) {
     if (!filter(n)) continue;
     const k = key(n); const e = acc.get(k) ?? { base: 0, scen: 0, nodes: [] };
-    const b = sum(Object.values(n.vals)); e.base += b; e.scen += b * factor(n, s); e.nodes.push(n); acc.set(k, e);
+    const b = nodeTotal(n, model.months); e.base += b; e.scen += b * factor(n, s); e.nodes.push(n); acc.set(k, e);
   }
   return Array.from(acc.entries()).map(([key, v]) => ({ key, ...v })).sort((a, b) => Math.abs(b.base) - Math.abs(a.base));
 }
@@ -75,8 +91,8 @@ export function summaryForAI(model: Model, s: Scenario): string {
   const t = totals(model, s); const b = totals(model, EMPTY); const M = model.months;
   const line = (lab: string, a: number[]) => `${lab}: total ${fmt(sum(a))} · by month ${M.map((m, i) => `${MON[m]} ${fmt(a[i])}`).join(", ")}`;
   const levers = describe(model, s); const groups = (side: "income" | "expense") => byKey(model, s, (n) => n.group, (n) => n.side === side).map((g) => `  ${g.key}: baseline ${fmt(g.base)} → scenario ${fmt(g.scen)}`).join("\n");
-  const brands = byKey(model, s, (n) => n.brand, () => true).map((g) => { const inc = g.nodes.filter((n) => n.side === "income").reduce((x, n) => x + sum(Object.values(n.vals)) * factor(n, s), 0); const exp = g.nodes.filter((n) => n.side === "expense").reduce((x, n) => x + sum(Object.values(n.vals)) * factor(n, s), 0); return `  ${g.key}: income ${fmt(inc)} · costs ${fmt(exp)} · net ${fmt(inc - exp)}`; }).join("\n");
-  return [`Period Dec 2025 – Sep 2026 (10 months). Cash basis. Currency NZD.`, `LEVERS APPLIED: ${levers.length ? levers.join("; ") : "none (baseline)"}`,
+  const brands = byKey(model, s, (n) => n.brand, () => true).map((g) => { const inc = g.nodes.filter((n) => n.side === "income").reduce((x, n) => x + nodeTotal(n, model.months) * factor(n, s), 0); const exp = g.nodes.filter((n) => n.side === "expense").reduce((x, n) => x + nodeTotal(n, model.months) * factor(n, s), 0); return `  ${g.key}: income ${fmt(inc)} · costs ${fmt(exp)} · net ${fmt(inc - exp)}`; }).join("\n");
+  return [`Period ${MON[M[0]] ?? M[0]} ${M[0].slice(0, 4)} – ${MON[M[M.length - 1]] ?? M[M.length - 1]} ${M[M.length - 1].slice(0, 4)} (${M.length} months; data through ${model.dataThrough ?? "?"}). Cash basis. Currency NZD.`, `LEVERS APPLIED: ${levers.length ? levers.join("; ") : "none (baseline)"}`,
     `BASELINE — own income ${fmt(sum(b.own))} · donations & owner funding ${fmt(sum(b.funding))} · expenses through the club ${fmt(sum(b.expenses))} · paid outside ${fmt(sum(b.outside))} · GAP through ${fmt(sum(b.gapThrough))} · GAP outside ${fmt(sum(b.gapOutside))} · TOTAL GAP ${fmt(sum(b.gap))} · net after donations and outside cover ${fmt(sum(b.net))}`,
     `SCENARIO`, line("own income", t.own), line("donations & owner funding", t.funding), line("expenses through the club", t.expenses), line("paid outside the club", t.outside), line("GAP through the club", t.gapThrough), line("GAP outside", t.gapOutside), line("TOTAL GAP", t.gap), line("net after donations and what Slava paid outside", t.net),
     `INCOME BY GROUP\n${groups("income")}`, `EXPENSES BY GROUP\n${groups("expense")}`, `BY STREAM / BRAND (scenario)\n${brands}`, `RECEIVABLES (invoiced, unpaid): ${fmt(model.receivablesTotal)}`].join("\n");

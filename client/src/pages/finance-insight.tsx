@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceFetch } from "@/lib/queryClient";
-import { EMPTY, MON, byKey, describe, factor, fmt, sum, summaryForAI, totals, type Model, type FiNode, type Scenario } from "@/lib/finance-insight-engine";
+import { EMPTY, MON, PERIODS, byKey, describe, factor, fmt, monthsFor, narrow, nodeTotal, sum, summaryForAI, totals, type Model, type FiNode, type Period, type Scenario } from "@/lib/finance-insight-engine";
 
 type View = "overview" | "income" | "expenses" | "streams" | "ask";
 const LS = "finance-insight-scenarios";
@@ -59,14 +59,17 @@ function App({ onLock }: { onLock: () => void }) {
   const q = useQuery({ queryKey: [API, "model"], queryFn: async () => { const r = await workspaceFetch(`${API}/model`); if (!r.ok) throw new Error(r.status === 403 ? "locked" : `HTTP ${r.status}`); return r.json(); } });
   const [s, setS] = useState<Scenario>(EMPTY); const [view, setView] = useState<View>("overview");
   const [levers, setLevers] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
+  const [period, setPeriod] = useState<Period>("ytd"); const [from, setFrom] = useState("2026-01"); const [to, setTo] = useState("2026-09");
   if (q.isLoading) return <Frame><p className="text-sm text-muted-foreground">Loading the model…</p></Frame>;
   if (q.isError) { if (String((q.error as any)?.message) === "locked") onLock(); return <Frame><p className="text-sm text-destructive">{String((q.error as any)?.message)}</p></Frame>; }
-  const model: Model = q.data.model;
+  const full: Model = q.data.model;
+  const model = narrow(full, monthsFor(full, period, from, to));            // every view below sees only the months in the window
   return (
     <div className="mx-auto max-w-[1500px] p-4 sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-2xl font-semibold tracking-tight">Financial Insight</h1><p className="text-sm text-muted-foreground">Cash P&amp;L Dec 2025 – Sep 2026 · refreshed {String(q.data.generatedAt).slice(0, 10)} · every figure from Xero, Xero Payroll and ClubOS — the same events as the P&amp;L sheet</p></div>
-        <div className="flex flex-wrap gap-2 text-xs print:hidden">
+        <div className="flex flex-wrap items-center gap-2 text-xs print:hidden">
+          <PeriodPicker full={full} period={period} setPeriod={setPeriod} from={from} to={to} setFrom={setFrom} setTo={setTo} />
           <button onClick={() => setLevers((v) => !v)} className="rounded-md border px-3 py-1.5 hover:bg-muted">{levers ? "Hide levers" : "Levers"}</button>
           <button onClick={() => window.print()} className="rounded-md border px-3 py-1.5 hover:bg-muted">Print / PDF</button>
           <button onClick={async () => { await workspaceFetch(`${API}/lock`, { method: "POST" }); onLock(); }} className="rounded-md border px-3 py-1.5 hover:bg-muted">Lock</button>
@@ -87,6 +90,19 @@ function App({ onLock }: { onLock: () => void }) {
   );
 }
 
+function PeriodPicker({ full, period, setPeriod, from, to, setFrom, setTo }: { full: Model; period: Period; setPeriod: (p: Period) => void; from: string; to: string; setFrom: (m: string) => void; setTo: (m: string) => void }) {
+  const lab = (m: string) => `${MON[m] ?? m} ${m.slice(2, 4)}`;
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-md border p-1">
+      {PERIODS.map(([p, l]) => <button key={p} onClick={() => setPeriod(p)} className={`rounded px-2 py-1 ${period === p ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{l}</button>)}
+      {period === "custom" && <span className="flex items-center gap-1 pl-1">
+        <select value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} className="rounded border bg-background px-1 py-1">{full.months.map((m) => <option key={m} value={m}>{lab(m)}</option>)}</select>
+        <span>to</span>
+        <select value={to} onChange={(e) => { setTo(e.target.value); if (e.target.value < from) setFrom(e.target.value); }} className="rounded border bg-background px-1 py-1">{full.months.map((m) => <option key={m} value={m}>{lab(m)}</option>)}</select>
+      </span>}
+    </div>
+  );
+}
 function Levers({ model, s, setS }: { model: Model; s: Scenario; setS: (s: Scenario) => void }) {
   const [q, setQ] = useState(""); const [open, setOpen] = useState<Record<string, boolean>>({ streams: true, programmes: true });
   const [saved, setSaved] = useState<Record<string, Scenario>>(() => { try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch { return {}; } });
@@ -109,7 +125,7 @@ function Levers({ model, s, setS }: { model: Model; s: Scenario; setS: (s: Scena
       <div className="flex items-center justify-between"><h2 className="font-semibold">What if…</h2><button onClick={() => setS(EMPTY)} className="text-xs text-muted-foreground hover:underline">Reset to actuals</button></div>
       <p className="text-[12px] leading-snug text-muted-foreground">Untick a stream, a programme or a person to take it out — its income <em>and</em> its costs. Type a % to re-price a programme or scale a group. Every figure recomputes from the real ledger.</p>
       {applied.length > 0 && <div className="flex flex-wrap gap-1.5">{applied.map((a) => <span key={a} className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">{a}</span>)}</div>}
-      <Sec id="streams" title="Streams — remove a whole brand"><>{brands.map((b) => <Row key={b.key} on={!s.offBrands.includes(b.key)} label={b.key} amt={b.nodes.filter((n) => n.side === "income").reduce((x, n) => x + sum(Object.values(n.vals)), 0) - b.nodes.filter((n) => n.side === "expense").reduce((x, n) => x + sum(Object.values(n.vals)), 0)} onTog={() => tog("offBrands", b.key)} />)}<p className="text-[11px] text-muted-foreground">amount = that stream's net (income − costs) at actuals</p></></Sec>
+      <Sec id="streams" title="Streams — remove a whole brand"><>{brands.map((b) => <Row key={b.key} on={!s.offBrands.includes(b.key)} label={b.key} amt={b.nodes.filter((n) => n.side === "income").reduce((x, n) => x + nodeTotal(n, model.months), 0) - b.nodes.filter((n) => n.side === "expense").reduce((x, n) => x + nodeTotal(n, model.months), 0)} onTog={() => tog("offBrands", b.key)} />)}<p className="text-[11px] text-muted-foreground">amount = that stream's net (income − costs) at actuals</p></></Sec>
       <Sec id="programmes" title="Programmes & age groups — fee income, re-price with %"><>{progs.map((p) => <Row key={p.key} on={!s.offProgrammes.includes(p.key)} label={p.key} amt={p.base} onTog={() => tog("offProgrammes", p.key)} pctVal={s.pctProgramme[p.key]} onPct={(v) => pct("pctProgramme", p.key, v)} />)}</></Sec>
       <Sec id="people" title="People — payroll, players, contractors, referees"><><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="find a person" className="w-full rounded border px-2 py-1 text-[13px]" /><div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">{people.map((p) => <Row key={p.key} on={!s.offPeople.includes(p.key)} label={p.key} amt={p.base} onTog={() => tog("offPeople", p.key)} pctVal={s.pctPerson[p.key]} onPct={(v) => pct("pctPerson", p.key, v)} />)}</div></></Sec>
       <Sec id="groups" title="Groups — scale a whole line of the P&L by %"><>{groups.map((g) => <Row key={g.key} on={!s.offGroups.includes(g.key)} label={g.key} amt={g.base} onTog={() => tog("offGroups", g.key)} pctVal={s.pctGroup[g.key]} onPct={(v) => pct("pctGroup", g.key, v)} />)}<label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={s.includeOutside} onChange={() => setS({ ...s, includeOutside: !s.includeOutside })} className="h-3.5 w-3.5" />count the costs Slava paid outside the club</label></></Sec>
@@ -131,6 +147,7 @@ function Card({ label, base, scen, note, big, good }: { label: string; base: num
 }
 function Overview({ model, s }: { model: Model; s: Scenario }) {
   const t = totals(model, s); const b = totals(model, EMPTY); const M = model.months; const T = (a: number[]) => sum(a);
+  const upto = model.dataThrough ?? M[M.length - 1]; const keep = M.map((m, i) => (m <= upto ? i : -1)).filter((i) => i >= 0); const pick = (a: number[]) => keep.map((i) => a[i]); const PM = keep.map((i) => M[i]);
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -143,8 +160,8 @@ function Overview({ model, s }: { model: Model; s: Scenario }) {
         <Card label="TOTAL GAP — what has to be subsidised" base={T(b.gap)} scen={T(t.gap)} good="pos" big />
         <Card label="Net after donations & what Slava paid outside" base={T(b.net)} scen={T(t.net)} good="pos" note="the cash result once the subsidy is counted — the P&L's NET" big />
       </div>
-      <Chart months={M} own={t.own} through={t.expenses} outside={t.outside} gap={t.gap} baseGap={b.gap} funding={t.funding} />
-      <MonthTable months={M} t={t} />
+      {PM.length > 0 && <Chart months={PM} own={pick(t.own)} through={pick(t.expenses)} outside={pick(t.outside)} gap={pick(t.gap)} baseGap={pick(b.gap)} funding={pick(t.funding)} />}
+      <MonthTable months={M} t={t} upto={upto} />
       <div className="rounded-xl border bg-card p-4 text-[13px] shadow-sm"><div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Invoiced, not yet paid — {fmt(model.receivablesTotal)} owed to the club</div><div className="flex flex-wrap gap-x-5 gap-y-1">{Object.entries(model.receivables).slice(0, 8).map(([k, v]) => <span key={k}>{k} <span className="tabular-nums text-muted-foreground">{fmt(v)}</span></span>)}</div></div>
     </div>
   );
@@ -183,13 +200,13 @@ function Chart({ months, own, through, outside, gap, baseGap, funding }: { month
     </div>
   );
 }
-function MonthTable({ months, t }: { months: string[]; t: ReturnType<typeof totals> }) {
+function MonthTable({ months, t, upto }: { months: string[]; t: ReturnType<typeof totals>; upto: string }) {
   const rows: [string, number[], boolean?][] = [["Income the club earns itself", t.own], ["Expenses through the club", t.expenses], ["Paid outside the club", t.outside], ["GAP through the club", t.gapThrough, true], ["GAP outside", t.gapOutside, true], ["TOTAL GAP", t.gap, true], ["Donations & owner funding", t.funding], ["Net after donations & outside cover", t.net, true]];
   const c = (bold: boolean | undefined, v: number) => `whitespace-nowrap px-2 py-1.5 text-right tabular-nums ${bold && v < 0 ? "text-red-700" : bold && v > 0 ? "text-emerald-700" : ""}`;
   return (
     <div className="overflow-x-auto rounded-xl border bg-card shadow-sm"><table className="w-full min-w-[820px] text-[12.5px]">
       <thead><tr className="text-[10px] uppercase tracking-wider text-muted-foreground"><th className="px-3 py-2 text-left">by month</th>{months.map((m) => <th key={m} className="px-2 py-2 text-right">{MON[m] ?? m}</th>)}<th className="px-3 py-2 text-right">total</th></tr></thead>
-      <tbody>{rows.map(([lab, a, bold]) => <tr key={lab} className={`border-t ${bold ? "font-semibold" : ""}`}><td className="px-3 py-1.5">{lab}</td>{a.map((v, i) => <td key={i} className={c(bold, v)}>{fmt(v)}</td>)}<td className={c(bold, sum(a))}>{fmt(sum(a))}</td></tr>)}</tbody></table></div>
+      <tbody>{rows.map(([lab, a, bold]) => <tr key={lab} className={`border-t ${bold ? "font-semibold" : ""}`}><td className="px-3 py-1.5">{lab}</td>{a.map((v, i) => <td key={i} className={months[i] > upto ? "px-2 py-1.5 text-right text-muted-foreground" : c(bold, v)}>{months[i] > upto ? "—" : fmt(v)}</td>)}<td className={c(bold, sum(a))}>{fmt(sum(a))}</td></tr>)}</tbody></table></div>
   );
 }
 function Breakdown({ model, s, setS, side }: { model: Model; s: Scenario; setS: (s: Scenario) => void; side: "income" | "expense" }) {
@@ -201,12 +218,12 @@ function Breakdown({ model, s, setS, side }: { model: Model; s: Scenario; setS: 
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm">{side === "income" ? "Income" : "Expenses"} · scenario <b className="tabular-nums">{fmt(total)}</b>{Math.abs(total - btotal) >= 0.5 && <span className="text-muted-foreground"> (actuals {fmt(btotal)})</span>}</div><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="find a line, a person, a programme" className="w-64 rounded border px-2 py-1 text-[13px] print:hidden" /></div>
       {groups.map((g) => {
-        const rows = g.nodes.filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase())).map((n) => ({ n, base: sum(Object.values(n.vals)), scen: sum(Object.values(n.vals)) * factor(n, s) })).sort((a, b) => Math.abs(b.base) - Math.abs(a.base));
+        const rows = g.nodes.filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase())).map((n) => ({ n, base: nodeTotal(n, model.months), scen: nodeTotal(n, model.months) * factor(n, s) })).sort((a, b) => Math.abs(b.base) - Math.abs(a.base));
         if (q && !rows.length) return null; const isOpen = open[g.key] ?? !!q;
         return (
           <div key={g.key} className="rounded-xl border bg-card shadow-sm">
             <button onClick={() => setOpen({ ...open, [g.key]: !isOpen })} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"><span className="font-semibold">{g.key}</span><span className="flex items-center gap-3 tabular-nums text-[13px]"><span className="text-muted-foreground">{g.nodes.length} lines</span>{Math.abs(g.scen - g.base) >= 0.5 && <span className="text-muted-foreground line-through">{fmt(g.base)}</span>}<span>{fmt(g.scen)}</span><span className="text-muted-foreground">{isOpen ? "−" : "+"}</span></span></button>
-            {isOpen && <table className="w-full border-t text-[12.5px]"><tbody>{rows.map(({ n, base, scen }) => <tr key={n.id} className={`border-t ${factor(n, s) === 0 ? "opacity-40" : ""}`}><td className="w-8 px-3 py-1.5 print:hidden"><input type="checkbox" checked={factor(n, s) !== 0 && !s.offNodes.includes(n.id)} onChange={() => togNode(n.id)} className="h-3.5 w-3.5" title="take this line out" /></td><td className="px-2 py-1.5">{n.label}<span className="ml-2 text-[11px] text-muted-foreground">{n.brand}{n.kind ? ` · ${n.kind}` : ""}</span></td>{model.months.map((m) => <td key={m} className="hidden px-1.5 py-1.5 text-right tabular-nums text-muted-foreground xl:table-cell">{n.vals[m] ? fmt(n.vals[m] * factor(n, s)) : ""}</td>)}<td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{Math.abs(scen - base) >= 0.5 && <span className="mr-2 text-muted-foreground line-through">{fmt(base)}</span>}{fmt(scen)}</td></tr>)}</tbody></table>}
+            {isOpen && <table className="w-full border-t text-[12.5px]"><thead><tr className="text-[10px] uppercase tracking-wider text-muted-foreground"><th className="print:hidden" /><th className="px-2 py-1.5 text-left">line</th>{model.months.map((m) => <th key={m} className="hidden px-1.5 py-1.5 text-right xl:table-cell">{MON[m] ?? m}</th>)}<th className="px-3 py-1.5 text-right">total</th></tr></thead><tbody>{rows.map(({ n, base, scen }) => <tr key={n.id} className={`border-t ${factor(n, s) === 0 ? "opacity-40" : ""}`}><td className="w-8 px-3 py-1.5 print:hidden"><input type="checkbox" checked={factor(n, s) !== 0 && !s.offNodes.includes(n.id)} onChange={() => togNode(n.id)} className="h-3.5 w-3.5" title="take this line out" /></td><td className="px-2 py-1.5">{n.label}<span className="ml-2 text-[11px] text-muted-foreground">{n.brand}{n.kind ? ` · ${n.kind}` : ""}</span></td>{model.months.map((m) => <td key={m} className="hidden px-1.5 py-1.5 text-right tabular-nums text-muted-foreground xl:table-cell">{n.vals[m] ? fmt(n.vals[m] * factor(n, s)) : ""}</td>)}<td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{Math.abs(scen - base) >= 0.5 && <span className="mr-2 text-muted-foreground line-through">{fmt(base)}</span>}{fmt(scen)}</td></tr>)}</tbody></table>}
           </div>
         );
       })}
@@ -215,7 +232,7 @@ function Breakdown({ model, s, setS, side }: { model: Model; s: Scenario; setS: 
 }
 function Streams({ model, s, setS }: { model: Model; s: Scenario; setS: (s: Scenario) => void }) {
   const brands = byKey(model, s, (n) => n.brand, () => true);
-  const rows = brands.map((b) => { const f = (side: "income" | "expense", scen: boolean) => b.nodes.filter((n: FiNode) => n.side === side && !n.funding).reduce((x, n) => x + sum(Object.values(n.vals)) * (scen ? factor(n, s) : 1), 0); return { key: b.key, inc: f("income", true), exp: f("expense", true), binc: f("income", false), bexp: f("expense", false), off: s.offBrands.includes(b.key) }; }).filter((r) => r.binc || r.bexp).sort((a, b) => (a.binc - a.bexp) - (b.binc - b.bexp));
+  const rows = brands.map((b) => { const f = (side: "income" | "expense", scen: boolean) => b.nodes.filter((n: FiNode) => n.side === side && !n.funding).reduce((x, n) => x + nodeTotal(n, model.months) * (scen ? factor(n, s) : 1), 0); return { key: b.key, inc: f("income", true), exp: f("expense", true), binc: f("income", false), bexp: f("expense", false), off: s.offBrands.includes(b.key) }; }).filter((r) => r.binc || r.bexp).sort((a, b) => (a.binc - a.bexp) - (b.binc - b.bexp));
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-muted-foreground">What each stream earns and costs. A negative net is what the rest of the club (and the donations) carry for it. Untick a stream to see the club without it.</p>
