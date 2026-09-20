@@ -1901,6 +1901,9 @@ export class DatabaseStorage implements IStorage {
       registeredAt: Date | null;
       totalCents: number | null;
       hasSession: boolean;
+      /** `registrations.training_group` — the EXCEPTION, not the group. Null
+       *  means nobody overrode anything, so the date of birth decides. */
+      trainingGroupOverride: string | null;
     };
 
     const guardian = alias(contacts, "guardian_contact");
@@ -1924,6 +1927,7 @@ export class DatabaseStorage implements IStorage {
       status: registrations.status,
       registeredAt: registrations.registeredAt,
       totalCents: registrations.totalCents,
+      trainingGroupOverride: registrations.trainingGroup,
     })
       .from(registrations)
       .innerJoin(contacts, eq(registrations.contactId, contacts.id))
@@ -1947,6 +1951,7 @@ export class DatabaseStorage implements IStorage {
       status: registrations.status,
       registeredAt: registrations.registeredAt,
       campDateId: registrationItems.campDateId,
+      trainingGroupOverride: registrations.trainingGroup,
     })
       .from(registrationItems)
       .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
@@ -1974,6 +1979,7 @@ export class DatabaseStorage implements IStorage {
         status: r.status,
         registeredAt: r.registeredAt ?? null,
         totalCents: r.totalCents ?? null,
+        trainingGroupOverride: r.trainingGroupOverride ?? null,
         hasSession: false,
       })),
       ...childRows.map((r): Row => ({
@@ -1996,6 +2002,7 @@ export class DatabaseStorage implements IStorage {
         registeredAt: r.registeredAt ?? null,
         totalCents: null,         // a camp booking can cover several siblings
         hasSession: r.campDateId != null,
+        trainingGroupOverride: r.trainingGroupOverride ?? null,
       })),
     ];
 
