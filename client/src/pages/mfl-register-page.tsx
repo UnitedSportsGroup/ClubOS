@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
+import { mflPixelContent } from "@shared/league-captain";
 import { useRoute, useLocation, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
@@ -13,7 +14,8 @@ const BRAND = {
   red: "#f0564f",
 };
 const FONT = "'Inter Tight', Inter, system-ui, -apple-system, sans-serif";
-const PIXEL_CONTENT = "MFL Term 3 Team Registration";
+// Derived from the term in the URL — a constant here stayed on "Term 3" when Term 4 opened.
+const PIXEL_CONTENT = (slug: string | null | undefined) => mflPixelContent(slug);
 
 const inputCls = "w-full rounded-xl px-4 py-3 text-[15px] outline-none transition-colors";
 const inputStyle: React.CSSProperties = { background: BRAND.cardSoft, border: `1px solid ${BRAND.border}`, color: BRAND.white };
@@ -63,7 +65,7 @@ export default function MflRegisterPage() {
     const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
     if (pixelId) {
       initPixel(pixelId);
-      trackEvent("InitiateCheckout", { content_name: PIXEL_CONTENT, currency: "NZD" });
+      trackEvent("InitiateCheckout", { content_name: PIXEL_CONTENT(slug), currency: "NZD" });
     }
   }, []);
 
@@ -183,7 +185,7 @@ export default function MflRegisterPage() {
 
     const url = new URL(window.location.href);
     const leadEventId = generateEventId();
-    trackEvent("Lead", { content_name: PIXEL_CONTENT, value: totalCents / 100, currency: "NZD" }, leadEventId);
+    trackEvent("Lead", { content_name: PIXEL_CONTENT(slug), value: totalCents / 100, currency: "NZD" }, leadEventId);
 
     const tracking = {
       utmSource: url.searchParams.get("utm_source"),

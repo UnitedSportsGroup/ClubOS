@@ -1,3 +1,4 @@
+import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
@@ -9855,8 +9856,19 @@ export async function registerRoutes(
         balanceStatus: reg.balanceStatus, balanceCents: reg.balanceCents,
         nowMs: Date.now(),
       });
+      // Nothing overdue is not "nothing to send". A captain on the weekly plan
+      // who asks to pay the rest in one go (Seenal, Son's of Pitches, 2026-09-21:
+      // "an invoice to pay the remaining amount in full rather than weekly")
+      // gets the SAME payoff link — it clears the remaining weeks and stops the
+      // subscription — with wording that does not accuse them of being behind.
+      let kind: "weekly_missed" | "balance_failed" | "pay_in_full" = missed.kind ?? "pay_in_full";
+      let payoffCents = missed.payoffCents;
       if (!missed.kind || missed.missedCents <= 0) {
-        return res.status(400).json({ message: "Nothing is overdue for this team right now." });
+        kind = "pay_in_full";
+        if (reg.paymentMode === "installment" && reg.balanceStatus !== "paid") payoffCents = reg.balanceCents ?? 0;
+        if (reg.balanceStatus === "paid" || payoffCents <= 0) {
+          return res.status(400).json({ message: "Nothing left to pay on this team." });
+        }
       }
 
       const contact = await storage.getContact(reg.contactId);
@@ -9879,10 +9891,10 @@ export async function registerRoutes(
         captainEmail: contact.email,
         captainName: contact.firstName || "there",
         teamName: reg.teamName || "your team",
-        kind: missed.kind,
+        kind,
         missedCount: missed.missedCount,
         missedAmount: fmt(missed.missedCents),
-        payoffAmount: fmt(missed.payoffCents),
+        payoffAmount: fmt(payoffCents),
         payUrl: `${base}/league/balance/${reg.id}?rt=${token}`,
         pixelUrl: `${base}/api/public/league/reminder/${token}/pixel.gif`,
       });
@@ -9892,13 +9904,13 @@ export async function registerRoutes(
       const [row] = await db.insert(leaguePaymentReminders).values({
         registrationId: reg.id,
         token,
-        kind: missed.kind,
+        kind,
         sentTo: contact.email,
         sentByUserId: req.session.userId ?? null,
         sentByName: user ? `${(user as any).firstName ?? ""} ${(user as any).lastName ?? ""}`.trim() || (user as any).email : null,
         missedCount: missed.missedCount,
         missedCents: missed.missedCents,
-        payoffCents: missed.payoffCents,
+        payoffCents,
       }).returning();
       res.json(row);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22779,7 +22791,7 @@ export async function registerRoutes(
           lastName: captain.lastName,
           fbp, fbc, userAgent,
           eventId: leadEventId,
-          contentName: "MFL Term 3 Team Registration",
+          contentName: mflPixelContent(slug),
           contentIds: [slug],
         }).catch((e) => console.error("[MFL] Lead CAPI failed:", e));
       }
@@ -27037,7 +27049,7 @@ async function handleLeagueRegistrationSuccess(registrationId: number, metadata?
       userAgent: metadata?.userAgent || undefined,
       // Canonical deterministic id — matches mfl-checkout-page + mfl-success-page.
       eventId: purchaseEventId(primaryId),
-      contentName: "MFL Term 3 Team Registration",
+      contentName: mflPixelContent(program.slug || program.name),
       contentIds: [program.slug || String(program.id)],
     }).catch((e) => console.error("[MFL] Purchase CAPI failed:", e));
 

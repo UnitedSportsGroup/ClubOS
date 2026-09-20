@@ -2701,13 +2701,39 @@ export async function sendLeaguePaymentReminderEmail(params: {
   captainEmail: string;
   captainName: string;
   teamName: string;
-  kind: "weekly_missed" | "balance_failed";
+  kind: "weekly_missed" | "balance_failed" | "pay_in_full";
   missedCount: number;
   missedAmount: string;   // formatted, e.g. $95.00
   payoffAmount: string;   // formatted — clears the registration in one go
   payUrl: string;         // /league/balance/:id?rt=token
   pixelUrl: string;       // /api/public/league/reminder/:token/pixel.gif
 }): Promise<boolean> {
+  // A captain who ASKED to pay the rest in one go — nothing is behind, and the
+  // email must not read as if something were.
+  if (params.kind === "pay_in_full") {
+    const bodyHtml = `
+    <p style="color:#e6e6e6; font-size:16px; margin:0 0 16px;">Hi ${params.captainName},</p>
+    <p style="color:#bdbdbd; font-size:14px; line-height:1.6; margin:0 0 16px;">
+      Here's the link to pay the rest of the term for <strong>${params.teamName}</strong> in one go.
+      Paying <strong style="color:#d1b96e;">${params.payoffAmount}</strong> now clears your team's fee for the term and stops the weekly charges — nothing else to do after that.
+    </p>
+    <p style="text-align:center; margin:0 0 24px;">
+      <a href="${params.payUrl}" style="display:inline-block; background:#d1b96e; color:#000; font-weight:600; text-decoration:none; padding:14px 28px; border-radius:9999px;">Pay remaining ${params.payoffAmount}</a>
+    </p>
+    <p style="color:#8a8a8a; font-size:12px; line-height:1.6; margin:0;">
+      Prefer to keep the weekly plan? Just leave this — nothing changes. Questions? Reply to this email.
+    </p>
+    <img src="${params.pixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
+    return sendEmail({
+      to: params.captainEmail,
+      from: MFL_FROM,
+      replyTo: MFL_REPLY_TO,
+      subject: `Pay the rest in one go — ${params.teamName}`,
+      html: mflShell({ heading: "Pay in full", bodyHtml }),
+      campId: params.programId,
+      registrationId: params.registrationId,
+    });
+  }
   const isWeekly = params.kind === "weekly_missed";
   const missedLine = isWeekly
     ? `<strong style="color:#f87171;">${params.missedCount} weekly payment${params.missedCount === 1 ? "" : "s"}</strong> for <strong>${params.teamName}</strong> ${params.missedCount === 1 ? "hasn't" : "haven't"} gone through — <strong style="color:#d1b96e;">${params.missedAmount}</strong> is currently behind.`
