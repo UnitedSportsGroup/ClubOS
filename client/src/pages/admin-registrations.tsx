@@ -14,7 +14,7 @@ import { RegisterPlayerModal } from "./admin-register-player";
 import {
   ClipboardCheck, Search, ChevronDown, ChevronUp, User, Phone, Mail,
   MapPin, Calendar, Clock, Baby, CreditCard, Pencil, X, Plus, Trash2, Check, Save,
-  RotateCcw, AlertTriangle, Loader2,
+  RotateCcw, AlertTriangle, Loader2, Star,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { MoneyInput } from "@/components/ui/money-input";
 import { programmeKind, PROGRAMME_KIND_META, PROGRAMME_KIND_ORDER } from "@shared/programme-kinds";
+import type { LiveActivity } from "@shared/live-activity";
 
 type RegItem = {
   id: number;
@@ -55,7 +56,87 @@ type RegChild = {
   gender?: string;
 };
 
+/**
+ * WHO IS ON THE SITE RIGHT NOW.
+ *
+ * Daniel, 2026-09-20, a Sunday with ad spend just raised on holiday camps,
+ * academy and MFL: "a live feature which can show the number of people on our
+ * site right now, how many have started sign up... and how many are checking
+ * out... so we can see especially at peak times what this all looks like."
+ *
+ * 🔴 It scopes itself to the workspace it is standing in — the MFL page counts
+ * MFL's funnel only, which is what was asked for. `workspaceFetch` sends the
+ * header; a bare fetch() would make the server guess.
+ *
+ * 🔴 It says its window out loud. A live number with an undisclosed window
+ * cannot be interpreted, and at 5 minutes a quiet spell reads as zero rather
+ * than as a fault.
+ */
+function LiveActivityPanel() {
+  const { data } = useQuery<LiveActivity>({
+    queryKey: ["/api/admin/live-activity"],
+    queryFn: async () => {
+      const res = await workspaceFetch("/api/admin/live-activity");
+      if (!res.ok) throw new Error("live activity unavailable");
+      return res.json();
+    },
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
+  });
+
+  // Nothing to say until the first answer lands — an empty frame that later
+  // fills in reads as breakage.
+  if (!data) return null;
+
+  const cells: { label: string; value: number; tone: string; testid: string }[] = [
+    { label: "on the site", value: data.onSite, tone: "text-sky-300", testid: "live-on-site" },
+    { label: "on a booking page", value: data.onForm, tone: "text-amber-300", testid: "live-on-form" },
+    { label: "at the card step", value: data.atCheckout, tone: "text-emerald-300", testid: "live-at-checkout" },
+  ];
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-2xl bg-sky-500/[0.04] border border-sky-500/15 animate-fade-in-up"
+      style={{ animationDelay: '60ms', opacity: 0 }}
+      data-testid="panel-live-activity"
+    >
+      <span className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-sky-300/50 font-semibold">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-400" />
+        </span>
+        Right now
+      </span>
+
+      {cells.map((c) => (
+        <span key={c.label} className="text-[12.5px] text-white/55">
+          <span className={`text-[15px] font-semibold ${c.tone}`} data-testid={c.testid}>{c.value}</span>{" "}
+          {c.label}
+        </span>
+      ))}
+
+      {data.pages.length > 0 && (
+        <span className="text-[12px] text-white/30 truncate max-w-full sm:max-w-[38%]" title={data.pages.map((p) => `${p.page} (${p.visitors})`).join("  ·  ")}>
+          {data.pages.slice(0, 3).map((p) => `${p.page} ${p.visitors}`).join("  ·  ")}
+        </span>
+      )}
+
+      <span className="text-[11px] text-white/25 ml-auto whitespace-nowrap">
+        last {data.windowMinutes} min
+        {/* 🔴 A holiday camp puts the form and the card on ONE page, so its
+            visitors reach "at the card step" only once they actually open the
+            card. Saying so stops a low number reading as a broken counter. */}
+        {data.formAndCardShareAPage ? " · camps book and pay on one page" : ""}
+      </span>
+    </div>
+  );
+}
+
 type Registration = {
+  /** Server-decided: this person's first registration ever, across ClubOS and
+   *  ten years of Friendly Manager. Absent means "known to us, or unknown" —
+   *  never a claim that they are returning. */
+  isNewPlayer?: boolean;
   id: number;
   orderNumber?: number | null;
   programId: number;
@@ -1024,6 +1105,8 @@ export default function AdminRegistrations() {
       {/* Cash-up strip — what the rows on screen add up to, split by tender.
           Only appears once there is something taken over the counter, so it
           never sits there reading $0.00 on an all-online list. */}
+      <LiveActivityPanel />
+
       {takings.total > 0 && (
         <div
           className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 rounded-2xl bg-emerald-500/[0.04] border border-emerald-500/15 animate-fade-in-up"
@@ -1050,6 +1133,13 @@ export default function AdminRegistrations() {
             {PROGRAMME_KIND_META[k].note}
           </span>
         ))}
+        {/* The star is a mark, not a colour, so it gets its own line — and it
+            says what "new" is measured against, because an acquisition figure
+            whose definition is a guess is worse than none. */}
+        <span className="flex items-center gap-1.5 text-[11px] text-white/35">
+          <Star className="w-2.5 h-2.5 fill-current text-emerald-400" />
+          New player — first registration ever, including Friendly Manager
+        </span>
       </div>
 
       <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
@@ -1086,6 +1176,21 @@ export default function AdminRegistrations() {
                         >
                           {PROGRAMME_KIND_META[programmeKind(reg.program)].label}
                         </span>
+                        {/* 🔴 Never registered here before — live records AND ten years
+                            of Friendly Manager. Decided server-side, where the person's
+                            identity can be resolved across duplicate contact rows; the
+                            page only draws what it is told. Its absence means
+                            "we already knew them, or we cannot tell" — never a claim. */}
+                        {reg.isNewPlayer && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-md border uppercase tracking-wider border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                            title="First registration at this club — nothing earlier in ClubOS or Friendly Manager"
+                            data-testid={`badge-reg-new-${reg.id}`}
+                          >
+                            <Star className="w-2.5 h-2.5 fill-current" />
+                            New Player
+                          </span>
+                        )}
                         <span>{reg.program?.name || `Camp #${reg.programId}`}</span>
                         {/* WHAT they bought (the term) beside WHEN they bought it. */}
                         {reg.termLabel && (

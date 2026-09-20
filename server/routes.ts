@@ -1,4 +1,5 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
@@ -4334,21 +4335,56 @@ export async function registerRoutes(
         ORDER BY start_date DESC LIMIT 1`);
       const currentTermId: number | null = (currentTermRows.rows ?? [])[0]?.id ?? null;
 
+      const buckets = (rows.rows ?? []).map((r: any) => ({
+        id: r.term_id,
+        // A row with no term reads "not recorded" — never filed under a real
+        // term, and never hidden either.
+        label: r.term_id ? `${r.name} ${r.year}` : "Term not recorded",
+        year: r.year ?? null,
+        termNumber: r.term_number ?? null,
+        count: Number(r.n),
+        totalCents: Number(r.cents),
+        isProgrammeTerm: r.term_id != null && r.term_id === prog.termId,
+      }));
+
+      // 🔴 A HOLIDAY CAMP HAS NO TERM, and that is not the same thing as a term
+      // nobody recorded. A camp runs BETWEEN terms, so every one of its
+      // registrations carries a null term_id and always will. One chip reading
+      // "Term not recorded" across every row on the page filters nothing, and
+      // reads as missing data — Daniel, 2026-09-20, of FUNdamentals, whose
+      // Players tab said "Term not recorded · 102 · $11,260.00" and looked like
+      // the FUNiño bug all over again. It was not: the figures were right.
+      //
+      // A TERM programme keeps the bucket, because there a null term IS a gap
+      // somebody has to close, and hiding it would hide the thing worth seeing.
+      // Measured on production the same day: zero term programmes carry a
+      // null-term registration, and the only programmes that do are the four
+      // holiday camps and the two MFL league rows — none of which has a term to
+      // choose between.
+      //
+      // Decided HERE, not in the page, because the tiles and the list below
+      // them both read this one endpoint, and they must never disagree.
+      const termsApply = prog.scheduleType === "term" || buckets.some((b: any) => b.id != null);
+
+      // 🔴 "ALL TERMS" COUNTS PEOPLE, NOT REGISTRATIONS. The page used to add the
+      // chips up, and a child enrolled in Term 3 and again in Term 4 is two
+      // registrations but one child in the list below. Measured on production
+      // 2026-09-20: FUNiño's chips summed to 453 while the list showed 302 —
+      // 107 children are enrolled across more than one term, some across three.
+      // Daniel's rule is that the tiles must agree with the list under them, so
+      // this number comes from the SAME function the list does rather than from
+      // arithmetic that cannot know about a repeat enrolment.
+      //
+      // Per-term chips keep counting registrations: within one term a child has
+      // one, and the live check asserts each chip against its own filtered list.
+      const totalPeople = (await storage.getProgramPlayers(campId, undefined)).length;
+
       res.json({
         programmeTermId: prog.termId ?? null,
         // null in the school holidays — a real state, not a missing one.
         currentTermId,
-        terms: (rows.rows ?? []).map((r: any) => ({
-          id: r.term_id,
-          // A row with no term reads "not recorded" — never filed under a real
-          // term, and never hidden either.
-          label: r.term_id ? `${r.name} ${r.year}` : "Term not recorded",
-          year: r.year ?? null,
-          termNumber: r.term_number ?? null,
-          count: Number(r.n),
-          totalCents: Number(r.cents),
-          isProgrammeTerm: r.term_id != null && r.term_id === prog.termId,
-        })),
+        totalPeople,
+        terms: termsApply ? buckets : [],
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4556,6 +4592,101 @@ export async function registerRoutes(
       res.json(s);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  /**
+   * WHO IS ON THE SITE RIGHT NOW — the live funnel panel.
+   *
+   * Daniel, 2026-09-20, with ad spend just raised before a Sunday evening
+   * peak: "a live feature which can show the number of people on our site
+   * right now, how many have started sign up... and how many are checking out."
+   *
+   * 🔴 One row per VISITOR, not per event. Someone refreshing a camp page
+   * twenty times is one person, and counting events would have made a single
+   * indecisive parent look like a rush.
+   *
+   * 🔴 Their LATEST page decides their stage, so a person who browsed and then
+   * opened the booking form counts once, at the furthest point they reached.
+   *
+   * 🔴 Bots and every /admin page are excluded — otherwise the first thing the
+   * panel would report is Daniel watching the panel.
+   *
+   * 🔴 The path rules live in @shared/live-activity, not in this SQL, so the
+   * server and anything added later cannot drift about what "checkout" means.
+   */
+  app.get("/api/admin/live-activity", requireAuth, async (req, res) => {
+    try {
+      const slug = String(req.headers["x-workspace-slug"] ?? "") || null;
+      const brands = liveBrandsForWorkspace(slug);
+
+      const rows: any = await db.execute(sql`
+        SELECT DISTINCT ON (visitor_id) visitor_id, page
+        FROM analytics_events
+        WHERE timestamp > now() - (${LIVE_WINDOW_MINUTES} || ' minutes')::interval
+          AND COALESCE(is_bot, false) = false
+          AND visitor_id IS NOT NULL
+          AND page IS NOT NULL
+        ORDER BY visitor_id, timestamp DESC`);
+
+      // 🔴 A camp sells the form and the card on ONE page, so the path can
+      // never tell us who reached the card. The booking page now marks its
+      // step and analytics.js emits `form_step`; a visitor who has reached
+      // "payment" in this window is at the card step wherever they are now.
+      // Without this the number is a permanent zero on the traffic that
+      // matters most, which is worse than not showing it.
+      const cardRows: any = await db.execute(sql`
+        SELECT DISTINCT visitor_id
+        FROM analytics_events
+        WHERE timestamp > now() - (${LIVE_WINDOW_MINUTES} || ' minutes')::interval
+          AND event_type = 'form_step'
+          AND COALESCE(is_bot, false) = false
+          AND visitor_id IS NOT NULL
+          AND metadata ->> 'step' = 'payment'`);
+      const atCardStep = new Set<string>(
+        ((cardRows.rows ?? []) as any[]).map((r) => String(r.visitor_id)));
+
+      let onSite = 0, onForm = 0, atCheckout = 0;
+      const byPage = new Map<string, { visitors: number; stage: LiveStage }>();
+      let sharesAPage = false;
+
+      for (const r of (rows.rows ?? []) as any[]) {
+        const page = String(r.page ?? "");
+        const pathStage = liveStageFor(page);
+        if (pathStage === "staff") continue;
+        if (brands !== "all" && !brands.includes(liveBrandFor(page))) continue;
+
+        // Reaching the card beats whatever page they are sitting on.
+        const stage: LiveStage =
+          atCardStep.has(String(r.visitor_id)) ? "checkout" : pathStage;
+
+        onSite += 1;
+        if (stage === "form") onForm += 1;
+        if (stage === "checkout") atCheckout += 1;
+        // A camp sells the form and the card on one page, so its visitors can
+        // never appear in atCheckout. Say so rather than let a zero mislead.
+        if (stage === "form" && /\/book$/.test(page.split("?")[0])) sharesAPage = true;
+
+        const key = page.split("?")[0];
+        const held = byPage.get(key) ?? { visitors: 0, stage };
+        held.visitors += 1;
+        byPage.set(key, held);
+      }
+
+      const pages = Array.from(byPage.entries())
+        .map(([page, v]) => ({ page, visitors: v.visitors, stage: v.stage }))
+        .sort((a, b) => b.visitors - a.visitors)
+        .slice(0, 8);
+
+      res.json({
+        onSite, onForm, atCheckout,
+        windowMinutes: LIVE_WINDOW_MINUTES,
+        pages,
+        formAndCardShareAPage: sharesAPage,
+        asOf: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

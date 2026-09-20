@@ -1829,7 +1829,7 @@ function useTermParam(): [string | undefined, (v: string) => void] {
   return [value, set];
 }
 
-type TermCounts = { programmeTermId: number | null; currentTermId: number | null; terms: TermCount[] };
+type TermCounts = { programmeTermId: number | null; currentTermId: number | null; totalPeople?: number; terms: TermCount[] };
 
 /**
  * THE term this page is about — ONE decider for the tiles, the player list and
@@ -1864,6 +1864,10 @@ function useActiveTerm(campId: number) {
     term: param ?? fallback,
     setTerm,
     terms,
+    // People, not the sum of the chips — a child in two terms is two
+    // registrations and one row in the list. Server-side, from the same
+    // function the list uses.
+    totalPeople: data?.totalPeople,
     hasTerms: terms.length > 0,
     // `undefined` until the counts land: querying before then would fire a
     // request for "all" and then a second one for the real term.
@@ -1913,7 +1917,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // `undefined` here means "not chosen yet": the tab opens on the term the
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
-  const { term: activeTerm, setTerm: setTermFilter, terms, hasTerms } = useActiveTerm(campId);
+  const { term: activeTerm, setTerm: setTermFilter, terms, hasTerms, totalPeople } = useActiveTerm(campId);
   // Opens alphabetical (A→Z by the name as shown), and stays wherever the user
   // puts it after that — "unless sorted otherwise by the user".
   const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
@@ -2096,7 +2100,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
               }`}
               data-testid="filter-term-all"
             >
-              All terms <span className="ml-1.5 text-white/30">{terms.reduce((a, t) => a + t.count, 0)}</span>
+              All terms <span className="ml-1.5 text-white/30">{totalPeople ?? terms.reduce((a, t) => a + t.count, 0)}</span>
             </button>
           )}
         </div>

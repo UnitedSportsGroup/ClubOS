@@ -502,6 +502,12 @@ export const registrations = pgTable("registrations", {
    * established reads "not recorded" rather than being filed under a real term
    * on a guess. */
   termId: integer("term_id").references(() => terms.id),
+  // 🔴 The training group is DERIVED from date of birth (@shared/training-groups).
+  // This is the EXCEPTION only — a coach moving one player up or down a grade.
+  // NULL means nobody overrode anything, never "this player has no group".
+  trainingGroup: text("training_group"),
+  trainingGroupSetBy: integer("training_group_set_by").references(() => users.id, { onDelete: "set null" }),
+  trainingGroupSetAt: timestamp("training_group_set_at"),
   // Provenance. NULL = created in ClubOS. 'friendly_manager' = imported.
   legacySource: text("legacy_source"),
   legacyExternalId: text("legacy_external_id"),

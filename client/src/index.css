@@ -404,9 +404,9 @@ html:not(.dark) .hover\:bg-slate-800:hover { background-color: hsl(var(--card)) 
 html:not(.dark) .hover\:bg-zinc-800:hover { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .hover\:border-zinc-900:hover { border-color: rgb(15 23 42 / 0.28) !important; }
 
-/* 204 pale text utilities → their family's 700, which is the
+/* 207 pale text utilities → their family's 700, which is the
    lightest shade that clears 4.5:1 on white. Families touched:
-   amber-100, amber-200, amber-300, amber-400, amber-500, amber-600, blue-100, blue-200, blue-300, blue-400, blue-500, cyan-200, cyan-300, cyan-400, emerald-100, emerald-200, emerald-300, emerald-400, emerald-500, emerald-600, green-300, green-400, green-600, indigo-100, indigo-200, indigo-300, indigo-400, lime-300, orange-300, orange-400, orange-500, orange-600, pink-100, pink-200, pink-300, pink-400, purple-300, purple-400, red-200, red-300, red-400, red-50, red-500, rose-300, rose-400, sky-200, sky-300, sky-400, teal-300, violet-200, violet-300, violet-400, violet-500, yellow-300, yellow-400, yellow-500, yellow-600 */
+   amber-100, amber-200, amber-300, amber-400, amber-500, amber-600, blue-100, blue-200, blue-300, blue-400, blue-500, cyan-200, cyan-300, cyan-400, emerald-100, emerald-200, emerald-300, emerald-400, emerald-500, emerald-600, green-300, green-400, green-600, indigo-100, indigo-200, indigo-300, indigo-400, lime-300, orange-200, orange-300, orange-400, orange-500, orange-600, pink-100, pink-200, pink-300, pink-400, purple-300, purple-400, red-200, red-300, red-400, red-50, red-500, rose-300, rose-400, sky-200, sky-300, sky-400, teal-300, violet-200, violet-300, violet-400, violet-500, yellow-300, yellow-400, yellow-500, yellow-600 */
 html:not(.dark) .group:hover .group-hover\:text-amber-300 { color: #b45309 !important; }
 html:not(.dark) .group:hover .group-hover\:text-blue-400 { color: #1d4ed8 !important; }
 html:not(.dark) .group:hover .group-hover\:text-blue-400\/50 { color: color-mix(in srgb, #1d4ed8 70%, transparent) !important; }
@@ -429,6 +429,7 @@ html:not(.dark) .hover\:text-emerald-300:hover { color: #047857 !important; }
 html:not(.dark) .hover\:text-emerald-300\/80:hover { color: color-mix(in srgb, #047857 80%, transparent) !important; }
 html:not(.dark) .hover\:text-emerald-400:hover { color: #047857 !important; }
 html:not(.dark) .hover\:text-green-300:hover { color: #15803d !important; }
+html:not(.dark) .hover\:text-orange-200:hover { color: #c2410c !important; }
 html:not(.dark) .hover\:text-purple-300:hover { color: #7e22ce !important; }
 html:not(.dark) .hover\:text-red-300:hover { color: #b91c1c !important; }
 html:not(.dark) .hover\:text-red-400:hover { color: #b91c1c !important; }
@@ -542,6 +543,7 @@ html:not(.dark) .text-indigo-300 { color: #4338ca !important; }
 html:not(.dark) .text-indigo-300\/60 { color: color-mix(in srgb, #4338ca 70%, transparent) !important; }
 html:not(.dark) .text-indigo-400 { color: #4338ca !important; }
 html:not(.dark) .text-lime-300 { color: #4d7c0f !important; }
+html:not(.dark) .text-orange-200 { color: #c2410c !important; }
 html:not(.dark) .text-orange-300 { color: #c2410c !important; }
 html:not(.dark) .text-orange-300\/70 { color: color-mix(in srgb, #c2410c 70%, transparent) !important; }
 html:not(.dark) .text-orange-300\/80 { color: color-mix(in srgb, #c2410c 80%, transparent) !important; }
@@ -589,6 +591,7 @@ html:not(.dark) .text-rose-300\/80 { color: color-mix(in srgb, #be123c 80%, tran
 html:not(.dark) .text-rose-400 { color: #be123c !important; }
 html:not(.dark) .text-sky-200 { color: #0369a1 !important; }
 html:not(.dark) .text-sky-300 { color: #0369a1 !important; }
+html:not(.dark) .text-sky-300\/50 { color: color-mix(in srgb, #0369a1 70%, transparent) !important; }
 html:not(.dark) .text-sky-300\/70 { color: color-mix(in srgb, #0369a1 70%, transparent) !important; }
 html:not(.dark) .text-sky-300\/80 { color: color-mix(in srgb, #0369a1 80%, transparent) !important; }
 html:not(.dark) .text-sky-400 { color: #0369a1 !important; }
@@ -710,6 +713,8 @@ html:not(.dark) .text-white.bg-red-700:not([class*="bg-red-700/"]) { color: #fff
 html:not(.dark) .bg-red-700:not([class*="bg-red-700/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-rose-500:not([class*="bg-rose-500/"]) { color: #fff !important; }
 html:not(.dark) .bg-rose-500:not([class*="bg-rose-500/"]) .text-white { color: #fff !important; }
+html:not(.dark) .text-white.bg-sky-500:not([class*="bg-sky-500/"]) { color: #fff !important; }
+html:not(.dark) .bg-sky-500:not([class*="bg-sky-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-violet-500:not([class*="bg-violet-500/"]) { color: #fff !important; }
 html:not(.dark) .bg-violet-500:not([class*="bg-violet-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-yellow-500:not([class*="bg-yellow-500/"]) { color: #fff !important; }
@@ -738,7 +743,7 @@ html:not(.dark) .text-white.from-violet-500:not([class*="from-violet-500/"]) { c
 html:not(.dark) .from-violet-500:not([class*="from-violet-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.from-violet-600:not([class*="from-violet-600/"]) { color: #fff !important; }
 html:not(.dark) .from-violet-600:not([class*="from-violet-600/"]) .text-white { color: #fff !important; }
-/* 62 coloured grounds keep their white ink */
+/* 63 coloured grounds keep their white ink */
 
 /* Design tokens re-declared at higher specificity so a third-party
    `:root` block (a browser extension's theme, say) cannot silently
