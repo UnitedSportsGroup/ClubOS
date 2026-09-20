@@ -1,4 +1,5 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
+import { normalizeEmail } from "@shared/identity";
 import { nzTodayIso } from "@shared/academy";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
@@ -1098,6 +1099,102 @@ export class DatabaseStorage implements IStorage {
     const medRows = medIds.length ? await db.select().from(childMedical).where(inArray(childMedical.childId, medIds)) : [];
     const medByChild = new Map(medRows.map((m) => [m.childId, m]));
 
+    // ── IS THIS PERSON NEW TO THE CLUB? ──────────────────────────────────────
+    // Daniel, 2026-09-20: "make so new players who have never been registered
+    // at our club ever before in all records get a special mark... so we can
+    // quickly see how our client acquisition is working and if we getting new
+    // sign ups or old ones."
+    //
+    // 🔴 "ALL RECORDS" IS NOT `registrations`. Friendly Manager history holds
+    // 14,115 registrations across 3,623 contacts back to 2017, in
+    // `fm_registration_history` — a table drizzle does not model, hence the raw
+    // read. Checking only the live table would stamp NEW on families who have
+    // been at this club for ten years, which is the opposite of the truth and
+    // would quietly inflate every acquisition number built on it.
+    //
+    // 🔴 THE PERSON IS NOT THE CONTACT ROW. Measured on production the same
+    // day: 2,767 email addresses are shared by more than one contact row,
+    // across 6,237 rows — the abandoned-checkout path and the Shopify import
+    // both mint a fresh contact. Of 896 contacts that registered in 2026, 62
+    // (6.9%) already had an older contact row on the same address. Keying on
+    // contact_id alone would call all 62 new. So identity is the normalised
+    // email where there is one, and only falls back to the contact id when
+    // there is not.
+    //
+    // 🔴 WHEN WE CANNOT TELL, WE DO NOT CLAIM "NEW". Anything with FM history,
+    // an earlier registration, or no registration date at all reads as
+    // returning. An acquisition figure that is wrong should be wrong downwards.
+    //
+    // Batched, never per row — this function's history is a per-row fan-out
+    // that exhausted the 15-connection pooler and 500'd the page.
+    const newPlayerRegIds = new Set<number>();
+    {
+      const listContactIds = uniq(regs.map((r) => r.contactId));
+      if (listContactIds.length) {
+        const emailOf = (c: any): string | null => normalizeEmail(c?.email);
+        const listEmails = uniq(contactRows.filter((c) => listContactIds.includes(c.id)).map(emailOf));
+
+        // Every contact row that shares an address with someone on this page —
+        // the same human under another id.
+        const siblingRows = listEmails.length
+          ? await db.select({ id: contacts.id, email: contacts.email }).from(contacts)
+              .where(inArray(sql`lower(btrim(${contacts.email}))`, listEmails as string[]))
+          : [];
+
+        const identityOf = new Map<number, string>();
+        const register = (id: number, email: string | null) => identityOf.set(id, email ?? `contact:${id}`);
+        for (const c of contactRows) if (listContactIds.includes(c.id)) register(c.id, emailOf(c));
+        for (const c of siblingRows) register(c.id, emailOf(c));
+
+        const allContactIds = uniq(Array.from(identityOf.keys()));
+
+        // The earliest REAL registration each contact has ever had, and whether
+        // Friendly Manager ever knew them.
+        // 🔴 NOT `IN ${array}` in a raw template — drizzle expands an array into
+        // a parameter list without the parentheses, which is the same footgun
+        // that broke the Marketing hub's multi-workspace roll-up. The typed
+        // query uses inArray(); the raw one below spells its list out.
+        const idList = sql`(${sql.join(allContactIds.map((v) => sql`${v}`), sql`, `)})`;
+        const [firstRows, fmRows] = await Promise.all([
+          db.select({ contactId: registrations.contactId, id: registrations.id, registeredAt: registrations.registeredAt })
+            .from(registrations)
+            .where(and(
+              inArray(registrations.contactId, allContactIds),
+              sql`${registrations.status} IN ('confirmed', 'refunded', 'partially_refunded')`,
+              isNotNull(registrations.registeredAt),
+            )),
+          // `fm_registration_history` is not modelled in drizzle — ten years of
+          // Friendly Manager, imported additively and read raw.
+          db.execute(sql`SELECT DISTINCT contact_id FROM fm_registration_history WHERE contact_id IN ${idList}`),
+        ]);
+
+        const knownBefore = new Set<string>();
+        for (const row of (fmRows as any).rows ?? []) {
+          const key = identityOf.get(Number(row.contact_id));
+          if (key) knownBefore.add(key);
+        }
+
+        // Fold each contact's first registration up to the identity, so a
+        // family split across two contact rows has ONE first registration.
+        const firstByIdentity = new Map<string, { id: number; at: number }>();
+        for (const row of firstRows as any[]) {
+          const key = identityOf.get(Number(row.contactId));
+          if (!key) continue;
+          const at = new Date(row.registeredAt).getTime();
+          const id = Number(row.id);
+          const held = firstByIdentity.get(key);
+          if (!held || at < held.at || (at === held.at && id < held.id)) firstByIdentity.set(key, { id, at });
+        }
+
+        for (const r of regs) {
+          const key = identityOf.get(r.contactId);
+          if (!key || knownBefore.has(key) || !r.registeredAt) continue;
+          const first = firstByIdentity.get(key);
+          if (first && first.id === r.id) newPlayerRegIds.add(r.id);
+        }
+      }
+    }
+
     const progById = byId(progRows);
     const termById = byId(termRows as any[]);
     const contactById = byId(contactRows);
@@ -1139,6 +1236,10 @@ export class DatabaseStorage implements IStorage {
         items: itemsByReg.get(r.id) ?? [],
         children: kidsByParent.get(r.contactId) ?? [],
         servedByName: r.servedByUserId ? staffById.get(r.servedByUserId) ?? null : null,
+        // First time this person has ever registered — live records AND ten
+        // years of Friendly Manager. See the block above for what "person"
+        // means and why it is not the contact row.
+        isNewPlayer: newPlayerRegIds.has(r.id),
         // Who sent the money back. Resolved at READ time from refundedBy rather
         // than stamped onto the row, so a later name change corrects everywhere
         // at once. Null when the refund predates the audit trail — which reads

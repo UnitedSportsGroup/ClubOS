@@ -14,7 +14,7 @@ import { RegisterPlayerModal } from "./admin-register-player";
 import {
   ClipboardCheck, Search, ChevronDown, ChevronUp, User, Phone, Mail,
   MapPin, Calendar, Clock, Baby, CreditCard, Pencil, X, Plus, Trash2, Check, Save,
-  RotateCcw, AlertTriangle, Loader2,
+  RotateCcw, AlertTriangle, Loader2, Star,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -56,6 +56,10 @@ type RegChild = {
 };
 
 type Registration = {
+  /** Server-decided: this person's first registration ever, across ClubOS and
+   *  ten years of Friendly Manager. Absent means "known to us, or unknown" —
+   *  never a claim that they are returning. */
+  isNewPlayer?: boolean;
   id: number;
   orderNumber?: number | null;
   programId: number;
@@ -1050,6 +1054,13 @@ export default function AdminRegistrations() {
             {PROGRAMME_KIND_META[k].note}
           </span>
         ))}
+        {/* The star is a mark, not a colour, so it gets its own line — and it
+            says what "new" is measured against, because an acquisition figure
+            whose definition is a guess is worse than none. */}
+        <span className="flex items-center gap-1.5 text-[11px] text-white/35">
+          <Star className="w-2.5 h-2.5 fill-current text-emerald-400" />
+          New player — first registration ever, including Friendly Manager
+        </span>
       </div>
 
       <div className="rounded-2xl glass-card overflow-hidden animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
@@ -1086,6 +1097,21 @@ export default function AdminRegistrations() {
                         >
                           {PROGRAMME_KIND_META[programmeKind(reg.program)].label}
                         </span>
+                        {/* 🔴 Never registered here before — live records AND ten years
+                            of Friendly Manager. Decided server-side, where the person's
+                            identity can be resolved across duplicate contact rows; the
+                            page only draws what it is told. Its absence means
+                            "we already knew them, or we cannot tell" — never a claim. */}
+                        {reg.isNewPlayer && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-md border uppercase tracking-wider border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                            title="First registration at this club — nothing earlier in ClubOS or Friendly Manager"
+                            data-testid={`badge-reg-new-${reg.id}`}
+                          >
+                            <Star className="w-2.5 h-2.5 fill-current" />
+                            New Player
+                          </span>
+                        )}
                         <span>{reg.program?.name || `Camp #${reg.programId}`}</span>
                         {/* WHAT they bought (the term) beside WHEN they bought it. */}
                         {reg.termLabel && (
