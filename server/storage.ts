@@ -1,5 +1,6 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { normalizeEmail } from "@shared/identity";
+import { trainingGroupFor } from "@shared/training-groups";
 import { nzTodayIso } from "@shared/academy";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
@@ -216,6 +217,16 @@ export type ProgramPlayer = {
   paidCents: number | null;        // academy shape only — see above
   firstRegisteredAt: string | null;
   latestRegisteredAt: string | null;
+  /** "U9"… — DERIVED from the birth year by the club's NZF rule, unless a
+   *  coach has overridden it. Null when there is no usable date of birth,
+   *  which is an unanswered question and never a group. */
+  trainingGroup: string | null;
+  trainingGroupSource: "override" | "derived" | "unknown";
+  /** The grade as a number, so a list sorts U9 before U10 rather than
+   *  alphabetically, where "U10" sorts before "U9". */
+  trainingGroupGrade: number | null;
+  /** The registration the override would be written to. */
+  trainingGroupRegistrationId: number | null;
 };
 
 // A campaign row for the mailer HISTORY list — deliberately without `body`.
@@ -1904,6 +1915,9 @@ export class DatabaseStorage implements IStorage {
       /** `registrations.training_group` — the EXCEPTION, not the group. Null
        *  means nobody overrode anything, so the date of birth decides. */
       trainingGroupOverride: string | null;
+      /** The option the family bought ("U10", or a legacy pair "U9–U10").
+       *  Outranks the birth-year grade — see @shared/training-groups. */
+      optionName: string | null;
     };
 
     const guardian = alias(contacts, "guardian_contact");
@@ -1928,9 +1942,11 @@ export class DatabaseStorage implements IStorage {
       registeredAt: registrations.registeredAt,
       totalCents: registrations.totalCents,
       trainingGroupOverride: registrations.trainingGroup,
+      optionName: programOptions.name,
     })
       .from(registrations)
       .innerJoin(contacts, eq(registrations.contactId, contacts.id))
+      .leftJoin(programOptions, eq(registrations.programOptionId, programOptions.id))
       .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
       .where(and(eq(registrations.programId, campId), eq(contacts.type, "player"), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]), termFilter));
 
@@ -1952,9 +1968,11 @@ export class DatabaseStorage implements IStorage {
       registeredAt: registrations.registeredAt,
       campDateId: registrationItems.campDateId,
       trainingGroupOverride: registrations.trainingGroup,
+      optionName: programOptions.name,
     })
       .from(registrationItems)
       .innerJoin(registrations, eq(registrationItems.registrationId, registrations.id))
+      .leftJoin(programOptions, eq(registrations.programOptionId, programOptions.id))
       .innerJoin(children, eq(registrationItems.childId, children.id))
       .leftJoin(contacts, eq(children.parentId, contacts.id))
       .where(and(eq(registrations.programId, campId), inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]), termFilter));
@@ -1980,6 +1998,7 @@ export class DatabaseStorage implements IStorage {
         registeredAt: r.registeredAt ?? null,
         totalCents: r.totalCents ?? null,
         trainingGroupOverride: r.trainingGroupOverride ?? null,
+        optionName: r.optionName ?? null,
         hasSession: false,
       })),
       ...childRows.map((r): Row => ({
@@ -2003,6 +2022,7 @@ export class DatabaseStorage implements IStorage {
         totalCents: null,         // a camp booking can cover several siblings
         hasSession: r.campDateId != null,
         trainingGroupOverride: r.trainingGroupOverride ?? null,
+        optionName: r.optionName ?? null,
       })),
     ];
 
@@ -2045,6 +2065,10 @@ export class DatabaseStorage implements IStorage {
           paidCents: null,
           firstRegisteredAt: null,
           latestRegisteredAt: null,
+          trainingGroup: null,
+          trainingGroupSource: "unknown",
+          trainingGroupGrade: null,
+          trainingGroupRegistrationId: null,
           _regIds: new Set<number>(),
         };
         byPerson.set(key, p);
@@ -2057,6 +2081,14 @@ export class DatabaseStorage implements IStorage {
         // Only count money the registration actually attributes to this player.
         if (r.totalCents != null) p.paidCents = (p.paidCents ?? 0) + r.totalCents;
       }
+      // The override lives on the REGISTRATION, so take the one from the row
+      // that actually carries it, and remember which row to write back to.
+      if (p.trainingGroupRegistrationId == null) p.trainingGroupRegistrationId = r.registrationId;
+      if (r.optionName && !(p as any)._optionName) (p as any)._optionName = r.optionName;
+      if (r.trainingGroupOverride) {
+        (p as any)._override = r.trainingGroupOverride;
+        p.trainingGroupRegistrationId = r.registrationId;
+      }
       if ((rank[r.status] ?? 0) > (rank[p.status] ?? 0)) p.status = r.status;
       const at = r.registeredAt ? new Date(r.registeredAt).toISOString() : null;
       if (at) {
@@ -2067,6 +2099,27 @@ export class DatabaseStorage implements IStorage {
 
     const players = Array.from(byPerson.values());
     if (players.length === 0) return [];
+
+    // ── WHICH TRAINING GROUP ─────────────────────────────────────────────────
+    // 🔴 The season is the TERM's year, not today's. A Term 4 2026 roll opened
+    // in January must still grade by 2026, or every player silently ages up on
+    // New Year's Day. Falls back to the NZ year only when no term is in view.
+    let seasonYear: number;
+    if (typeof termId === "number") {
+      const [t] = await db.select({ year: terms.year }).from(terms).where(eq(terms.id, termId));
+      seasonYear = t?.year ?? Number(nzTodayIso().slice(0, 4));
+    } else {
+      seasonYear = Number(nzTodayIso().slice(0, 4));
+    }
+    for (const p of players) {
+      const g = trainingGroupFor(
+        p.dateOfBirth, seasonYear, (p as any)._override ?? null, (p as any)._optionName ?? null);
+      p.trainingGroup = g.group;
+      p.trainingGroupSource = g.source;
+      p.trainingGroupGrade = g.grade;
+      delete (p as any)._override;
+      delete (p as any)._optionName;
+    }
 
     // child_medical in one pass — allergies and EpiPen matter most on a roll.
     const childIds = players.filter(p => p.personType === "child").map(p => p.personId);

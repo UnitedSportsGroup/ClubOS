@@ -12,6 +12,8 @@ import { CoachOverview } from "@/components/coach-overview";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
+import { UNGRADED_LABEL, sortGroups, trainingGroupLabel } from "@shared/training-groups";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { withFrom, useBackTo } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
@@ -1742,6 +1744,12 @@ function PlayerProfileModal({ player, onClose }: { player: RollPlayer; onClose: 
 }
 
 type ProgramPlayer = {
+  /** "U9"… derived from the birth year, or a coach's override. Null when there
+   *  is no usable date of birth — an unanswered question, never a group. */
+  trainingGroup?: string | null;
+  trainingGroupSource?: "override" | "derived" | "unknown";
+  trainingGroupGrade?: number | null;
+  trainingGroupRegistrationId?: number | null;
   key: string;
   personType: "contact" | "child";
   personId: number;
@@ -1905,6 +1913,7 @@ function SortHeader({ label, sortKey: key, active, dir, onSort, align = "left", 
 
 function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; detailPath: string }) {
   const [, navigate] = useLocation();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -2021,6 +2030,50 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
     const flip = sortKey === "age" ? -1 : 1;
     return (sortDir === "asc" ? cmp : -cmp) * flip;
   });
+
+  // ── SPLIT INTO TRAINING GROUPS ───────────────────────────────────────────
+  // Daniel, 2026-09-20: "here needs to split up into U9 Training Group, U10
+  // Training Group, U11 Training Group and U12 Training Group and show which
+  // players in which."
+  //
+  // 🔴 Only when there is something to split. A programme whose players are all
+  // one grade gets a plain list — a single heading over every row is noise, and
+  // the same reasoning as the term strip a camp does not need.
+  //
+  // 🔴 The sort inside a group is whatever the person chose at the top of the
+  // table; grouping changes the arrangement, never the order within it.
+  const groupedPlayers = (() => {
+    const by = new Map<string, ProgramPlayer[]>();
+    for (const p of filtered) {
+      const label = p.trainingGroup ?? UNGRADED_LABEL;
+      const list = by.get(label);
+      if (list) list.push(p); else by.set(label, [p]);
+    }
+    return sortGroups(filtered.map(p => p.trainingGroup ?? null))
+      .map(label => [label, by.get(label) ?? []] as const)
+      .filter(([, list]) => list.length > 0);
+  })();
+  const showGroups = groupedPlayers.length > 1;
+
+  // The grades this programme actually spans, plus whatever anyone has been
+  // moved to — never a hardcoded U9–U12, so the same control works on any
+  // programme without being edited.
+  const GROUP_CHOICES = Array.from(new Set(
+    groupedPlayers.map(([l]) => l).filter((l) => l !== UNGRADED_LABEL)
+  ));
+
+  const setGroupOverride = async (p: ProgramPlayer, group: string | null) => {
+    const regId = p.trainingGroupRegistrationId;
+    if (!regId) return;
+    try {
+      await apiRequest("PATCH", `/api/admin/registrations/${regId}/training-group`, { group });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/camps/${campId}/players`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/camps", campId, "players"] });
+      toast({ title: group ? `Moved to ${group}` : "Back to their age group" });
+    } catch (e: any) {
+      toast({ title: "Could not move them", description: e.message, variant: "destructive" });
+    }
+  };
 
   const exportCsv = () => {
     const header = ["First name", "Last name", "Date of birth", "Age", "Gender", "Status", "Sessions booked", "Paid (NZD)", "Parent", "Parent email", "Parent phone", "Allergies", "EpiPen", "Registered"];
@@ -2166,10 +2219,29 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                 {showSessions && <SortHeader label="Sessions" sortKey="sessions" active={sortKey === "sessions"} dir={sortDir} onSort={toggleSort} align="center" className="hidden sm:table-cell" />}
                 {showPaid && <SortHeader label="Paid" sortKey="paid" active={sortKey === "paid"} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell" />}
                 <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort} />
+                {showGroups && (
+                  <th className="px-4 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden md:table-cell">Group</th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => {
+              {groupedPlayers.flatMap(([label, group]) => [
+                // 🔴 A heading per training group. "Not graded" keeps its own
+                // honest heading rather than being folded into U9 to tidy the
+                // screen up — a child with no date of birth is an unanswered
+                // question, and putting them in a group is how they turn up to
+                // the wrong session.
+                ...(showGroups ? [(
+                  <tr key={`group-${label}`} className="bg-blue-500/[0.05] border-b border-blue-500/[0.06]">
+                    <td colSpan={9} className="px-4 py-1.5">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-blue-300/70" data-testid={`group-heading-${label}`}>
+                        {label === UNGRADED_LABEL ? label : `${label} Training Group`}
+                      </span>
+                      <span className="ml-2 text-[11px] text-white/30">{group.length}</span>
+                    </td>
+                  </tr>
+                )] : []),
+                ...group.map(p => {
                 const age = ageFromDob(p.dateOfBirth);
                 return (
                   <tr
@@ -2233,9 +2305,36 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                         {p.status.replace("_", " ")}
                       </Badge>
                     </td>
+                    {/* 🔴 Moving a player is the EXCEPTION — the group is
+                        derived from their birth year. "By age" clears the
+                        override and hands the decision back to the date of
+                        birth, which is why it is the first option and not a
+                        blank. stopPropagation because the row itself opens the
+                        player's profile. */}
+                    {showGroups && (
+                      <td className="px-4 py-2.5 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={p.trainingGroupSource === "override" ? (p.trainingGroup ?? "auto") : "auto"}
+                          onValueChange={(v) => setGroupOverride(p, v === "auto" ? null : v)}
+                        >
+                          <SelectTrigger className="h-7 w-[104px] text-[11px] premium-input" data-testid={`select-group-${p.key}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">
+                              {p.trainingGroupSource === "unknown" ? "By age —" : `By age · ${p.trainingGroup ?? "—"}`}
+                            </SelectItem>
+                            {GROUP_CHOICES.map((g) => (
+                              <SelectItem key={g} value={g}>{g}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    )}
                   </tr>
                 );
-              })}
+                }),
+              ])}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={4 + (showSessions ? 1 : 0) + (showPaid ? 1 : 0)} className="px-4 py-8 text-center text-[12px] text-white/25">

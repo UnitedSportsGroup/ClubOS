@@ -1,5 +1,6 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
+import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
@@ -4298,6 +4299,51 @@ export async function registerRoutes(
    * the number of rows you get when you click it. A tab whose filter says 146
    * and then shows 151 is worse than no filter.
    */
+  /**
+   * Move ONE player up or down a training group.
+   *
+   * 🔴 The group is normally DERIVED from the birth year, so this writes the
+   * exception only. Sending null clears it and the date of birth decides again
+   * — that is why the column is nullable with no default.
+   *
+   * 🔴 Who moved them is taken from the SESSION, never the body. Playing up a
+   * grade is normal; playing down is what gets a club sanctioned, so the
+   * decision carries a name that the caller cannot choose.
+   *
+   * 🔴 A label we cannot parse is refused rather than stored. An unreadable
+   * override would fall back to the derived grade and silently do nothing,
+   * which looks exactly like the save having worked.
+   */
+  app.patch("/api/admin/registrations/:id/training-group", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const reg = await storage.getRegistration(id);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      const program = await storage.getProgram(reg.programId);
+      // Out of the caller's workspaces → 404, not 403: the id must not confirm existence.
+      if (!inRegistrationScope(await registrationOrgScope(req), program?.organizationId)) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      const raw = (req.body ?? {}).group;
+      const clearing = raw === null || raw === "" || raw === undefined;
+      const grade = clearing ? null : gradeFromLabel(String(raw));
+      if (!clearing && grade === null) {
+        return res.status(400).json({ message: "A training group looks like \"U11\"." });
+      }
+
+      await db.update(registrations).set({
+        trainingGroup: clearing ? null : trainingGroupLabel(grade!),
+        trainingGroupSetBy: clearing ? null : ((req.session as any)?.userId ?? null),
+        trainingGroupSetAt: clearing ? null : new Date(),
+      }).where(eq(registrations.id, id));
+
+      res.json({ ok: true, group: clearing ? null : trainingGroupLabel(grade!) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/:id/term-counts", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(String(req.params.id));
@@ -20003,7 +20049,7 @@ export async function registerRoutes(
       // number (season year − birth year), which is all a roll needs.
       const { rows } = await db.execute(sql.raw(`
         SELECT r.id, r.status, r.total_cents, r.currency, r.registered_at,
-               r.contact_id, r.term_id, r.program_option_id,
+               r.contact_id, r.term_id, r.program_option_id, r.training_group,
                t.name as term_name, t.year as term_year, t.term_number,
                o.name as option_name,
                CASE WHEN c.date_of_birth IS NOT NULL AND COALESCE(r.season_year, p.season_year, t.year) IS NOT NULL
@@ -20049,6 +20095,13 @@ export async function registerRoutes(
           termLabel: r.term_id ? `Term ${r.term_number} ${r.term_year}` : null,
           optionId: r.program_option_id ?? null,
           optionName: r.option_name ?? null,
+          // 🔴 A coach's explicit override in ClubOS, when there is one. It
+          // must ride the feed or the Players tab and the coach's roll would
+          // place the same child in two different groups — the exact "two
+          // screens disagreeing" failure the rest of this file exists to stop.
+          // Null means nobody overrode anything, so the option and then the
+          // birth-year grade decide, in that order.
+          trainingGroup: r.training_group ?? null,
           grade: r.grade == null ? null : Number(r.grade),
         })),
         total: Number(countRows[0]?.total || 0),
