@@ -72,5 +72,14 @@ export const HIDDEN_BY_WORKSPACE: Record<string, string[]> = {
     // workspaces, which is where somebody would look for them.
     "fm-competitions",
   ],
+  "united-sports-group": [
+    // Projects — the July work-management boards. Daniel, 2026-09-21: "the
+    // task tracker is essentially the same thing… some cool features in there
+    // which we may bring into that task tracker in the future, but let's just
+    // hide that for now." Route, boards and data untouched; delete this line
+    // to bring it back. Per-workspace, not global: "projects" in United Prints
+    // is the print-projects board, a different page.
+    "projects",
+  ],
 };
 

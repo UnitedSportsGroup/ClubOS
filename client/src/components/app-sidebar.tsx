@@ -108,6 +108,15 @@ const feedbackSecondary = { tab: "feedback", title: "Feedback", url: "/admin/fee
 // Universal "Chat" tab — the in-house Slack (staff channels + DMs). Same
 // universal pattern as Feedback: every workspace, requireAuth-gated.
 const chatSecondary = { tab: "chat", title: "Chat", url: "/admin/chat", icon: MessagesSquare };
+// Universal "POS" — the register sells every brand from ONE counter, so it
+// belongs with the things you reach from anywhere. Daniel, 2026-09-21: "it
+// works across multiple things (like with the mini football store, South
+// Island United). It's just more of a system that you can just find there at
+// any time when you need it quickly." NOT requireAuth-only like the rest of
+// System: it is still granted per person (tick POS in Team), and both this
+// link and the API honour that grant from whichever workspace you stand in
+// (@shared/tabs canAccessTabAnywhere · server requireTabAnywhere).
+const posSecondary = { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag };
 // Universal "Drive" tab — the club's own file store. Same universal pattern:
 // every workspace, requireAuth-gated server-side, visibility judged per FILE.
 const driveSecondary = { tab: "drive", title: "Drive", url: "/admin/drive", icon: HardDrive };
@@ -158,7 +167,7 @@ const MOVED_TO_ACCOUNT_MENU = new Set([
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
-import { canAccessTab } from "@shared/tabs";
+import { canAccessTab, canAccessTabAnywhere } from "@shared/tabs";
 import { HIDDEN_GLOBAL, HIDDEN_BY_WORKSPACE } from "@shared/sidebar-hidden";
 import { fromParam } from "@/lib/back-to";
 
@@ -177,7 +186,6 @@ type Org = {
 // filters items at render time based on the user's userTabs whitelist.
 const campsNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
@@ -239,7 +247,6 @@ const siuNav = [
 
 const venueNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
@@ -268,7 +275,6 @@ const campsSecondary = [
 
 const leagueNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
@@ -314,7 +320,6 @@ const leagueSecondary = [
 
 const tournamentNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-  { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
@@ -414,7 +419,6 @@ const groupNav = [
       { tab: "cashflow", title: "Cashflow", url: "/admin/cashflow", icon: Waves },
     ],
   },
-  { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
@@ -725,7 +729,9 @@ export function AppSidebar() {
   // and lose their place. See lib/back-to.
   const from = fromParam(search);
   const location = from ?? rawLocation;
-  const { currentOrg, cicView } = useWorkspace();
+  // `organizations` = every workspace this person belongs to, with their role
+  // and tab grants — what decides whether the register is theirs to reach.
+  const { currentOrg, cicView, organizations } = useWorkspace();
   // avatarUrl is OPTIONAL on this type on purpose — a ClubOS server that
   // predates the avatar column omits the key entirely, and the footer must
   // still render initials rather than break.
@@ -780,6 +786,8 @@ export function AppSidebar() {
   // account menu, and two unfinished tools are hidden. See the two sets at
   // the top of this file; both are one-line reversible.
   const secondaryNav = [
+    // The register first — it is the one System item somebody needs in a hurry.
+    ...(canAccessTabAnywhere(user?.role, organizations ?? [], "pos") ? [posSecondary] : []),
     ...allSecondaryNav.filter(
       (item) =>
         !MOVED_TO_ACCOUNT_MENU.has(item.tab) &&

@@ -299,7 +299,8 @@ app.use(attributionCookieMiddleware);
   registerFinesRoutes(app);
 
   // POS — one register for every brand, every programme, every counter. Gated by
-  // requireTab("pos"); NOT super-admin-locked (Olga, Travis, Zach, Isaac). Money
+  // requireTabAnywhere("pos") — the POS tick in Team, honoured from every
+  // workspace; NOT super-admin-locked (Olga, Travis, Zach, Isaac). Money
   // rules live in Postgres (migrations/2026-09-09_pos.sql).
   const { registerPosRoutes } = await import("./pos-routes");
   registerPosRoutes(app);

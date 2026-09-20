@@ -536,3 +536,35 @@ export function canAccessTab({
   if (membershipTabs == null) return true;
   return membershipTabs.includes(tabSlug);
 }
+
+/**
+ * May this person reach a tab from ANY workspace they belong to?
+ *
+ * For the few tools that are ONE thing for the whole organisation but are
+ * still granted per person. First: the POS register (Daniel, 2026-09-21:
+ * "it works across multiple things… a system that you can just find there at
+ * any time when you need it quickly"). The grant is unchanged — the POS tick
+ * in Team — what changed is that the sidebar link and the API honour it from
+ * whichever workspace the person is standing in.
+ *
+ * 🔴 A membership only counts in a workspace whose tab list actually HAS the
+ * tab. `canAccessTab` answers true for ANY slug when a membership has no
+ * whitelist, so without this an unrestricted member of United Prints — which
+ * has no register — would be deemed a seller.
+ */
+export function canAccessTabAnywhere(
+  globalRole: string | null | undefined,
+  memberships: { slug: string; userRole?: string | null; userTabs?: string[] | null; userUnlockedTabs?: string[] | null }[],
+  tabSlug: string,
+): boolean {
+  if (globalRole === "super_admin") return true;
+  return memberships.some((m) =>
+    tabsForOrgSlug(m.slug).some((t) => t.slug === tabSlug) &&
+    canAccessTab({
+      globalRole,
+      membershipRole: m.userRole,
+      membershipTabs: m.userTabs,
+      membershipUnlockedTabs: m.userUnlockedTabs,
+      tabSlug,
+    }));
+}
