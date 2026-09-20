@@ -24,8 +24,9 @@
 //   POST  /api/admin/pos/terminal/connection-token   { registerId }   (the app SDK, phase 4)
 //   GET   /api/public/pos/receipt/:token             the customer's receipt, by 128-bit token
 //
-// Access. `requireAuth` + `requireTab("pos")`. NOT super-admin-locked: Olga,
-// Travis, Zach and Isaac are the users. Selling is low blast radius; refunds
+// Access. `requireAuth` + `requireTabAnywhere("pos")` — the POS tick in Team,
+// honoured from EVERY workspace since 2026-09-21 (the link lives in the System
+// section now). NOT super-admin-locked: Olga, Travis, Zach and Isaac are the users. Selling is low blast radius; refunds
 // keep the explicit per-person `can_issue_refunds` flag with no role bypass.
 //
 // Scope. Deliberately NOT by workspace header — the whole point is one register
@@ -41,7 +42,7 @@ import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
 import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "./db";
-import { requireAuth, requireTab, requireRefundPermission } from "./auth";
+import { requireAuth, requireTabAnywhere, requireRefundPermission } from "./auth";
 import { storage } from "./storage";
 import {
   organizations, users, contacts, programs, programOptions, registrations,
@@ -280,7 +281,7 @@ async function shiftSummary(shiftId: number) {
 }
 
 export function registerPosRoutes(app: Express) {
-  const gate = [requireAuth, requireTab("pos")] as const;
+  const gate = [requireAuth, requireTabAnywhere("pos")] as const;
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
   app.get("/api/admin/pos/bootstrap", ...gate, async (req, res) => {
@@ -748,7 +749,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Refunds: the explicit flag, no role bypass ────────────────────────────
-  app.post("/api/admin/pos/sales/:id/refunds", requireAuth, requireTab("pos"), requireRefundPermission, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/refunds", requireAuth, requireTabAnywhere("pos"), requireRefundPermission, async (req, res) => {
     try {
       const sale = await loadSale(num(req.params.id));
       if (!sale) return res.status(404).json({ message: "Sale not found." });

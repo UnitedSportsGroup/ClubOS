@@ -72,7 +72,8 @@ async function main() {
   const refunder = await mkUser("coach", ["pos"], true);       // sells and refunds
   const outsider = await mkUser("coach", ["registrations"], false); // no register tab
 
-  const S = api(await login(seller.email, seller.password));
+  const sellerCookie = await login(seller.email, seller.password);
+  const S = api(sellerCookie);
   const R = api(await login(refunder.email, refunder.password));
   const O = api(await login(outsider.email, outsider.password));
 
@@ -84,6 +85,13 @@ async function main() {
 
   const boot = await S("GET", "/api/admin/pos/bootstrap");
   ok("a staffer with the tab gets the register", boot.status === 200 && Array.isArray(boot.body?.registers));
+  // The register is reached from EVERY workspace (2026-09-21): the grant is
+  // still the POS tick in Team, honoured wherever the person stands — so no
+  // workspace header, or the header of a workspace they are not in, still sells.
+  const noHeader = await fetch(`${BASE}/api/admin/pos/bootstrap`, { headers: { cookie: sellerCookie } });
+  ok("a seller reaches the register with no workspace header at all", noHeader.status === 200, `HTTP ${noHeader.status}`);
+  const elsewhere = await fetch(`${BASE}/api/admin/pos/bootstrap`, { headers: { cookie: sellerCookie, "X-Workspace-Slug": "united-prints" } });
+  ok("…and from a workspace they are not even a member of", elsewhere.status === 200, `HTTP ${elsewhere.status}`);
   ok("the seller is told they cannot refund", boot.body?.me?.canIssueRefunds === false);
   const brands: any[] = boot.body?.brands ?? [];
   const cufc = brands.find((b) => b.slug === "christchurch-united");

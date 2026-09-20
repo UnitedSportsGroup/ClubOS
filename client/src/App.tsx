@@ -75,6 +75,7 @@ import CodingBudget from "@/pages/coding-budget";
 import EquipmentHolder from "@/pages/equipment-holder";
 import GroupSponsors from "@/pages/group-sponsors";
 import MarketingHub from "@/pages/marketing-hub";
+import FinanceInsight from "@/pages/finance-insight";
 import GroupVideos from "@/pages/group-videos";
 import GroupVideoRecord from "@/pages/group-video-record";
 import GroupVideoDetail from "@/pages/group-video-detail";
@@ -151,6 +152,7 @@ import MflRefGameDetail from "@/pages/mfl-ref/MflRefGameDetail";
 import CugcInbox from "@/pages/cugc-inbox";
 import CugcRegistrations from "@/pages/cugc-registrations";
 import CugcFreeSessions from "@/pages/cugc-free-sessions";
+import CugcRoll from "@/pages/cugc-roll";
 import CugcAnalytics from "@/pages/cugc-analytics";
 import CugcMailer from "@/pages/cugc-mailer";
 import LeagueBuilderPage from "@/pages/league-builder-page";
@@ -306,6 +308,11 @@ function AdminRouter() {
   // form, not for the workspace you happened to be standing in; the old
   // per-workspace /admin/links path still resolves here for old bookmarks.
   if (location.startsWith("/admin/qr-codes") || location.startsWith("/admin/links")) return <LinksPage />;
+  // POS — one register selling every brand from one counter, reached from
+  // every workspace's System section (Daniel, 2026-09-21). Gated server-side
+  // by the person's POS grant in ANY workspace (requireTabAnywhere), so the
+  // page is the same page whichever workspace you opened it from.
+  if (location.startsWith("/admin/pos")) return <PosRegister />;
   const isVenue = currentOrg?.slug === "united-sports-centre";
   const isLeague = currentOrg?.slug === "mini-football-leagues";
   const isTournament = currentOrg?.slug === "christchurch-international-cup";
@@ -394,7 +401,6 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={GroupDashboard} />
-        <Route path="/admin/pos" component={PosRegister} />
         <Route path="/admin/calendar" component={GroupCalendar} />
         <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/content" component={GroupContent} />
@@ -420,6 +426,7 @@ function AdminRouter() {
         <Route path="/admin/accommodation" component={VenueHousing} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/marketing-hub" component={MarketingHub} />
+        <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />
         <Route path="/admin/videos/record" component={GroupVideoRecord} />
         <Route path="/admin/videos/:id" component={GroupVideoDetail} />
@@ -452,6 +459,7 @@ function AdminRouter() {
             generic camp-style pipeline) — website enrolments land in Registrations. */}
         <Route path="/admin/programs" component={CugcPrograms} />
         <Route path="/admin/cugc-registrations" component={CugcRegistrations} />
+        <Route path="/admin/cugc-roll" component={CugcRoll} />
         <Route path="/admin/cugc-free-sessions" component={CugcFreeSessions} />
         <Route path="/admin/cugc-analytics" component={CugcAnalytics} />
         <Route path="/admin/cugc-inbox" component={CugcInbox} />
@@ -492,7 +500,6 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={TournamentDashboard} />
-        <Route path="/admin/pos" component={PosRegister} />
         <Route path="/admin/tournaments/:tournamentId/teams/:teamId" component={TournamentTeamDetail} />
         <Route path="/admin/tournaments/:id" component={TournamentDetail} />
         <Route path="/admin/tournaments" component={TournamentList} />
@@ -543,7 +550,6 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={LeagueDashboard} />
-        <Route path="/admin/pos" component={PosRegister} />
         <Route path="/admin/competitions/:id/divisions/:divisionId" component={LeagueDetail} />
         <Route path="/admin/competitions/:id" component={LeagueCompetitionDetail} />
         <Route path="/admin/competitions" component={LeagueCompetitions} />
@@ -598,7 +604,6 @@ function AdminRouter() {
     return (
       <Switch>
         <Route path="/admin" component={VenueDashboard} />
-        <Route path="/admin/pos" component={PosRegister} />
         <Route path="/admin/calendar" component={VenueCalendar} />
         <Route path="/admin/bookings" component={VenueBookings} />
         <Route path="/admin/booking-requests" component={VenueBookingRequests} />
@@ -634,7 +639,6 @@ function AdminRouter() {
   return (
     <Switch>
       <Route path="/admin" component={AdminDashboard} />
-      <Route path="/admin/pos" component={PosRegister} />
       <Route path="/admin/camps" component={AdminCamps} />
       <Route path="/admin/camps/:id/edit-page" component={AdminEditPage} />
       <Route path="/admin/camps/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />

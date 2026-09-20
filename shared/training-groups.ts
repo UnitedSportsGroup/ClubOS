@@ -56,16 +56,51 @@ export function gradeFromLabel(label: string | null | undefined): number | null 
   return n >= 1 && n <= 21 ? n : null;
 }
 
+/**
+ * 🔴 THE SAME PRECEDENCE THE COACHING PLATFORM USES, deliberately.
+ * `apps/cufc-coaching/api/_lib/clubos.ts:trainingGroupAge()` places a child on
+ * Paul's Term 4 roll, and if this page ordered the rules differently the same
+ * child would appear in U10 here and U11 there. The order is:
+ *
+ *   1. An explicit OVERRIDE set by a coach — a human decision about one child.
+ *   2. The OPTION the family bought, when it names one age ("U10"). That is a
+ *      statement by the family, and playing up a grade is legal, so it beats
+ *      arithmetic on a birthday.
+ *   3. A PAIRED option ("U9–U10"): their birth-year grade CLAMPED into the pair
+ *      they paid for, so a child playing up never lands in a group their fee
+ *      did not cover.
+ *   4. The birth-year grade.
+ *
+ * If you change this order, change it in both files in the same commit.
+ */
 export function trainingGroupFor(
   dobIso: string | null | undefined,
   seasonYear: number,
   override?: string | null,
+  optionName?: string | null,
 ): TrainingGroupResult {
   const overrideGrade = gradeFromLabel(override);
   if (overrideGrade !== null) {
     return { group: trainingGroupLabel(overrideGrade), source: "override", grade: overrideGrade };
   }
+
   const grade = ageGradeFor(dobIso, seasonYear);
+  const name = String(optionName ?? "").trim();
+
+  const single = /^U(\d{1,2})$/i.exec(name);
+  if (single) {
+    const g = Number(single[1]);
+    return { group: trainingGroupLabel(g), source: "derived", grade: g };
+  }
+
+  const pair = /^U(\d{1,2})\s*[–—-]\s*U(\d{1,2})$/i.exec(name);
+  if (pair) {
+    const lo = Math.min(Number(pair[1]), Number(pair[2]));
+    const hi = Math.max(Number(pair[1]), Number(pair[2]));
+    const g = grade === null ? lo : Math.min(hi, Math.max(lo, grade));
+    return { group: trainingGroupLabel(g), source: "derived", grade: g };
+  }
+
   if (grade === null) return { group: null, source: "unknown", grade: null };
   return { group: trainingGroupLabel(grade), source: "derived", grade };
 }

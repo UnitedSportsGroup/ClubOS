@@ -140,6 +140,17 @@ if ! node script/check-workspace-fetch.mjs; then
   exit 91
 fi
 
+# 🔴 cugc.co.nz holds its OWN copy of the gymnastics terms and prices, because
+# it is a separate app on a separate host. If the two drift, a parent reads one
+# price and is charged another — and nothing looks broken. (Term 4 opened
+# 2026-09-20; before that a finished term still quoted its full price.)
+echo ""
+echo "── Do cugc.co.nz and ClubOS agree about terms and prices? ──"
+if ! npx tsx script/check-cugc-terms.ts; then
+  echo "   The gymnastics site and ClubOS disagree. Fix before deploying."
+  exit 92
+fi
+
   npx tsx --env-file=.env script/preflight-deploy.ts || {
     echo "❌ Pre-deploy check failed — not shipping. (PREFLIGHT_SKIP=1 to override deliberately.)"
     exit 1

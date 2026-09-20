@@ -14,6 +14,8 @@ import { useSearch, useLocation } from "wouter";
 import { programDetailPath } from "@/lib/program-path";
 import type { Program } from "@shared/schema";
 import { RegisterPlayerModal } from "./admin-register-player";
+import { groupCampSeries, editionLabel, type CampSeries } from "@shared/programme-series";
+import { nzTodayIso } from "@shared/management";
 
 type AcademyProgram = Program & { academySection?: string };
 
@@ -245,6 +247,104 @@ function ProgramTable({ programs, regCounts, navigate, emptyMessage }: {
   );
 }
 
+/**
+ * Holiday camps, ONE ROW PER CAMP. The same camp runs every school holiday as
+ * its own `programs` row (its own dates, prices, sessions, registrations and
+ * public page), and this list used to show every one of them — four rows for
+ * two camps. Daniel, 2026-09-21: "Keep the programs just to the programs, and
+ * then inside you've got the selectors of the different timeframes."
+ *
+ * A row is the camp's CURRENT edition (on sale, or next up — the same rule the
+ * page inside opens on): its dates, ages, status and registrations, with how
+ * many camps the series holds beneath the name. Opening the row opens that
+ * edition; the timeframe chips on the page reach every other one.
+ */
+function CampSeriesTable({ series, regCounts, navigate, emptyMessage }: {
+  series: CampSeries<AcademyProgram>[];
+  regCounts: Record<number, number>;
+  navigate: (path: string) => void;
+  emptyMessage: string;
+}) {
+  if (series.length === 0) {
+    return (
+      <div className="py-6 text-center">
+        <p className="text-[12px] text-white/20">{emptyMessage}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[500px]" data-testid="table-camp-series">
+        <thead>
+          <tr className="border-b border-blue-500/[0.08]">
+            <th className="text-left px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Program</th>
+            <th className="text-left px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold hidden md:table-cell">Period</th>
+            <th className="text-left px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold hidden lg:table-cell">Ages</th>
+            <th className="text-center px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Status</th>
+            <th className="text-center px-5 py-3 text-[11px] text-blue-300/25 uppercase tracking-wider font-semibold">Registrations</th>
+            <th className="w-10 px-3 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {series.map((s, idx) => {
+            const current = s.current;
+            const count = regCounts[current.id] ?? 0;
+            const slug = s.key.replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+            return (
+              <tr
+                key={s.key}
+                // The section owns the URL (see ProgramTable) — this row opens
+                // the current edition under /admin/academy.
+                onClick={() => navigate(`/admin/academy/${current.id}`)}
+                className={`group cursor-pointer transition-colors duration-200 hover:bg-blue-500/[0.04] ${idx < series.length - 1 ? "border-b border-blue-500/[0.05]" : ""}`}
+                data-testid={`row-camp-series-${slug}`}
+              >
+                <td className="px-5 py-3.5">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-medium text-white/80" data-testid={`text-camp-series-${slug}`}>{s.name}</span>
+                    <span className="text-[11px] text-blue-400/30">
+                      {s.editions.length === 1
+                        ? editionLabel(current.startDate, current.endDate)
+                        : `${s.editions.length} camps · ${editionLabel(current.startDate, current.endDate)}`}
+                      {current.slug ? ` · /${current.slug}` : ""}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-5 py-3.5 hidden md:table-cell">
+                  <span className="text-[12px] text-white/40">{formatDateRange(current.startDate, current.endDate)}</span>
+                </td>
+                <td className="px-5 py-3.5 hidden lg:table-cell">
+                  <span className="text-[12px] text-white/40">{ageLabel(current)}</span>
+                </td>
+                <td className="px-5 py-3.5 text-center">
+                  {current.isActive ? (
+                    <Badge variant="outline" className="text-[9px] text-emerald-400/70 border-emerald-500/15 bg-emerald-500/10 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate">
+                      Active
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[9px] text-white/30 border-white/10 bg-white/[0.03] uppercase tracking-wider no-default-hover-elevate no-default-active-elevate">
+                      Inactive
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-5 py-3.5 text-center">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-400/30" />
+                    <span className="text-[13px] text-white/60 font-medium">{count}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-3.5 text-right">
+                  <ChevronRight className="w-4 h-4 text-white/15 group-hover:text-blue-400/50 transition-colors duration-200" />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminAcademy() {
   const search = useSearch();
   const [, navigate] = useLocation();
@@ -276,6 +376,8 @@ export default function AdminAcademy() {
     c.name.toLowerCase().includes(filter.toLowerCase()) ||
     c.slug?.toLowerCase().includes(filter.toLowerCase())
   );
+  // One row per camp, not per school holiday — see CampSeriesTable.
+  const campSeries = groupCampSeries(campPrograms, nzTodayIso());
 
   return (
     <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
@@ -376,11 +478,11 @@ export default function AdminAcademy() {
                 <Tent className="w-4 h-4 text-primary/50" />
                 <h2 className="text-[13px] font-semibold text-white/60">Holiday Camps</h2>
                 <Badge variant="outline" className="text-[9px] text-primary border-primary/20 bg-primary/5 ml-auto no-default-hover-elevate no-default-active-elevate">
-                  {campPrograms.length}
+                  {campSeries.length}
                 </Badge>
               </div>
-              <ProgramTable
-                programs={campPrograms}
+              <CampSeriesTable
+                series={campSeries}
                 regCounts={regCounts || {}}
                 navigate={navigate}
                 emptyMessage="No holiday camps yet."

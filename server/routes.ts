@@ -1,12 +1,14 @@
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
+import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches } from "@shared/schema";
+import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, cugcAttendance, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches } from "@shared/schema";
 import { isValidApiScope, API_SCOPES, normalizeProgramFilter, programFilterIsEmpty, programFilterSqlCondition, describeProgramFilter, rejectedProgramTokens, unknownProgramTypes, scopesOutsideProgramFilter, PROGRAM_TYPES, type ProgramFilter } from "@shared/api-scopes";
 import { apiSecurityHeaders, clientIp, isIpBlocked, recordAuthFailure, keyRateLimitExceeded, noteScopeDenial, API_KEY_RATE_LIMIT_PER_MIN } from "./api-security";
 import { isExpoPushToken, sendSinglePush, runPushBroadcastQueue } from "./push";
@@ -33,7 +35,14 @@ import * as tp from "./teampay";
 import { teampayEntries } from "@shared/schema";
 import { sendEmail, sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueSignupNotification, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail, sendSplitTeamConfirmedEmail, sendLeagueBroadcastEmail, sendMflContactNotification, sendFootballInstituteApplicationNotification, sendCic7sRegistrationNotification, sendCicContactNotification, sendCugcContactNotification, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification, sendCugcFreeSessionConfirmation, sendCugcFreeSessionNotification, sendClubLogoConsentNotification, sendCicBroadcastEmail, sendMflWaitlistConfirmation, sendMflWaitlistNotification, sendLeaguePaymentReminderEmail, sendMembershipWelcomeEmail, sendMembershipNotificationEmail, sendChatNewConversationNotification, sendChatReplyNotification, sendCicInterestNotification, sendCufcContactNotification, sendCufcBroadcastEmail, sendCugcBroadcastEmail, sendCicVolunteerNotification, sendClubLogoLicenceCopy, sendRefundConfirmationEmail } from "./email";
 import { cugcStripe, constructCugcWebhookEvent } from "./cugc-stripe";
-import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_TERM, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
+import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
+// nzTodayIso is already imported below from shared/academy — same Intl
+// implementation, and an eighth copy of it is the last thing this repo needs.
+import {
+  CUGC_TERMS, resolveTermForSale, termStatus, isSellable, defaultTerm,
+  termByName, termWindowLabel, type CugcTerm,
+} from "@shared/cugc-terms";
+import { allClasses, classById, classesForRegistration, classDatesInTerm, CUGC_CLASSES } from "@shared/cugc-classes";
 import * as splitPay from "./split-pay";
 import { markInvoicePaidByPaymentIntent } from "./invoice-routes";
 import * as rewards from "./rewards";
@@ -3754,6 +3763,44 @@ export async function registerRoutes(
     }
   });
 
+  // Every EDITION of this holiday camp — the timeframe selector on its page.
+  // One camp is run every school holiday as its own `programs` row; the SERIES
+  // they belong to is derived from the name (@shared/programme-series), and
+  // only rows in the SAME organisation count. Counts and money follow the one
+  // registration rule (@shared/registrations): paid, refunded, part-refunded.
+  app.get("/api/admin/camps/:id/editions", requireAuth, async (req, res) => {
+    try {
+      const camp = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!camp) return res.status(404).json({ message: "Camp not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, camp.organizationId)) return res.status(404).json({ message: "Camp not found" });
+      const key = seriesKey(camp.name);
+      const siblings = (await storage.getPrograms()).filter(p =>
+        p.type === "holiday_camp" && p.organizationId === camp.organizationId && seriesKey(p.name) === key);
+      const ids = siblings.map(p => p.id);
+      const stats = new Map<number, { n: number; cents: number }>();
+      if (ids.length > 0) {
+        const rows: any = await db.execute(sql`
+          SELECT program_id, count(*)::int AS n, coalesce(sum(total_cents), 0)::bigint AS cents
+          FROM registrations
+          WHERE program_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
+            AND status IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+          GROUP BY program_id`);
+        for (const r of rows.rows ?? []) stats.set(Number(r.program_id), { n: Number(r.n), cents: Number(r.cents) });
+      }
+      const editions = sortEditions(siblings.map(p => ({
+        id: p.id, name: p.name, slug: p.slug, startDate: p.startDate, endDate: p.endDate,
+        isActive: !!p.isActive, registrationOpen: !!p.registrationOpen,
+        label: editionLabel(p.startDate, p.endDate),
+        registrations: stats.get(p.id)?.n ?? 0,
+        revenueCents: stats.get(p.id)?.cents ?? 0,
+      })));
+      res.json({ series: seriesName(camp.name), currentId: currentEditionId(editions, nzTodayIso()), editions });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.patch("/api/admin/camps/:id", requireAuth, async (req, res) => {
     try {
       const camp = await storage.updateProgram(parseInt(req.params.id), req.body);
@@ -4299,6 +4346,51 @@ export async function registerRoutes(
    * the number of rows you get when you click it. A tab whose filter says 146
    * and then shows 151 is worse than no filter.
    */
+  /**
+   * Move ONE player up or down a training group.
+   *
+   * 🔴 The group is normally DERIVED from the birth year, so this writes the
+   * exception only. Sending null clears it and the date of birth decides again
+   * — that is why the column is nullable with no default.
+   *
+   * 🔴 Who moved them is taken from the SESSION, never the body. Playing up a
+   * grade is normal; playing down is what gets a club sanctioned, so the
+   * decision carries a name that the caller cannot choose.
+   *
+   * 🔴 A label we cannot parse is refused rather than stored. An unreadable
+   * override would fall back to the derived grade and silently do nothing,
+   * which looks exactly like the save having worked.
+   */
+  app.patch("/api/admin/registrations/:id/training-group", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const reg = await storage.getRegistration(id);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      const program = await storage.getProgram(reg.programId);
+      // Out of the caller's workspaces → 404, not 403: the id must not confirm existence.
+      if (!inRegistrationScope(await registrationOrgScope(req), program?.organizationId)) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      const raw = (req.body ?? {}).group;
+      const clearing = raw === null || raw === "" || raw === undefined;
+      const grade = clearing ? null : gradeFromLabel(String(raw));
+      if (!clearing && grade === null) {
+        return res.status(400).json({ message: "A training group looks like \"U11\"." });
+      }
+
+      await db.update(registrations).set({
+        trainingGroup: clearing ? null : trainingGroupLabel(grade!),
+        trainingGroupSetBy: clearing ? null : ((req.session as any)?.userId ?? null),
+        trainingGroupSetAt: clearing ? null : new Date(),
+      }).where(eq(registrations.id, id));
+
+      res.json({ ok: true, group: clearing ? null : trainingGroupLabel(grade!) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/camps/:id/term-counts", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(String(req.params.id));
@@ -20015,7 +20107,7 @@ export async function registerRoutes(
       // number (season year − birth year), which is all a roll needs.
       const { rows } = await db.execute(sql.raw(`
         SELECT r.id, r.status, r.total_cents, r.currency, r.registered_at,
-               r.contact_id, r.term_id, r.program_option_id,
+               r.contact_id, r.term_id, r.program_option_id, r.training_group,
                t.name as term_name, t.year as term_year, t.term_number,
                o.name as option_name,
                CASE WHEN c.date_of_birth IS NOT NULL AND COALESCE(r.season_year, p.season_year, t.year) IS NOT NULL
@@ -20061,6 +20153,13 @@ export async function registerRoutes(
           termLabel: r.term_id ? `Term ${r.term_number} ${r.term_year}` : null,
           optionId: r.program_option_id ?? null,
           optionName: r.option_name ?? null,
+          // 🔴 A coach's explicit override in ClubOS, when there is one. It
+          // must ride the feed or the Players tab and the coach's roll would
+          // place the same child in two different groups — the exact "two
+          // screens disagreeing" failure the rest of this file exists to stop.
+          // Null means nobody overrode anything, so the option and then the
+          // birth-year grade decide, in that order.
+          trainingGroup: r.training_group ?? null,
           grade: r.grade == null ? null : Number(r.grade),
         })),
         total: Number(countRows[0]?.total || 0),
@@ -24465,8 +24564,18 @@ export async function registerRoutes(
       const email = String(req.body.email || "").trim();
       const gymnastName = String(req.body.gymnastName || "").trim();
 
+      // 🔴 Server-authoritative TERM as well as price. The browser used to send
+      // the term as a free-text name which was stored unchecked, so a stale
+      // page — or anyone with curl — could file a paid enrolment under a term
+      // that had already finished. It now sends an id and the server decides;
+      // a missing id is tolerated because cugc.co.nz and ClubOS deploy
+      // separately and the strict server may land first.
+      const termResolution = resolveTermForSale(String(req.body.termId || "").trim() || null);
+      if (!termResolution.ok) return res.status(400).json({ message: termResolution.message });
+      const sellingTerm = termResolution.term;
+
       // Server-authoritative price. Anything the client sent is ignored.
-      const priced = computeCugcEnrolPrice(programSlug, optionIndex);
+      const priced = computeCugcEnrolPrice(programSlug, optionIndex, sellingTerm);
       if (!priced) return res.status(400).json({ message: "That program or option isn't available." });
       if (!parentName || !/.+@.+\..+/.test(email) || !gymnastName) {
         return res.status(400).json({ message: "Please add the gymnast's name, your name and a valid email." });
@@ -24489,7 +24598,10 @@ export async function registerRoutes(
 
       const priceCents = discount ? discount.priceCentsOverride : pricing.price * 100;
       const fullPriceCents = pricing.fullPrice * 100;
-      const termName = String(req.body.term || "").trim() || CUGC_TERM.name;
+      // The term the SERVER resolved and priced against — never the name the
+      // browser offered. This string is what every later count, roll and
+      // history reads back, so it is the one that has to be trustworthy.
+      const termName = sellingTerm.name;
       const orgId = await cugcOrgId();
 
       const cugcAttribution = await buildConversionAttribution(req, {
@@ -24792,7 +24904,21 @@ export async function registerRoutes(
   // Served from server/cugc-pricing.ts — the same source of truth that prices
   // the website's enrol flow, so the dashboard always mirrors cugc.co.nz.
   app.get("/api/admin/cugc/programs", requireAuth, requireTab("cugc-registrations"), async (_req, res) => {
-    res.json({ term: CUGC_TERM, programs: CUGC_PROGRAMS });
+    const today = nzTodayIso();
+    res.json({
+      // `term` is kept for older clients and means what it always did: the term
+      // being sold right now. Anything that COUNTS or DISPLAYS a registration
+      // must read the term off the row instead — this one moves.
+      term: defaultTerm(today) ?? CUGC_TERMS[CUGC_TERMS.length - 1],
+      terms: CUGC_TERMS.map((t) => ({
+        ...t,
+        status: termStatus(t, today),
+        sellable: isSellable(t, today),
+        window: termWindowLabel(t),
+      })),
+      programs: CUGC_PROGRAMS,
+      classes: allClasses(),
+    });
   });
 
   // Web admin: list CUGC enrolments (Gymnastics → Registrations).
@@ -24804,6 +24930,214 @@ export async function registerRoutes(
         .orderBy(desc(cugcRegistrations.createdAt));
       res.json(rows);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── CUGC roll ───────────────────────────────────────────────────────────────
+  // The gymnastics club had no attendance at all before 2026-09-20: nobody
+  // could answer "who was in the gym on Tuesday". These three routes are the
+  // whole feature — a timetable, a roll, and a mark.
+  //
+  // 🔴 ONLY PAID CHILDREN ARE ON A ROLL. "If you ain't paid you ain't
+  // registered" — a pending_payment row is an unfinished checkout, and putting
+  // one on a coach's roll tells them to expect a child nobody has taken money
+  // for. 12 of the 35 live rows are pending, so this is not hypothetical.
+  const CUGC_ON_ROLL = ["paid"];
+
+  /** The term a DATE falls in — never the term the club happens to be selling.
+   *  Reading the current term here is exactly the bug that made a September
+   *  roll show Term 4's five sign-ups on the CUFC academy. */
+  const cugcTermForDate = (iso: string): CugcTerm | null =>
+    CUGC_TERMS.find((t) => iso >= t.start && iso <= t.end) ?? null;
+
+  // The timetable: every class, with its dates inside a term and how many
+  // children are on it.
+  app.get("/api/admin/cugc/roll", requireAuth, requireTab("cugc-registrations"), async (req, res) => {
+    try {
+      const orgId = await cugcOrgId();
+      const today = nzTodayIso();
+      const term = termByName(String(req.query.term || "")) ?? cugcTermForDate(today) ?? defaultTerm(today);
+      if (!term) return res.status(400).json({ message: "No term to show." });
+
+      const regos = await db.select().from(cugcRegistrations)
+        .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
+      const paid = regos.filter((r) => CUGC_ON_ROLL.includes(r.status));
+
+      // Who is on each class, and who could not be placed on any.
+      const onClass = new Map<string, number>();
+      const unplaced: { id: number; name: string; programName: string; optionLabel: string; reason: string }[] = [];
+      for (const r of paid) {
+        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime);
+        if (!placement.placed) {
+          unplaced.push({
+            id: r.id, name: r.gymnastName, programName: r.programName, optionLabel: r.optionLabel,
+            reason: placement.reason === "not-recorded"
+              ? "No class was recorded at sign-up"
+              : "This programme has no timetable in ClubOS",
+          });
+          continue;
+        }
+        for (const id of placement.classIds) onClass.set(id, (onClass.get(id) ?? 0) + 1);
+      }
+
+      const marks = await db.select({ classId: cugcAttendance.classId, sessionDate: cugcAttendance.sessionDate })
+        .from(cugcAttendance)
+        .where(and(
+          eq(cugcAttendance.organizationId, orgId),
+          gte(cugcAttendance.sessionDate, term.start),
+          lte(cugcAttendance.sessionDate, term.end),
+        ));
+      const markedOn = new Set(marks.map((m) => `${m.classId}|${m.sessionDate}`));
+
+      const classes = allClasses().map((c) => {
+        const dates = classDatesInTerm(c.weekday, term.start, term.end).map((date) => ({
+          date,
+          // 🔴 "Taken" means somebody marked SOMEBODY — never that anyone was
+          // present. A class where everyone was away is still a roll that was
+          // taken, and it must not nag as though it were forgotten.
+          taken: markedOn.has(`${c.id}|${date}`),
+          past: date < today,
+          today: date === today,
+        }));
+        return { ...c, onRoll: onClass.get(c.id) ?? 0, dates };
+      });
+
+      res.json({
+        term: { ...term, status: termStatus(term, today), window: termWindowLabel(term) },
+        terms: CUGC_TERMS.map((t) => ({ ...t, status: termStatus(t, today), window: termWindowLabel(t) })),
+        today,
+        classes,
+        unplaced,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // One class on one day: the children expected, and what they were marked.
+  app.get("/api/admin/cugc/roll/:classId/:date", requireAuth, requireTab("cugc-registrations"), async (req, res) => {
+    try {
+      const orgId = await cugcOrgId();
+      const klass = classById(String(req.params.classId));
+      if (!klass) return res.status(404).json({ message: "No such class." });
+      const date = String(req.params.date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: "Bad date." });
+
+      const term = cugcTermForDate(date);
+      if (!term) return res.status(400).json({ message: "That date isn't inside a term." });
+      // A class only runs on its own weekday. Without this a URL could invent a
+      // Tuesday session for a Saturday class and take a roll on it.
+      if (!classDatesInTerm(klass.weekday, term.start, term.end).includes(date)) {
+        return res.status(400).json({ message: `${klass.label} doesn't run on that date.` });
+      }
+
+      const regos = await db.select().from(cugcRegistrations)
+        .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
+      const expected = regos
+        .filter((r) => CUGC_ON_ROLL.includes(r.status))
+        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime).classIds.includes(klass.id));
+
+      const marks = expected.length
+        ? await db.select().from(cugcAttendance).where(and(
+            eq(cugcAttendance.organizationId, orgId),
+            eq(cugcAttendance.classId, klass.id),
+            eq(cugcAttendance.sessionDate, date),
+          ))
+        : [];
+      const byRego = new Map(marks.map((m) => [m.registrationId, m]));
+
+      // Who took the roll, resolved to a name at read time. A null reads as
+      // "we don't know", never as nobody.
+      const markerIds = Array.from(new Set(marks.map((m) => m.markedByUserId).filter((n): n is number => !!n)));
+      const markers = new Map<number, string>();
+      if (markerIds.length) {
+        const rows = await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
+          .from(usersTable).where(inArray(usersTable.id, markerIds));
+        for (const u of rows) {
+          markers.set(u.id, [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || `User ${u.id}`);
+        }
+      }
+
+      res.json({
+        class: klass,
+        date,
+        term: { name: term.name, id: term.id },
+        children: expected
+          .map((r) => {
+            const mark = byRego.get(r.id);
+            return {
+              registrationId: r.id,
+              name: r.gymnastName,
+              dob: r.gymnastDob,
+              programName: r.programName,
+              optionLabel: r.optionLabel,
+              parentName: r.parentName,
+              phone: r.phone,
+              medical: r.medical,
+              // null = NOT MARKED, and it stays distinct from 'absent'
+              // everywhere. A blank roll must never read as a full one.
+              status: mark?.status ?? null,
+              markedAt: mark?.markedAt ?? null,
+              markedBy: mark?.markedByUserId ? markers.get(mark.markedByUserId) ?? null : null,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Mark one child. Tapping the status they already have clears it, because a
+  // mis-tap must be undoable back to "not marked" — not merely flipped to the
+  // opposite claim.
+  app.post("/api/admin/cugc/roll/:classId/:date", requireAuth, requireTab("cugc-registrations"), async (req, res) => {
+    try {
+      const orgId = await cugcOrgId();
+      const klass = classById(String(req.params.classId));
+      if (!klass) return res.status(404).json({ message: "No such class." });
+      const date = String(req.params.date).slice(0, 10);
+      const term = cugcTermForDate(date);
+      if (!term || !classDatesInTerm(klass.weekday, term.start, term.end).includes(date)) {
+        return res.status(400).json({ message: "That class doesn't run on that date." });
+      }
+
+      const registrationId = Number(req.body.registrationId);
+      const status = String(req.body.status || "").trim();
+      if (!Number.isInteger(registrationId)) return res.status(400).json({ message: "Which child?" });
+      if (status && !["present", "absent"].includes(status)) return res.status(400).json({ message: "invalid status" });
+
+      // The child must really be on THIS roll — a registration id in a body is
+      // not proof of anything.
+      const [rego] = await db.select().from(cugcRegistrations)
+        .where(and(eq(cugcRegistrations.id, registrationId), eq(cugcRegistrations.organizationId, orgId)));
+      if (!rego) return res.status(404).json({ message: "No such enrolment." });
+      if (rego.term !== term.name) return res.status(400).json({ message: "That enrolment is for a different term." });
+      if (!CUGC_ON_ROLL.includes(rego.status)) return res.status(400).json({ message: "That enrolment isn't paid." });
+      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime).classIds.includes(klass.id)) {
+        return res.status(400).json({ message: "That child isn't in this class." });
+      }
+
+      const where = and(
+        eq(cugcAttendance.organizationId, orgId),
+        eq(cugcAttendance.registrationId, registrationId),
+        eq(cugcAttendance.classId, klass.id),
+        eq(cugcAttendance.sessionDate, date),
+      );
+
+      if (!status) {
+        await db.delete(cugcAttendance).where(where);
+        return res.json({ ok: true, status: null });
+      }
+
+      await db.insert(cugcAttendance).values({
+        organizationId: orgId,
+        registrationId,
+        classId: klass.id,
+        sessionDate: date,
+        status,
+        markedByUserId: (req as any).session?.userId ?? null,
+      }).onConflictDoUpdate({
+        target: [cugcAttendance.registrationId, cugcAttendance.classId, cugcAttendance.sessionDate],
+        set: { status, markedAt: new Date(), markedByUserId: (req as any).session?.userId ?? null },
+      });
+      res.json({ ok: true, status });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   app.post("/api/admin/cugc/registrations/:id/status", requireAuth, requireTab("cugc-registrations"), async (req, res) => {
