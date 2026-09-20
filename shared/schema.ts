@@ -1215,6 +1215,10 @@ export const leagueDivisions = pgTable("league_divisions", {
   // what every existing division means). The "Sold out" ribbon still wins:
   // a full night must never advertise a discount it cannot honour.
   badgeText: text("badge_text"),
+  // The night's USUAL price, shown struck through when team_cost_cents is lower
+  // (2026-09-20). Display only — the checkout charges team_cost_cents. NULL =
+  // the usual price is the price; a value at or below the cost is ignored.
+  listPriceCents: integer("list_price_cents"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

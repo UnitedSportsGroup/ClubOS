@@ -38,6 +38,7 @@ function DivisionModal({ competitionId, division, onClose }: { competitionId: nu
     teamCost: centsToDollarInput(division?.teamCostCents),
     playerCost: centsToDollarInput(division?.playerCostCents),
     badgeText: division?.badgeText || "",
+    listPrice: centsToDollarInput(division?.listPriceCents),
   });
 
   const createMut = useMutation({
@@ -60,6 +61,7 @@ function DivisionModal({ competitionId, division, onClose }: { competitionId: nu
       teamCostCents: dollarInputToCents(form.teamCost),
       playerCostCents: dollarInputToCents(form.playerCost),
       badgeText: form.badgeText.trim() || null,
+      listPriceCents: form.listPrice ? dollarInputToCents(form.listPrice) : null,
     };
     division ? updateMut.mutate(data) : createMut.mutate(data);
   };
@@ -89,6 +91,11 @@ function DivisionModal({ competitionId, division, onClose }: { competitionId: nu
             <label className="text-xs text-white/40 mb-1 block">Badge <span className="text-white/25">— optional ribbon on the public night card</span></label>
             <Input value={form.badgeText} onChange={e => setForm(f => ({ ...f, badgeText: e.target.value }))} className="premium-input text-white" placeholder="e.g. New league discount" maxLength={28} data-testid="input-div-badge" />
             <p className="text-[11px] text-white/25 mt-1">Leave empty for no badge. Hidden automatically once the night sells out.</p>
+          </div>
+          <div>
+            <label className="text-xs text-white/40 mb-1 block">Usual price <span className="text-white/25">— shown struck through when the team cost is lower</span></label>
+            <MoneyInput value={form.listPrice} onChange={v => setForm(f => ({ ...f, listPrice: v }))} className="premium-input text-white" placeholder="500.00" />
+            <p className="text-[11px] text-white/25 mt-1">Display only. The public page works out the % off from this; the checkout still charges the team cost.</p>
           </div>
         </div>
         <div className="p-5 border-t border-white/5 flex gap-2 justify-end">

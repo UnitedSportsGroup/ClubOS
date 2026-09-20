@@ -22436,6 +22436,9 @@ export async function registerRoutes(
             maxTeams: d.maxTeams,
             teamCostCents: d.teamCostCents,
             badgeText: d.badgeText || null,
+            // The usual price for the format, when the night sells for less —
+            // the page shows it struck through above the real one.
+            listPriceCents: d.listPriceCents && d.listPriceCents > (d.teamCostCents || 0) ? d.listPriceCents : null,
             teamCount,
             spotsLeft: d.maxTeams != null ? Math.max(0, d.maxTeams - teamCount) : null,
           };

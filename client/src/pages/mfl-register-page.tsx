@@ -270,7 +270,10 @@ export default function MflRegisterPage() {
                 {full ? (
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: `${BRAND.red}22`, color: BRAND.red, border: `1px solid ${BRAND.red}55` }}>Sold out</span>
                 ) : (
-                  <span className="text-sm font-bold flex-shrink-0" style={{ color: BRAND.gold }}>{formatCurrency(d.teamCostCents, { fromCents: true })}</span>
+                  <span className="text-sm font-bold flex-shrink-0" style={{ color: BRAND.gold }}>
+                    {d.listPriceCents && d.listPriceCents > d.teamCostCents ? <s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(d.listPriceCents, { fromCents: true })}</s> : null}
+                    {formatCurrency(d.teamCostCents, { fromCents: true })}
+                  </span>
                 )}
               </div>
               <span className="text-[12px]" style={{ color: BRAND.muted }}>{d.dayOfWeek || "Weeknights"}{full ? "" : d.spotsLeft != null ? ` · ${d.spotsLeft} left` : ""}</span>

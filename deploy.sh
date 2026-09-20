@@ -350,6 +350,29 @@ npx tsx --env-file=.env script/_verify-pages-render.ts || {
   exit 1
 }
 
+# 🔴 Is production running WHAT THIS RUN SHIPPED? (2026-09-20) Two sessions
+# deployed 49 seconds apart: both guards passed (each probed prod before the
+# other's release existed), the second release replaced the first, and every
+# post-deploy check above still passed — against the OTHER session's build.
+# The only thing that catches a release landing on top of yours during the
+# ~5-minute remote build is asking production which commit it runs, now.
+_HEAD=$(git rev-parse HEAD 2>/dev/null)
+_LIVE=$(curl -s --max-time 15 https://app.usg.co.nz/api/version | sed -n 's/.*"sha":"\([0-9a-f]*\)".*/\1/p')
+if [ -z "$_LIVE" ]; then
+  echo ""
+  echo "⚠️  Could not read /api/version after the deploy — cannot confirm production runs ${_HEAD:0:7}."
+elif [ "$_LIVE" != "$_HEAD" ]; then
+  echo ""
+  echo "🔴 PRODUCTION IS NOT RUNNING WHAT THIS RUN SHIPPED."
+  echo "   shipped ${_HEAD:0:7} · production reports ${_LIVE:0:7}"
+  echo "   Another release landed on top of yours during the build. Whatever is only"
+  echo "   in ${_HEAD:0:7} is NOT live. Merge ${_LIVE:0:7} into this branch and redeploy:"
+  echo "     git merge $_LIVE && ./deploy.sh"
+  exit 1
+else
+  echo "✓ production reports ${_LIVE:0:7} — this run's commit"
+fi
+
 # Only now — a deploy that landed AND verified — is this the state production
 # serves. The next run diffs against it to show what is going out.
 git rev-parse HEAD > .last-deployed-sha 2>/dev/null || true
