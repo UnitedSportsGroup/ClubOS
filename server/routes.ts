@@ -4334,21 +4334,56 @@ export async function registerRoutes(
         ORDER BY start_date DESC LIMIT 1`);
       const currentTermId: number | null = (currentTermRows.rows ?? [])[0]?.id ?? null;
 
+      const buckets = (rows.rows ?? []).map((r: any) => ({
+        id: r.term_id,
+        // A row with no term reads "not recorded" — never filed under a real
+        // term, and never hidden either.
+        label: r.term_id ? `${r.name} ${r.year}` : "Term not recorded",
+        year: r.year ?? null,
+        termNumber: r.term_number ?? null,
+        count: Number(r.n),
+        totalCents: Number(r.cents),
+        isProgrammeTerm: r.term_id != null && r.term_id === prog.termId,
+      }));
+
+      // 🔴 A HOLIDAY CAMP HAS NO TERM, and that is not the same thing as a term
+      // nobody recorded. A camp runs BETWEEN terms, so every one of its
+      // registrations carries a null term_id and always will. One chip reading
+      // "Term not recorded" across every row on the page filters nothing, and
+      // reads as missing data — Daniel, 2026-09-20, of FUNdamentals, whose
+      // Players tab said "Term not recorded · 102 · $11,260.00" and looked like
+      // the FUNiño bug all over again. It was not: the figures were right.
+      //
+      // A TERM programme keeps the bucket, because there a null term IS a gap
+      // somebody has to close, and hiding it would hide the thing worth seeing.
+      // Measured on production the same day: zero term programmes carry a
+      // null-term registration, and the only programmes that do are the four
+      // holiday camps and the two MFL league rows — none of which has a term to
+      // choose between.
+      //
+      // Decided HERE, not in the page, because the tiles and the list below
+      // them both read this one endpoint, and they must never disagree.
+      const termsApply = prog.scheduleType === "term" || buckets.some((b: any) => b.id != null);
+
+      // 🔴 "ALL TERMS" COUNTS PEOPLE, NOT REGISTRATIONS. The page used to add the
+      // chips up, and a child enrolled in Term 3 and again in Term 4 is two
+      // registrations but one child in the list below. Measured on production
+      // 2026-09-20: FUNiño's chips summed to 453 while the list showed 302 —
+      // 107 children are enrolled across more than one term, some across three.
+      // Daniel's rule is that the tiles must agree with the list under them, so
+      // this number comes from the SAME function the list does rather than from
+      // arithmetic that cannot know about a repeat enrolment.
+      //
+      // Per-term chips keep counting registrations: within one term a child has
+      // one, and the live check asserts each chip against its own filtered list.
+      const totalPeople = (await storage.getProgramPlayers(campId, undefined)).length;
+
       res.json({
         programmeTermId: prog.termId ?? null,
         // null in the school holidays — a real state, not a missing one.
         currentTermId,
-        terms: (rows.rows ?? []).map((r: any) => ({
-          id: r.term_id,
-          // A row with no term reads "not recorded" — never filed under a real
-          // term, and never hidden either.
-          label: r.term_id ? `${r.name} ${r.year}` : "Term not recorded",
-          year: r.year ?? null,
-          termNumber: r.term_number ?? null,
-          count: Number(r.n),
-          totalCents: Number(r.cents),
-          isProgrammeTerm: r.term_id != null && r.term_id === prog.termId,
-        })),
+        totalPeople,
+        terms: termsApply ? buckets : [],
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });

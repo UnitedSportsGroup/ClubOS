@@ -32,6 +32,8 @@ const BASE = process.env.VERIFY_BASE || "https://app.usg.co.nz";
 const WORKSPACE = "christchurch-united";
 const FUNINO = 4;           // FUNiño — First Kicks
 const TECHNIFICATION = 5;   // Daniel asked for this one by name
+const CAMP_FUNDAMENTALS = 30;  // holiday camps — no term, and none missing
+const CAMP_WORLDCUP = 39;
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 let pass = 0, fail = 0;
@@ -134,12 +136,71 @@ async function main() {
         p.ok && list.length === t.count);
     }
 
-    // And "all" must be the sum — if it isn't, one term is being dropped.
+    // ⚠️ NOT "all terms = the sum of the chips". That was the assertion here
+    // until 2026-09-20 and it was wrong: a child enrolled in Term 3 and again
+    // in Term 4 is two registrations and ONE row in the list. FUNiño's chips
+    // summed to 453 over a list of 302 — 107 children span terms. The chip now
+    // reports people, from the same function the list uses, so the number on
+    // it is the number of rows you get when you click it.
     const all = await asStaff(`/api/admin/camps/${id}/players`);
     const allList: any[] = all.ok ? await all.json() : [];
     const sum = terms.reduce((a, t) => a + t.count, 0);
-    ok(`${label}: all terms together = ${sum}`, all.ok && allList.length === sum,
-      `unfiltered returns ${allList.length}`);
+    ok(`${label}: "All terms" says what the list shows`,
+      all.ok && typeof body.totalPeople === "number" && body.totalPeople === allList.length,
+      `chip ${body.totalPeople} vs list ${allList.length}`);
+    // And the registration total must be at least the headcount — if it were
+    // ever lower, a term's registrations would be going missing.
+    ok(`${label}: ${sum} registrations across ${allList.length} children`,
+      sum >= allList.length, `${sum} < ${allList.length}`);
+  }
+
+  // ── 3b. A HOLIDAY CAMP HAS NO TERM, and must not pretend it is missing one ─
+  // Daniel, 2026-09-20: the FUNdamentals Players tab read
+  // "Term not recorded · 102 · $11,260.00" and looked like the FUNiño bug
+  // again. It was not — every figure was right. A camp runs BETWEEN terms, so
+  // its registrations carry a null term_id and always will, and one chip
+  // spanning every row on the page filters nothing while reading as a fault.
+  console.log("\nA camp has no term to choose between");
+  for (const [label, id] of [["FUNdamentals", CAMP_FUNDAMENTALS], ["World Cup", CAMP_WORLDCUP]] as const) {
+    const res = await asStaff(`/api/admin/camps/${id}/term-counts`);
+    ok(`${label}: term counts load for staff`, res.ok, `HTTP ${res.status}`);
+    if (!res.ok) continue;
+    const body: any = await res.json();
+    const terms: any[] = body.terms ?? [];
+
+    // 🔴 The guard against a vacuous pass. An empty `terms` array proves
+    // nothing if the camp simply has no registrations — the check would go
+    // green on an empty programme forever. So read the real rows first and
+    // require that there ARE some, and that every one of them is null-term.
+    // If a camp ever does acquire a real term, this fails and the strip must
+    // come back.
+    const { rows: real } = await pool.query(
+      `select count(*)::int n, sum(case when term_id is null then 1 else 0 end)::int nulls
+         from registrations
+        where program_id = $1 and status in ('confirmed','refunded','partially_refunded')`, [id]);
+    const n = Number(real[0]?.n ?? 0), nulls = Number(real[0]?.nulls ?? 0);
+    ok(`${label}: has registrations at all, so an empty strip means something`, n > 0, `${n} on file`);
+    ok(`${label}: every one of them genuinely carries no term`, n > 0 && nulls === n, `${nulls}/${n} null`);
+
+    ok(`${label}: the tab offers no term to choose between`, terms.length === 0,
+      terms.map((t) => `${t.label}:${t.count}`).join(", ") || "none");
+
+    // And nobody was hidden by hiding the strip. ⚠️ NOT against the
+    // registration count — a camp booking can carry siblings, so 102
+    // registrations are 114 children and that assertion was wrong before the
+    // code was. The honest comparison is people to people: what the page used
+    // to show for a camp (`?termId=none`, the only bucket it had) against what
+    // it shows now (no filter at all). Every row is null-term, so the two must
+    // name exactly the same children.
+    const allRes = await asStaff(`/api/admin/camps/${id}/players`);
+    const allList: any[] = allRes.ok ? await allRes.json() : [];
+    const noneRes = await asStaff(`/api/admin/camps/${id}/players?termId=none`);
+    const noneList: any[] = noneRes.ok ? await noneRes.json() : [];
+    ok(`${label}: the unfiltered list is not empty`, allRes.ok && allList.length > 0,
+      `${allList.length} children`);
+    ok(`${label}: dropping the term filter hides nobody`,
+      allRes.ok && noneRes.ok && allList.length === noneList.length && allList.length > 0,
+      `no filter ${allList.length} vs termId=none ${noneList.length}`);
   }
 
   // ── 4. The counter can sell EITHER term, each at its own price ────────────
