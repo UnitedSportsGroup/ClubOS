@@ -475,6 +475,23 @@ export default function BookingPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-5 py-6 sm:py-8 space-y-6">
+        {/* 🔴 This is where the live funnel panel's "at the card step" number
+            comes from. `client/public/analytics.js` has watched every /book
+            page for `[data-step]` elements since it was written and emits a
+            `form_step` event for each NEW one — but nothing on this page had
+            ever carried the attribute, so that tracker had produced ZERO
+            events and a camp visitor could never be told apart from someone
+            idly reading the page.
+
+            🔴 Keyed by step so React mounts a FRESH node on every transition.
+            The MutationObserver notices added nodes; mutating an attribute in
+            place would fire once, on the first step, and never again. */}
+        <div
+          key={`step-marker-${step}`}
+          data-step={(stepLabels[step - 1] ?? String(step)).toLowerCase().replace(/\s+/g, "-")}
+          className="hidden"
+          aria-hidden="true"
+        />
         <div className="flex items-center gap-1 sm:gap-2">
           {stepLabels.map((label, i) => {
             const s = i + 1;

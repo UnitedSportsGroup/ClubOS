@@ -1,4 +1,5 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
@@ -4591,6 +4592,101 @@ export async function registerRoutes(
       res.json(s);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  /**
+   * WHO IS ON THE SITE RIGHT NOW — the live funnel panel.
+   *
+   * Daniel, 2026-09-20, with ad spend just raised before a Sunday evening
+   * peak: "a live feature which can show the number of people on our site
+   * right now, how many have started sign up... and how many are checking out."
+   *
+   * 🔴 One row per VISITOR, not per event. Someone refreshing a camp page
+   * twenty times is one person, and counting events would have made a single
+   * indecisive parent look like a rush.
+   *
+   * 🔴 Their LATEST page decides their stage, so a person who browsed and then
+   * opened the booking form counts once, at the furthest point they reached.
+   *
+   * 🔴 Bots and every /admin page are excluded — otherwise the first thing the
+   * panel would report is Daniel watching the panel.
+   *
+   * 🔴 The path rules live in @shared/live-activity, not in this SQL, so the
+   * server and anything added later cannot drift about what "checkout" means.
+   */
+  app.get("/api/admin/live-activity", requireAuth, async (req, res) => {
+    try {
+      const slug = String(req.headers["x-workspace-slug"] ?? "") || null;
+      const brands = liveBrandsForWorkspace(slug);
+
+      const rows: any = await db.execute(sql`
+        SELECT DISTINCT ON (visitor_id) visitor_id, page
+        FROM analytics_events
+        WHERE timestamp > now() - (${LIVE_WINDOW_MINUTES} || ' minutes')::interval
+          AND COALESCE(is_bot, false) = false
+          AND visitor_id IS NOT NULL
+          AND page IS NOT NULL
+        ORDER BY visitor_id, timestamp DESC`);
+
+      // 🔴 A camp sells the form and the card on ONE page, so the path can
+      // never tell us who reached the card. The booking page now marks its
+      // step and analytics.js emits `form_step`; a visitor who has reached
+      // "payment" in this window is at the card step wherever they are now.
+      // Without this the number is a permanent zero on the traffic that
+      // matters most, which is worse than not showing it.
+      const cardRows: any = await db.execute(sql`
+        SELECT DISTINCT visitor_id
+        FROM analytics_events
+        WHERE timestamp > now() - (${LIVE_WINDOW_MINUTES} || ' minutes')::interval
+          AND event_type = 'form_step'
+          AND COALESCE(is_bot, false) = false
+          AND visitor_id IS NOT NULL
+          AND metadata ->> 'step' = 'payment'`);
+      const atCardStep = new Set<string>(
+        ((cardRows.rows ?? []) as any[]).map((r) => String(r.visitor_id)));
+
+      let onSite = 0, onForm = 0, atCheckout = 0;
+      const byPage = new Map<string, { visitors: number; stage: LiveStage }>();
+      let sharesAPage = false;
+
+      for (const r of (rows.rows ?? []) as any[]) {
+        const page = String(r.page ?? "");
+        const pathStage = liveStageFor(page);
+        if (pathStage === "staff") continue;
+        if (brands !== "all" && !brands.includes(liveBrandFor(page))) continue;
+
+        // Reaching the card beats whatever page they are sitting on.
+        const stage: LiveStage =
+          atCardStep.has(String(r.visitor_id)) ? "checkout" : pathStage;
+
+        onSite += 1;
+        if (stage === "form") onForm += 1;
+        if (stage === "checkout") atCheckout += 1;
+        // A camp sells the form and the card on one page, so its visitors can
+        // never appear in atCheckout. Say so rather than let a zero mislead.
+        if (stage === "form" && /\/book$/.test(page.split("?")[0])) sharesAPage = true;
+
+        const key = page.split("?")[0];
+        const held = byPage.get(key) ?? { visitors: 0, stage };
+        held.visitors += 1;
+        byPage.set(key, held);
+      }
+
+      const pages = Array.from(byPage.entries())
+        .map(([page, v]) => ({ page, visitors: v.visitors, stage: v.stage }))
+        .sort((a, b) => b.visitors - a.visitors)
+        .slice(0, 8);
+
+      res.json({
+        onSite, onForm, atCheckout,
+        windowMinutes: LIVE_WINDOW_MINUTES,
+        pages,
+        formAndCardShareAPage: sharesAPage,
+        asOf: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 
