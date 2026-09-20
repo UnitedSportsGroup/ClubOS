@@ -2317,8 +2317,17 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                           value={p.trainingGroupSource === "override" ? (p.trainingGroup ?? "auto") : "auto"}
                           onValueChange={(v) => setGroupOverride(p, v === "auto" ? null : v)}
                         >
-                          <SelectTrigger className="h-7 w-[92px] text-[11px] premium-input" data-testid={`select-group-${p.key}`}>
-                            <SelectValue />
+                          {/* 🔴 The heading above already names the group, so the
+                              control shows the one thing it cannot: whether this
+                              child was MOVED. "By age · U9" truncated to "By age
+                              ·…" in 92px and said nothing at all. */}
+                          <SelectTrigger
+                            className={`h-7 w-[92px] text-[11px] premium-input ${p.trainingGroupSource === "override" ? "text-amber-300" : ""}`}
+                            data-testid={`select-group-${p.key}`}
+                          >
+                            <SelectValue>
+                              {p.trainingGroupSource === "override" ? `Moved · ${p.trainingGroup}` : "By age"}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="auto">
