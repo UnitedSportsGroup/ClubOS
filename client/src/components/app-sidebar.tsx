@@ -402,6 +402,7 @@ const groupNav = [
   // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
   // hidden, and two "Marketing" megaphones would be one too many if it returns.
   { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
+  { tab: "finance-insight", title: "Financial Insight", url: "/admin/finance-insight", icon: Calculator },
   { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },

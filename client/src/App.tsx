@@ -75,6 +75,7 @@ import CodingBudget from "@/pages/coding-budget";
 import EquipmentHolder from "@/pages/equipment-holder";
 import GroupSponsors from "@/pages/group-sponsors";
 import MarketingHub from "@/pages/marketing-hub";
+import FinanceInsight from "@/pages/finance-insight";
 import GroupVideos from "@/pages/group-videos";
 import GroupVideoRecord from "@/pages/group-video-record";
 import GroupVideoDetail from "@/pages/group-video-detail";
@@ -421,6 +422,7 @@ function AdminRouter() {
         <Route path="/admin/accommodation" component={VenueHousing} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/marketing-hub" component={MarketingHub} />
+        <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />
         <Route path="/admin/videos/record" component={GroupVideoRecord} />
         <Route path="/admin/videos/:id" component={GroupVideoDetail} />
