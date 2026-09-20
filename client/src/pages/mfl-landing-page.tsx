@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
@@ -6,7 +6,7 @@ import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import { computeOrderDiscount, computeTeamPayment, type DiscountRule } from "@shared/league-pricing";
 import {
   Trophy, Users, Calendar, MapPin, Clock, Zap, ShieldCheck, Star,
-  ArrowRight, ChevronDown, Flame, CreditCard, CheckCircle2,
+  ArrowRight, ChevronDown, Flame, CreditCard, CheckCircle2, Play,
 } from "lucide-react";
 
 // MFL premium black + gold brand (matches the MFL app theme).
@@ -25,12 +25,28 @@ const BRAND = {
 };
 const FONT = "'Inter Tight', Inter, system-ui, -apple-system, sans-serif";
 const MFL_LOGO = "/logos/mini-football-leagues.png";
+
+/**
+ * The promo film in the hero, per offering. Daniel, 2026-09-20: "add our
+ * promo video on the page too for the term 4 summer leagues that we ran for
+ * ads … above register your team button in that gap as is standard in
+ * industry for LP design." It is the ad creative (Meta library 2046145009253661,
+ * his Term 4 2025 talking-head + b-roll, 34.5s, names no date or price), served
+ * from this bundle — Cloudflare Stream is over quota and Supabase storage is
+ * egress-restricted. Keyed by slug so a term whose film says "Summer Leagues"
+ * never plays on a winter one by accident.
+ */
+const PROMO_VIDEO: Record<string, { src: string; poster: string; seconds: number }> = {
+  "term-4": { src: "/videos/mfl-summer-leagues.mp4", poster: "/videos/mfl-summer-leagues.jpg", seconds: 35 },
+};
 const PIXEL_CONTENT = "MFL Term 3 Team Registration";
 
 interface Division {
   id: number; name: string; dayOfWeek: string | null; ageGroup: string | null;
   gender: string | null; maxTeams: number | null; teamCostCents: number;
   teamCount: number; spotsLeft: number | null; badgeText?: string | null;
+  /** The usual price for the format when this night sells for less — struck through on the card. */
+  listPriceCents?: number | null;
 }
 interface RegisterData {
   program: any;
@@ -90,7 +106,7 @@ const FAQS = [
   { q: "How many players do I need?", a: "7-a-side runs with 7 on the pitch (bring subs!), 5-a-side needs 5. You can register with a partial squad and fill spots as you go." },
   { q: "What does it cost?", a: "7-a-side is $600 per team for the term, 5-a-side is $500. That's for the whole team across the full season — split it between your players however you like." },
   { q: "Can I pay in instalments?", a: "Yes — that's how it works. Lock your spot with a $120 deposit today, then we spread the rest into automatic weekly payments across the season. Your deposit covers the final weeks, so there's no big bill up front." },
-  { q: "When does it run?", a: "Games run weeknights at our Christchurch facility. Pick your night when you register — see the options below." },
+  { q: "When does it run?", a: "Games run weeknights at United Sports Centre, 466 Yaldhurst Road, Russley. Pick your night when you register — see the options below." },
 ];
 
 function Stars() {
@@ -201,15 +217,20 @@ export default function MflLandingPage() {
   // reproduces the checkout's. Once the countdown hits zero the cards revert
   // to full price on their own, because the server's next quote will too.
   const promo = data.autoDiscount && !countdown.expired ? data.autoDiscount : null;
-  const priced = (teamCostCents: number) => {
+  const priced = (d: { teamCostCents: number; listPriceCents?: number | null }) => {
+    const teamCostCents = d.teamCostCents;
+    // The stack: usual price → the night's own discount (baked into its cost)
+    // → early bird on top. Each rung is a real figure the checkout would show.
+    const list = d.listPriceCents && d.listPriceCents > teamCostCents ? d.listPriceCents : null;
+    const listPct = list ? Math.round(((list - teamCostCents) / list) * 100) : 0;
     const discount = promo ? computeOrderDiscount(teamCostCents, [promo]).discountTotalCents : 0;
     const total = teamCostCents - discount;
     const pay = computeTeamPayment(total, depositCents ?? null, paymentPlan || "installment", numWeeklyPayments || 8);
-    return { full: teamCostCents, total, discount, deposit: pay.depositCents, weekly: pay.isWeeklyPlan ? (pay.weeklyAmountCents ?? 0) : 0 };
+    return { full: teamCostCents, list, listPct, total, discount, deposit: pay.depositCents, weekly: pay.isWeeklyPlan ? (pay.weeklyAmountCents ?? 0) : 0 };
   };
   const promoPct = promo && promo.valueType === "percentage" ? `${Math.round(promo.value)}% off` : promo ? `${formatCurrency(Math.round(promo.value * 100), { fromCents: true })} off` : "";
   // Lowest across the nights (varies by 5s/7s), for the "from $X" hints.
-  const cheapest = divisions.length ? divisions.map((d) => priced(d.teamCostCents)).sort((a, b) => a.total - b.total)[0] : null;
+  const cheapest = divisions.length ? divisions.map((d) => priced(d)).sort((a, b) => a.total - b.total)[0] : null;
   const lowestWeeklyCents = isWeeklyPlan && cheapest ? cheapest.weekly : 0;
   const lowestCents = cheapest ? cheapest.total : (program.termPriceCents ?? 0);
 
@@ -221,6 +242,7 @@ export default function MflLandingPage() {
         sub={program.heroSubheadline || "Register your team for Term 3. Grab your mates and play every week."}
         ctaHref={registerHref}
         showCta
+        video={PROMO_VIDEO[slug] ?? null}
       />
 
       {/* Early bird — the price every card shows, and the clock on it. */}
@@ -260,9 +282,9 @@ export default function MflLandingPage() {
       <section className="max-w-5xl mx-auto px-6 py-14 grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { icon: Trophy, label: "Format", value: program.name },
-          { icon: CreditCard, label: promo ? "Early bird from" : "From", value: promo && cheapest ? <><s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(cheapest.full, { fromCents: true })}</s>{formatCurrency(lowestCents, { fromCents: true })} / team</> : `${formatCurrency(lowestCents, { fromCents: true })} / team` },
+          { icon: CreditCard, label: promo ? "Early bird from" : "From", value: cheapest && (promo || cheapest.list) ? <><s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(cheapest.list ?? cheapest.full, { fromCents: true })}</s>{formatCurrency(lowestCents, { fromCents: true })} / team</> : `${formatCurrency(lowestCents, { fromCents: true })} / team` },
           { icon: Calendar, label: "Season", value: "Full term" },
-          { icon: MapPin, label: "Where", value: program.location || "Christchurch" },
+          { icon: MapPin, label: "Where", value: program.location || "United Sports Centre, 466 Yaldhurst Rd" },
         ].map((c, i) => (
           <div key={i} className="rounded-2xl p-5" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}` }}>
             <c.icon className="w-5 h-5 mb-2.5" style={{ color: BRAND.gold }} />
@@ -314,7 +336,7 @@ export default function MflLandingPage() {
           {divisions.map((d) => {
             const full = d.spotsLeft != null && d.spotsLeft <= 0;
             const lowSpots = !full && d.spotsLeft != null && d.spotsLeft <= 4;
-            const price = priced(d.teamCostCents);
+            const price = priced(d);
             const weeklyCents = isWeeklyPlan ? price.weekly : 0;
             const href = full ? `/league/${slug}/waitlist?division=${d.id}` : `${registerHref}?division=${d.id}`;
             return (
@@ -347,7 +369,7 @@ export default function MflLandingPage() {
                       )}
                       {d.badgeText && (
                         <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={promo ? { border: `1px solid ${BRAND.gold}88`, color: BRAND.gold } : { background: BRAND.gold, color: BRAND.black }} data-testid={`division-badge-${d.id}`}>
-                          {d.badgeText}
+                          {d.badgeText}{price.listPct > 0 ? ` · ${price.listPct}% off` : ""}
                         </span>
                       )}
                     </div>
@@ -356,8 +378,8 @@ export default function MflLandingPage() {
                     <h3 className="text-lg font-bold">{d.name}</h3>
                     {!full && (
                       <span className="text-right leading-tight flex-shrink-0">
-                        {price.discount > 0 && (
-                          <s className="block text-[12px]" style={{ color: BRAND.dim }} data-testid={`full-price-${d.id}`}>{formatCurrency(price.full, { fromCents: true })}</s>
+                        {(price.discount > 0 || price.list) && (
+                          <s className="block text-[12px]" style={{ color: BRAND.dim }} data-testid={`full-price-${d.id}`}>{formatCurrency(price.list ?? price.full, { fromCents: true })}</s>
                         )}
                         <span className="text-[17px] font-bold" style={{ color: BRAND.gold }} data-testid={`price-${d.id}`}>{formatCurrency(price.total, { fromCents: true })}</span>
                       </span>
@@ -374,6 +396,21 @@ export default function MflLandingPage() {
                     <p className="text-[12px] mt-1" style={{ color: BRAND.dim }}>
                       {formatCurrency(price.deposit, { fromCents: true })} deposit · {formatCurrency(weeklyCents, { fromCents: true })}/week
                     </p>
+                  )}
+                  {/* Stack & save — every rung is a figure the checkout would
+                      show: the usual price, the night's own discount, early
+                      bird on top. Only drawn when there is something to stack. */}
+                  {!full && (price.list || price.discount > 0) && (
+                    <div className="mt-3 rounded-lg px-3 py-2 text-[11px] space-y-0.5" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BRAND.border}` }} data-testid={`stack-${d.id}`}>
+                      <div className="text-[9px] font-bold uppercase tracking-[0.18em] mb-1" style={{ color: BRAND.gold }}>Stack &amp; save</div>
+                      <div className="flex justify-between gap-3"><span style={{ color: BRAND.dim }}>Usual price</span><s style={{ color: BRAND.dim }}>{formatCurrency(price.list ?? price.full, { fromCents: true })}</s></div>
+                      {price.list && (
+                        <div className="flex justify-between gap-3"><span style={{ color: BRAND.muted }}>{d.badgeText || "Night discount"} · {price.listPct}% off</span><span style={{ color: BRAND.white }}>{formatCurrency(price.full, { fromCents: true })}</span></div>
+                      )}
+                      {price.discount > 0 && (
+                        <div className="flex justify-between gap-3"><span style={{ color: BRAND.muted }}>Early bird · {promoPct}</span><span className="font-bold" style={{ color: BRAND.gold }}>{formatCurrency(price.total, { fromCents: true })}</span></div>
+                      )}
+                    </div>
                   )}
                   <div className="flex items-center justify-between mt-3">
                     {full ? (
@@ -418,10 +455,10 @@ export default function MflLandingPage() {
       {/* Trust */}
       <section className="max-w-4xl mx-auto px-6 py-10 text-center">
         <div className="flex items-center justify-center gap-2 mb-2"><Stars /></div>
-        <p style={{ color: BRAND.muted }}>Run by Christchurch United FC · 50+ teams already playing</p>
+        <p style={{ color: BRAND.muted }}>50+ teams already playing</p>
         <div className="flex items-center justify-center gap-6 mt-5 text-sm" style={{ color: BRAND.dim }}>
           <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Social & competitive</span>
-          <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" /> Qualified refs available</span>
+          <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" /> Qualified refs</span>
         </div>
       </section>
 
@@ -466,13 +503,42 @@ export default function MflLandingPage() {
   );
 }
 
-function Hero({ org, headline, sub, ctaHref, showCta }: { org: any; headline: string; sub: string; ctaHref?: string; showCta: boolean }) {
+/**
+ * A vertical (9:16) film in a phone-shaped frame: poster and a gold play button
+ * until tapped, then the real controls with sound — a talking-head makes no
+ * sense muted, so it never autoplays.
+ */
+function HeroVideo({ src, poster, seconds }: { src: string; poster: string; seconds: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="relative mx-auto mt-8 overflow-hidden rounded-2xl" data-testid="hero-video"
+         style={{ maxWidth: 300, aspectRatio: "9 / 16", background: BRAND.card, border: `1px solid ${BRAND.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+      <video ref={ref} src={src} poster={poster} playsInline preload="metadata" controls={playing}
+             className="h-full w-full object-cover" onPlay={() => setPlaying(true)} onEnded={() => setPlaying(false)} />
+      {!playing && (
+        <button type="button" onClick={() => { ref.current?.play().catch(() => {}); }}
+                className="absolute inset-0 flex items-center justify-center" aria-label="Play the Summer Leagues video" data-testid="hero-video-play">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: BRAND.gold, color: BRAND.black, boxShadow: "0 8px 30px rgba(209,185,110,0.45)" }}>
+            <Play className="w-7 h-7 ml-1" fill="currentColor" />
+          </span>
+          <span className="absolute bottom-4 left-0 right-0 text-center text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: BRAND.white, textShadow: "0 1px 8px rgba(0,0,0,0.8)" }}>
+            Watch · {seconds} sec
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Hero({ org, headline, sub, ctaHref, showCta, video }: { org: any; headline: string; sub: string; ctaHref?: string; showCta: boolean; video?: { src: string; poster: string; seconds: number } | null }) {
   return (
     <header className="relative overflow-hidden" style={{ background: `radial-gradient(120% 80% at 50% 0%, ${BRAND.cardSoft} 0%, ${BRAND.black} 60%)` }}>
       <div className="max-w-3xl mx-auto px-6 pt-16 pb-14 text-center">
         <img src={org?.logoUrl || MFL_LOGO} alt="Mini Football Leagues" className="h-14 w-auto mx-auto mb-8 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).src = MFL_LOGO; }} />
         <h1 className="text-3xl sm:text-5xl font-bold leading-[1.08] tracking-tight">{headline}</h1>
         <p className="text-base sm:text-lg mt-4" style={{ color: BRAND.muted }}>{sub}</p>
+        {video && <HeroVideo {...video} />}
         {showCta && ctaHref && (
           <Link href={ctaHref}>
             <a className="inline-flex items-center gap-2 mt-8 px-10 py-3.5 rounded-full font-bold shadow-lg" style={{ background: BRAND.gold, color: BRAND.black }} data-testid="cta-register-hero">
@@ -493,7 +559,7 @@ function Footer() {
     <footer className="border-t mt-8" style={{ borderColor: BRAND.border }}>
       <div className="max-w-4xl mx-auto px-6 py-8 text-center text-[12px]" style={{ color: BRAND.dim }}>
         <CheckCircle2 className="w-4 h-4 inline mr-1.5" style={{ color: BRAND.goldDeep }} />
-        Mini Football Leagues · Christchurch United Football Club
+        Mini Football Leagues · United Sports Centre, 466 Yaldhurst Rd, Christchurch
       </div>
     </footer>
   );
