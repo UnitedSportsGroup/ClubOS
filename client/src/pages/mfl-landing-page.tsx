@@ -3,6 +3,7 @@ import { useRoute, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
+import { computeOrderDiscount, computeTeamPayment, type DiscountRule } from "@shared/league-pricing";
 import {
   Trophy, Users, Calendar, MapPin, Clock, Zap, ShieldCheck, Star,
   ArrowRight, ChevronDown, Flame, CreditCard, CheckCircle2,
@@ -38,9 +39,50 @@ interface RegisterData {
   divisions: Division[];
   upsells: { type: string; label: string; priceCents: number }[];
   earlyBird: { deadline: string | null; lateFeeCents: number; active: boolean };
+  /** The discount the checkout auto-applies to one team right now (early bird), and when it stops. */
+  autoDiscount?: (DiscountRule & { endsAt: string | null }) | null;
   depositCents: number | null;
   paymentPlan?: string;
   numWeeklyPayments?: number;
+}
+
+/**
+ * A ticking countdown to an instant. Re-renders once a second; `expired` flips
+ * the page back to full prices at the same moment the checkout stops applying
+ * the discount (the instant came from the server's own comparison).
+ */
+function useCountdown(endsAt: string | null | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!endsAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [endsAt]);
+  const end = endsAt ? Date.parse(endsAt) : NaN;
+  const left = Number.isFinite(end) ? Math.max(0, end - now) : 0;
+  const s = Math.floor(left / 1000);
+  return {
+    expired: Number.isFinite(end) ? left <= 0 : false,
+    days: Math.floor(s / 86400), hours: Math.floor((s % 86400) / 3600),
+    mins: Math.floor((s % 3600) / 60), secs: s % 60,
+    endLabel: Number.isFinite(end)
+      ? new Intl.DateTimeFormat("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(end))
+      : "",
+  };
+}
+
+function Countdown({ c, compact }: { c: ReturnType<typeof useCountdown>; compact?: boolean }) {
+  const seg = (n: number, unit: string) => (
+    <span key={unit} className="inline-flex items-baseline gap-0.5">
+      <span className={compact ? "text-[13px] font-bold tabular-nums" : "text-[18px] sm:text-[20px] font-bold tabular-nums"} style={{ color: BRAND.white }}>{String(n).padStart(2, "0")}</span>
+      <span className={compact ? "text-[10px]" : "text-[11px]"} style={{ color: BRAND.muted }}>{unit}</span>
+    </span>
+  );
+  return (
+    <span className={`inline-flex items-baseline ${compact ? "gap-1.5" : "gap-2.5"}`}>
+      {c.days > 0 && seg(c.days, "d")}{seg(c.hours, "h")}{seg(c.mins, "m")}{seg(c.secs, "s")}
+    </span>
+  );
 }
 
 const FAQS = [
@@ -92,6 +134,11 @@ export default function MflLandingPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [slug]);
+
+  // 🔴 Above every early return. A hook below `if (loading) return` is React
+  // #310 "Rendered more hooks than during the previous render" — a white
+  // screen on the live registration page. The preview harness caught this.
+  const countdown = useCountdown(data?.autoDiscount?.endsAt);
 
   if (loading) {
     return (
@@ -146,12 +193,25 @@ export default function MflLandingPage() {
 
   const { program, organization, divisions, upsells, earlyBird, depositCents, paymentPlan, numWeeklyPayments } = data;
   const isWeeklyPlan = paymentPlan === "deposit_weekly";
-  // Lowest weekly across the nights (varies by 5s/7s), for the "from $X/week" hint.
-  const lowestWeeklyCents = isWeeklyPlan && depositCents && divisions.length
-    ? Math.min(...divisions.map((d) => Math.round((d.teamCostCents - depositCents) / (numWeeklyPayments || 8))))
-    : 0;
-  const lowestCents = divisions.length ? Math.min(...divisions.map((d) => d.teamCostCents)) : (program.termPriceCents ?? 0);
   const registerHref = `/league/${slug}/register`;
+
+  // 🔴 Early bird, priced by the SAME pure functions the checkout uses
+  // (shared/league-pricing.ts): the order discount on one team, then the
+  // deposit/weekly split of what's left. The page never invents a figure; it
+  // reproduces the checkout's. Once the countdown hits zero the cards revert
+  // to full price on their own, because the server's next quote will too.
+  const promo = data.autoDiscount && !countdown.expired ? data.autoDiscount : null;
+  const priced = (teamCostCents: number) => {
+    const discount = promo ? computeOrderDiscount(teamCostCents, [promo]).discountTotalCents : 0;
+    const total = teamCostCents - discount;
+    const pay = computeTeamPayment(total, depositCents ?? null, paymentPlan || "installment", numWeeklyPayments || 8);
+    return { full: teamCostCents, total, discount, deposit: pay.depositCents, weekly: pay.isWeeklyPlan ? (pay.weeklyAmountCents ?? 0) : 0 };
+  };
+  const promoPct = promo && promo.valueType === "percentage" ? `${Math.round(promo.value)}% off` : promo ? `${formatCurrency(Math.round(promo.value * 100), { fromCents: true })} off` : "";
+  // Lowest across the nights (varies by 5s/7s), for the "from $X" hints.
+  const cheapest = divisions.length ? divisions.map((d) => priced(d.teamCostCents)).sort((a, b) => a.total - b.total)[0] : null;
+  const lowestWeeklyCents = isWeeklyPlan && cheapest ? cheapest.weekly : 0;
+  const lowestCents = cheapest ? cheapest.total : (program.termPriceCents ?? 0);
 
   return (
     <div className="min-h-screen" style={{ background: BRAND.black, color: BRAND.white, fontFamily: FONT }}>
@@ -163,8 +223,28 @@ export default function MflLandingPage() {
         showCta
       />
 
-      {/* Early-bird urgency banner */}
-      {earlyBird.active && earlyBird.deadline && (
+      {/* Early bird — the price every card shows, and the clock on it. */}
+      {promo && (
+        <div className="px-6">
+          <div className="max-w-4xl mx-auto -mt-6 rounded-2xl px-5 py-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6"
+            style={{ background: `${BRAND.gold}1a`, border: `1px solid ${BRAND.gold}66` }} data-testid="early-bird-banner">
+            <span className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.gold }}>
+              <Flame className="w-4 h-4" /> Early bird · {promoPct} every night
+            </span>
+            <span className="inline-flex items-center gap-2.5 text-sm" style={{ color: BRAND.muted }}>
+              Ends in <Countdown c={countdown} />
+            </span>
+          </div>
+          {countdown.endLabel && (
+            <p className="max-w-4xl mx-auto mt-2 text-center text-[12px]" style={{ color: BRAND.dim }}>
+              Early bird prices come off automatically at checkout until {countdown.endLabel} — no code needed.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Late-fee urgency banner (programmes that price by a late fee instead) */}
+      {!promo && earlyBird.active && earlyBird.deadline && (
         <div className="px-6">
           <div className="max-w-4xl mx-auto -mt-6 rounded-xl px-5 py-3 flex items-center justify-center gap-2 text-sm font-semibold"
             style={{ background: `${BRAND.gold}1a`, border: `1px solid ${BRAND.gold}55`, color: BRAND.gold }}>
@@ -178,14 +258,14 @@ export default function MflLandingPage() {
       <section className="max-w-5xl mx-auto px-6 py-14 grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { icon: Trophy, label: "Format", value: program.name },
-          { icon: CreditCard, label: "From", value: `${formatCurrency(lowestCents, { fromCents: true })} / team` },
+          { icon: CreditCard, label: promo ? "Early bird from" : "From", value: promo && cheapest ? <><s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(cheapest.full, { fromCents: true })}</s>{formatCurrency(lowestCents, { fromCents: true })} / team</> : `${formatCurrency(lowestCents, { fromCents: true })} / team` },
           { icon: Calendar, label: "Season", value: "Full term" },
           { icon: MapPin, label: "Where", value: program.location || "Christchurch" },
         ].map((c, i) => (
           <div key={i} className="rounded-2xl p-5" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}` }}>
             <c.icon className="w-5 h-5 mb-2.5" style={{ color: BRAND.gold }} />
             <p className="text-[11px] uppercase tracking-wider" style={{ color: BRAND.dim }}>{c.label}</p>
-            <p className="text-[15px] font-semibold mt-0.5">{c.value}</p>
+            <p className="text-[15px] font-semibold mt-0.5">{c.value as any}</p>
           </div>
         ))}
       </section>
@@ -214,6 +294,12 @@ export default function MflLandingPage() {
       {/* Divisions / nights with spots-left */}
       <section className="max-w-5xl mx-auto px-6 py-12">
         <h2 className="text-2xl font-bold mb-2 text-center" style={{ color: BRAND.gold }}>Pick your night</h2>
+        {promo && (
+          <p className="text-center text-sm mb-2 inline-flex w-full items-center justify-center gap-2 flex-wrap" style={{ color: BRAND.muted }} data-testid="early-bird-cards-line">
+            <Flame className="w-3.5 h-3.5" style={{ color: BRAND.gold }} />
+            <span>Early bird prices shown · ends in</span> <Countdown c={countdown} compact />
+          </p>
+        )}
         {(() => {
           const soldOut = divisions.filter((d) => d.spotsLeft != null && d.spotsLeft <= 0);
           return soldOut.length > 0 ? (
@@ -226,7 +312,8 @@ export default function MflLandingPage() {
           {divisions.map((d) => {
             const full = d.spotsLeft != null && d.spotsLeft <= 0;
             const lowSpots = !full && d.spotsLeft != null && d.spotsLeft <= 4;
-            const weeklyCents = isWeeklyPlan && depositCents ? Math.round((d.teamCostCents - depositCents) / (numWeeklyPayments || 8)) : 0;
+            const price = priced(d.teamCostCents);
+            const weeklyCents = isWeeklyPlan ? price.weekly : 0;
             const href = full ? `/league/${slug}/waitlist?division=${d.id}` : `${registerHref}?division=${d.id}`;
             return (
               <Link key={d.id} href={href}>
@@ -246,14 +333,33 @@ export default function MflLandingPage() {
                       discount it can't honour. Sits above the title rather than
                       as a corner ribbon because the price occupies the top-right
                       of every night that is still open. */}
-                  {!full && d.badgeText && (
-                    <span className="self-start mb-2 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ background: BRAND.gold, color: BRAND.black }} data-testid={`division-badge-${d.id}`}>
-                      {d.badgeText}
-                    </span>
+                  {!full && (promo || d.badgeText) && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {/* The early bird pill is the urgency; a night's own badge
+                          (a structural price, like the new-league discount) sits
+                          beside it outlined so the two read as different things. */}
+                      {promo && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ background: BRAND.gold, color: BRAND.black }} data-testid={`early-bird-badge-${d.id}`}>
+                          <Flame className="w-3 h-3" /> Early bird · {promoPct}
+                        </span>
+                      )}
+                      {d.badgeText && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={promo ? { border: `1px solid ${BRAND.gold}88`, color: BRAND.gold } : { background: BRAND.gold, color: BRAND.black }} data-testid={`division-badge-${d.id}`}>
+                          {d.badgeText}
+                        </span>
+                      )}
+                    </div>
                   )}
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <h3 className="text-lg font-bold">{d.name}</h3>
-                    {!full && <span className="text-[15px] font-bold" style={{ color: BRAND.gold }}>{formatCurrency(d.teamCostCents, { fromCents: true })}</span>}
+                    {!full && (
+                      <span className="text-right leading-tight flex-shrink-0">
+                        {price.discount > 0 && (
+                          <s className="block text-[12px]" style={{ color: BRAND.dim }} data-testid={`full-price-${d.id}`}>{formatCurrency(price.full, { fromCents: true })}</s>
+                        )}
+                        <span className="text-[17px] font-bold" style={{ color: BRAND.gold }} data-testid={`price-${d.id}`}>{formatCurrency(price.total, { fromCents: true })}</span>
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: BRAND.muted }}>
                     <Clock className="w-3.5 h-3.5" /> {d.dayOfWeek || "Weeknights"}{d.ageGroup ? ` · ${d.ageGroup}` : ""}
@@ -264,7 +370,7 @@ export default function MflLandingPage() {
                     </p>
                   ) : weeklyCents > 0 && (
                     <p className="text-[12px] mt-1" style={{ color: BRAND.dim }}>
-                      {formatCurrency(depositCents!, { fromCents: true })} deposit · {formatCurrency(weeklyCents, { fromCents: true })}/week
+                      {formatCurrency(price.deposit, { fromCents: true })} deposit · {formatCurrency(weeklyCents, { fromCents: true })}/week
                     </p>
                   )}
                   <div className="flex items-center justify-between mt-3">
