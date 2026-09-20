@@ -58,11 +58,18 @@ async function shot(page: any, name: string) {
 }
 async function editionStrip(page: any) {
   return page.evaluate(() => ({
-    chips: Array.from(document.querySelectorAll('[data-testid^="filter-edition-"]')).map((el) => ({
-      id: Number((el.getAttribute("data-testid") || "").replace("filter-edition-", "")),
-      text: (el as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
-      current: el.getAttribute("aria-current") === "true",
-    })),
+    // 🔴 innerText runs the inline spans together ("open109$11,870.00"), so the
+    // count is read from its OWN span, never parsed out of the joined text.
+    chips: Array.from(document.querySelectorAll('[data-testid^="filter-edition-"]')).map((el) => {
+      const spans = Array.from(el.querySelectorAll("span")).map((x) => (x as HTMLElement).innerText.trim());
+      return {
+        id: Number((el.getAttribute("data-testid") || "").replace("filter-edition-", "")),
+        text: (el as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
+        count: spans.find((t) => /^\d+$/.test(t)) ?? null,
+        money: spans.find((t) => /^\$[\d,]+\.\d{2}$/.test(t)) ?? null,
+        current: el.getAttribute("aria-current") === "true",
+      };
+    }),
     title: (document.querySelector('[data-testid="text-camp-name"]') as HTMLElement | null)?.innerText.trim() ?? "",
     url: location.href,
     scrollWidth: document.documentElement.scrollWidth,
@@ -121,11 +128,11 @@ async function main() {
   ok("the chips are in date order, oldest first", s.chips.map((c) => c.id).join(",") === multi.editions.map((e) => e.id).join(","), s.chips.map((c) => c.id).join(","));
   ok("exactly one chip is current, and it is this run", s.chips.filter((c) => c.current).length === 1 && s.chips.find((c) => c.current)?.id === multi.current.id);
   ok("chips are labelled by DATES (Apr 2026 / Sep–Oct 2026), not by name", s.chips.every((c) => /^[A-Z][a-z]{2}(?:[–-][A-Z][a-z]{2})? \d{4}/.test(c.text)), s.chips.map((c) => c.text).join(" | "));
-  ok("every chip carries its registrations", s.chips.every((c) => /\d+\s+\$[\d,]+\.\d{2}$/.test(c.text)), s.chips.map((c) => c.text).join(" | "));
+  ok("every chip carries its registrations and money", s.chips.every((c) => c.count != null && c.money != null), s.chips.map((c) => `${c.count} · ${c.money}`).join(" | "));
   {
     const { rows: n } = await pool.query(`SELECT count(*)::int AS n FROM registrations WHERE program_id=$1 AND status IN ('confirmed','refunded','partially_refunded')`, [multi.current.id]);
     const chip = s.chips.find((c) => c.id === multi.current.id);
-    ok("the current chip's count matches the database", !!chip && new RegExp(`\\b${n[0].n}\\b`).test(chip.text), `${chip?.text} vs ${n[0].n}`);
+    ok("the current chip's count matches the database", !!chip && Number(chip.count) === n[0].n, `${chip?.count} vs ${n[0].n}`);
   }
 
   // Switch run on a non-default tab → the tab survives.
