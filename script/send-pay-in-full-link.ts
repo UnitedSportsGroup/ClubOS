@@ -47,8 +47,11 @@ async function main() {
     const link = `https://join.minifootball.co.nz/league/balance/${regId}?rt=${row.token}`;
     const page = await fetch(link, { redirect: "manual" });
     console.log(`  pay page ${page.status} → ${link.slice(0, 60)}…`);
-    const log = (await pool.query(`select id, subject, sent_at from email_logs where registration_id=$1 order by id desc limit 1`, [regId])).rows[0];
-    if (log) console.log(`  email log: "${log.subject}" · ${new Date(log.sent_at).toISOString()}`);
+    // ⚠️ email_logs keeps ONE row per registration (a pre-existing unique
+    // constraint), so this usually shows the original confirmation, not this
+    // send. The route's 200 is the proof: it answers 502 when Resend refuses.
+    const log = (await pool.query(`select id, subject, to_email, sent_at from email_logs where registration_id=$1 order by id desc limit 1`, [regId])).rows[0];
+    if (log) console.log(`  email log (first email only, by design): "${log.subject}" → ${log.to_email}`);
   } finally {
     if (userId) await pool.query(`delete from users where id=$1`, [userId]).catch(() => {});
     await pool.end();
