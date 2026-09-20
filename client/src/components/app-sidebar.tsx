@@ -402,7 +402,18 @@ const groupNav = [
   // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
   // hidden, and two "Marketing" megaphones would be one too many if it returns.
   { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
-  { tab: "finance-insight", title: "Financial Insight", url: "/admin/finance-insight", icon: Calculator },
+  // Finance — one section for every money tool (Daniel, 21 Sep: "trim the fat… a dropdown called Finance").
+  // The section row opens Financial Insight (password-protected); each child keeps its own tab and its own lock.
+  {
+    tab: "finance-insight", title: "Finance", url: "/admin/finance-insight", icon: Calculator,
+    children: [
+      { tab: "invoices", title: "Invoices", url: "/admin/invoices", icon: Receipt },
+      { tab: "payouts", title: "Payouts", url: "/admin/payouts", icon: Banknote },
+      { tab: "budget", title: "Budget", url: "/admin/budget", icon: CreditCard },
+      { tab: "coding-budget", title: "Coding Budget", url: "/admin/coding-budget", icon: Calculator },
+      { tab: "cashflow", title: "Cashflow", url: "/admin/cashflow", icon: Waves },
+    ],
+  },
   { tab: "pos", title: "POS", url: "/admin/pos", icon: ShoppingBag },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
@@ -414,13 +425,8 @@ const groupNav = [
   { tab: "sponsorship", title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
   { tab: "proposals", title: "Proposals", url: "/admin/proposals", icon: Send },
   { tab: "grants", title: "Grants", url: "/admin/grants", icon: Landmark },
-  { tab: "invoices", title: "Invoices", url: "/admin/invoices", icon: Receipt },
-  { tab: "payouts", title: "Payouts", url: "/admin/payouts", icon: Banknote },
-  { tab: "budget", title: "Budget", url: "/admin/budget", icon: CreditCard },
   // `Calculator`, not `CreditCard` — Budget already owns that, and this tab is
   // the chart of accounts rather than a spend figure.
-  { tab: "coding-budget", title: "Coding Budget", url: "/admin/coding-budget", icon: Calculator },
-  { tab: "cashflow", title: "Cashflow", url: "/admin/cashflow", icon: Waves },
   // `Car`, not `Truck` — the CIC Food Truck tab already owns that icon.
   { tab: "vehicles", title: "Vehicles", url: "/admin/vehicles", icon: Car },
   { tab: "equipment", title: "Equipment", url: "/admin/equipment", icon: Boxes },
