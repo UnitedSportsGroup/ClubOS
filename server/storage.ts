@@ -86,7 +86,7 @@ import {
   type InsertTournamentCard, type TournamentCard,
   type InsertTournamentPenaltyKick, type TournamentPenaltyKick,
   type InsertClub, type Club,
-  terms,
+  terms, clubSquads, clubSquadMembers,
   type InsertTerm, type Term,
   orgBrandContext, type OrgBrandContext,
   studioDocuments, type StudioDocument,
@@ -227,6 +227,11 @@ export type ProgramPlayer = {
   trainingGroupGrade: number | null;
   /** The registration the override would be written to. */
   trainingGroupRegistrationId: number | null;
+  /** The club TEAM they are on this season — an ACTIVE `club_squad_members`
+   *  row on a `club_squads` row for the term's year, in the programme's own
+   *  organisation (the roster the Squads tab maintains). Null = not currently
+   *  assigned to a team. A camp child (`children` row) is always null. */
+  team: { id: number; name: string; grade: number | null; displayOrder: number } | null;
 };
 
 // A campaign row for the mailer HISTORY list — deliberately without `body`.
@@ -2069,6 +2074,7 @@ export class DatabaseStorage implements IStorage {
           trainingGroupSource: "unknown",
           trainingGroupGrade: null,
           trainingGroupRegistrationId: null,
+          team: null,
           _regIds: new Set<number>(),
         };
         byPerson.set(key, p);
@@ -2119,6 +2125,51 @@ export class DatabaseStorage implements IStorage {
       p.trainingGroupGrade = g.grade;
       delete (p as any)._override;
       delete (p as any)._optionName;
+    }
+
+    // ── WHICH CLUB TEAM ──────────────────────────────────────────────────────
+    // Daniel, 2026-09-21: in Terms 2 and 3 the Players tab lists by TEAM ("U9
+    // Pinkos, U10 Blue, U10 White…"). A team is the club's own roster — an
+    // ACTIVE membership (`left_at IS NULL`) of a `club_squads` row for the
+    // SEASON the term belongs to, in the programme's own organisation. Read
+    // from the roster the Squads tab maintains, never guessed from an age; a
+    // player on no roster reads `team: null` and the tab says so honestly.
+    // Camp children (`children` rows) are never on a squad, so only contacts
+    // are looked up.
+    const contactIds = players.filter(p => p.personType === "contact").map(p => p.personId);
+    if (contactIds.length > 0) {
+      const [prog] = await db.select({ organizationId: programs.organizationId })
+        .from(programs).where(eq(programs.id, campId));
+      const squadRows = await db.select({
+        contactId: clubSquadMembers.contactId,
+        id: clubSquads.id,
+        name: clubSquads.name,
+        grade: clubSquads.ageGrade,
+        displayOrder: clubSquads.displayOrder,
+      })
+        .from(clubSquadMembers)
+        .innerJoin(clubSquads, eq(clubSquads.id, clubSquadMembers.squadId))
+        .where(and(
+          inArray(clubSquadMembers.contactId, contactIds),
+          isNull(clubSquadMembers.leftAt),
+          eq(clubSquadMembers.role, "player"),
+          eq(clubSquads.seasonYear, seasonYear),
+          eq(clubSquads.isActive, true),
+          prog?.organizationId != null ? eq(clubSquads.organizationId, prog.organizationId) : undefined,
+        ))
+        // A player on two rosters at once (nobody is today) reads as the first
+        // by the club's own order — deterministic, never whichever row the
+        // database happened to return first.
+        .orderBy(asc(clubSquads.displayOrder), asc(clubSquads.name));
+      const teamByContact = new Map<number, ProgramPlayer["team"]>();
+      for (const r of squadRows) {
+        if (!teamByContact.has(r.contactId)) {
+          teamByContact.set(r.contactId, { id: r.id, name: r.name, grade: r.grade, displayOrder: r.displayOrder });
+        }
+      }
+      for (const p of players) {
+        if (p.personType === "contact") p.team = teamByContact.get(p.personId) ?? null;
+      }
     }
 
     // child_medical in one pass — allergies and EpiPen matter most on a roll.
