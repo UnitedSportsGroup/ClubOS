@@ -143,30 +143,43 @@ function Overview({ model, s }: { model: Model; s: Scenario }) {
         <Card label="TOTAL GAP — what has to be subsidised" base={T(b.gap)} scen={T(t.gap)} good="pos" big />
         <Card label="Net after donations & what Slava paid outside" base={T(b.net)} scen={T(t.net)} good="pos" note="the cash result once the subsidy is counted — the P&L's NET" big />
       </div>
-      <Chart months={M} own={t.own} exp={t.expenses.map((v, i) => v + t.outside[i])} gap={t.gap} baseGap={b.gap} />
+      <Chart months={M} own={t.own} through={t.expenses} outside={t.outside} gap={t.gap} baseGap={b.gap} funding={t.funding} />
       <MonthTable months={M} t={t} />
       <div className="rounded-xl border bg-card p-4 text-[13px] shadow-sm"><div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Invoiced, not yet paid — {fmt(model.receivablesTotal)} owed to the club</div><div className="flex flex-wrap gap-x-5 gap-y-1">{Object.entries(model.receivables).slice(0, 8).map(([k, v]) => <span key={k}>{k} <span className="tabular-nums text-muted-foreground">{fmt(v)}</span></span>)}</div></div>
     </div>
   );
 }
-function Chart({ months, own, exp, gap, baseGap }: { months: string[]; own: number[]; exp: number[]; gap: number[]; baseGap: number[] }) {
+function Chart({ months, own, through, outside, gap, baseGap, funding }: { months: string[]; own: number[]; through: number[]; outside: number[]; gap: number[]; baseGap: number[]; funding: number[] }) {
+  const [hov, setHov] = useState<number | null>(null);
+  const exp = through.map((v, i) => v + outside[i]);
   const W = 960, H = 300, P = { l: 64, r: 16, t: 16, b: 34 }; const iw = W - P.l - P.r, ih = H - P.t - P.b;
   const max = Math.max(...own, ...exp, 1); const min = Math.min(...gap, ...baseGap, 0);
   const y = (v: number) => P.t + ih * (1 - (v - min) / (max - min)); const x = (i: number) => P.l + (iw / months.length) * i;
-  const bw = (iw / months.length) * 0.32; const y0 = y(0); const cx = (i: number) => x(i) + iw / months.length / 2;
+  const cw = iw / months.length; const bw = cw * 0.32; const y0 = y(0); const cx = (i: number) => x(i) + cw / 2;
   const path = (a: number[]) => a.map((v, i) => `${i ? "L" : "M"}${cx(i)},${y(v)}`).join(" ");
   const tv = Array.from({ length: 6 }, (_, i) => min + ((max - min) * i) / 5);
+  const rowsFor = (i: number): [string, number, string?][] => [["Income the club earns itself", own[i]], ["Expenses through the club", through[i]], ["Paid outside the club", outside[i]],
+    ["Total gap (scenario)", gap[i], "bold"], ["Gap at actuals", baseGap[i]], ["Donations & owner funding", funding[i]]];
   return (
-    <div className="rounded-xl border bg-card p-3 shadow-sm">
-      <div className="mb-1 flex flex-wrap items-center gap-4 px-1 text-[11px] text-muted-foreground"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />own income</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" />expenses (incl. outside)</span><span><i className="mr-1 inline-block h-0.5 w-4 bg-amber-600 align-middle" />total gap (scenario)</span><span><i className="mr-1 inline-block h-0.5 w-4 border-t border-dashed border-slate-400 align-middle" />gap at actuals</span></div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+    <div className="relative rounded-xl border bg-card p-3 shadow-sm">
+      <div className="mb-1 flex flex-wrap items-center gap-4 px-1 text-[11px] text-muted-foreground"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />own income</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" />expenses (incl. outside)</span><span><i className="mr-1 inline-block h-0.5 w-4 bg-amber-600 align-middle" />total gap (scenario)</span><span><i className="mr-1 inline-block h-0.5 w-4 border-t border-dashed border-slate-400 align-middle" />gap at actuals</span><span className="ml-auto">hover a month for the figures</span></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" onMouseLeave={() => setHov(null)}>
         {tv.map((v, i) => <g key={i}><line x1={P.l} x2={W - P.r} y1={y(v)} y2={y(v)} stroke="#e5e7eb" /><text x={P.l - 6} y={y(v) + 4} textAnchor="end" fontSize="10" fill="#6b7280">{fmt(v / 1000)}k</text></g>)}
+        {hov !== null && <rect x={x(hov)} y={P.t} width={cw} height={ih} fill="#f59e0b" opacity="0.10" />}
         <line x1={P.l} x2={W - P.r} y1={y0} y2={y0} stroke="#9ca3af" />
-        {months.map((m, i) => <g key={m}><rect x={cx(i) - bw - 2} y={y(Math.max(own[i], 0))} width={bw} height={Math.abs(y0 - y(own[i]))} fill="#10b981" /><rect x={cx(i) + 2} y={y(Math.max(exp[i], 0))} width={bw} height={Math.abs(y0 - y(exp[i]))} fill="#f43f5e" opacity="0.85" /><text x={cx(i)} y={H - 12} textAnchor="middle" fontSize="11" fill="#374151">{MON[m] ?? m}</text></g>)}
+        {months.map((m, i) => <g key={m}><rect x={cx(i) - bw - 2} y={y(Math.max(own[i], 0))} width={bw} height={Math.abs(y0 - y(own[i]))} fill="#10b981"><title>{`${MON[m] ?? m} · own income ${fmt(own[i])}`}</title></rect><rect x={cx(i) + 2} y={y(Math.max(exp[i], 0))} width={bw} height={Math.abs(y0 - y(exp[i]))} fill="#f43f5e" opacity="0.85"><title>{`${MON[m] ?? m} · expenses ${fmt(exp[i])}`}</title></rect><text x={cx(i)} y={H - 12} textAnchor="middle" fontSize="11" fill={hov === i ? "#111827" : "#374151"} fontWeight={hov === i ? 700 : 400}>{MON[m] ?? m}</text></g>)}
         <path d={path(baseGap)} fill="none" stroke="#9ca3af" strokeDasharray="4 4" strokeWidth="1.5" />
         <path d={path(gap)} fill="none" stroke="#d97706" strokeWidth="2.5" />
-        {gap.map((v, i) => <circle key={i} cx={cx(i)} cy={y(v)} r="3.5" fill="#d97706" />)}
+        {gap.map((v, i) => <circle key={i} cx={cx(i)} cy={y(v)} r={hov === i ? 5 : 3.5} fill="#d97706" />)}
+        {/* one invisible hit column per month — a bar of $0 has no height to hover */}
+        {months.map((m, i) => <rect key={`h${m}`} x={x(i)} y={P.t} width={cw} height={ih + P.b} fill="transparent" onMouseEnter={() => setHov(i)} onTouchStart={() => setHov(hov === i ? null : i)} style={{ cursor: "crosshair" }} />)}
       </svg>
+      {hov !== null && (
+        <div className="pointer-events-none absolute z-10 w-64 rounded-lg border bg-white p-3 text-[12px] shadow-lg" style={{ left: `min(max(${(cx(hov) / W) * 100}% - 8rem, 0.5rem), calc(100% - 16.5rem))`, top: "2.5rem" }}>
+          <div className="mb-1 font-semibold">{MON[months[hov]] ?? months[hov]} {months[hov].slice(0, 4)}</div>
+          {rowsFor(hov).map(([lab, v, b]) => <div key={lab} className={`flex justify-between gap-3 ${b ? "font-semibold" : "text-muted-foreground"}`}><span>{lab}</span><span className={`tabular-nums ${b ? (v < 0 ? "text-red-700" : "text-emerald-700") : ""}`}>{fmt(v)}</span></div>)}
+        </div>
+      )}
     </div>
   );
 }
