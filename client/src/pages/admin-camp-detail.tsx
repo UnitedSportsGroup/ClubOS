@@ -13,6 +13,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
 import { UNGRADED_LABEL, sortGroups, trainingGroupLabel } from "@shared/training-groups";
+import { seriesName } from "@shared/programme-series";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { withFrom, useBackTo } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
@@ -1774,6 +1775,16 @@ type ProgramPlayer = {
   latestRegisteredAt: string | null;
 };
 
+/** Every school-holiday EDITION of one camp — GET /api/admin/camps/:id/editions. */
+type CampEditions = {
+  series: string;
+  currentId: number | null;
+  editions: {
+    id: number; name: string; slug: string | null; startDate: string | null; endDate: string | null;
+    isActive: boolean; registrationOpen: boolean; label: string; registrations: number; revenueCents: number;
+  }[];
+};
+
 /** Age in whole years at today, or null when we have no date of birth. */
 function ageFromDob(dob: string | null): number | null {
   if (!dob) return null;
@@ -2030,8 +2041,11 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   const groupBy: "training" | "team" = winterTerm && all.some(p => p.team) ? "team" : "training";
   const groupLabelOf = (p: ProgramPlayer): string =>
     groupBy === "team" ? (p.team?.name ?? UNASSIGNED_LABEL) : (p.trainingGroup ?? UNGRADED_LABEL);
+  // A holiday camp splits its children by age grade as well, but "U5 Training
+  // Group" is academy wording — on a camp the heading is just the grade.
+  const isCamp = camp?.type === "holiday_camp";
   const headingFor = (label: string): string =>
-    groupBy === "team" || label === UNGRADED_LABEL ? label : `${label} Training Group`;
+    groupBy === "team" || label === UNGRADED_LABEL || isCamp ? label : `${label} Training Group`;
   // Teams in age order, then the club's own display order, then name; the
   // unassigned bucket always last. Training groups keep U7 < U8 < U9 < U10
   // (never alphabetical, where "U10" sorts before "U9") with "Not graded" last.
@@ -2892,6 +2906,23 @@ export default function AdminCampDetail() {
     },
   });
 
+  // ── THE OTHER EDITIONS OF THIS CAMP ──────────────────────────────────────
+  // Daniel, 2026-09-21: "When you click inside, you've got the option to view
+  // the January camps, the April camps, the September/October camps…". A
+  // holiday camp is run every school holiday as its own programme row; the
+  // chips under the title reach every other run of the SAME camp
+  // (@shared/programme-series). Above every early return, like every hook.
+  const isHolidayCamp = camp?.type === "holiday_camp";
+  const { data: campEditions } = useQuery<CampEditions>({
+    queryKey: ["/api/admin/camps", campId, "editions"],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/editions`);
+      if (!res.ok) throw new Error("Failed to load camp editions");
+      return res.json();
+    },
+    enabled: isHolidayCamp,
+  });
+
   // Which section this programme's pages sit in. CUFC has a separate
   // /admin/academy list and /admin/camps; gymnastics has one /admin/programs.
   // 🔴 The section you are STANDING IN wins, whenever that section really
@@ -2998,7 +3029,9 @@ export default function AdminCampDetail() {
           </button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg sm:text-xl font-semibold text-white tracking-tight truncate" data-testid="text-camp-name">{camp.name}</h1>
+          <h1 className="text-lg sm:text-xl font-semibold text-white tracking-tight truncate" data-testid="text-camp-name" data-edition-name={isHolidayCamp ? camp.name : undefined}>
+            {isHolidayCamp ? seriesName(camp.name) : camp.name}
+          </h1>
           <p className="text-[12px] text-blue-400/35 truncate">/{camp.slug}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -3032,6 +3065,35 @@ export default function AdminCampDetail() {
           </Button>
         </div>
       </div>
+
+      {/* WHICH RUN of this camp — the same shape as the term picker on an
+          academy programme. Each chip is another edition (its own programme
+          row), so choosing one opens that edition on the SAME tab. */}
+      {isHolidayCamp && campEditions && campEditions.editions.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap animate-fade-in-up" style={{ animationDelay: '30ms', opacity: 0 }} data-testid="filter-editions">
+          {campEditions.editions.map((e) => {
+            const on = e.id === campId;
+            return (
+              <button
+                key={e.id}
+                onClick={() => { if (!on) navigate(`${listPath}/${e.id}${typeof window !== "undefined" ? window.location.hash : ""}`); }}
+                aria-current={on ? "true" : undefined}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+                  on ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                     : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+                }`}
+                title={`${e.name}${e.startDate ? ` · ${e.startDate}` : ""}${e.endDate ? ` → ${e.endDate}` : ""}`}
+                data-testid={`filter-edition-${e.id}`}
+              >
+                {e.label}
+                {e.registrationOpen && <span className="ml-1.5 text-[10px] text-emerald-400/80">open</span>}
+                <span className="ml-1.5 text-white/30">{e.registrations}</span>
+                <span className="ml-1.5 text-white/25">{formatCurrency(e.revenueCents, { fromCents: true })}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 animate-fade-in-up scrollbar-hide" style={{ animationDelay: '50ms', opacity: 0 }}>
         <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04] w-max sm:w-auto">

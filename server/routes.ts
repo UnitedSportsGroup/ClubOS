@@ -1,4 +1,5 @@
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
@@ -3756,6 +3757,44 @@ export async function registerRoutes(
       const camp = await storage.getProgram(parseInt(req.params.id));
       if (!camp) return res.status(404).json({ message: "Camp not found" });
       res.json(camp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Every EDITION of this holiday camp — the timeframe selector on its page.
+  // One camp is run every school holiday as its own `programs` row; the SERIES
+  // they belong to is derived from the name (@shared/programme-series), and
+  // only rows in the SAME organisation count. Counts and money follow the one
+  // registration rule (@shared/registrations): paid, refunded, part-refunded.
+  app.get("/api/admin/camps/:id/editions", requireAuth, async (req, res) => {
+    try {
+      const camp = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!camp) return res.status(404).json({ message: "Camp not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, camp.organizationId)) return res.status(404).json({ message: "Camp not found" });
+      const key = seriesKey(camp.name);
+      const siblings = (await storage.getPrograms()).filter(p =>
+        p.type === "holiday_camp" && p.organizationId === camp.organizationId && seriesKey(p.name) === key);
+      const ids = siblings.map(p => p.id);
+      const stats = new Map<number, { n: number; cents: number }>();
+      if (ids.length > 0) {
+        const rows: any = await db.execute(sql`
+          SELECT program_id, count(*)::int AS n, coalesce(sum(total_cents), 0)::bigint AS cents
+          FROM registrations
+          WHERE program_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
+            AND status IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+          GROUP BY program_id`);
+        for (const r of rows.rows ?? []) stats.set(Number(r.program_id), { n: Number(r.n), cents: Number(r.cents) });
+      }
+      const editions = sortEditions(siblings.map(p => ({
+        id: p.id, name: p.name, slug: p.slug, startDate: p.startDate, endDate: p.endDate,
+        isActive: !!p.isActive, registrationOpen: !!p.registrationOpen,
+        label: editionLabel(p.startDate, p.endDate),
+        registrations: stats.get(p.id)?.n ?? 0,
+        revenueCents: stats.get(p.id)?.cents ?? 0,
+      })));
+      res.json({ series: seriesName(camp.name), currentId: currentEditionId(editions, nzTodayIso()), editions });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
