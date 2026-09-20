@@ -2215,12 +2215,12 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                 <SortHeader label="Player" sortKey="player" active={sortKey === "player"} dir={sortDir} onSort={toggleSort} />
                 <SortHeader label="Age" sortKey="age" active={sortKey === "age"} dir={sortDir} onSort={toggleSort} />
                 <SortHeader label="Parent" sortKey="parent" active={sortKey === "parent"} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell" />
-                <SortHeader label="Contact" sortKey="contact" active={sortKey === "contact"} dir={sortDir} onSort={toggleSort} className="hidden lg:table-cell" />
+                <SortHeader label="Contact" sortKey="contact" active={sortKey === "contact"} dir={sortDir} onSort={toggleSort} className="hidden xl:table-cell" />
                 {showSessions && <SortHeader label="Sessions" sortKey="sessions" active={sortKey === "sessions"} dir={sortDir} onSort={toggleSort} align="center" className="hidden sm:table-cell" />}
                 {showPaid && <SortHeader label="Paid" sortKey="paid" active={sortKey === "paid"} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell" />}
                 <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort} />
                 {showGroups && (
-                  <th className="px-4 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden md:table-cell">Group</th>
+                  <th className="px-2 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden md:table-cell w-[104px]">Group</th>
                 )}
               </tr>
             </thead>
@@ -2278,7 +2278,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                         {p.parent ? `${p.parent.firstName} ${p.parent.lastName}`.trim() || "—" : "—"}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 hidden lg:table-cell">
+                    <td className="px-4 py-2.5 hidden xl:table-cell">
                       <div className="flex flex-col">
                         {p.parent?.email && <span className="text-[11px] text-white/40 truncate max-w-[220px]">{p.parent.email}</span>}
                         {p.parent?.phone && <span className="text-[11px] text-white/25 font-mono">{p.parent.phone}</span>}
@@ -2312,12 +2312,12 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                         blank. stopPropagation because the row itself opens the
                         player's profile. */}
                     {showGroups && (
-                      <td className="px-4 py-2.5 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2 py-2.5 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={p.trainingGroupSource === "override" ? (p.trainingGroup ?? "auto") : "auto"}
                           onValueChange={(v) => setGroupOverride(p, v === "auto" ? null : v)}
                         >
-                          <SelectTrigger className="h-7 w-[104px] text-[11px] premium-input" data-testid={`select-group-${p.key}`}>
+                          <SelectTrigger className="h-7 w-[92px] text-[11px] premium-input" data-testid={`select-group-${p.key}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
