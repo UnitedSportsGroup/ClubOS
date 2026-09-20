@@ -22397,6 +22397,28 @@ export async function registerRoutes(
         active: deadline ? new Date(deadline + "T23:59:59") >= now : false,
       };
 
+      // The discount the checkout applies ON ITS OWN to a single-team order
+      // (EARLYBIRD, until its window closes), published so the landing page can
+      // show the price the checkout will actually charge — struck-through full
+      // price, early bird price, and a countdown to the instant it stops.
+      //
+      // 🔴 Same resolver as the checkout, same `now`, and `endsAt` is the very
+      // Date the resolver compares against — so the page's timer and the
+      // checkout's decision cannot disagree. Daniel, 2026-09-20: "show early
+      // bird discount price with line through and special badge while it lasts
+      // on this page too not just on checkout".
+      const { rules: autoRules, records: autoRecords } = await resolveLeagueDiscounts([], 1, now);
+      const ebRule = autoRules.find((r) => r.code.toUpperCase() === "EARLYBIRD");
+      const ebEnd = ebRule ? autoRecords[ebRule.code]?.endDate : null;
+      const autoDiscount = ebRule ? {
+        code: ebRule.code,
+        label: ebRule.label,
+        valueType: ebRule.valueType,
+        value: ebRule.value,
+        combinesWithOrder: ebRule.combinesWithOrder,
+        endsAt: ebEnd ? new Date(ebEnd).toISOString() : null,
+      } : null;
+
       res.json({
         program,
         organization: org ? { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logoUrl } : null,
@@ -22404,6 +22426,7 @@ export async function registerRoutes(
         divisions,
         upsells: (program as any).upsellsJson || [],
         earlyBird,
+        autoDiscount,
         depositCents: (program as any).depositCents ?? null,
         paymentPlan: (program as any).paymentPlan || "installment",
         numWeeklyPayments: (program as any).numWeeklyPayments ?? 8,
