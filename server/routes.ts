@@ -3380,8 +3380,36 @@ export async function registerRoutes(
       });
       await storage.updateRegistration(reg.id, { stripePaymentIntentId: paymentIntent.id } as any);
 
+      // Server-side Meta Lead (2026-09-19). The academy funnel reported
+      // ViewContent and Purchase and nothing between them, so a $405–$540
+      // programme gave an ad a handful of purchases to learn from and no way to
+      // tell "nobody clicked" from "everybody quit at the card". A parent who
+      // has typed their details and reached the card step is a real lead. The
+      // browser fires the same eventId, so Meta counts one. The PARENT is the
+      // tracked person — never the child. Best-effort: never blocks a checkout.
+      const leadEventId = `academy_lead_${reg.id}`;
+      sendLeadEvent({
+        registrationId: reg.id,
+        campId: program.id,
+        valueCents: chargeCents,
+        currency: "NZD",
+        email,
+        phone: guardianIn.phone ? String(guardianIn.phone) : undefined,
+        firstName: String(guardianIn.firstName).trim(),
+        lastName: String(guardianIn.lastName).trim(),
+        fbp: attribution.fbp ?? undefined,
+        fbc: attribution.fbc ?? undefined,
+        userAgent: req.headers["user-agent"] as string | undefined,
+        ipAddress: req.ip,
+        sourceUrl: typeof body.sourceUrl === "string" ? body.sourceUrl.slice(0, 500) : undefined,
+        eventId: leadEventId,
+        contentName: `${program.name} — academy registration`,
+        contentIds: [program.slug],
+      }).catch((e) => console.error("[Academy register] Meta Lead failed:", e));
+
       res.json({
         registrationId: reg.id,
+        leadEventId,
         clientSecret: paymentIntent.client_secret,
         // The quote the parent sees must be the amount the card is charged.
         quote: { ...quote, promoCents, discountCents: totalDiscountCents, totalCents: chargeCents, discountCode: promoCode },
@@ -19835,13 +19863,28 @@ export async function registerRoutes(
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const offset = parseInt(req.query.offset as string) || 0;
 
+      // Which TERM and which OPTION a registration is for (added 2026-09-19).
+      // A roll is about one term and, in Term 4, one age group ("U9 training
+      // group") — and a reader given only a programme name had to guess both.
+      // The term is the one stamped on the registration when it was sold, never
+      // `programs.term_id` (that flips every term and would re-file history).
+      // 🔴 No date of birth leaves this endpoint: `grade` is NZ Football's
+      // number (season year − birth year), which is all a roll needs.
       const { rows } = await db.execute(sql.raw(`
         SELECT r.id, r.status, r.total_cents, r.currency, r.registered_at,
+               r.contact_id, r.term_id, r.program_option_id,
+               t.name as term_name, t.year as term_year, t.term_number,
+               o.name as option_name,
+               CASE WHEN c.date_of_birth IS NOT NULL AND COALESCE(r.season_year, p.season_year, t.year) IS NOT NULL
+                    THEN COALESCE(r.season_year, p.season_year, t.year) - EXTRACT(YEAR FROM c.date_of_birth)::int
+               END as grade,
                p.name as camp_name, p.slug as camp_slug,
                c.first_name, c.last_name, c.email
         FROM registrations r
         JOIN programs p ON r.program_id = p.id
         JOIN contacts c ON r.contact_id = c.id
+        LEFT JOIN terms t ON t.id = r.term_id
+        LEFT JOIN program_options o ON o.id = r.program_option_id
         WHERE p.organization_id = ${orgId}${programSqlFilter(req)}
           AND r.registered_at >= '${since}'
         ORDER BY r.registered_at DESC
@@ -19869,6 +19912,13 @@ export async function registerRoutes(
           campSlug: r.camp_slug,
           contactName: `${r.first_name} ${r.last_name}`,
           contactEmail: r.email,
+          contactId: r.contact_id,
+          // null = not recorded (an import that never said), never a guess.
+          termId: r.term_id ?? null,
+          termLabel: r.term_id ? `Term ${r.term_number} ${r.term_year}` : null,
+          optionId: r.program_option_id ?? null,
+          optionName: r.option_name ?? null,
+          grade: r.grade == null ? null : Number(r.grade),
         })),
         total: Number(countRows[0]?.total || 0),
         limit,

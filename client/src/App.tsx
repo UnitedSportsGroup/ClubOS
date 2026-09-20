@@ -179,6 +179,7 @@ import StudioEditor from "@/pages/studio/StudioEditor";
 import StudioAnalytics from "@/pages/studio/StudioAnalytics";
 import Cic7sRegistrations from "@/pages/cic7s-registrations";
 import EthnicCupRegistrations from "@/pages/ethnic-cup-registrations";
+import FootballFest from "@/pages/football-fest";
 import TeamEntries from "@/pages/team-entries";
 import TeampayEnterPage from "@/pages/teampay/enter";
 import TeampayDashboard from "@/pages/teampay/dashboard";
@@ -503,6 +504,7 @@ function AdminRouter() {
         <Route path="/admin/volunteers" component={Volunteers} />
         <Route path="/admin/cic7s-registrations" component={Cic7sRegistrations} />
         <Route path="/admin/ethnic-cup-registrations" component={EthnicCupRegistrations} />
+        <Route path="/admin/football-fest" component={FootballFest} />
         <Route path="/admin/team-entries" component={TeamEntries} />
         <Route path="/admin/cic-registrations" component={CicInbox} />
         <Route path="/admin/cic-livechat" component={CicLiveChat} />

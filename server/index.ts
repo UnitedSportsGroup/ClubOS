@@ -247,6 +247,8 @@ app.use(attributionCookieMiddleware);
   // requireTab("ethnic-cup-registrations") inside the CIC workspace.
   const { registerEthnicCupRoutes } = await import("./ethnic-cup-routes");
   registerEthnicCupRoutes(app);
+  const { registerFootballFestRoutes } = await import("./football-fest-routes");
+  registerFootballFestRoutes(app);
 
   // Team Pay — team entries, per-player squad payment, the manager's dashboard
   // and the fill-in marketplace. Public routes are authenticated by a token in
