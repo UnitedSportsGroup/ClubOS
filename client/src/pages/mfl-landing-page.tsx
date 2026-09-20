@@ -226,7 +226,9 @@ export default function MflLandingPage() {
       {/* Early bird — the price every card shows, and the clock on it. */}
       {promo && (
         <div className="px-6">
-          <div className="max-w-4xl mx-auto -mt-6 rounded-2xl px-5 py-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6"
+          {/* No negative margin: the hero paints over anything pulled up under
+              it, which clipped the top of this banner in the first screenshot. */}
+          <div className="relative z-10 max-w-4xl mx-auto mt-6 rounded-2xl px-5 py-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6"
             style={{ background: `${BRAND.gold}1a`, border: `1px solid ${BRAND.gold}66` }} data-testid="early-bird-banner">
             <span className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wider" style={{ color: BRAND.gold }}>
               <Flame className="w-4 h-4" /> Early bird · {promoPct} every night
@@ -246,7 +248,7 @@ export default function MflLandingPage() {
       {/* Late-fee urgency banner (programmes that price by a late fee instead) */}
       {!promo && earlyBird.active && earlyBird.deadline && (
         <div className="px-6">
-          <div className="max-w-4xl mx-auto -mt-6 rounded-xl px-5 py-3 flex items-center justify-center gap-2 text-sm font-semibold"
+          <div className="relative z-10 max-w-4xl mx-auto mt-6 rounded-xl px-5 py-3 flex items-center justify-center gap-2 text-sm font-semibold"
             style={{ background: `${BRAND.gold}1a`, border: `1px solid ${BRAND.gold}55`, color: BRAND.gold }}>
             <Flame className="w-4 h-4" />
             Early-bird pricing ends {new Date(earlyBird.deadline + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long" })} — register now to skip the late fee.
