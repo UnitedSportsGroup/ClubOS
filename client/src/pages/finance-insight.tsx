@@ -145,11 +145,26 @@ function Card({ label, base, scen, note, big, good }: { label: string; base: num
     </div>
   );
 }
+function Verdict({ model, s, t, b }: { model: Model; s: Scenario; t: ReturnType<typeof totals>; b: ReturnType<typeof totals> }) {
+  const M = model.months; const span = `${MON[M[0]] ?? M[0]} ${M[0].slice(2, 4)} – ${MON[M[M.length - 1]] ?? M[M.length - 1]} ${M[M.length - 1].slice(2, 4)}`;
+  const gap = sum(t.gap), net = sum(t.net), levers = describe(model, s);
+  return (
+    <div className={`rounded-xl border-2 p-4 ${gap >= 0 ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{levers.length ? "This scenario" : "At actuals"} · {span}</div>
+      <p className="mt-1 text-[15px] leading-relaxed">
+        On its own earnings — no donations, no owner funding — the club lands at <b className={`tabular-nums ${gap >= 0 ? "text-emerald-700" : "text-red-700"}`}>{fmt(gap)}</b>{gap >= 0 ? ", a surplus: nothing to subsidise." : ", a shortfall that donations had to cover."}
+        {" "}With donations &amp; owner funding counted, the cash result is <b className={`tabular-nums ${net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{fmt(net)}</b>.
+        {levers.length > 0 && <span className="text-muted-foreground"> At actuals the gap was {fmt(sum(b.gap))}; the levers applied: {levers.join("; ")}.</span>}
+      </p>
+    </div>
+  );
+}
 function Overview({ model, s }: { model: Model; s: Scenario }) {
   const t = totals(model, s); const b = totals(model, EMPTY); const M = model.months; const T = (a: number[]) => sum(a);
   const upto = model.dataThrough ?? M[M.length - 1]; const keep = M.map((m, i) => (m <= upto ? i : -1)).filter((i) => i >= 0); const pick = (a: number[]) => keep.map((i) => a[i]); const PM = keep.map((i) => M[i]);
   return (
     <div className="space-y-5">
+      <Verdict model={model} s={s} t={t} b={b} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card label="Income the club earns itself" base={T(b.own)} scen={T(t.own)} note="fees, competitions, sponsorship, grants, prize money, merchandise" />
         <Card label="Donations & owner funding" base={T(b.funding)} scen={T(t.funding)} note="money the club did not earn — Slava and other donors" />
@@ -157,7 +172,7 @@ function Overview({ model, s }: { model: Model; s: Scenario }) {
         <Card label="Paid outside the club" base={T(b.outside)} scen={T(t.outside)} note="OFC hotels Slava paid, never through the club" />
         <Card label="GAP — through the club's accounts" base={T(b.gapThrough)} scen={T(t.gapThrough)} good="pos" />
         <Card label="GAP — outside the club's accounts" base={T(b.gapOutside)} scen={T(t.gapOutside)} good="pos" />
-        <Card label="TOTAL GAP — what has to be subsidised" base={T(b.gap)} scen={T(t.gap)} good="pos" big />
+        <Card label={T(t.gap) >= 0 ? "TOTAL GAP — a surplus, nothing to subsidise" : "TOTAL GAP — what has to be subsidised"} base={T(b.gap)} scen={T(t.gap)} good="pos" big note="own income − every cost, through the club and outside; donations never counted here" />
         <Card label="Net after donations & what Slava paid outside" base={T(b.net)} scen={T(t.net)} good="pos" note="the cash result once the subsidy is counted — the P&L's NET" big />
       </div>
       {PM.length > 0 && <Chart months={PM} own={pick(t.own)} through={pick(t.expenses)} outside={pick(t.outside)} gap={pick(t.gap)} baseGap={pick(b.gap)} funding={pick(t.funding)} />}
