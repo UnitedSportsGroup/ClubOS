@@ -227,6 +227,7 @@ const gymnasticsTabs: TabDef[] = [
   { slug: "behavior", title: "Behavior", url: "/admin/behavior" },
   { slug: "programs", title: "Programs", url: "/admin/programs" },
   { slug: "cugc-registrations", title: "Registrations", url: "/admin/cugc-registrations" },
+  { slug: "cugc-roll", title: "Roll", url: "/admin/cugc-roll" },
   { slug: "cugc-free-sessions", title: "Free Sessions", url: "/admin/cugc-free-sessions" },
   { slug: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics" },
   { slug: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox" },

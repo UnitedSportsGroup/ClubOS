@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ClipboardCheck, Mail, Phone, Inbox, X } from "lucide-react";
+import { ClipboardCheck, Mail, Phone, Inbox, X, CalendarDays } from "lucide-react";
 
 interface Registration {
   id: number;
@@ -45,10 +45,19 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+interface TermCfg {
+  id: string; name: string; start: string; end: string; weeks: number;
+  enrolmentOpen: boolean; status: "upcoming" | "active" | "ended"; sellable: boolean; window: string;
+}
 interface ProgramConfig {
   term: { name: string; start: string; end: string; weeks: number };
+  terms?: TermCfg[];
   programs: { slug: string; title: string; ages: string; options: { label: string; price: number }[] }[];
 }
+
+// A registration whose term was never recorded. Shown as its own chip rather
+// than folded into a real term — an unanswered question, not a guess.
+const NO_TERM = "__none__";
 
 function money(cents: number): string {
   const dollars = (cents || 0) / 100;
@@ -72,7 +81,41 @@ export default function CugcRegistrations() {
   const [progFilter, setProgFilter] = useState<string>(() => new URLSearchParams(search).get("program") || "all");
   const [selected, setSelected] = useState<Registration | null>(null);
 
-  const inProgram = progFilter === "all" ? regos : regos.filter((r) => r.programSlug === progFilter);
+  // 🔴 WHICH TERM. Daniel, 2026-09-20: "separate out term 3 and term 4 regos".
+  // Before this, 35 enrolments across two terms were one pile and one total.
+  //
+  // It lives in the URL, not in component state, for three reasons the academy
+  // learned the hard way: browser Back returns you to the term you were on, a
+  // term can be linked to, and — most of all — the TILES AND THE LIST READ THE
+  // SAME VALUE. The academy's Players tab once showed 5 people under tiles
+  // reading 151. `replaceState`, not push: flicking between two terms must not
+  // bury the page you arrived from.
+  const [termFilter, setTermFilterState] = useState<string>(() => new URLSearchParams(search).get("term") || "");
+  const setTermFilter = (t: string) => {
+    setTermFilterState(t);
+    const q = new URLSearchParams(window.location.search);
+    t ? q.set("term", t) : q.delete("term");
+    const qs = q.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  };
+
+  // Every term that actually appears in the data, plus every term ClubOS knows
+  // about — so a term with no sign-ups yet is still selectable and reads zero
+  // rather than vanishing.
+  const termNames = Array.from(new Set([
+    ...(cfg?.terms ?? []).map((t) => t.name),
+    ...regos.map((r) => r.term).filter((t): t is string => !!t),
+  ]));
+  const hasUnrecorded = regos.some((r) => !r.term);
+
+  // Default to the term being SOLD, but only once we know what that is.
+  const effectiveTerm = termFilter || cfg?.term.name || "all";
+
+  const inTerm = effectiveTerm === "all" ? regos
+    : effectiveTerm === NO_TERM ? regos.filter((r) => !r.term)
+    : regos.filter((r) => r.term === effectiveTerm);
+
+  const inProgram = progFilter === "all" ? inTerm : inTerm.filter((r) => r.programSlug === progFilter);
   const counts = {
     all: inProgram.length,
     paid: inProgram.filter((r) => r.status === "paid").length,
@@ -81,11 +124,23 @@ export default function CugcRegistrations() {
   };
   const shown = filter === "all" ? inProgram : inProgram.filter((r) => r.status === filter);
 
+  // Reads `inTerm`, NOT every row — otherwise the cards above the list would
+  // count a different population from the list itself.
   const statsFor = (slug: string | "all") => {
-    const rows = slug === "all" ? regos : regos.filter((r) => r.programSlug === slug);
+    const rows = slug === "all" ? inTerm : inTerm.filter((r) => r.programSlug === slug);
     return {
       paid: rows.filter((r) => r.status === "paid").length,
       pending: rows.filter((r) => r.status === "pending_payment").length,
+      revenue: rows.filter((r) => r.status === "paid").reduce((sum, r) => sum + (r.priceCents || 0), 0),
+    };
+  };
+
+  const termStats = (name: string) => {
+    const rows = name === "all" ? regos
+      : name === NO_TERM ? regos.filter((r) => !r.term)
+      : regos.filter((r) => r.term === name);
+    return {
+      count: rows.length,
       revenue: rows.filter((r) => r.status === "paid").reduce((sum, r) => sum + (r.priceCents || 0), 0),
     };
   };
@@ -96,7 +151,7 @@ export default function CugcRegistrations() {
         <div>
           <h1 className="text-2xl font-semibold text-white/90 flex items-center gap-2.5">
             <ClipboardCheck className="w-6 h-6 text-blue-400" />
-            CUGC — Enrolments{cfg ? ` · ${cfg.term.name}` : ""}
+            CUGC — Enrolments{effectiveTerm && effectiveTerm !== "all" && effectiveTerm !== NO_TERM ? ` · ${effectiveTerm}` : ""}
           </h1>
           <p className="text-sm text-white/40 mt-1">Enrolments from the cugc.co.nz enrol form. Paid via CUGC's Stripe account. Pick a program to see its roster.</p>
         </div>
@@ -119,6 +174,54 @@ export default function CugcRegistrations() {
           ))}
         </div>
       </div>
+
+      {/* Which term. Each chip carries its OWN count and money, so the numbers
+          can never be read as the club's whole history. */}
+      {(termNames.length > 1 || hasUnrecorded) && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-white/35 inline-flex items-center gap-1.5 pr-1">
+            <CalendarDays className="w-3.5 h-3.5" /> Term
+          </span>
+          {termNames.map((name) => {
+            const st = termStats(name);
+            const on = effectiveTerm === name;
+            const meta = (cfg?.terms ?? []).find((t) => t.name === name);
+            return (
+              <button
+                key={name}
+                onClick={() => setTermFilter(name)}
+                data-testid={`chip-term-${name.replace(/\s+/g, "-").toLowerCase()}`}
+                className={`px-3 py-1.5 rounded-lg border transition-colors ${
+                  on ? "bg-blue-500/15 border-blue-400/40 text-blue-200" : "bg-white/[0.04] border-white/10 text-white/60 hover:text-white/90"
+                }`}
+                title={meta ? `${meta.window}${meta.status === "ended" ? " · finished" : meta.status === "upcoming" ? " · not started" : " · running now"}` : undefined}
+              >
+                {name} · {st.count}
+                {st.revenue > 0 && <span className="text-emerald-300/70"> · {money(st.revenue)}</span>}
+              </button>
+            );
+          })}
+          {hasUnrecorded && (
+            <button
+              onClick={() => setTermFilter(NO_TERM)}
+              className={`px-3 py-1.5 rounded-lg border transition-colors ${
+                effectiveTerm === NO_TERM ? "bg-amber-500/15 border-amber-400/40 text-amber-200" : "bg-white/[0.04] border-white/10 text-white/60 hover:text-white/90"
+              }`}
+            >
+              Term not recorded · {termStats(NO_TERM).count}
+            </button>
+          )}
+          <button
+            onClick={() => setTermFilter("all")}
+            data-testid="chip-term-all"
+            className={`px-3 py-1.5 rounded-lg border transition-colors ${
+              effectiveTerm === "all" ? "bg-blue-500/15 border-blue-400/40 text-blue-200" : "bg-white/[0.04] border-white/10 text-white/60 hover:text-white/90"
+            }`}
+          >
+            All terms · {regos.length}
+          </button>
+        </div>
+      )}
 
       {/* Program dashboard cards — mirror the live cugc.co.nz program structure */}
       {cfg && (
@@ -156,7 +259,7 @@ export default function CugcRegistrations() {
       ) : shown.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Inbox className="w-10 h-10 text-white/20 mb-3" />
-          <p className="text-white/60 font-medium">No enrolments {filter === "all" && progFilter === "all" ? "yet" : "in this view"}</p>
+          <p className="text-white/60 font-medium">No enrolments {filter === "all" && progFilter === "all" && effectiveTerm === "all" ? "yet" : "in this view"}</p>
           <p className="text-white/35 text-sm mt-1">New enrolments from cugc.co.nz will appear here.</p>
         </div>
       ) : (

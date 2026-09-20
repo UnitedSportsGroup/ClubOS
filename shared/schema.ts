@@ -4337,6 +4337,33 @@ export const insertCugcRegistrationSchema = createInsertSchema(cugcRegistrations
 export type InsertCugcRegistration = z.infer<typeof insertCugcRegistrationSchema>;
 export type CugcRegistration = typeof cugcRegistrations.$inferSelect;
 
+// ---- CUGC class roll (migrations/2026-09-20_cugc_attendance.sql) ----
+// A ROW MEANS SOMEBODY MARKED IT. There is no "not marked" status — absence of
+// a row is absence of knowledge, so a half-taken roll can never read as
+// "nobody came". `status` carries no CHECK constraint because the set will grow
+// (the coaching app already marks Injured) and a stale CHECK is how the MFL
+// checkout started 500ing.
+export const cugcAttendance = pgTable("cugc_attendance", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  // RESTRICT: deleting an enrolment must not erase that a child was in the gym.
+  registrationId: integer("registration_id").notNull().references(() => cugcRegistrations.id, { onDelete: "restrict" }),
+  classId: text("class_id").notNull(),       // shared/cugc-classes.ts
+  sessionDate: date("session_date").notNull(),
+  status: text("status").notNull(),          // 'present' | 'absent'
+  note: text("note"),
+  markedAt: timestamp("marked_at", { withTimezone: true }).defaultNow().notNull(),
+  markedByUserId: integer("marked_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+}, (t) => ({
+  once: unique("cugc_attendance_once").on(t.registrationId, t.classId, t.sessionDate),
+}));
+
+// Deliberately no `createInsertSchema` here: nothing inserts through zod (the
+// roll route builds its row by hand and validates the status itself), and the
+// repo's drizzle-zod version reports a type error on every `.omit()` — 183 of
+// them in this file already. No point adding the 184th for an unused export.
+export type CugcAttendance = typeof cugcAttendance.$inferSelect;
+
 // ---- CUGC Free Sessions (trial bookings) ----
 // One row per booked free trial session from cugc.co.nz/free-session. The
 // visitor picks a program AND a concrete class date/time, so coaches know

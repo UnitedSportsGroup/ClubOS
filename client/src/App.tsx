@@ -151,6 +151,7 @@ import MflRefGameDetail from "@/pages/mfl-ref/MflRefGameDetail";
 import CugcInbox from "@/pages/cugc-inbox";
 import CugcRegistrations from "@/pages/cugc-registrations";
 import CugcFreeSessions from "@/pages/cugc-free-sessions";
+import CugcRoll from "@/pages/cugc-roll";
 import CugcAnalytics from "@/pages/cugc-analytics";
 import CugcMailer from "@/pages/cugc-mailer";
 import LeagueBuilderPage from "@/pages/league-builder-page";
@@ -452,6 +453,7 @@ function AdminRouter() {
             generic camp-style pipeline) — website enrolments land in Registrations. */}
         <Route path="/admin/programs" component={CugcPrograms} />
         <Route path="/admin/cugc-registrations" component={CugcRegistrations} />
+        <Route path="/admin/cugc-roll" component={CugcRoll} />
         <Route path="/admin/cugc-free-sessions" component={CugcFreeSessions} />
         <Route path="/admin/cugc-analytics" component={CugcAnalytics} />
         <Route path="/admin/cugc-inbox" component={CugcInbox} />

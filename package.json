@@ -13,7 +13,8 @@
     "build:light-theme": "node script/build-light-theme.mjs",
     "check:light-theme": "node script/build-light-theme.mjs --check",
     "check:workspace-fetch": "node script/check-workspace-fetch.mjs",
-    "check:native-select": "node script/check-native-select.mjs"
+    "check:native-select": "node script/check-native-select.mjs",
+    "check:cugc-terms": "tsx script/check-cugc-terms.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

@@ -380,6 +380,7 @@ const gymnasticsNav = [
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },
   { tab: "programs", title: "Programs", url: "/admin/programs", icon: GraduationCap },
   { tab: "cugc-registrations", title: "Registrations", url: "/admin/cugc-registrations", icon: ClipboardCheck },
+  { tab: "cugc-roll", title: "Roll", url: "/admin/cugc-roll", icon: ClipboardList },
   { tab: "cugc-free-sessions", title: "Free Sessions", url: "/admin/cugc-free-sessions", icon: CalendarCheck },
   { tab: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics", icon: BarChart3 },
   { tab: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox", icon: Inbox },

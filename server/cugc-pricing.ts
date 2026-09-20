@@ -6,12 +6,16 @@
 // THIS module — the client-sent price is always ignored.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const CUGC_TERM = {
-  name: "Term 3 2026",
-  start: "2026-07-20", // Mon 20 Jul
-  end: "2026-09-25",   // Fri 25 Sep
-  weeks: 10,
-};
+// 🔴 The term list moved to shared/cugc-terms.ts on 2026-09-20 when Term 4
+// opened. There is no longer a single `CUGC_TERM` constant, because one
+// constant cannot mean both "the term we are selling" and "the term this
+// enrolment is for" — see the header of that file for what that cost.
+export {
+  CUGC_TERMS, termStatus, isSellable, sellableTerms, defaultTerm,
+  termById, termByName, resolveTermForSale, termWindowLabel, nzTodayIso,
+  type CugcTerm, type CugcTermStatus, type TermResolution,
+} from "@shared/cugc-terms";
+import { type CugcTerm, termById, defaultTerm, nzTodayIso } from "@shared/cugc-terms";
 
 export type CugcOption = { label: string; price: number; times: string[] }; // full-term price in NZD
 export type CugcProgram = {
@@ -68,12 +72,10 @@ export const CUGC_DISCOUNT_CODES: Record<string, { label: string; priceCentsOver
   "CUGC-TEST-2741": { label: "Internal $1 end-to-end payment test", priceCentsOverride: 100 },
 };
 
-const MS_WEEK = 7 * 24 * 60 * 60 * 1000;
-
-/** Parse a YYYY-MM-DD as a local date (avoids TZ off-by-one). */
-function d(iso: string): Date {
-  const [y, m, day] = iso.split("-").map(Number);
-  return new Date(y, m - 1, day);
+/** Whole days from `a` to `b`, both `YYYY-MM-DD`. Anchored at UTC midnight so
+ *  the arithmetic is timezone-free — these are calendar dates, not instants. */
+function daysBetween(aIso: string, bIso: string): number {
+  return Math.round((Date.parse(`${bIso}T00:00:00Z`) - Date.parse(`${aIso}T00:00:00Z`)) / 86_400_000);
 }
 
 export type CugcPricing = {
@@ -88,7 +90,14 @@ export type CugcPricing = {
 
 /**
  * Compute today's price for a term-priced program. Identical logic to the
- * website's proratedTermPrice so the price the family saw matches the charge.
+ * website's proratedTermPrice so the price the family saw matches the charge —
+ * the two are kept honest by `npm run check:cugc-terms`, not by good intentions.
+ *
+ * 🔴 Every boundary is decided on the NZ CALENDAR DATE, compared as a string.
+ * It used to compare a UTC instant against a locally-parsed midnight, which on
+ * a Fly machine running UTC flips a term up to a day early or late — and a term
+ * boundary being a day out is the difference between charging full price and
+ * charging a tenth of it. `end` is INCLUSIVE: a class runs on the last day.
  */
 export function proratedTermPrice(
   fullPrice: number,
@@ -97,14 +106,16 @@ export function proratedTermPrice(
   weeksTotal: number,
   now: Date = new Date(),
 ): CugcPricing {
-  const start = d(startIso);
-  const end = d(endIso);
+  const today = nzTodayIso(now);
   const base = { fullPrice, weeksTotal, price: fullPrice, weeksLeft: weeksTotal, discountPct: 0, prorated: false };
 
-  if (now < start) return { ...base, status: "upcoming" };
-  if (now >= end) return { ...base, status: "ended", price: fullPrice, weeksLeft: 0 };
+  if (today < startIso) return { ...base, status: "upcoming" };
+  // An ended term still reports its full price, but nothing can BUY it —
+  // `isSellable()` refuses first. That ordering is the whole fix for the
+  // 26 September hole; this number is for display only.
+  if (today > endIso) return { ...base, status: "ended", price: fullPrice, weeksLeft: 0 };
 
-  const weeksElapsed = Math.floor((now.getTime() - start.getTime()) / MS_WEEK);
+  const weeksElapsed = Math.floor(daysBetween(startIso, today) / 7);
   const weeksLeft = Math.max(1, weeksTotal - weeksElapsed); // always at least 1 week's value
   const price = Math.round((fullPrice * weeksLeft) / weeksTotal);
   const discountPct = Math.round(((fullPrice - price) / fullPrice) * 100);
@@ -119,13 +130,22 @@ export function proratedTermPrice(
 export function computeCugcEnrolPrice(
   programSlug: string,
   optionIndex: number,
+  term: CugcTerm | string | null = null,
   now: Date = new Date(),
-): { program: CugcProgram; option: CugcOption; pricing: CugcPricing } | null {
+): { program: CugcProgram; option: CugcOption; pricing: CugcPricing; term: CugcTerm } | null {
   const program = CUGC_PROGRAMS.find((p) => p.slug === programSlug);
   if (!program) return null;
   if (!Number.isInteger(optionIndex)) return null;
   const option = program.options[optionIndex];
   if (!option) return null;
-  const pricing = proratedTermPrice(option.price, CUGC_TERM.start, CUGC_TERM.end, CUGC_TERM.weeks, now);
-  return { program, option, pricing };
+
+  // 🔴 Priced against the term's OWN dates, so Term 4's price is its full price
+  // while Term 3 is running out its last fortnight. One shared constant could
+  // only ever have priced one of them.
+  const resolved = typeof term === "string" ? termById(term) : term;
+  const forTerm = resolved ?? defaultTerm(nzTodayIso(now));
+  if (!forTerm) return null;
+
+  const pricing = proratedTermPrice(option.price, forTerm.start, forTerm.end, forTerm.weeks, now);
+  return { program, option, pricing, term: forTerm };
 }
