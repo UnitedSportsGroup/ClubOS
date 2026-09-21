@@ -104,8 +104,15 @@ async function main() {
   const dm = await call(B, "/api/admin/chat/dms", "POST", { userIds: [C.id] });
   channels.push(dm.body.id);
   ok((await roleOf(B, dm.body.id, B.id)).role === "member", "a one-to-one message has no owner");
-  ok((await call(B, `/api/admin/chat/channels/${dm.body.id}/members/${C.id}`, "DELETE")).status === 400, "nobody can be removed from a one-to-one message");
-  ok((await call(B, `/api/admin/chat/channels/${dm.body.id}/members/${C.id}`, "PATCH", { role: "admin" })).status === 400, "…and it has no admins to appoint");
+  // A 1:1 has no owner, so its two people are refused as non-managers (403)
+  // before the "one-to-one" rule (400) is even reached; leadership hits the
+  // 400. Either way: refused.
+  const rm11 = await call(B, `/api/admin/chat/channels/${dm.body.id}/members/${C.id}`, "DELETE");
+  ok([400, 403].includes(rm11.status), "nobody can be removed from a one-to-one message", `HTTP ${rm11.status}`);
+  const ap11 = await call(B, `/api/admin/chat/channels/${dm.body.id}/members/${C.id}`, "PATCH", { role: "admin" });
+  ok([400, 403].includes(ap11.status), "…and it has no admins to appoint", `HTTP ${ap11.status}`);
+  const lead11 = await call(A, `/api/admin/chat/channels/${dm.body.id}/members/${C.id}`, "DELETE");
+  ok(lead11.status === 400, "…not even by leadership", `HTTP ${lead11.status}`);
 
   console.log(`\nLeadership still runs every room\n`);
   const E = await mkUser("Eve", true);
