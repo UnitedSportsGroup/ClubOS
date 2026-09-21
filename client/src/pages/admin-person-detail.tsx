@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useRoute, Link, useLocation } from "wouter";
 import {
   ArrowLeft, User, Users, Mail, Phone, Calendar, AlertTriangle, MapPin, School, Pencil,
-  Link2, Unlink, Plus, Search, X, Copy,
+  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck,
 } from "lucide-react";
 import { useBackTo } from "@/lib/back-to";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/format";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { RELATIONSHIP_OPTIONS, ageFromDob } from "@shared/family";
+import { RegisterPlayerModal } from "./admin-register-player";
 
 function formatDate(d: string | null | undefined): string {
   if (!d) return "—";
@@ -457,6 +458,7 @@ export default function AdminPersonDetail() {
   const [eFirst, setEFirst] = useState(""); const [eLast, setELast] = useState("");
   const [eEmail, setEEmail] = useState(""); const [ePhone, setEPhone] = useState("");
   const [eSchool, setESchool] = useState(""); const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [showRegister, setShowRegister] = useState(false);
 
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["/api/admin/people", personKeyParam],
@@ -548,7 +550,7 @@ export default function AdminPersonDetail() {
             <ArrowLeft className="w-4 h-4 text-white/40" />
           </button>
         </Link>
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${isPlayer ? "bg-emerald-500/10 border border-emerald-500/15" : "bg-amber-500/10 border border-amber-500/15"}`}>
             <span className={`text-[14px] font-bold ${isPlayer ? "text-emerald-400/70" : "text-amber-400/70"}`}>
               {(p.firstName?.[0] || "")}{(p.lastName?.[0] || "")}
@@ -568,7 +570,27 @@ export default function AdminPersonDetail() {
             </div>
           </div>
         </div>
+        {/* 🔴 The regulars' door. Daniel, 2026-09-21: "if you just search parent
+            or player contact in clubos there is like an add registration button
+            on their profile, then all details already automatically filled in
+            simply select program confirm and take payment." Opens the office
+            flow with this record filled and the who-are-you step skipped. */}
+        <Button
+          size="sm"
+          onClick={() => setShowRegister(true)}
+          className="rounded-xl h-9 text-[12.5px] flex-shrink-0"
+          data-testid="button-register-from-profile"
+        >
+          <ClipboardCheck className="w-3.5 h-3.5 mr-1.5" /> Register at the office
+        </Button>
       </div>
+
+      <RegisterPlayerModal
+        open={showRegister}
+        onClose={() => setShowRegister(false)}
+        scope="all"
+        prefill={{ personKey: personKeyParam }}
+      />
 
       {editing ? (
         <Card title={isPlayer ? "Player Details" : "Contact Details"}>

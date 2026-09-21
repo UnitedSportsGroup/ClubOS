@@ -142,6 +142,16 @@ type PersonRow = {
   allergies?: string | null; medicalNotes?: string | null; epiPen?: boolean;
   emergencyContact?: string | null; emergencyPhone?: string | null;
   friendlyManagerId?: string | null;
+  // The structured NZ Football identity and the six-part address, so the
+  // office can register a player we already know without re-asking a family
+  // for the country of birth and iwi they gave us last term. Machine values
+  // (FIFA codes, group ids), never the display strings — the same shape the
+  // walk-up form writes, so what fills is exactly what will be posted back.
+  nationalityCode?: string | null; countryOfBirthCode?: string | null;
+  ethnicityGroupId?: number | null; ethnicitySelectionIds?: number[] | null;
+  ethnicity2GroupId?: number | null; ethnicity2SelectionIds?: number[] | null;
+  addressStreet?: string | null; addressSuburb?: string | null; addressCity?: string | null;
+  addressRegion?: string | null; addressPostcode?: string | null; addressCountry?: string | null;
 };
 
 function contactRowToPerson(row: any): PersonRow {
@@ -154,6 +164,11 @@ function contactRowToPerson(row: any): PersonRow {
     allergies: row.allergies, medicalNotes: row.medical_notes,
     emergencyContact: row.emergency_contact, emergencyPhone: row.emergency_phone,
     friendlyManagerId: row.friendly_manager_id,
+    nationalityCode: row.nationality_code ?? null, countryOfBirthCode: row.country_of_birth_code ?? null,
+    ethnicityGroupId: row.ethnicity_group_id ?? null, ethnicitySelectionIds: row.ethnicity_selection_ids ?? null,
+    ethnicity2GroupId: row.ethnicity2_group_id ?? null, ethnicity2SelectionIds: row.ethnicity2_selection_ids ?? null,
+    addressStreet: row.address_street ?? null, addressSuburb: row.address_suburb ?? null, addressCity: row.address_city ?? null,
+    addressRegion: row.address_region ?? null, addressPostcode: row.address_postcode ?? null, addressCountry: row.address_country ?? null,
   };
 }
 

@@ -153,10 +153,9 @@ const thisYear = Number(nzToday.slice(0, 4));
  * the email box is empty.
  */
 function ExistingPersonSearch({ onPick }: {
-  onPick: (p: {
-    firstName: string; lastName: string; dateOfBirth: string | null;
-    parent: { firstName: string; lastName: string; email: string | null; phone: string | null } | null;
-  }) => void;
+  /** The person KEY and a display label. The caller fetches the full record —
+   *  this list carries a name and a parent's NAME only. */
+  onPick: (key: string, label: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -197,23 +196,15 @@ function ExistingPersonSearch({ onPick }: {
             </p>
           )}
           {people.map((p: any) => {
-            const parent = (p.parents ?? [])[0] ?? null;
+            // `parents` is a list of NAMES here, not records — the full parent
+            // comes with the person record once picked.
+            const parent: string | null = (p.parents ?? [])[0] ?? null;
             return (
               <button
                 key={p.key}
                 type="button"
                 onClick={() => {
-                  onPick({
-                    firstName: p.firstName ?? "",
-                    lastName: p.lastName ?? "",
-                    dateOfBirth: p.dateOfBirth ?? null,
-                    parent: parent ? {
-                      firstName: parent.firstName ?? "",
-                      lastName: parent.lastName ?? "",
-                      email: parent.email ?? null,
-                      phone: parent.phone ?? null,
-                    } : null,
-                  });
+                  onPick(p.key, `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim());
                   setOpen(false);
                   setQ("");
                 }}
@@ -226,7 +217,7 @@ function ExistingPersonSearch({ onPick }: {
                 </div>
                 <div className="text-[11.5px] text-muted-foreground">
                   {parent
-                    ? <>Parent: {parent.firstName} {parent.lastName}{parent.email ? ` · ${parent.email}` : ""}</>
+                    ? <>Parent: {parent}</>
                     : <span className="text-amber-600 dark:text-amber-400">No parent linked — you'll need to add one</span>}
                 </div>
               </button>
@@ -268,6 +259,7 @@ export function RegisterPlayerModal({
   scope = "all",
   posSaleId,
   onRegistered,
+  prefill,
 }: {
   open: boolean;
   onClose: () => void;
@@ -279,6 +271,13 @@ export function RegisterPlayerModal({
    */
   posSaleId?: number;
   onRegistered?: (data: { registrationId: number; totalCents: number; status: string }) => void;
+  /**
+   * Opened from a person's profile (2026-09-21): "if you just search parent or
+   * player contact in clubos there is like an add registration button on their
+   * profile, then all details already automatically filled in". The "first
+   * time with us?" step is skipped — we already know who they are.
+   */
+  prefill?: { personKey: string };
 }) {
   const { toast } = useToast();
   const [step, setStep] = useState(0);
@@ -296,6 +295,11 @@ export function RegisterPlayerModal({
   // Whether the operator said there is another programme to add for this family.
   const [addAnother, setAddAnother] = useState(false);
   const [linesDone, setLinesDone] = useState<{ id: number; programme: string; totalCents: number }[]>([]);
+  // ── Who: first time with us? ──────────────────────────────────────────────
+  const [whoChoice, setWhoChoice] = useState<"existing" | "new" | null>(null);
+  const [pickedKey, setPickedKey] = useState<string | null>(null);
+  const [pickedLabel, setPickedLabel] = useState("");
+  const [prefillApplied, setPrefillApplied] = useState(false);
   /** The id every registration of this visit shares. Minted on the first save
    *  and kept until the operator closes the dialog, so a second programme for
    *  the same family joins the same transaction — including a line retried
@@ -395,9 +399,12 @@ export function RegisterPlayerModal({
   // the page can possibly offer. Without this the Academy page showed a
   // "Parent › Children › Sessions" rail — the camp journey — until you clicked.
   const assumedShape = shape ?? (scope === "academy" ? "academy" : scope === "camp" ? "camp" : null);
+  // "Who" sits right after the programme, because that is where the counter
+  // conversation goes next. Skipped when opened from a profile — we know who.
+  const WHO: string[] = prefill ? [] : ["Who"];
   const STEPS = assumedShape === "academy"
-    ? [STEP_ONE, "Family", "Payment", "Confirm"]
-    : [STEP_ONE, "Parent", "Children", "Sessions", "Payment", "Confirm"];
+    ? [STEP_ONE, ...WHO, "Family", "Payment", "Confirm"]
+    : [STEP_ONE, ...WHO, "Parent", "Children", "Sessions", "Payment", "Confirm"];
 
   // ── Academy pricing: quoted by the server, never computed here ────────────
   const { data: academyData, isFetching: quoting } = useQuery<AcademyQuote>({
@@ -644,6 +651,112 @@ export function RegisterPlayerModal({
     },
   });
 
+  /**
+   * Fill the whole form from a person we already know.
+   *
+   * 🔴 Reads the SAME record the profile page shows — /api/admin/people/:key,
+   * the Families resolver — never the search row, which carries a name and a
+   * parent's NAME only. That is the bug this replaces: the first cut wrote the
+   * parent from the search result and got empty strings.
+   *
+   * 🔴 Fills, never hides. Every field stays visible and the server still
+   * validates all of them; what changed since last term is corrected in place.
+   * Nothing here invents a value — a blank on file stays blank.
+   */
+  const applyFamily = (fam: any, label: string) => {
+    const person = fam?.person ?? {};
+    const isPlayerRecord = person.kind === "child" || person.type === "player";
+    const g = (fam?.guardians ?? [])[0];
+    const kids: any[] = fam?.children ?? [];
+
+    const fillParent = (src: any) => {
+      if (!src) return;
+      setParentFirst(src.firstName ?? "");
+      setParentLast(src.lastName ?? "");
+      setParentEmail(src.email ?? "");
+      setParentPhone(src.phone ?? "");
+    };
+    const fillPlayer = (src: any) => {
+      if (!src) return;
+      setPlayerFirst(src.firstName ?? "");
+      setPlayerLast(src.lastName ?? "");
+      if (src.dateOfBirth) setPlayerDob(String(src.dateOfBirth).slice(0, 10));
+      if (src.gender) setPlayerGender(String(src.gender));
+      setPlayerSchool(src.school ?? "");
+      setAllergies(src.allergies ?? "");
+      setMedicalNotes(src.medicalNotes ?? "");
+      if (src.emergencyContact) setEmergencyContact(src.emergencyContact);
+      if (src.emergencyPhone) setEmergencyPhone(src.emergencyPhone);
+      // NZ Football identity — the machine values the form itself writes.
+      const hasIdentity = !!(src.countryOfBirthCode || src.nationalityCode || src.ethnicityGroupId);
+      if (hasIdentity) {
+        setIdentity({
+          countryOfBirthCode: src.countryOfBirthCode ?? "",
+          nationalityCode: src.nationalityCode ?? "",
+          ethnicityGroupId: src.ethnicityGroupId ?? null,
+          ethnicitySelectionIds: Array.isArray(src.ethnicitySelectionIds) ? src.ethnicitySelectionIds : [],
+          ethnicity2GroupId: src.ethnicity2GroupId ?? null,
+          ethnicity2SelectionIds: Array.isArray(src.ethnicity2SelectionIds) ? src.ethnicity2SelectionIds : [],
+        });
+        setDeferIdentity(false);
+      }
+      if (src.addressStreet || src.addressCity) {
+        setNzfAddress({
+          street: src.addressStreet ?? "", suburb: src.addressSuburb ?? "", city: src.addressCity ?? "",
+          region: src.addressRegion ?? "", postcode: src.addressPostcode ?? "", country: src.addressCountry ?? "NZL",
+        });
+      }
+    };
+    const childRow = (c: any) => ({
+      firstName: c.firstName ?? "", lastName: c.lastName ?? "",
+      dateOfBirth: c.dateOfBirth ? String(c.dateOfBirth).slice(0, 10) : "",
+      allergies: c.allergies ?? "", epiPen: !!c.epiPen, medicalNotes: c.medicalNotes ?? "",
+    });
+
+    if (isPlayerRecord) {
+      fillPlayer(person);
+      fillParent(g);
+      // A camp books children, so the player becomes the child row.
+      setChildren([childRow(person)]);
+    } else {
+      // A parent's profile: the parent, and every child they have on file —
+      // all of them for a camp, the first for an academy enrolment.
+      fillParent(person);
+      if (kids.length) {
+        setChildren(kids.map(childRow));
+        fillPlayer(kids[0]);
+      }
+    }
+    setPickedLabel(label);
+    toast({
+      title: `${label} filled in`,
+      description: g || !isPlayerRecord
+        ? "Check the details — anything that changed since last time gets corrected here."
+        : "No parent is linked to them, so add one on the next step.",
+    });
+  };
+
+  const loadAndApply = async (key: string, label: string) => {
+    try {
+      const res = await workspaceFetch(`/api/admin/people/${encodeURIComponent(key)}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `HTTP ${res.status}`);
+      const fam = await res.json();
+      applyFamily(fam, label);
+      setPickedKey(key);
+    } catch (e: any) {
+      toast({ title: "Could not load them", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Opened from a profile: fill once, and stand on the programme step.
+  useEffect(() => {
+    if (!open || !prefill || prefillApplied) return;
+    setPrefillApplied(true);
+    setWhoChoice("existing");
+    void loadAndApply(prefill.personKey, "This person");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefill?.personKey]);
+
   /** Clear ONLY what belongs to the programme just saved. The family, the
    *  emergency contact, the NZF identity and the visit's group id all stay —
    *  they are facts about the people, not about the thing they bought. */
@@ -660,6 +773,7 @@ export function RegisterPlayerModal({
     setStep(0);
     setSelectedProgramId(null);
     setGroupId(null); setAddAnother(false); setLinesDone([]);
+    setWhoChoice(null); setPickedKey(null); setPickedLabel(""); setPrefillApplied(false);
     setParentFirst(""); setParentLast(""); setParentEmail(""); setParentPhone("");
     setEmergencyContact(""); setEmergencyPhone("");
     setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
@@ -759,6 +873,10 @@ export function RegisterPlayerModal({
   const missingForStep = (): string[] => {
     const out: string[] = [];
     const need = (ok: boolean, label: string) => { if (!ok) out.push(label); };
+    if (stepName === "Who") {
+      need(!!whoChoice, "whether they're new or already with us");
+      if (whoChoice === "existing") need(!!pickedKey, "the player to register");
+    }
     if (stepName === STEP_ONE) {
       need(!!selectedProgramId, scope === "camp" ? "a camp" : "a programme");
       if (shape === "academy" && selectedProgramId) {
@@ -812,6 +930,7 @@ export function RegisterPlayerModal({
   };
 
   const canNextStep = () => {
+    if (stepName === "Who") return whoChoice === "new" || (whoChoice === "existing" && !!pickedKey);
     if (stepName === STEP_ONE) {
       if (!selectedProgramId) return false;
       if (shape === "academy") return !!optionId && !!academyData?.quote;
@@ -917,6 +1036,73 @@ export function RegisterPlayerModal({
         </div>
 
         <div className="px-5 py-5 space-y-4 min-w-0">
+          {/* ── Who: first time with us? ─────────────────────────────────── */}
+          {stepName === "Who" && (
+            <div className="space-y-4" data-testid="step-who">
+              <p className="text-[13px] text-foreground/70">
+                Is this their first time with us?
+              </p>
+              {/* 🔴 Two big buttons, in the order the conversation at the counter
+                  actually goes. Daniel, 2026-09-21: "they come in and say would
+                  like to register they select program/programs first then next
+                  step is 'is this your first time with us' then select with big
+                  buttons existing player or new player." */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setWhoChoice("existing"); }}
+                  className={`text-left rounded-2xl border p-4 transition-colors cursor-pointer ${
+                    whoChoice === "existing"
+                      ? "border-blue-500/60 bg-blue-500/10"
+                      : "border-border bg-muted/30 hover:bg-muted/60"}`}
+                  data-testid="button-who-existing"
+                >
+                  <div className="flex items-center gap-2">
+                    <Search className="w-4 h-4 text-blue-500" />
+                    <span className="text-[15px] font-semibold text-foreground/90">Existing player</span>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground mt-1">
+                    They've been with us before. Find them and everything fills in.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setWhoChoice("new"); setPickedKey(null); setStep(step + 1); }}
+                  className={`text-left rounded-2xl border p-4 transition-colors cursor-pointer ${
+                    whoChoice === "new"
+                      ? "border-blue-500/60 bg-blue-500/10"
+                      : "border-border bg-muted/30 hover:bg-muted/60"}`}
+                  data-testid="button-who-new"
+                >
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-500" />
+                    <span className="text-[15px] font-semibold text-foreground/90">New player</span>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground mt-1">
+                    First time here. The full form — longer, but it's what NZ Football needs.
+                  </p>
+                </button>
+              </div>
+
+              {whoChoice === "existing" && (
+                <ExistingPersonSearch
+                  onPick={(key, label) => {
+                    // The full record, not the search row: the list carries a
+                    // name and a parent's NAME only. Everything else — gender,
+                    // school, allergies, the parent's email and phone, the NZF
+                    // identity — comes from the person endpoint.
+                    loadAndApply(key, label);
+                  }}
+                />
+              )}
+              {whoChoice === "existing" && pickedKey && (
+                <p className="text-[12px] text-emerald-600 dark:text-emerald-400" data-testid="text-who-picked">
+                  ✓ {pickedLabel} filled in — press Next to check the details.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ── Programme ────────────────────────────────────────────────── */}
           {stepName === STEP_ONE && (
             <div className="space-y-4">
@@ -1132,27 +1318,6 @@ export function RegisterPlayerModal({
           {/* ── Academy: family ──────────────────────────────────────────── */}
           {stepName === "Family" && (
             <div className="space-y-6">
-              {/* 🔴 The two paths Daniel asked for. Existing player: search,
-                  pick, and the form below fills — including the parent, from
-                  the Families resolver. New player: ignore this and type, which
-                  is the flow that was already here. */}
-              <ExistingPersonSearch onPick={(pick) => {
-                setPlayerFirst(pick.firstName);
-                setPlayerLast(pick.lastName);
-                if (pick.dateOfBirth) setPlayerDob(pick.dateOfBirth);
-                if (pick.parent) {
-                  setParentFirst(pick.parent.firstName);
-                  setParentLast(pick.parent.lastName);
-                  if (pick.parent.email) setParentEmail(pick.parent.email);
-                  if (pick.parent.phone) setParentPhone(pick.parent.phone);
-                }
-                toast({
-                  title: `${pick.firstName} ${pick.lastName} filled in`,
-                  description: pick.parent
-                    ? "Check the details below — anything that changed gets corrected here."
-                    : "No parent is linked to them, so add one below.",
-                });
-              }} />
               {/* Olga, 2026-08-18, items 1 + 2: "change player and guardian
                   (because it's player profile)" and "organize all fields in a
                   more logical way. Player: name, DOB, gender....etc. then
@@ -1340,34 +1505,6 @@ export function RegisterPlayerModal({
           {/* ── Camp: parent ─────────────────────────────────────────────── */}
           {stepName === "Parent" && (
             <div className="space-y-3">
-              <ExistingPersonSearch onPick={(pick) => {
-                if (pick.parent) {
-                  setParentFirst(pick.parent.firstName);
-                  setParentLast(pick.parent.lastName);
-                  if (pick.parent.email) setParentEmail(pick.parent.email);
-                  if (pick.parent.phone) setParentPhone(pick.parent.phone);
-                }
-                // A camp books CHILDREN, so the player picked becomes the first
-                // child row rather than being thrown away.
-                setChildren((prev) => {
-                  const rest = prev.filter((c) => c.firstName.trim() || c.lastName.trim());
-                  const already = rest.some(
-                    (c) => c.firstName.trim().toLowerCase() === pick.firstName.trim().toLowerCase() &&
-                           c.lastName.trim().toLowerCase() === pick.lastName.trim().toLowerCase());
-                  if (already) return rest;
-                  return [...rest, {
-                    firstName: pick.firstName, lastName: pick.lastName,
-                    dateOfBirth: pick.dateOfBirth ?? "",
-                    allergies: "", epiPen: false, medicalNotes: "",
-                  }];
-                });
-                toast({
-                  title: `${pick.firstName} ${pick.lastName} added`,
-                  description: pick.parent
-                    ? "Parent filled in. Add any siblings on the next step."
-                    : "No parent is linked to them, so add one below.",
-                });
-              }} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="First name" required><Input value={parentFirst} onChange={(e) => setParentFirst(e.target.value)} className={FIELD} data-testid="input-parent-first" /></Field>
               <Field label="Last name" required><Input value={parentLast} onChange={(e) => setParentLast(e.target.value)} className={FIELD} data-testid="input-parent-last" /></Field>
