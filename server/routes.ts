@@ -9,7 +9,9 @@ import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, cugcAttendance, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches } from "@shared/schema";
+import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, cugcAttendance, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches,
+  registrationItems,
+} from "@shared/schema";
 import { isValidApiScope, API_SCOPES, normalizeProgramFilter, programFilterIsEmpty, programFilterSqlCondition, describeProgramFilter, rejectedProgramTokens, unknownProgramTypes, scopesOutsideProgramFilter, PROGRAM_TYPES, type ProgramFilter } from "@shared/api-scopes";
 import { apiSecurityHeaders, clientIp, isIpBlocked, recordAuthFailure, keyRateLimitExceeded, noteScopeDenial, API_KEY_RATE_LIMIT_PER_MIN } from "./api-security";
 import { isExpoPushToken, sendSinglePush, runPushBroadcastQueue } from "./push";
@@ -4849,6 +4851,132 @@ export async function registerRoutes(
   // requireAuth only — every logged-in staff member, including a part-time coach
   // whose account exists to take a roll, could send any customer's money back to
   // their card. The flag is per-person and has no role bypass; see server/auth.ts.
+
+  /**
+   * MOVE A REGISTRATION TO ANOTHER PROGRAMME.
+   *
+   * Daniel, 2026-09-21: "allow him to be able to move players between camps for
+   * example if 10 year old signed up for u4-u8 fundamentals on accident and he
+   * can just move them like transfer them for sake of rolls and accurate
+   * numbers etc… and rego numbers."
+   *
+   * 🔴 IT DOES NOT MOVE MONEY. Moving a child to the right camp is an
+   * administrative correction; changing what a family paid is a money decision
+   * with its own permission, its own audit trail and its own Stripe call. If
+   * the two programmes are priced differently this reports the gap and leaves
+   * the amount exactly as it is, so somebody decides deliberately. Silently
+   * repricing a paid registration is how a family gets charged for a mistake
+   * the office made.
+   *
+   * 🔴 CAMP DAYS ARE RE-POINTED, NEVER GUESSED. A camp registration carries one
+   * line per child per DAY, each pointing at a `camp_dates` row belonging to the
+   * OLD programme. Those ids mean nothing in the new one. Each is matched to the
+   * target's session on the same calendar date and start time; anything that
+   * cannot be matched is REFUSED and named, unless the caller explicitly accepts
+   * dropping it. A transfer that silently discarded a booked day would take a
+   * child off a roll nobody is looking at.
+   *
+   * 🔴 The term goes with it. A term programme's registrations carry their own
+   * `term_id`, so moving into one without setting it would leave the child in
+   * the "not recorded" bucket on the new programme's Players tab.
+   */
+  app.post("/api/admin/registrations/:id/transfer", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(String(req.params.id));
+      const reg = await storage.getRegistration(regId);
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+
+      const scope = await registrationOrgScope(req);
+      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
+
+      const from = await storage.getProgram(reg.programId);
+      if (!inRegistrationScope(scope, from?.organizationId)) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      const toProgramId = Number((req.body ?? {}).toProgramId);
+      if (!Number.isInteger(toProgramId)) return res.status(400).json({ message: "Which programme should they move to?" });
+      if (toProgramId === reg.programId) return res.status(400).json({ message: "They are already on that programme" });
+
+      const to = await storage.getProgram(toProgramId);
+      if (!to) return res.status(404).json({ message: "That programme does not exist" });
+      // 🔴 Both ends must be inside the caller's workspaces, or a transfer
+      // becomes a way to move a registration into a club you cannot see.
+      if (!inRegistrationScope(scope, to.organizationId)) {
+        return res.status(404).json({ message: "That programme does not exist" });
+      }
+
+      const items = await storage.getRegistrationItems(regId);
+      const dayLines = items.filter((i: any) => i.campDateId != null);
+
+      // Match each booked day to the target's session on the same date and time.
+      const targetDates = await db.select().from(campDates).where(eq(campDates.campId, toProgramId));
+      const oldDates = dayLines.length
+        ? await db.select().from(campDates).where(inArray(campDates.id, dayLines.map((i: any) => i.campDateId)))
+        : [];
+      const oldById = new Map(oldDates.map((d: any) => [d.id, d]));
+
+      const remap: { itemId: number; toDateId: number }[] = [];
+      const unmatched: string[] = [];
+      for (const line of dayLines as any[]) {
+        const old = oldById.get(line.campDateId);
+        if (!old) { unmatched.push(`line ${line.id} (its original day is gone)`); continue; }
+        const match = targetDates.find(
+          (d: any) => String(d.date) === String(old.date) && String(d.startTime ?? "") === String(old.startTime ?? ""),
+        );
+        if (match) remap.push({ itemId: line.id, toDateId: match.id });
+        else unmatched.push(`${String(old.date)}${old.startTime ? ` ${old.startTime}` : ""}`);
+      }
+
+      const dropUnmatched = (req.body ?? {}).dropUnmatchedDays === true;
+      if (unmatched.length && !dropUnmatched) {
+        return res.status(409).json({
+          message: `${to.name} has no session on ${unmatched.length === 1 ? "this day" : "these days"}: ${unmatched.join(", ")}. Move them anyway and drop those days, or pick a different programme.`,
+          unmatched,
+          needsConfirmation: true,
+        });
+      }
+
+      // The term the new programme is selling, when it sells by term. Stamped
+      // on the registration, never read back from the programme later.
+      const toTermId = to.scheduleType === "term" ? (to.termId ?? null) : null;
+
+      const note = `Moved from ${from?.name ?? `programme ${reg.programId}`} to ${to.name} on ${nzTodayIso()}`
+        + (unmatched.length ? ` — ${unmatched.length} booked day(s) dropped: ${unmatched.join(", ")}` : "")
+        + ` by user ${req.session.userId}`;
+
+      await db.transaction(async (tx) => {
+        for (const r of remap) {
+          await tx.update(registrationItems).set({ campDateId: r.toDateId }).where(eq(registrationItems.id, r.itemId));
+        }
+        if (unmatched.length && dropUnmatched) {
+          const keep = new Set(remap.map((r) => r.itemId));
+          const drop = (dayLines as any[]).filter((l) => !keep.has(l.id)).map((l) => l.id);
+          if (drop.length) await tx.delete(registrationItems).where(inArray(registrationItems.id, drop));
+        }
+        await tx.update(registrations).set({
+          programId: toProgramId,
+          termId: toTermId,
+          // Appended, never replaced — the reason a child is on this programme
+          // is part of the record.
+          notes: [reg.notes, note].filter(Boolean).join("\n"),
+        }).where(eq(registrations.id, regId));
+      });
+
+      res.json({
+        ok: true,
+        movedTo: { id: to.id, name: to.name },
+        daysRemapped: remap.length,
+        daysDropped: unmatched.length && dropUnmatched ? unmatched.length : 0,
+        // 🔴 Reported, never acted on. A price difference is a money decision.
+        priceNote: "The amount paid was left exactly as it was — transferring never moves money.",
+        note,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/registrations/:id/refund", requireAuth, requireRefundPermission, async (req, res) => {
     try {
       const regId = parseInt(req.params.id);

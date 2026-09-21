@@ -1145,7 +1145,12 @@ function VehicleDetailDialog({ vehicleId, onClose, onEdit }: {
               <StatusPill label="Service" status={data.compliance.service} sub={data.vehicle.nextServiceDueOn ? formatNzDate(data.vehicle.nextServiceDueOn) : null} />
             </div>
 
-            <div className="flex gap-1 border-b border-white/[0.06] mb-3 overflow-x-auto">
+            {/* 🔴 Eight tabs do not fit this dialog. `overflow-x-auto` alone
+                left Costs clipped with nothing hinting it was there — a whole
+                view goes unnoticed that way, the same fault the Accommodation
+                tab strip was fixed for. Wrap instead, so every destination is
+                visible without a horizontal scroll nobody discovers. */}
+            <div className="flex flex-wrap gap-x-1 gap-y-0.5 border-b border-white/[0.06] mb-3">
               {DETAIL_TABS.map((t) => {
                 const Icon = t.icon;
                 const active = tab === t.key;
