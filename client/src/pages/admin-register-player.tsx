@@ -24,7 +24,7 @@ import {
 import { NZ_REGIONS, IDENTITY_DEFER_REASONS } from "@shared/nzf-identity";
 import {
   X, ChevronRight, ChevronLeft, User, Baby, Calendar, CheckCircle,
-  Plus, Trash2, Loader2, Building2, CreditCard, Banknote, AlertTriangle, Lock,
+  Plus, Trash2, Loader2, Building2, CreditCard, Banknote, AlertTriangle, Lock, Search,
 } from "lucide-react";
 
 interface ChildData {
@@ -128,6 +128,120 @@ function nzTodayIso() {
 const nzToday = nzTodayIso();
 const thisYear = Number(nzToday.slice(0, 4));
 
+
+/**
+ * Find a player the club already knows, and bring their parent with them.
+ *
+ * Daniel, 2026-09-21: "if select new player it's the current flow with all form
+ * fields that gets filled out which is longer and slower but required and
+ * necessary and if existing player goes to an option of searching our existing
+ * player contacts, if select player and can automatically connect parent
+ * details."
+ *
+ * 🔴 It reads `/api/admin/people?filter=players`, which ALREADY returns each
+ * player with their parents attached — the resolver built for the Families
+ * view, which unions the three ways a parent and child can be linked. A second
+ * search would drift from it.
+ *
+ * 🔴 It FILLS THE SAME FIELDS the long form writes, and leaves them editable.
+ * Nothing is hidden and nothing is posted that a person has not seen: the
+ * server still validates every one of them, and a detail that has changed since
+ * last term is corrected in place rather than silently carried forward.
+ *
+ * 🔴 It never invents a parent. A player on file with no parent linked fills
+ * the child's half and says so, rather than leaving the operator to wonder why
+ * the email box is empty.
+ */
+function ExistingPersonSearch({ onPick }: {
+  onPick: (p: {
+    firstName: string; lastName: string; dateOfBirth: string | null;
+    parent: { firstName: string; lastName: string; email: string | null; phone: string | null } | null;
+  }) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const term = q.trim();
+
+  const { data, isFetching } = useQuery<{ people: any[] }>({
+    queryKey: ["/api/admin/people", { q: term, filter: "players" }],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/people?filter=players&limit=8&q=${encodeURIComponent(term)}`);
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+    // Two characters is where a name search stops returning the whole club.
+    enabled: term.length >= 2,
+  });
+
+  const people = data?.people ?? [];
+
+  return (
+    <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-3 space-y-2" data-testid="existing-person-search">
+      <div className="flex items-center gap-2">
+        <Search className="w-3.5 h-3.5 text-blue-400/60" />
+        <span className="text-[12.5px] font-medium text-foreground/80">Already registered with us?</span>
+      </div>
+      <Input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        placeholder="Search a player by name, or their parent's email"
+        className={FIELD}
+        data-testid="input-person-search"
+      />
+      {term.length >= 2 && open && (
+        <div className="rounded-lg border border-border bg-background max-h-[220px] overflow-y-auto">
+          {isFetching && <p className="text-[12px] text-muted-foreground px-3 py-2">Searching…</p>}
+          {!isFetching && people.length === 0 && (
+            <p className="text-[12px] text-muted-foreground px-3 py-2">
+              Nobody matches — fill the form below and they'll be created.
+            </p>
+          )}
+          {people.map((p: any) => {
+            const parent = (p.parents ?? [])[0] ?? null;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => {
+                  onPick({
+                    firstName: p.firstName ?? "",
+                    lastName: p.lastName ?? "",
+                    dateOfBirth: p.dateOfBirth ?? null,
+                    parent: parent ? {
+                      firstName: parent.firstName ?? "",
+                      lastName: parent.lastName ?? "",
+                      email: parent.email ?? null,
+                      phone: parent.phone ?? null,
+                    } : null,
+                  });
+                  setOpen(false);
+                  setQ("");
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-muted/60 border-b border-border/50 last:border-0 cursor-pointer"
+                data-testid={`person-result-${p.key}`}
+              >
+                <div className="text-[13px] text-foreground/90">
+                  {p.firstName} {p.lastName}
+                  {p.dateOfBirth && <span className="text-muted-foreground text-[11.5px] ml-2">{p.dateOfBirth}</span>}
+                </div>
+                <div className="text-[11.5px] text-muted-foreground">
+                  {parent
+                    ? <>Parent: {parent.firstName} {parent.lastName}{parent.email ? ` · ${parent.email}` : ""}</>
+                    : <span className="text-amber-600 dark:text-amber-400">No parent linked — you'll need to add one</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Picking someone fills the form below. Check it — anything that has
+        changed since last time gets corrected here.
+      </p>
+    </div>
+  );
+}
+
 function Field({ label, required, children, hint }: { label: string; required?: boolean; children: any; hint?: string }) {
   return (
     <div className="min-w-0">
@@ -173,6 +287,27 @@ export function RegisterPlayerModal({
   const [selectedProgramId, setSelectedProgramId] = useState<number | null>(null);
 
   // ── Camp shape ────────────────────────────────────────────────────────────
+  // 🔴 ONE VISIT, SEVERAL REGISTRATIONS. Daniel, 2026-09-21: "someone comes in
+  // and wants holiday camps and technification and pay in eftpos at the same
+  // time". Each programme stays its own registration — they price, roll and
+  // refund separately — and this id is what says they were one transaction at
+  // the counter. Minted once and carried across every line of the visit.
+  const [groupId, setGroupId] = useState<string | null>(null);
+  // Whether the operator said there is another programme to add for this family.
+  const [addAnother, setAddAnother] = useState(false);
+  const [linesDone, setLinesDone] = useState<{ id: number; programme: string; totalCents: number }[]>([]);
+  /** The id every registration of this visit shares. Minted on the first save
+   *  and kept until the operator closes the dialog, so a second programme for
+   *  the same family joins the same transaction — including a line retried
+   *  after a failure. */
+  const visitGroupId = () => {
+    if (groupId) return groupId;
+    const id = (globalThis.crypto?.randomUUID?.() ?? `v${Date.now()}${Math.random().toString(36).slice(2)}`)
+      .replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+    setGroupId(id);
+    return id;
+  };
+
   const [parentFirst, setParentFirst] = useState("");
   const [parentLast, setParentLast] = useState("");
   const [parentEmail, setParentEmail] = useState("");
@@ -374,6 +509,7 @@ export function RegisterPlayerModal({
 
       if (shape === "academy") {
         const res = await apiRequest("POST", "/api/admin/registrations/manual", {
+          registrationGroupId: visitGroupId(),
           programId: selectedProgramId,
           programOptionId: optionId,
           paymentPlan: plan,
@@ -432,6 +568,7 @@ export function RegisterPlayerModal({
         }
       }
       const res = await apiRequest("POST", "/api/admin/registrations/manual", {
+        registrationGroupId: visitGroupId(),
         programId: selectedProgramId,
         parent: {
           firstName: parentFirst, lastName: parentLast, email: parentEmail,
@@ -473,6 +610,28 @@ export function RegisterPlayerModal({
         });
       }
       if (fromRegister && onRegistered) onRegistered({ registrationId: data.registrationId, totalCents: data.totalCents, status: data.status });
+
+      // 🔴 ANOTHER PROGRAMME FOR THE SAME FAMILY, same visit. Daniel,
+      // 2026-09-21: "allow to make multiple programs in one rego… someone comes
+      // in and wants holiday camps and technification and pay in eftpos at the
+      // same time." Rather than a second trip through the whole form, the
+      // family and the group id are KEPT and only the programme-specific parts
+      // are cleared. Each line is still its own registration on the proven
+      // creation path — nothing about how a registration is made changed.
+      if (addAnother) {
+        setLinesDone((prev) => [...prev, {
+          id: data.registrationId,
+          programme: programmes?.find((p: any) => p.id === selectedProgramId)?.name ?? `Programme ${selectedProgramId}`,
+          totalCents: data.totalCents,
+        }]);
+        resetProgrammeOnly();
+        toast({
+          title: "Saved — add the next programme",
+          description: "Their details are kept. Everything from this visit is recorded as one transaction.",
+        });
+        return;
+      }
+
       resetForm();
       onClose();
     },
@@ -485,9 +644,22 @@ export function RegisterPlayerModal({
     },
   });
 
+  /** Clear ONLY what belongs to the programme just saved. The family, the
+   *  emergency contact, the NZF identity and the visit's group id all stay —
+   *  they are facts about the people, not about the thing they bought. */
+  const resetProgrammeOnly = () => {
+    setStep(0);
+    setSelectedProgramId(null);
+    setOptionId(null); setPlan("term");
+    setItems([]);
+    setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
+    setAckAgeWarning(false);
+  };
+
   const resetForm = () => {
     setStep(0);
     setSelectedProgramId(null);
+    setGroupId(null); setAddAnother(false); setLinesDone([]);
     setParentFirst(""); setParentLast(""); setParentEmail(""); setParentPhone("");
     setEmergencyContact(""); setEmergencyPhone("");
     setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
@@ -960,6 +1132,27 @@ export function RegisterPlayerModal({
           {/* ── Academy: family ──────────────────────────────────────────── */}
           {stepName === "Family" && (
             <div className="space-y-6">
+              {/* 🔴 The two paths Daniel asked for. Existing player: search,
+                  pick, and the form below fills — including the parent, from
+                  the Families resolver. New player: ignore this and type, which
+                  is the flow that was already here. */}
+              <ExistingPersonSearch onPick={(pick) => {
+                setPlayerFirst(pick.firstName);
+                setPlayerLast(pick.lastName);
+                if (pick.dateOfBirth) setPlayerDob(pick.dateOfBirth);
+                if (pick.parent) {
+                  setParentFirst(pick.parent.firstName);
+                  setParentLast(pick.parent.lastName);
+                  if (pick.parent.email) setParentEmail(pick.parent.email);
+                  if (pick.parent.phone) setParentPhone(pick.parent.phone);
+                }
+                toast({
+                  title: `${pick.firstName} ${pick.lastName} filled in`,
+                  description: pick.parent
+                    ? "Check the details below — anything that changed gets corrected here."
+                    : "No parent is linked to them, so add one below.",
+                });
+              }} />
               {/* Olga, 2026-08-18, items 1 + 2: "change player and guardian
                   (because it's player profile)" and "organize all fields in a
                   more logical way. Player: name, DOB, gender....etc. then
@@ -1146,6 +1339,35 @@ export function RegisterPlayerModal({
 
           {/* ── Camp: parent ─────────────────────────────────────────────── */}
           {stepName === "Parent" && (
+            <div className="space-y-3">
+              <ExistingPersonSearch onPick={(pick) => {
+                if (pick.parent) {
+                  setParentFirst(pick.parent.firstName);
+                  setParentLast(pick.parent.lastName);
+                  if (pick.parent.email) setParentEmail(pick.parent.email);
+                  if (pick.parent.phone) setParentPhone(pick.parent.phone);
+                }
+                // A camp books CHILDREN, so the player picked becomes the first
+                // child row rather than being thrown away.
+                setChildren((prev) => {
+                  const rest = prev.filter((c) => c.firstName.trim() || c.lastName.trim());
+                  const already = rest.some(
+                    (c) => c.firstName.trim().toLowerCase() === pick.firstName.trim().toLowerCase() &&
+                           c.lastName.trim().toLowerCase() === pick.lastName.trim().toLowerCase());
+                  if (already) return rest;
+                  return [...rest, {
+                    firstName: pick.firstName, lastName: pick.lastName,
+                    dateOfBirth: pick.dateOfBirth ?? "",
+                    allergies: "", epiPen: false, medicalNotes: "",
+                  }];
+                });
+                toast({
+                  title: `${pick.firstName} ${pick.lastName} added`,
+                  description: pick.parent
+                    ? "Parent filled in. Add any siblings on the next step."
+                    : "No parent is linked to them, so add one below.",
+                });
+              }} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="First name" required><Input value={parentFirst} onChange={(e) => setParentFirst(e.target.value)} className={FIELD} data-testid="input-parent-first" /></Field>
               <Field label="Last name" required><Input value={parentLast} onChange={(e) => setParentLast(e.target.value)} className={FIELD} data-testid="input-parent-last" /></Field>
@@ -1153,6 +1375,7 @@ export function RegisterPlayerModal({
               <Field label="Phone" required><Input type="tel" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} className={FIELD} data-testid="input-parent-phone" /></Field>
               <Field label="Emergency contact"><Input value={emergencyContact} onChange={(e) => setEmergencyContact(e.target.value)} className={FIELD} /></Field>
               <Field label="Emergency phone"><Input type="tel" value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)} className={FIELD} /></Field>
+            </div>
             </div>
           )}
 
@@ -1397,6 +1620,44 @@ export function RegisterPlayerModal({
           {/* ── Confirm ──────────────────────────────────────────────────── */}
           {stepName === "Confirm" && (
             <div className="space-y-3">
+              {/* What this visit has already put through, so the counter can see
+                  the whole transaction rather than the line in front of them. */}
+              {linesDone.length > 0 && (
+                <div className="px-4 py-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 space-y-1" data-testid="visit-lines">
+                  <p className="text-[12px] uppercase tracking-wide text-emerald-300/70 font-semibold">
+                    Already saved this visit
+                  </p>
+                  {linesDone.map((l) => (
+                    <p key={l.id} className="text-[12.5px] text-foreground/75">
+                      #{l.id} · {l.programme} · {formatCurrency(l.totalCents, { fromCents: true })}
+                    </p>
+                  ))}
+                  <p className="text-[11.5px] text-muted-foreground pt-0.5">
+                    All recorded as one transaction with what you're about to save.
+                  </p>
+                </div>
+              )}
+
+              {/* 🔴 The multi-programme path. Ticking this keeps the family and
+                  the visit's transaction and returns to the programme picker,
+                  instead of making the operator re-enter a family who is
+                  standing at the counter. */}
+              <label className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-blue-500/[0.05] border border-blue-500/20 cursor-pointer" data-testid="label-add-another">
+                <input
+                  type="checkbox"
+                  checked={addAnother}
+                  onChange={(e) => setAddAnother(e.target.checked)}
+                  className="mt-0.5 cursor-pointer"
+                  data-testid="checkbox-add-another"
+                />
+                <span className="min-w-0">
+                  <span className="text-[13px] text-foreground/85 block">They're signing up for another programme too</span>
+                  <span className="text-[11.5px] text-muted-foreground block">
+                    Saves this one, keeps their details, and goes back to pick the next.
+                  </span>
+                </span>
+              </label>
+
               <div className="px-4 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.10] space-y-2.5 min-w-0">
                 <Row label="Programme" value={programme?.name ?? "—"} />
                 {shape === "academy" && (

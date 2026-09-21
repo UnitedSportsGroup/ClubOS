@@ -5412,6 +5412,23 @@ export async function registerRoutes(
       const payment = body.payment ?? {};
       const isPaid = payment.isPaid ?? body.isPaid ?? false;
 
+      // 🔴 SEVERAL REGISTRATIONS, ONE VISIT. Daniel, 2026-09-21: "someone comes
+      // in and wants holiday camps and technification and pay in eftpos at the
+      // same time". Each programme stays its own registration — they price,
+      // roll and refund separately — and `registration_group_id` is what says
+      // they were one transaction at the counter. Same column the MFL split
+      // path already uses, so a group reads back through
+      // storage.getRegistrationsByGroup().
+      //
+      // The client mints it, so every line of one visit carries the same value
+      // including a line retried after a failure. Sanitised because it reaches
+      // a query and an unbounded string from a browser does not belong there.
+      const rawGroup = typeof body.registrationGroupId === "string" ? body.registrationGroupId.trim() : "";
+      const registrationGroupId = /^[A-Za-z0-9_-]{8,64}$/.test(rawGroup) ? rawGroup : null;
+      if (rawGroup && !registrationGroupId) {
+        return res.status(400).json({ message: "That registration group id isn't a usable value." });
+      }
+
       let paymentMethod: string | null = null;
       if (isPaid) {
         if (!isOfficePaymentMethod(payment.method)) {
@@ -5797,6 +5814,7 @@ export async function registerRoutes(
         const policyAccepted = body.policyAccepted === true;
 
         const reg = await storage.createRegistration({
+          registrationGroupId,
           programId: program.id,
           programOptionId: option.id,
           contactId: player.id,
@@ -5979,6 +5997,7 @@ export async function registerRoutes(
       const { fullyPaid, fields } = paymentFieldsFor(totalCents);
 
       const registration = await storage.createRegistration({
+        registrationGroupId,
         programId: camp.id,
         contactId: parentContact.id,
         guardianId: parentContact.id,
