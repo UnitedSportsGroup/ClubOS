@@ -18,6 +18,7 @@ import { workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { FileText, Upload, Trash2, ExternalLink, AlertTriangle } from "lucide-react";
 
 function niceDate(iso: string | null): string {
@@ -92,9 +93,9 @@ export function VehicleAgreementsTab({ vehicleId }: { vehicleId: number }) {
         <div className="flex flex-wrap gap-2">
           <Input value={holderName} onChange={(e) => setHolderName(e.target.value)} placeholder="Who signed it"
             className="premium-input h-8 w-[170px] text-[12px]" data-testid="input-agreement-holder" />
-          <Input type="date" value={signedOn} onChange={(e) => setSignedOn(e.target.value)}
+          <DatePickerInput value={signedOn} onChange={(e) => setSignedOn(e.target.value)}
             className="premium-input h-8 w-[145px] text-[12px]" title="Signed on" data-testid="input-agreement-signed" />
-          <Input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)}
+          <DatePickerInput value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)}
             className="premium-input h-8 w-[145px] text-[12px]" title="Expires (optional)" data-testid="input-agreement-expires" />
           <input ref={fileRef} type="file" accept="application/pdf,image/*"
             className="text-[12px] text-white/50 file:mr-2 file:rounded-lg file:border-0 file:bg-blue-500/15 file:px-2.5 file:py-1 file:text-[11px] file:text-blue-300"

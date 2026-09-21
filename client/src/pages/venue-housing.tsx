@@ -33,6 +33,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { HouseHistoryTab } from "@/components/housing/house-history";
 import { formatCurrency, dollarInputToCents, centsToDollarInput } from "@/lib/format";
 import { MoneyInput } from "@/components/ui/money-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -2443,6 +2444,7 @@ export default function VenueHousing() {
           <TabsTrigger value="roster" className="min-h-[44px] sm:min-h-0" data-testid="tab-roster">Roster</TabsTrigger>
           <TabsTrigger value="actions" className="min-h-[44px] sm:min-h-0" data-testid="tab-actions">Actions</TabsTrigger>
           <TabsTrigger value="utilities" className="min-h-[44px] sm:min-h-0" data-testid="tab-utilities">Utilities</TabsTrigger>
+          <TabsTrigger value="history" className="min-h-[44px] sm:min-h-0" data-testid="tab-history">History</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab /></TabsContent>
         <TabsContent value="houses"><HousesTab /></TabsContent>
@@ -2451,6 +2453,7 @@ export default function VenueHousing() {
         <TabsContent value="roster"><RosterTab /></TabsContent>
         <TabsContent value="actions"><ActionsTab /></TabsContent>
         <TabsContent value="utilities"><UtilitiesTab /></TabsContent>
+        <TabsContent value="history"><HouseHistoryTab /></TabsContent>
       </Tabs>
     </div>
   );

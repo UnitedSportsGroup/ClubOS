@@ -21,6 +21,7 @@ import { workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Camera, MapPin, Upload, Trash2, FileText, Download, AlertTriangle, User } from "lucide-react";
 
 type Segment =
@@ -142,7 +143,7 @@ export function VehicleHistoryTab({ vehicleId }: { vehicleId: number }) {
             data-testid="input-condition-file" />
           {/* 🔴 The day it was TAKEN, which is not the day it was uploaded — the
               server keeps both, and this is the one that places it in history. */}
-          <Input type="date" value={takenOn} onChange={(e) => setTakenOn(e.target.value)}
+          <DatePickerInput value={takenOn} onChange={(e) => setTakenOn(e.target.value)}
             className="premium-input h-8 w-[150px] text-[12px]" title="The day the photo shows"
             data-testid="input-condition-date" />
           <Input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Note (optional)"
