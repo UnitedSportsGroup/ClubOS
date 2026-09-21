@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useRoute, Link, useLocation } from "wouter";
 import {
   ArrowLeft, User, Users, Mail, Phone, Calendar, AlertTriangle, MapPin, School, Pencil,
-  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck,
+  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck, ArrowRightLeft,
 } from "lucide-react";
 import { useBackTo } from "@/lib/back-to";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ import { formatCurrency } from "@/lib/format";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { RELATIONSHIP_OPTIONS, ageFromDob } from "@shared/family";
 import { RegisterPlayerModal } from "./admin-register-player";
+import { MoveProgrammeDialog } from "@/components/registrations/move-programme-dialog";
 
 function formatDate(d: string | null | undefined): string {
   if (!d) return "—";
@@ -459,6 +460,7 @@ export default function AdminPersonDetail() {
   const [eEmail, setEEmail] = useState(""); const [ePhone, setEPhone] = useState("");
   const [eSchool, setESchool] = useState(""); const [saveErr, setSaveErr] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
+  const [movingReg, setMovingReg] = useState<{ id: number; programId: number; programName: string } | null>(null);
 
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["/api/admin/people", personKeyParam],
@@ -804,6 +806,19 @@ export default function AdminPersonDetail() {
                   <Badge variant="outline" className={`text-[9px] uppercase tracking-wider ${STATUS_STYLE[r.status] || "text-white/40 border-white/10 bg-white/[0.04]"}`}>
                     {r.status}
                   </Badge>
+                  {/* 🔴 Zach's ask, where he actually stands when a parent asks.
+                      A fully refunded row is not moved — there is nothing left
+                      to move; a partial refund still holds a live booking. */}
+                  {r.status !== "refunded" && (
+                    <button
+                      onClick={() => setMovingReg({ id: r.id, programId: r.programId, programName: r.programName })}
+                      className="inline-flex items-center gap-1 text-[11px] text-blue-400/80 hover:text-blue-300 border border-blue-500/20 hover:border-blue-500/40 rounded-md px-2 py-1 transition-colors cursor-pointer"
+                      title="Move this registration to another programme — the amount paid does not change"
+                      data-testid={`button-move-${r.id}`}
+                    >
+                      <ArrowRightLeft className="w-3 h-3" /> Move
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -811,6 +826,20 @@ export default function AdminPersonDetail() {
         </Card>
       )}
 
+      {movingReg && (
+        <MoveProgrammeDialog
+          registrationId={movingReg.id}
+          programId={movingReg.programId}
+          programName={movingReg.programName}
+          personName={`${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || null}
+          onClose={() => setMovingReg(null)}
+          onMoved={() => {
+            setMovingReg(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/people", personKeyParam] });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
+          }}
+        />
+      )}
       {linking && <LinkDialog personKey={personKeyParam} mode={linking} onClose={() => setLinking(null)} />}
     </div>
   );
