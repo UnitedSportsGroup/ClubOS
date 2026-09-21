@@ -28,6 +28,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import multer from "multer";
+import { driveStorage } from "./drive-storage";
+import { occupancyTimeline } from "@shared/occupancy-timeline";
+import { housingInspectionMedia } from "@shared/schema";
+// 25MB, matching a fine's notice and a vehicle's condition shot. A walk-through
+// video of a damp patch is seconds on a phone, not a feature film.
+const housingUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import {
@@ -181,6 +188,166 @@ async function activeTenanciesFor(orgId: number, today: string) {
 
 export function registerHousingRoutes(app: Express) {
   const tab = requireTab("housing");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ROOM HISTORY, and what staff saw on a walk-through
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Daniel, 2026-09-21: "seeing history of like [a player] was in Room 2 main
+  // house from January 10th–May 31st and it sat empty from 1st June to July
+  // 15th and then [another] moved in on July 16th – present."
+  //
+  // 🔴 Same algorithm as the vehicles — @shared/occupancy-timeline. The empty
+  // stretches are DERIVED from the tenancies; nothing stores them, so
+  // correcting a tenancy date corrects the history with it.
+  app.get("/api/admin/housing/rooms/:roomId/history", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await orgOr400(req, res); if (!org) return;
+      const roomId = Number(req.params.roomId);
+      if (!Number.isInteger(roomId)) { res.status(400).json({ message: "Bad room id" }); return; }
+
+      const [room] = await db.select().from(housingRooms)
+        .where(and(eq(housingRooms.id, roomId), eq(housingRooms.organizationId, org.id)));
+      if (!room) { res.status(404).json({ message: "Room not found" }); return; }
+
+      const rows = await db
+        .select({ t: housingTenancies, c: contacts })
+        .from(housingTenancies)
+        .leftJoin(contacts, eq(contacts.id, housingTenancies.contactId))
+        .where(and(eq(housingTenancies.roomId, roomId), eq(housingTenancies.organizationId, org.id)))
+        .orderBy(asc(housingTenancies.startDate));
+
+      const todayIso = nzTodayIso();
+      const segments = occupancyTimeline(
+        rows.map(({ t, c }) => ({
+          id: t.id,
+          holderName: [c?.firstName, c?.lastName].filter(Boolean).join(" ").trim() || "Name not recorded",
+          from: String(t.startDate),
+          to: t.endDate ? String(t.endDate) : null,
+          meta: {
+            contactId: t.contactId,
+            rentCents: t.rentCents,
+            isRemuneration: t.isRemuneration,
+            occupantCategory: t.occupantCategory,
+          },
+        })),
+        todayIso,
+      );
+
+      const media = await db.select().from(housingInspectionMedia)
+        .where(and(eq(housingInspectionMedia.roomId, roomId), eq(housingInspectionMedia.organizationId, org.id)))
+        .orderBy(desc(housingInspectionMedia.takenOn), desc(housingInspectionMedia.id));
+
+      res.json({
+        todayIso,
+        room: { id: room.id, name: room.name, houseId: room.houseId, isReserve: room.isReserve },
+        segments,
+        media: media.map((m) => ({ ...m, storageKey: undefined })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Every walk-through photo for a house, newest first. Grouped by date in the
+  // page — an "inspection" IS the photos taken on one day.
+  app.get("/api/admin/housing/houses/:houseId/inspections", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await orgOr400(req, res); if (!org) return;
+      const houseId = Number(req.params.houseId);
+      if (!Number.isInteger(houseId)) { res.status(400).json({ message: "Bad house id" }); return; }
+      const rows = await db.select().from(housingInspectionMedia)
+        .where(and(eq(housingInspectionMedia.houseId, houseId), eq(housingInspectionMedia.organizationId, org.id)))
+        .orderBy(desc(housingInspectionMedia.takenOn), desc(housingInspectionMedia.id));
+      const rooms = await db.select({ id: housingRooms.id, name: housingRooms.name })
+        .from(housingRooms).where(eq(housingRooms.houseId, houseId));
+      res.json({ rows: rows.map((r) => ({ ...r, storageKey: undefined })), rooms, todayIso: nzTodayIso() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // 🔴 `takenOn` comes from the person doing the walk-through; `uploadedAt` and
+  // `uploadedBy` are stamped by the SERVER. Who took a photograph is the half
+  // of the record a person must not be able to choose.
+  app.post("/api/admin/housing/houses/:houseId/inspections", requireAuth, tab,
+    housingUpload.single("file"), async (req, res) => {
+    try {
+      const org = await orgOr400(req, res); if (!org) return;
+      const houseId = Number(req.params.houseId);
+      if (!Number.isInteger(houseId)) { res.status(400).json({ message: "Bad house id" }); return; }
+      const [house] = await db.select().from(housingHouses)
+        .where(and(eq(housingHouses.id, houseId), eq(housingHouses.organizationId, org.id)));
+      if (!house) { res.status(404).json({ message: "House not found" }); return; }
+
+      const b = (req.body ?? {}) as Record<string, string>;
+      const takenOn = String(b.takenOn ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
+        res.status(400).json({ message: "The date of the walk-through is required (yyyy-mm-dd)" }); return;
+      }
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) { res.status(400).json({ message: "No file was attached" }); return; }
+
+      // A room is optional, but if one is named it must belong to this house —
+      // otherwise a photo of the main house lands under a room in another.
+      let roomId: number | null = null;
+      if (b.roomId) {
+        roomId = Number(b.roomId);
+        const [room] = await db.select().from(housingRooms)
+          .where(and(eq(housingRooms.id, roomId), eq(housingRooms.houseId, houseId), eq(housingRooms.organizationId, org.id)));
+        if (!room) { res.status(400).json({ message: "That room is not in this house" }); return; }
+      }
+
+      const filename = (b.filename || file.originalname || "file").slice(0, 250);
+      const contentType = file.mimetype || "application/octet-stream";
+      const put = await driveStorage().put(file.buffer, contentType, filename);
+      const uid = (req.session as any)?.userId ?? null;
+      const who = uid
+        ? (await db.select({ f: users.firstName, l: users.lastName }).from(users).where(eq(users.id, uid)))[0]
+        : undefined;
+
+      const [row] = await db.insert(housingInspectionMedia).values({
+        organizationId: org.id,
+        houseId,
+        roomId,
+        takenOn,
+        uploadedBy: uid,
+        uploadedByName: who ? (`${who.f ?? ""} ${who.l ?? ""}`.trim() || null) : null,
+        storageKey: put.storageKey,
+        fileName: filename,
+        contentType,
+        sizeBytes: put.sizeBytes,
+        caption: b.caption?.trim() || null,
+      }).returning();
+      res.status(201).json({ row: { ...row, storageKey: undefined } });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/housing/inspections/:mediaId/file", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await orgOr400(req, res); if (!org) return;
+      const mediaId = Number(req.params.mediaId);
+      if (!Number.isInteger(mediaId)) { res.status(400).json({ message: "Bad id" }); return; }
+      const [row] = await db.select().from(housingInspectionMedia)
+        .where(and(eq(housingInspectionMedia.id, mediaId), eq(housingInspectionMedia.organizationId, org.id)));
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      const url = await driveStorage().signedUrl(row.storageKey, {
+        download: req.query.download ? (row.fileName ?? undefined) : undefined,
+        expiresIn: 300,
+      });
+      res.redirect(url);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/housing/inspections/:mediaId", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await orgOr400(req, res); if (!org) return;
+      const mediaId = Number(req.params.mediaId);
+      if (!Number.isInteger(mediaId)) { res.status(400).json({ message: "Bad id" }); return; }
+      const [row] = await db.delete(housingInspectionMedia)
+        .where(and(eq(housingInspectionMedia.id, mediaId), eq(housingInspectionMedia.organizationId, org.id)))
+        .returning();
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      await driveStorage().remove(row.storageKey).catch(() => {});
+      res.json({ deleted: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
 
   // ── Overview ───────────────────────────────────────────────────────────────
   // Everything the coordinator needs on one screen: who is behind on rent, what

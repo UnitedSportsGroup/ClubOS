@@ -297,6 +297,10 @@ export function registerVehicleRoutes(app: Express) {
     set("nextServiceDueOn", () => isoDate(body.nextServiceDueOn, "Next service due"));
     set("nextServiceDueKm", () => int(body.nextServiceDueKm, "Next service due (km)"));
 
+    // Where it sits when nobody holds it. The history's empty stretches read
+    // this, and say "not recorded" rather than assuming the Centre.
+    set("parkedLocation", () => str(body.parkedLocation));
+
     set("fbtPrivateUse", () => bool(body.fbtPrivateUse));
     set("fbtExemption", () => pick(body.fbtExemption, isFbtExemption, "FBT exemption", "none"));
     set("fbtNotes", () => str(body.fbtNotes));

@@ -31,9 +31,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
 import { centsToDollarInput, dollarInputToCents, formatCurrency, formatNumber } from "@/lib/format";
+import { VehicleHistoryTab } from "@/components/vehicles/vehicle-history";
+import { VehicleAgreementsTab, VehicleFinesTab } from "@/components/vehicles/vehicle-papers";
 import {
   Car, Plus, Search, Trash2, Pencil, Check, AlertTriangle, Wrench,
-  Wallet, Users, ShieldCheck,
+  Wallet, Users, ShieldCheck, Clock, FileSignature,
 } from "lucide-react";
 import {
   VEHICLE_TYPES, FUEL_TYPES, VEHICLE_STATUSES, OWNERSHIP_TYPES, COMPLIANCE_TYPES,
@@ -90,6 +92,8 @@ interface VehicleRow {
   fbtPrivateUse: boolean;
   fbtExemption: FbtExemption;
   fbtNotes: string | null;
+  /** Where it sits when nobody holds it. Null = nobody has said. */
+  parkedLocation: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -738,6 +742,7 @@ function VehicleForm({ vehicle, saving, onCancel, onSubmit }: {
   const [fbtPrivateUse, setFbtPrivateUse] = useState(vehicle?.fbtPrivateUse ?? false);
   const [fbtExemption, setFbtExemption] = useState<FbtExemption>(vehicle?.fbtExemption ?? "none");
   const [fbtNotes, setFbtNotes] = useState(vehicle?.fbtNotes ?? "");
+  const [parkedLocation, setParkedLocation] = useState(vehicle?.parkedLocation ?? "");
 
   const [notes, setNotes] = useState(vehicle?.notes ?? "");
 
@@ -797,6 +802,7 @@ function VehicleForm({ vehicle, saving, onCancel, onSubmit }: {
       fbtPrivateUse,
       fbtExemption: fbtPrivateUse ? fbtExemption : "none",
       fbtNotes: fbtPrivateUse ? (fbtNotes.trim() || null) : null,
+      parkedLocation: parkedLocation.trim() || null,
 
       notes: notes.trim() || null,
     });
@@ -1027,6 +1033,19 @@ function VehicleForm({ vehicle, saving, onCancel, onSubmit }: {
                 <label className={labelCls}>FBT notes</label>
                 <textarea value={fbtNotes} onChange={(e) => setFbtNotes(e.target.value)} className={inputCls + " min-h-[60px]"} />
               </div>
+              <div>
+                {/* 🔴 The history's empty stretches read this. Left blank they
+                    say "not recorded" rather than assuming United Sports
+                    Centre — the club has vehicles that live elsewhere. */}
+                <label className={labelCls}>Where it's parked when nobody has it</label>
+                <input
+                  value={parkedLocation}
+                  onChange={(e) => setParkedLocation(e.target.value)}
+                  placeholder="e.g. United Sports Centre, 466 Yaldhurst Road"
+                  className={inputCls}
+                  data-testid="input-parked-location"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1054,7 +1073,13 @@ function VehicleForm({ vehicle, saving, onCancel, onSubmit }: {
 // ═══ DETAIL DIALOG ════════════════════════════════════════════════════════════
 const DETAIL_TABS = [
   { key: "overview", label: "Overview", icon: Car },
+  // 🔴 History sits BEFORE Assignments: the ledger — who had it, when, and the
+  // stretches nobody did — is what a person opens this for. Assignments stays
+  // as the place those stints are recorded and corrected.
+  { key: "history", label: "History", icon: Clock },
   { key: "assignments", label: "Assignments", icon: Users },
+  { key: "agreement", label: "Agreement", icon: FileSignature },
+  { key: "fines", label: "Fines", icon: AlertTriangle },
   { key: "insurance", label: "Insurance", icon: ShieldCheck },
   { key: "servicing", label: "Servicing", icon: Wrench },
   { key: "costs", label: "Costs", icon: Wallet },
@@ -1140,7 +1165,10 @@ function VehicleDetailDialog({ vehicleId, onClose, onEdit }: {
             </div>
 
             {tab === "overview" && <OverviewTab data={data} />}
+            {tab === "history" && vehicleId != null && <VehicleHistoryTab vehicleId={vehicleId} />}
             {tab === "assignments" && <AssignmentsTab today={data.today} assignments={data.assignments} mut={assignmentsMut} />}
+            {tab === "agreement" && vehicleId != null && <VehicleAgreementsTab vehicleId={vehicleId} />}
+            {tab === "fines" && vehicleId != null && <VehicleFinesTab vehicleId={vehicleId} />}
             {tab === "insurance" && <InsuranceTab policies={data.policies} mut={insuranceMut} />}
             {tab === "servicing" && <ServicingTab services={data.services} mut={servicesMut} />}
             {tab === "costs" && <CostsTab costs={data.costs} costSummary={data.costSummary} mut={costsMut} />}
