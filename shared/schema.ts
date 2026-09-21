@@ -6674,6 +6674,11 @@ export const fleetVehicles = pgTable("fleet_vehicles", {
   rucRequired: boolean("ruc_required").notNull().default(false),
   rucValidToKm: integer("ruc_valid_to_km"),
 
+  // Where it sits when nobody holds it. NULL means nobody has said — the
+  // history view then reads "location not recorded" rather than assuming the
+  // Centre, because the club has vehicles that live elsewhere.
+  parkedLocation: text("parked_location"),
+
   // Ownership
   ownership: text("ownership").notNull().default("owned"),       // owned|leased|financed
   lessor: text("lessor"),
@@ -6729,6 +6734,10 @@ export const fleetAssignments = pgTable("fleet_assignments", {
   licenceClass: text("licence_class"),
   licenceExpiresOn: date("licence_expires_on"),
 
+  // Nullable with no backfill: every assignment predates fleet_drivers, and
+  // inventing a driver per holder_name would merge two people who share a name.
+  driverId: integer("driver_id").references(() => fleetDrivers.id, { onDelete: "set null" }),
+
   assignedOn: date("assigned_on").notNull(),
   returnedOn: date("returned_on"),                     // NULL = they still have it
   odometerStartKm: integer("odometer_start_km"),
@@ -6745,6 +6754,92 @@ export const fleetAssignments = pgTable("fleet_assignments", {
   // database says so rather than the application hoping so.
   vehicleIdx: index("fleet_assignments_vehicle_idx").on(t.vehicleId, t.assignedOn),
   orgIdx: index("fleet_assignments_org_idx").on(t.organizationId),
+}));
+
+/**
+ * A person allowed to drive club vehicles, and the licence that says so.
+ *
+ * 🔴 A licence is a fact about a PERSON, not about one stint — so it lives here
+ * and not on the assignment. Travis driving three vehicles types it once, and
+ * an expiry raises one warning rather than three.
+ *
+ * 🔴 The most sensitive data in the fleet: a licence number and photographs of
+ * a licence. Super-admin-only tab, images served by short-lived signed URLs,
+ * never a public link, never on a public route.
+ */
+export const fleetDrivers = pgTable("fleet_drivers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  fullName: text("full_name").notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email"),
+  phone: text("phone"),
+  licenceNumber: text("licence_number"),
+  licenceClass: text("licence_class"),
+  licenceExpiresOn: date("licence_expires_on"),
+  licenceCountry: text("licence_country"),
+  licenceConditions: text("licence_conditions"),
+  frontStorageKey: text("front_storage_key"),
+  frontFileName: text("front_file_name"),
+  backStorageKey: text("back_storage_key"),
+  backFileName: text("back_file_name"),
+  // An unchecked licence on file is a photocopy, not a verification.
+  verifiedOn: date("verified_on"),
+  verifiedBy: integer("verified_by").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  orgIdx: index("fleet_drivers_org_idx").on(t.organizationId, t.fullName),
+}));
+
+/** The agreement between the club and the person driving one of its vehicles. */
+export const fleetAgreements = pgTable("fleet_agreements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  vehicleId: integer("vehicle_id").notNull().references(() => fleetVehicles.id, { onDelete: "cascade" }),
+  assignmentId: integer("assignment_id").references(() => fleetAssignments.id, { onDelete: "set null" }),
+  holderName: text("holder_name").notNull(),
+  holderUserId: integer("holder_user_id").references(() => users.id, { onDelete: "set null" }),
+  signedOn: date("signed_on"),
+  expiresOn: date("expires_on"),
+  storageKey: text("storage_key"),
+  fileName: text("file_name"),
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  notes: text("notes"),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  vehicleIdx: index("fleet_agreements_vehicle_idx").on(t.vehicleId, t.signedOn),
+}));
+
+/**
+ * What condition the vehicle was in, on a given day.
+ *
+ * 🔴 `takenOn` and `uploadedAt` are DIFFERENT FACTS and both are kept — a photo
+ * taken at handover but uploaded a week later still shows the van as it was on
+ * the day. It deliberately does NOT store which stint it belongs to: that is
+ * `takenOn` read against the timeline, so correcting an assignment date moves
+ * the photo to the right person instead of leaving it filed under the wrong one.
+ */
+export const fleetConditionMedia = pgTable("fleet_condition_media", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  vehicleId: integer("vehicle_id").notNull().references(() => fleetVehicles.id, { onDelete: "cascade" }),
+  takenOn: date("taken_on").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull(),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedByName: text("uploaded_by_name"),
+  storageKey: text("storage_key").notNull(),
+  fileName: text("file_name"),
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  caption: text("caption"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  vehicleIdx: index("fleet_condition_media_vehicle_idx").on(t.vehicleId, t.takenOn),
 }));
 export const insertFleetAssignmentSchema = createInsertSchema(fleetAssignments).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertFleetAssignment = z.infer<typeof insertFleetAssignmentSchema>;
