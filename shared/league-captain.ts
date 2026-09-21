@@ -69,6 +69,28 @@ export function shortCompetitionName(name: string | null | undefined): string {
   return String(name ?? "").replace(/^Mini Football Leagues\s*[—–-]\s*/i, "");
 }
 
+/**
+ * "term-4" → "Term 4". The MFL league_team programmes are slugged by term and
+ * the URL is known before the programme has loaded, which is when the Meta
+ * ViewContent event fires. Anything else comes back empty.
+ */
+export function termLabelFromSlug(slug: string | null | undefined): string {
+  const m = /^term-(\d{1,2})$/i.exec(String(slug ?? "").trim());
+  return m ? `Term ${m[1]}` : "";
+}
+
+/**
+ * The Meta event label for an MFL team registration. It read "MFL Term 3 Team
+ * Registration" as a constant in six places and stayed on Term 3 when Term 4
+ * opened. Derived now, from the slug (before load) or the programme name.
+ */
+export function mflPixelContent(slugOrName: string | null | undefined): string {
+  // A slug that is not a term ("split-test") must not become the label.
+  const raw = String(slugOrName ?? "");
+  const term = termLabelFromSlug(raw) || (/\s/.test(raw) ? shortCompetitionName(raw) : "");
+  return `MFL ${term || "League"} Team Registration`;
+}
+
 function addDays(iso: string, n: number): string {
   const [y, m, d] = parts(iso);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);

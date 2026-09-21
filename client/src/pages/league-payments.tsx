@@ -351,6 +351,31 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
               })}
             </div>
 
+            {/* Pay in full: a captain who wants to clear the rest now — the same
+                payoff link the chase uses, without the "behind" wording.
+                Isaac, 2026-09-21: "I can send an invoice in full in the payments
+                section right?" — this is that. */}
+            {canRemind && (bd.missedCount || 0) === 0 && (bd.payoffCents || 0) > 0 && reg.balanceStatus !== "paid" && (
+              <div className="rounded-xl border border-[#d1b96e]/25 bg-[#d1b96e]/[0.05] p-4 flex items-start justify-between gap-3 flex-wrap" data-testid="pay-in-full-section">
+                <div>
+                  <p className="text-sm font-semibold text-[#d1b96e]">Pay in full — {formatCurrency(bd.payoffCents, { fromCents: true })} to go</p>
+                  <p className="text-[11px] text-white/40 mt-1">
+                    Emails {reg.captainName || "the captain"} a card link that pays the rest of the term in one go and stops the weekly charges. Lands against this team, this term.
+                  </p>
+                  {!reg.captainEmail && <p className="text-[11px] text-red-400/70 mt-1">No captain email on file.</p>}
+                </div>
+                <button
+                  onClick={() => sendReminder.mutate()}
+                  disabled={sendReminder.isPending || !reg.captainEmail}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#d1b96e] text-black hover:bg-[#dcc788] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  data-testid="send-pay-in-full"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {sendReminder.isPending ? "Sending…" : "Send pay-in-full link"}
+                </button>
+              </div>
+            )}
+
             {/* Missed-payment chase: one-click reminder + sent/opened analytics */}
             {canRemind && ((bd.missedCount || 0) > 0 || reminders.length > 0) && (
               <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 space-y-3" data-testid="reminder-section">
@@ -376,7 +401,7 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
                     </button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-white/40">Nothing overdue right now. Earlier reminders:</p>
+                  <p className="text-[11px] text-white/40">Nothing overdue right now. Links sent so far:</p>
                 )}
                 {!reg.captainEmail && (bd.missedCount || 0) > 0 && (
                   <p className="text-[11px] text-red-400/70">No captain email on file — reminders can't be sent.</p>
@@ -389,7 +414,7 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
                         <div className="min-w-0">
                           <p className="text-[12px] text-white/70">
                             Sent {new Date(rem.sentAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}, {new Date(rem.sentAt).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}
-                            <span className="text-white/30"> · {formatCurrency(rem.missedCents, { fromCents: true })} behind{rem.sentByName ? ` · by ${rem.sentByName}` : ""}</span>
+                            <span className="text-white/30"> · {rem.kind === "pay_in_full" ? `pay-in-full link · ${formatCurrency(rem.payoffCents || 0, { fromCents: true })}` : `${formatCurrency(rem.missedCents, { fromCents: true })} behind`}{rem.sentByName ? ` · by ${rem.sentByName}` : ""}</span>
                           </p>
                           <p className="text-[11px] text-white/30 truncate">{rem.sentTo}</p>
                         </div>

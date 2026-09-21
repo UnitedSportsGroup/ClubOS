@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { shortCompetitionName, termLabelFromSlug, mflPixelContent } from "@shared/league-captain";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useRoute, Link } from "wouter";
@@ -15,7 +16,8 @@ const BRAND = {
   muted: "rgba(255,255,255,0.62)", dim: "rgba(255,255,255,0.38)",
 };
 const FONT = "'Inter Tight', Inter, system-ui, -apple-system, sans-serif";
-const PIXEL_CONTENT = "MFL Term 3 Team Registration";
+// Derived from the term in the URL — a constant here stayed on "Term 3" when Term 4 opened.
+const PIXEL_CONTENT = (slug: string | null | undefined) => mflPixelContent(slug);
 
 export default function MflSuccessPage() {
   const [, params] = useRoute("/league/:slug/success");
@@ -50,7 +52,7 @@ export default function MflSuccessPage() {
       const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
       if (pixelId) {
         trackEvent("Purchase", {
-          content_name: PIXEL_CONTENT,
+          content_name: PIXEL_CONTENT(slug),
           content_category: "League Team Registration",
           value: (reg.depositCents ?? reg.totalCents ?? 0) / 100,
           currency: reg.currency || "NZD",
@@ -77,7 +79,15 @@ export default function MflSuccessPage() {
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">You're in! 🎉</h1>
-              <p className="mt-2" style={{ color: BRAND.muted }}>{(reg?.teamCount ?? 1) > 1 ? `Your ${reg.teamCount} teams are locked into Term 3.` : (reg?.teamName ? `${reg.teamName} is locked into Term 3.` : "Your team is locked into Term 3.")}</p>
+              <p className="mt-2" style={{ color: BRAND.muted }}>{(() => {
+                // 🔴 The term is the registration's own programme, never a
+                // string in this file — "locked into Term 3" greeted the first
+                // Term 4 captain (Isaac, 2026-09-21).
+                const term = shortCompetitionName(reg?.programName) || termLabelFromSlug(slug) || "the term";
+                return (reg?.teamCount ?? 1) > 1
+                  ? `Your ${reg.teamCount} teams are locked into ${term}.`
+                  : (reg?.teamName ? `${reg.teamName} is locked into ${term}.` : `Your team is locked into ${term}.`);
+              })()}</p>
             </div>
 
             {reg && (
