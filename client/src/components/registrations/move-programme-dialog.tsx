@@ -154,7 +154,7 @@ export function MoveProgrammeDialog({ registrationId, programId, programName, pe
         </DialogHeader>
 
         {result ? (
-          <div className="space-y-3" data-testid="move-result">
+          <div className="space-y-3 min-w-0 overflow-hidden -m-0.5 p-0.5" data-testid="move-result">
             <p className="text-[13px] text-foreground/85">
               <span className="font-medium">{names(result.moved.names)}</span>
               <span className="text-muted-foreground"> · {fromName}</span>
@@ -185,7 +185,7 @@ export function MoveProgrammeDialog({ registrationId, programId, programName, pe
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 min-w-0 overflow-hidden -m-0.5 p-0.5">
             {planError && <p className="text-[12px] text-destructive">{(planError as Error).message}</p>}
             {isLoading && !plan && <p className="text-[12px] text-muted-foreground">Loading their sessions…</p>}
 

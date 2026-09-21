@@ -46,7 +46,7 @@ const probe = { contactId: 0, childA: 0, childB: 0, regId: 0, newRegId: 0, pendi
 
 async function seed() {
   const { rows: c } = await pool.query(
-    `INSERT INTO contacts (type, first_name, last_name, email) VALUES ('parent','Move','Probe',$1) RETURNING id`,
+    `INSERT INTO contacts (type, first_name, last_name, email) VALUES ('guardian','Move','Probe',$1) RETURNING id`,
     [`_move_probe_${Date.now()}@example.com`]);
   probe.contactId = c[0].id;
   const kid = async (n: string) => (await pool.query(
