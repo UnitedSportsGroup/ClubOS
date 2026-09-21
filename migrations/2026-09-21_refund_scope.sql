@@ -1,0 +1,25 @@
+-- ── Which programmes a person may refund ────────────────────────────────────
+-- Daniel, 2026-09-21: "zach also said that he doesn't have this ability or
+-- access to refund holiday camps, he needs access to refund just holiday camps
+-- not pre academy academy or other programs but just holiday camps and U4-U8
+-- where he is the main coordinator."
+--
+-- `can_issue_refunds` stays the master switch — off means no refunds at all,
+-- with no role bypass, not even super admin. These two narrow what it covers.
+--
+-- 🔴 NULL MEANS EVERY PROGRAMME, and there is no backfill. The four people who
+-- hold refund rights today keep exactly what they have; narrowing somebody is a
+-- deliberate act. Same shape as `user_organizations.hiring_brands`, which was
+-- built for this exact question and has held.
+--
+-- 🔴 TWO LISTS, NOT ONE, because Zach's answer is genuinely two things. KINDS
+-- covers a recurring class — every holiday camp, including the ones created
+-- next term, which an id list would silently miss the day a new camp is added.
+-- IDS covers a named exception, which is U4–U8: a core academy programme he
+-- coordinates but which shares its kind with Pre-Academy and Academy, the two
+-- he must NOT be able to refund.
+--
+-- 🔴 No CHECK on the contents. The vocabulary lives in @shared/programme-kinds
+-- and a stale CHECK in the database is how the MFL checkout started 500ing.
+alter table users add column if not exists refund_programme_kinds jsonb;
+alter table users add column if not exists refund_program_ids jsonb;

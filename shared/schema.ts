@@ -84,6 +84,12 @@ export const users = pgTable("users", {
   // Default false, no backfill: nobody gains this by existing. It is granted
   // one person at a time in /admin/team by a super admin.
   canIssueRefunds: boolean("can_issue_refunds").notNull().default(false),
+  // 🔴 WHICH programmes those refunds may cover. NULL on both = every
+  // programme, which is what everyone who already had the right keeps.
+  // See @shared/refund-scope — kinds cover a recurring class (every holiday
+  // camp, including next term's), ids cover a named exception (U4–U8).
+  refundProgrammeKinds: jsonb("refund_programme_kinds").$type<string[] | null>(),
+  refundProgramIds: jsonb("refund_program_ids").$type<number[] | null>(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

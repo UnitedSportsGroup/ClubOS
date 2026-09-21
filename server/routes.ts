@@ -3,6 +3,7 @@ import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
+import { canRefundProgramme, refundScopeLabel } from "@shared/refund-scope";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
@@ -4857,6 +4858,22 @@ export async function registerRoutes(
         const program = await storage.getProgram(reg.programId);
         if (!inRegistrationScope(await registrationOrgScope(req), program?.organizationId)) {
           return res.status(404).json({ message: "Registration not found" });
+        }
+
+        // 🔴 WHICH programmes this person may refund. requireRefundPermission
+        // has already established they may refund AT ALL; this is the narrower
+        // question, and it is asked here because only here is the programme
+        // known. Read from the live user row per request, so revoking or
+        // narrowing bites on the next call rather than the next logout.
+        const actor = await storage.getUser(req.session.userId!);
+        const scope = {
+          kinds: (actor as any)?.refundProgrammeKinds ?? null,
+          programIds: (actor as any)?.refundProgramIds ?? null,
+        };
+        if (!canRefundProgramme(scope, program as any)) {
+          return res.status(403).json({
+            message: `You can refund ${refundScopeLabel(scope)}, and this registration is not one of them. Ask a super admin to widen it in Team.`,
+          });
         }
       }
 
