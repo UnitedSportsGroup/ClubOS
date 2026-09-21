@@ -24,7 +24,7 @@ import {
 import { NZ_REGIONS, IDENTITY_DEFER_REASONS } from "@shared/nzf-identity";
 import {
   X, ChevronRight, ChevronLeft, User, Baby, Calendar, CheckCircle,
-  Plus, Trash2, Loader2, Building2, CreditCard, Banknote, AlertTriangle, Lock, Search,
+  Plus, Trash2, Loader2, Building2, CreditCard, Banknote, AlertTriangle, Lock, Search, Pencil,
 } from "lucide-react";
 
 interface ChildData {
@@ -300,6 +300,11 @@ export function RegisterPlayerModal({
   const [pickedKey, setPickedKey] = useState<string | null>(null);
   const [pickedLabel, setPickedLabel] = useState("");
   const [prefillApplied, setPrefillApplied] = useState(false);
+  // After a pick the details are shown as a read-only card. The pencil flips
+  // it into the form — the fields are there the whole time, just not in the
+  // way. Daniel, 2026-09-21: "non editable preview but with a pencil icon to
+  // edit if need be."
+  const [editingDetails, setEditingDetails] = useState(false);
   /** The id every registration of this visit shares. Minted on the first save
    *  and kept until the operator closes the dialog, so a second programme for
    *  the same family joins the same transaction — including a line retried
@@ -757,6 +762,87 @@ export function RegisterPlayerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefill?.personKey]);
 
+  const showPreview = !!pickedKey && !editingDetails;
+
+  /**
+   * What was pulled in, as a card. Rendered FROM THE FORM STATE, never from the
+   * fetched record, so it is always exactly what will be posted — an edit made
+   * behind the pencil shows here too.
+   *
+   * 🔴 A blank reads "—", never a guess. And the NZ Football codes are shown
+   * as the names people recognise; the codes stay in state untouched.
+   */
+  const detailsPreview = (opts: { onEdit: () => void; editLabel?: string }) => {
+    const dash = (v: string | null | undefined) => (v && String(v).trim() ? String(v) : "—");
+    const nice = (iso: string) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+      if (!m) return dash(iso);
+      const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return `${Number(m[3])} ${M[Number(m[2]) - 1]} ${m[1]}`;
+    };
+    const country = (code: string) => NZF_COUNTRIES.find((c) => c.code === code)?.name ?? dash(code);
+    const group = (id: number | null) => NZF_ETHNICITY_GROUPS.find((g) => g.id === id)?.name ?? "—";
+    const address = [nzfAddress.street, nzfAddress.suburb, nzfAddress.city, nzfAddress.region, nzfAddress.postcode]
+      .filter((x) => x && x.trim()).join(", ");
+    const kids = children.filter((c) => c.firstName.trim() || c.lastName.trim());
+    return (
+      <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.05] overflow-hidden" data-testid="picked-preview">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-emerald-500/15">
+          <span className="text-[12px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-300">
+            On file — check it's still right
+          </span>
+          <button
+            type="button"
+            onClick={opts.onEdit}
+            className="inline-flex items-center gap-1.5 text-[12px] text-blue-600 hover:underline cursor-pointer"
+            data-testid="button-edit-picked"
+          >
+            <Pencil className="w-3.5 h-3.5" /> {opts.editLabel ?? "Edit"}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 px-4 py-3">
+          <div className="space-y-1.5 min-w-0">
+            <p className={SECTION}>Player</p>
+            {assumedShape === "academy" || kids.length === 0 ? (
+              <>
+                <Row label="Name" value={`${dash(playerFirst)} ${dash(playerLast)}`} strong />
+                <Row label="Date of birth" value={nice(playerDob)} />
+                <Row label="Gender" value={dash(playerGender)} />
+                <Row label="School" value={dash(playerSchool)} />
+                <Row label="Allergies" value={dash(allergies)} />
+                <Row label="Medical notes" value={dash(medicalNotes)} />
+              </>
+            ) : (
+              kids.map((c, i) => (
+                <div key={i} className="space-y-1">
+                  <Row label={kids.length > 1 ? `Child ${i + 1}` : "Name"} value={`${c.firstName} ${c.lastName}`.trim()} strong />
+                  <Row label="Date of birth" value={nice(c.dateOfBirth)} />
+                  <Row label="Allergies" value={dash(c.allergies)} />
+                </div>
+              ))
+            )}
+          </div>
+          <div className="space-y-1.5 min-w-0 mt-3 sm:mt-0">
+            <p className={SECTION}>Parent / guardian</p>
+            <Row label="Name" value={`${dash(parentFirst)} ${dash(parentLast)}`} strong />
+            <Row label="Email" value={dash(parentEmail)} />
+            <Row label="Phone" value={dash(parentPhone)} />
+            <Row label="Emergency" value={emergencyContact ? `${emergencyContact}${emergencyPhone ? ` · ${emergencyPhone}` : ""}` : "—"} />
+            {assumedShape === "academy" && (
+              <>
+                <p className={`${SECTION} pt-2`}>NZ Football</p>
+                <Row label="Born in" value={identity.countryOfBirthCode ? country(identity.countryOfBirthCode) : "—"} />
+                <Row label="Nationality" value={identity.nationalityCode ? country(identity.nationalityCode) : "—"} />
+                <Row label="Ethnicity" value={group(identity.ethnicityGroupId)} />
+                <Row label="Address" value={address || "—"} />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   /** Clear ONLY what belongs to the programme just saved. The family, the
    *  emergency contact, the NZF identity and the visit's group id all stay —
    *  they are facts about the people, not about the thing they bought. */
@@ -774,6 +860,7 @@ export function RegisterPlayerModal({
     setSelectedProgramId(null);
     setGroupId(null); setAddAnother(false); setLinesDone([]);
     setWhoChoice(null); setPickedKey(null); setPickedLabel(""); setPrefillApplied(false);
+    setEditingDetails(false);
     setParentFirst(""); setParentLast(""); setParentEmail(""); setParentPhone("");
     setEmergencyContact(""); setEmergencyPhone("");
     setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
@@ -1096,9 +1183,15 @@ export function RegisterPlayerModal({
                 />
               )}
               {whoChoice === "existing" && pickedKey && (
-                <p className="text-[12px] text-emerald-600 dark:text-emerald-400" data-testid="text-who-picked">
-                  ✓ {pickedLabel} filled in — press Next to check the details.
-                </p>
+                <>
+                  <p className="text-[12px] text-emerald-600 dark:text-emerald-400" data-testid="text-who-picked">
+                    ✓ {pickedLabel} filled in.
+                  </p>
+                  {detailsPreview({
+                    onEdit: () => { setEditingDetails(true); setStep(step + 1); },
+                    editLabel: "Edit details",
+                  })}
+                </>
               )}
             </div>
           )}
@@ -1317,7 +1410,11 @@ export function RegisterPlayerModal({
 
           {/* ── Academy: family ──────────────────────────────────────────── */}
           {stepName === "Family" && (
-            <div className="space-y-6">
+            <>
+              {showPreview && detailsPreview({ onEdit: () => setEditingDetails(true) })}
+              {/* The form stays mounted underneath — its state IS the preview —
+                  so validation keeps running and the pencil simply reveals it. */}
+            <div className={showPreview ? "hidden" : "space-y-6"}>
               {/* Olga, 2026-08-18, items 1 + 2: "change player and guardian
                   (because it's player profile)" and "organize all fields in a
                   more logical way. Player: name, DOB, gender....etc. then
@@ -1500,11 +1597,16 @@ export function RegisterPlayerModal({
                 )}
               </div>
             </div>
+            </>
           )}
 
           {/* ── Camp: parent ─────────────────────────────────────────────── */}
           {stepName === "Parent" && (
-            <div className="space-y-3">
+            <>
+              {showPreview && detailsPreview({ onEdit: () => setEditingDetails(true) })}
+              {/* The form stays mounted underneath — its state IS the preview —
+                  so validation keeps running and the pencil simply reveals it. */}
+            <div className={showPreview ? "hidden" : "space-y-3"}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="First name" required><Input value={parentFirst} onChange={(e) => setParentFirst(e.target.value)} className={FIELD} data-testid="input-parent-first" /></Field>
               <Field label="Last name" required><Input value={parentLast} onChange={(e) => setParentLast(e.target.value)} className={FIELD} data-testid="input-parent-last" /></Field>
@@ -1514,6 +1616,7 @@ export function RegisterPlayerModal({
               <Field label="Emergency phone"><Input type="tel" value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)} className={FIELD} /></Field>
             </div>
             </div>
+            </>
           )}
 
           {/* ── Camp: children ───────────────────────────────────────────── */}
