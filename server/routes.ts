@@ -1,5 +1,8 @@
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
+import type { Program } from "@shared/schema";
+import { lineCents } from "@shared/registration-split";
 import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
@@ -4880,99 +4883,63 @@ export async function registerRoutes(
    * `term_id`, so moving into one without setting it would leave the child in
    * the "not recorded" bucket on the new programme's Players tab.
    */
-  app.post("/api/admin/registrations/:id/transfer", requireAuth, async (req, res) => {
-    try {
-      const regId = parseInt(String(req.params.id));
-      const reg = await storage.getRegistration(regId);
-      if (!reg) return res.status(404).json({ message: "Registration not found" });
-
-      const scope = await registrationOrgScope(req);
-      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
-
-      const from = await storage.getProgram(reg.programId);
-      if (!inRegistrationScope(scope, from?.organizationId)) {
-        return res.status(404).json({ message: "Registration not found" });
-      }
-
-      const toProgramId = Number((req.body ?? {}).toProgramId);
-      if (!Number.isInteger(toProgramId)) return res.status(400).json({ message: "Which programme should they move to?" });
-      if (toProgramId === reg.programId) return res.status(400).json({ message: "They are already on that programme" });
-
-      const to = await storage.getProgram(toProgramId);
-      if (!to) return res.status(404).json({ message: "That programme does not exist" });
+  // ── Move a child to another programme ───────────────────────────────────
+  // The plan is built ONCE (server/registration-transfer.ts) and shown by the
+  // preview before the same plan is written by the transfer. Per child: when a
+  // booking covers several children and only some move, it is split.
+  const loadTransferEnds = async (req: Request, res: Response, toProgramIdRaw: unknown) => {
+    const regId = parseInt(String(req.params.id));
+    const reg = await storage.getRegistration(regId);
+    if (!reg) { res.status(404).json({ message: "Registration not found" }); return null; }
+    const scope = await registrationOrgScope(req);
+    if (scope === "ambiguous") { res.status(400).json(AMBIGUOUS_WORKSPACE); return null; }
+    const from = await storage.getProgram(reg.programId);
+    if (!from || !inRegistrationScope(scope, from.organizationId)) { res.status(404).json({ message: "Registration not found" }); return null; }
+    let to: Program | null = null;
+    if (toProgramIdRaw !== undefined && toProgramIdRaw !== null && String(toProgramIdRaw) !== "") {
+      const toProgramId = Number(toProgramIdRaw);
+      if (!Number.isInteger(toProgramId)) { res.status(400).json({ message: "Which programme should they move to?" }); return null; }
+      to = (await storage.getProgram(toProgramId)) ?? null;
       // 🔴 Both ends must be inside the caller's workspaces, or a transfer
       // becomes a way to move a registration into a club you cannot see.
-      if (!inRegistrationScope(scope, to.organizationId)) {
-        return res.status(404).json({ message: "That programme does not exist" });
-      }
+      if (!to || !inRegistrationScope(scope, to.organizationId)) { res.status(404).json({ message: "That programme does not exist" }); return null; }
+    }
+    return { reg, from, to };
+  };
+  const parseChildIds = (raw: unknown): number[] | null => {
+    if (raw === undefined || raw === null || raw === "") return null;
+    const arr = Array.isArray(raw) ? raw : String(raw).split(",");
+    const ids = arr.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
+    return ids.length ? ids : null;
+  };
 
-      const items = await storage.getRegistrationItems(regId);
-      const dayLines = items.filter((i: any) => i.campDateId != null);
-
-      // Match each booked day to the target's session on the same date and time.
-      const targetDates = await db.select().from(campDates).where(eq(campDates.campId, toProgramId));
-      const oldDates = dayLines.length
-        ? await db.select().from(campDates).where(inArray(campDates.id, dayLines.map((i: any) => i.campDateId)))
-        : [];
-      const oldById = new Map(oldDates.map((d: any) => [d.id, d]));
-
-      const remap: { itemId: number; toDateId: number }[] = [];
-      const unmatched: string[] = [];
-      for (const line of dayLines as any[]) {
-        const old = oldById.get(line.campDateId);
-        if (!old) { unmatched.push(`line ${line.id} (its original day is gone)`); continue; }
-        const match = targetDates.find(
-          (d: any) => String(d.date) === String(old.date) && String(d.startTime ?? "") === String(old.startTime ?? ""),
-        );
-        if (match) remap.push({ itemId: line.id, toDateId: match.id });
-        else unmatched.push(`${String(old.date)}${old.startTime ? ` ${old.startTime}` : ""}`);
-      }
-
-      const dropUnmatched = (req.body ?? {}).dropUnmatchedDays === true;
-      if (unmatched.length && !dropUnmatched) {
-        return res.status(409).json({
-          message: `${to.name} has no session on ${unmatched.length === 1 ? "this day" : "these days"}: ${unmatched.join(", ")}. Move them anyway and drop those days, or pick a different programme.`,
-          unmatched,
-          needsConfirmation: true,
-        });
-      }
-
-      // The term the new programme is selling, when it sells by term. Stamped
-      // on the registration, never read back from the programme later.
-      const toTermId = to.scheduleType === "term" ? (to.termId ?? null) : null;
-
-      const note = `Moved from ${from?.name ?? `programme ${reg.programId}`} to ${to.name} on ${nzTodayIso()}`
-        + (unmatched.length ? ` — ${unmatched.length} booked day(s) dropped: ${unmatched.join(", ")}` : "")
-        + ` by user ${req.session.userId}`;
-
-      await db.transaction(async (tx) => {
-        for (const r of remap) {
-          await tx.update(registrationItems).set({ campDateId: r.toDateId }).where(eq(registrationItems.id, r.itemId));
-        }
-        if (unmatched.length && dropUnmatched) {
-          const keep = new Set(remap.map((r) => r.itemId));
-          const drop = (dayLines as any[]).filter((l) => !keep.has(l.id)).map((l) => l.id);
-          if (drop.length) await tx.delete(registrationItems).where(inArray(registrationItems.id, drop));
-        }
-        await tx.update(registrations).set({
-          programId: toProgramId,
-          termId: toTermId,
-          // Appended, never replaced — the reason a child is on this programme
-          // is part of the record.
-          notes: [reg.notes, note].filter(Boolean).join("\n"),
-        }).where(eq(registrations.id, regId));
-      });
-
-      res.json({
-        ok: true,
-        movedTo: { id: to.id, name: to.name },
-        daysRemapped: remap.length,
-        daysDropped: unmatched.length && dropUnmatched ? unmatched.length : 0,
-        // 🔴 Reported, never acted on. A price difference is a money decision.
-        priceNote: "The amount paid was left exactly as it was — transferring never moves money.",
-        note,
-      });
+  app.get("/api/admin/registrations/:id/transfer-preview", requireAuth, async (req, res) => {
+    try {
+      const ends = await loadTransferEnds(req, res, req.query.toProgramId);
+      if (!ends) return;
+      const plan = await planTransfer({ ...ends, childIds: parseChildIds(req.query.childIds) });
+      res.json(plan);
     } catch (error: any) {
+      if (error instanceof TransferError) return res.status(error.status).json({ message: error.message, ...error.extra });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/registrations/:id/transfer", requireAuth, async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const ends = await loadTransferEnds(req, res, body.toProgramId ?? "");
+      if (!ends) return;
+      if (!ends.to) return res.status(400).json({ message: "Which programme should they move to?" });
+      const plan = await planTransfer({ ...ends, childIds: parseChildIds(body.childIds) });
+      const result = await executeTransfer({
+        reg: ends.reg, from: ends.from, to: ends.to, plan,
+        dropUnmatchedDays: body.dropUnmatchedDays === true,
+        userId: Number(req.session.userId),
+      });
+      res.json(result);
+    } catch (error: any) {
+      if (error instanceof TransferError) return res.status(error.status).json({ message: error.message, ...error.extra });
       res.status(500).json({ message: error.message });
     }
   });
@@ -5042,7 +5009,7 @@ export async function registerRoutes(
         }
 
         const subtotalCents = reg.subtotalCents || totalCents;
-        const selectedBaseSum = selected.reduce((s, it) => s + (priceMap.get(it.productType) || 0), 0);
+        const selectedBaseSum = selected.reduce((s, it) => s + lineCents(it, priceMap), 0);
         // Target refund amount with proportional discount applied (basket-level)
         let targetRefund = (subtotalCents > 0 && totalCents !== subtotalCents)
           ? Math.round((selectedBaseSum * totalCents) / subtotalCents)
@@ -5063,7 +5030,7 @@ export async function registerRoutes(
         // Allocate per-item amounts via Largest-Remainder method so sum === targetRefund exactly
         const denom = selectedBaseSum > 0 ? selectedBaseSum : selected.length;
         const raw = selected.map((it) => {
-          const base = selectedBaseSum > 0 ? (priceMap.get(it.productType) || 0) : 1;
+          const base = selectedBaseSum > 0 ? lineCents(it, priceMap) : 1;
           return { id: it.id, exact: (base * targetRefund) / denom };
         });
         const floors = raw.map((r) => ({ id: r.id, floor: Math.floor(r.exact), frac: r.exact - Math.floor(r.exact) }));

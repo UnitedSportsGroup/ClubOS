@@ -832,6 +832,9 @@ export default function AdminPersonDetail() {
           programId={movingReg.programId}
           programName={movingReg.programName}
           personName={`${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || null}
+          // 🔴 A child's profile moves THAT child. One booking can cover two
+          // siblings; naming the child is what keeps the sibling where they are.
+          childId={p.kind === "child" ? Number(p.id) : undefined}
           onClose={() => setMovingReg(null)}
           onMoved={() => {
             setMovingReg(null);
