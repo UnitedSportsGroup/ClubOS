@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { shortCompetitionName, termLabelFromSlug, mflPixelContent } from "@shared/league-captain";
 import { useRoute, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
@@ -39,7 +40,8 @@ const MFL_LOGO = "/logos/mini-football-leagues.png";
 const PROMO_VIDEO: Record<string, { src: string; poster: string; seconds: number }> = {
   "term-4": { src: "/videos/mfl-summer-leagues.mp4", poster: "/videos/mfl-summer-leagues.jpg", seconds: 35 },
 };
-const PIXEL_CONTENT = "MFL Term 3 Team Registration";
+// Derived from the term in the URL — a constant here stayed on "Term 3" when Term 4 opened.
+const PIXEL_CONTENT = (slug: string | null | undefined) => mflPixelContent(slug);
 
 interface Division {
   id: number; name: string; dayOfWeek: string | null; ageGroup: string | null;
@@ -138,7 +140,7 @@ export default function MflLandingPage() {
     const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
     if (pixelId) {
       initPixel(pixelId);
-      trackEvent("ViewContent", { content_name: PIXEL_CONTENT, content_category: "League Team Registration", currency: "NZD" });
+      trackEvent("ViewContent", { content_name: PIXEL_CONTENT(slug), content_category: "League Team Registration", currency: "NZD" });
     }
   }, []);
 
@@ -239,7 +241,7 @@ export default function MflLandingPage() {
       <Hero
         org={organization}
         headline={program.heroHeadline || program.name}
-        sub={program.heroSubheadline || "Register your team for Term 3. Grab your mates and play every week."}
+        sub={program.heroSubheadline || `Register your team for ${shortCompetitionName(program.name) || termLabelFromSlug(slug) || "the term"}. Grab your mates and play every week.`}
         ctaHref={registerHref}
         showCta
         video={PROMO_VIDEO[slug] ?? null}

@@ -249,6 +249,8 @@ app.use(attributionCookieMiddleware);
   registerEthnicCupRoutes(app);
   const { registerFootballFestRoutes } = await import("./football-fest-routes");
   registerFootballFestRoutes(app);
+  const { registerFinanceInsightRoutes } = await import("./finance-insight-routes");
+  registerFinanceInsightRoutes(app);
 
   // Team Pay — team entries, per-player squad payment, the manager's dashboard
   // and the fill-in marketplace. Public routes are authenticated by a token in
@@ -297,7 +299,8 @@ app.use(attributionCookieMiddleware);
   registerFinesRoutes(app);
 
   // POS — one register for every brand, every programme, every counter. Gated by
-  // requireTab("pos"); NOT super-admin-locked (Olga, Travis, Zach, Isaac). Money
+  // requireTabAnywhere("pos") — the POS tick in Team, honoured from every
+  // workspace; NOT super-admin-locked (Olga, Travis, Zach, Isaac). Money
   // rules live in Postgres (migrations/2026-09-09_pos.sql).
   const { registerPosRoutes } = await import("./pos-routes");
   registerPosRoutes(app);

@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { storage } from "./storage";
-import { canAccessTab } from "../shared/tabs";
+import { canAccessTab, canAccessTabAnywhere } from "../shared/tabs";
 
 const PgSession = connectPgSimple(session);
 
@@ -161,4 +161,30 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
+}
+
+/**
+ * Like requireTab, for a tool that is ONE thing across the whole organisation
+ * — the POS register sells every brand from one counter. No X-Workspace-Slug
+ * is demanded, because the endpoint deliberately scopes nothing by workspace
+ * (a header would be theatre, not a check), and the person passes if ANY
+ * workspace they belong to grants them the tab (@shared/tabs
+ * canAccessTabAnywhere). Super admins pass as ever. Daniel, 2026-09-21.
+ */
+export function requireTabAnywhere(tabSlug: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const user = await storage.getUser(req.session.userId);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      if (user.role === "super_admin") return next();
+      const orgs = await storage.getUserOrganizations(req.session.userId);
+      if (!canAccessTabAnywhere(user.role, orgs, tabSlug)) {
+        return res.status(403).json({ message: `Tab "${tabSlug}" access denied` });
+      }
+      next();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  };
 }

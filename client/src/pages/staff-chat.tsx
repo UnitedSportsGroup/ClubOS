@@ -31,6 +31,7 @@ import {
   MoreHorizontal, Pencil, SmilePlus, CheckCheck, Check, ArchiveX,
   MessageSquare, CornerUpRight, Paperclip as PaperclipIcon, Maximize2, Minimize2, Expand, MailQuestion,
   MessagesSquare, LogOut, FileText, Download, ShieldCheck, Loader2, UserPlus,
+  UserMinus, Shield, ShieldOff,
 } from "lucide-react";
 
 // ── Types (mirror server payloads) ───────────────────────────────────────────
@@ -786,6 +787,11 @@ function ConversationPane(props: {
   };
 
   const canPost = channel.postPolicy !== "leadership" || isLeadership;
+  // Who runs this room: its owner (the person who created it), the admins the
+  // owner appointed, and leadership as before. Mirrors the server's
+  // canManageChannel — the menus below only DRAW what the API will allow.
+  const myRole = members.find((m) => m.userId === me)?.role ?? null;
+  const canManage = isLeadership || myRole === "owner" || myRole === "admin";
   const title = channelLabel(channel, me);
 
   // Group consecutive messages by author within 5 minutes.
@@ -833,10 +839,12 @@ function ConversationPane(props: {
           </div>
         </div>
 
-        {channel.kind === "channel" && (
+        {(channel.kind === "channel" || members.length > 2) && (
           <button
             onClick={() => setMembersOpen(true)}
             className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-white/45 hover:text-white/80 hover:bg-white/[0.06] transition-colors"
+            data-testid="button-members"
+            title="Members"
           >
             <Users className="w-4 h-4" />
             <span className="text-[12px] font-semibold">{members.length}</span>
@@ -863,7 +871,7 @@ function ConversationPane(props: {
               <MailQuestion className="w-3.5 h-3.5 mr-2" /> Mark as unread
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {channel.kind === "channel" && isLeadership && (
+            {channel.kind === "channel" && canManage && (
               <>
                 <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
                   <Pencil className="w-3.5 h-3.5 mr-2" /> Channel settings
@@ -977,13 +985,15 @@ function ConversationPane(props: {
       <MembersDialog
         open={membersOpen}
         onClose={() => setMembersOpen(false)}
-        channelId={channelId}
+        channel={channel}
+        me={me}
+        canManage={canManage}
         members={members}
         users={users}
         historyKey={historyKey}
       />
-      {isLeadership && (
-        <ChannelSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} channel={channel} onBack={onBack} />
+      {canManage && (
+        <ChannelSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} channel={channel} onBack={onBack} canArchive={isLeadership} />
       )}
 
       {/* 🔴 Portalled to document.body: the ClubOS header carries a
@@ -2127,16 +2137,37 @@ function NewChannelDialog(props: { open: boolean; onClose: () => void; onCreated
   );
 }
 
+/**
+ * Who is in the room — and, for the people who run it, who runs it.
+ *
+ * Daniel, 2026-09-21: "allow person who created chat to become admin, to
+ * appoint admins and allow them to remove people from chats/channels."
+ *
+ * 🔴 The row menu is DRAWN only for what the server will allow: the room's
+ * owner and admins (or leadership) see it on every row except the owner's
+ * and their own. Removing asks once, INLINE — never a browser dialog, which
+ * is decided by the browser and looks different on every machine.
+ */
 function MembersDialog(props: {
-  open: boolean; onClose: () => void; channelId: number;
+  open: boolean; onClose: () => void; channel: ChannelSummary; me: number; canManage: boolean;
   members: { userId: number; role: string; name: string }[];
   users: Person[]; historyKey: string[];
 }) {
-  const { open, onClose, channelId, members, users, historyKey } = props;
+  const { open, onClose, channel, me, canManage, members, users, historyKey } = props;
+  const channelId = channel.id;
+  const { toast } = useToast();
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
   const memberIds = new Set(members.map((m) => m.userId));
   const addable = users.filter((u) => !memberIds.has(u.id)).filter((u) => u.name.toLowerCase().includes(q.toLowerCase()));
+  const isGroupDm = channel.kind === "dm";
+  const roomWord = isGroupDm ? "chat" : "channel";
+  // A 1:1 has nobody to manage; a default channel keeps everyone.
+  const manageable = (m: { userId: number; role: string }) =>
+    canManage && m.role !== "owner" && m.userId !== me && !(isGroupDm && members.length <= 2);
+
+  useEffect(() => { if (!open) setConfirmRemove(null); }, [open]);
 
   const add = async (userId: number) => {
     setBusy(userId);
@@ -2145,6 +2176,31 @@ function MembersDialog(props: {
       await queryClient.invalidateQueries({ queryKey: historyKey });
     } finally {
       setBusy(null);
+    }
+  };
+  const setRole = async (m: { userId: number; name: string }, role: "admin" | "member") => {
+    setBusy(m.userId);
+    try {
+      await apiRequest("PATCH", `/api/admin/chat/channels/${channelId}/members/${m.userId}`, { role });
+      await queryClient.invalidateQueries({ queryKey: historyKey });
+      toast({ title: role === "admin" ? `${m.name} is now an admin` : `${m.name} is no longer an admin` });
+    } catch (e: any) {
+      toast({ title: "Couldn't change that", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async (m: { userId: number; name: string }) => {
+    setBusy(m.userId);
+    try {
+      await apiRequest("DELETE", `/api/admin/chat/channels/${channelId}/members/${m.userId}`);
+      await queryClient.invalidateQueries({ queryKey: historyKey });
+      toast({ title: `${m.name} was removed from the ${roomWord}` });
+    } catch (e: any) {
+      toast({ title: "Couldn't remove them", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(null);
+      setConfirmRemove(null);
     }
   };
 
@@ -2156,14 +2212,72 @@ function MembersDialog(props: {
         </div>
         <div className="p-4 max-h-[26rem] overflow-y-auto">
           {members.map((m) => (
-            <div key={m.userId} className="flex items-center gap-2.5 py-1.5">
+            <div key={m.userId} className="flex items-center gap-2.5 py-1.5" data-testid={`members-row-${m.userId}`}>
               <Face id={m.userId} name={m.name} src={(m as any).avatarUrl}
                     size="w-7 h-7" rounded="rounded-lg" text="text-[11px]" />
               <span className="text-[13.5px] flex-1 truncate">{m.name}</span>
-              {m.role === "owner" && <span className="text-[10px] uppercase font-bold tracking-wider text-white/30">owner</span>}
+              {confirmRemove === m.userId ? (
+                <span className="flex items-center gap-1.5 text-[12px]">
+                  <span className="text-white/60">Remove {m.name.split(" ")[0]}?</span>
+                  <button
+                    disabled={busy === m.userId}
+                    onClick={() => remove(m)}
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/25"
+                    data-testid="members-remove-confirm"
+                  >
+                    {busy === m.userId ? "…" : "Remove"}
+                  </button>
+                  <button onClick={() => setConfirmRemove(null)} className="px-2 py-1 rounded-lg text-[11px] text-white/50 border border-white/15 hover:text-white">
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <>
+                  {(m.role === "owner" || m.role === "admin") && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-white/30" data-testid={`members-role-${m.userId}`}>{m.role}</span>
+                  )}
+                  {manageable(m) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-white/35 hover:text-white/80 hover:bg-white/[0.06]"
+                          aria-label={`Manage ${m.name}`}
+                          data-testid={`members-menu-${m.userId}`}
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        {m.role === "admin" ? (
+                          <DropdownMenuItem onClick={() => setRole(m, "member")} data-testid="members-remove-admin">
+                            <ShieldOff className="w-3.5 h-3.5 mr-2" /> Remove as admin
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => setRole(m, "admin")} data-testid="members-make-admin">
+                            <Shield className="w-3.5 h-3.5 mr-2" /> Make admin
+                          </DropdownMenuItem>
+                        )}
+                        {!channel.isDefault && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setConfirmRemove(m.userId)} className="text-red-400 focus:text-red-400" data-testid="members-remove">
+                              <UserMinus className="w-3.5 h-3.5 mr-2" /> Remove from {roomWord}
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </>
+              )}
             </div>
           ))}
-          <div className="mt-3 pt-3 border-t border-white/[0.07]">
+          {canManage && members.length > 1 && (
+            <p className="text-[11px] text-white/25 mt-1">
+              {isGroupDm ? "The person who started this chat runs it" : "The person who created this channel runs it"} and can make others admins.
+            </p>
+          )}
+          {!isGroupDm && <div className="mt-3 pt-3 border-t border-white/[0.07]">
             <p className="text-[11px] uppercase tracking-wider font-bold text-white/30 mb-2 flex items-center gap-1.5">
               <UserPlus className="w-3.5 h-3.5" /> Add people
             </p>
@@ -2187,15 +2301,15 @@ function MembersDialog(props: {
                 </button>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-export function ChannelSettingsDialog(props: { open: boolean; onClose: () => void; channel: ChannelSummary; onBack: () => void }) {
-  const { open, onClose, channel, onBack } = props;
+export function ChannelSettingsDialog(props: { open: boolean; onClose: () => void; channel: ChannelSummary; onBack: () => void; canArchive?: boolean }) {
+  const { open, onClose, channel, onBack, canArchive = true } = props;
   const { toast } = useToast();
   const [name, setName] = useState(channel.name ?? "");
   const [topic, setTopic] = useState(channel.topic ?? "");
@@ -2365,7 +2479,7 @@ export function ChannelSettingsDialog(props: { open: boolean; onClose: () => voi
             className="w-full h-11 rounded-xl font-bold text-[14px] disabled:opacity-30" style={{ background: GOLD, color: "#0b0b08" }}>
             {busy ? "Saving…" : "Save changes"}
           </button>
-          {!channel.isDefault && (
+          {!channel.isDefault && canArchive && (
             <button onClick={archive} disabled={busy}
               className="w-full h-10 rounded-xl text-[13px] font-semibold text-red-400/80 hover:text-red-400 border border-red-500/20 hover:border-red-500/40 transition-colors">
               Archive channel

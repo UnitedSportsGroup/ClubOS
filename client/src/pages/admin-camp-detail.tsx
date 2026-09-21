@@ -13,6 +13,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
 import { UNGRADED_LABEL, sortGroups, trainingGroupLabel } from "@shared/training-groups";
+import { seriesName } from "@shared/programme-series";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { withFrom, useBackTo } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
@@ -1750,6 +1751,9 @@ type ProgramPlayer = {
   trainingGroupSource?: "override" | "derived" | "unknown";
   trainingGroupGrade?: number | null;
   trainingGroupRegistrationId?: number | null;
+  /** The club TEAM they are on this season (an active squad membership, from
+   *  the Squads tab). Null = not currently assigned to a team. */
+  team?: { id: number; name: string; grade: number | null; displayOrder: number } | null;
   key: string;
   personType: "contact" | "child";
   personId: number;
@@ -1771,6 +1775,16 @@ type ProgramPlayer = {
   latestRegisteredAt: string | null;
 };
 
+/** Every school-holiday EDITION of one camp — GET /api/admin/camps/:id/editions. */
+type CampEditions = {
+  series: string;
+  currentId: number | null;
+  editions: {
+    id: number; name: string; slug: string | null; startDate: string | null; endDate: string | null;
+    isActive: boolean; registrationOpen: boolean; label: string; registrations: number; revenueCents: number;
+  }[];
+};
+
 /** Age in whole years at today, or null when we have no date of birth. */
 function ageFromDob(dob: string | null): number | null {
   if (!dob) return null;
@@ -1782,6 +1796,11 @@ function ageFromDob(dob: string | null): number | null {
   if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--;
   return age;
 }
+
+/** The heading a winter-term player sits under when they are on no club
+ *  roster. Daniel's own words (2026-09-21) — an honest bucket at the bottom of
+ *  the list, never folded into the nearest team. */
+const UNASSIGNED_LABEL = "Not currently assigned to a team";
 
 const PLAYER_STATUS_STYLES: Record<string, string> = {
   confirmed: "text-emerald-400/70 border-emerald-500/15 bg-emerald-500/10",
@@ -1830,9 +1849,31 @@ function useTermParam(): [string | undefined, (v: string) => void] {
   const set = (v: string) => {
     const p = new URLSearchParams(search);
     p.set("term", v);
+    // A group or team chosen under one term means nothing under another.
+    p.delete("group");
     // replace + keep the hash: the tab lives there, and pushing a history entry
     // per chip would bury the page you arrived from.
     navigate(`${location}?${p.toString()}${window.location.hash}`, { replace: true });
+  };
+  return [value, set];
+}
+
+/**
+ * WHICH GROUP OR TEAM the list is narrowed to, kept in the URL as `?group=`
+ * for the same reason the term is: "the U10 list" is then a link somebody can
+ * send, and Back steps between groups instead of leaving the page. Absent
+ * means every group. Written with replace, like the term — a dozen chips must
+ * not bury the page you arrived from.
+ */
+function useGroupParam(): [string | undefined, (v: string | null) => void] {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const value = new URLSearchParams(search).get("group") ?? undefined;
+  const set = (v: string | null) => {
+    const p = new URLSearchParams(search);
+    if (v) p.set("group", v); else p.delete("group");
+    const qs = p.toString();
+    navigate(`${location}${qs ? `?${qs}` : ""}${window.location.hash}`, { replace: true });
   };
   return [value, set];
 }
@@ -1927,6 +1968,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   // programme is CURRENTLY selling, which is the one a person opening it almost
   // always means, and every other term is one click away.
   const { term: activeTerm, setTerm: setTermFilter, terms, hasTerms, totalPeople } = useActiveTerm(campId);
+  const [groupParam, setGroupParam] = useGroupParam();
   // Opens alphabetical (A→Z by the name as shown), and stays wherever the user
   // puts it after that — "unless sorted otherwise by the user".
   const [sortKey, setSortKey] = useState<PlayerSortKey>("player");
@@ -1976,9 +2018,67 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   const showSessions = all.some(p => p.sessionsBooked > 0);
   const showPaid = all.some(p => p.paidCents != null);
 
+  // ── HOW THE LIST IS GROUPED: by TRAINING GROUP or by TEAM ────────────────
+  // Daniel, 2026-09-21: "The way you've structured it here (Under 9 Training
+  // Group, Under 10…) is perfect for Term 4 and Term 1… In Term 2 and Term 3,
+  // you need to change it to have it by team — Under 9 Pinkos, Under 10 Blue,
+  // Under 10 White… At the bottom, 'Not currently assigned to a team'."
+  //
+  // Terms 4 and 1 are the summer training-group terms; Terms 2 and 3 are the
+  // winter season, when the same children play for a named club team (the
+  // `club_squads` roster the Squads tab maintains). So the TERM decides the
+  // shape of the list.
+  //
+  // 🔴 A team is READ from the club's own roster — an active membership for the
+  // season — never guessed from an age. A child on no roster sits under an
+  // honest "Not currently assigned to a team" heading at the bottom.
+  //
+  // 🔴 A winter term whose players are on NO roster at all (FUNiño U4–U8 has
+  // no teams; a term before the squads were built) falls back to training
+  // groups rather than filing every child under "not assigned".
+  const activeTermRow = terms.find(t => (t.id == null ? "none" : String(t.id)) === activeTerm);
+  const winterTerm = activeTermRow?.termNumber === 2 || activeTermRow?.termNumber === 3;
+  const groupBy: "training" | "team" = winterTerm && all.some(p => p.team) ? "team" : "training";
+  const groupLabelOf = (p: ProgramPlayer): string =>
+    groupBy === "team" ? (p.team?.name ?? UNASSIGNED_LABEL) : (p.trainingGroup ?? UNGRADED_LABEL);
+  // A holiday camp splits its children by age grade as well, but "U5 Training
+  // Group" is academy wording — on a camp the heading is just the grade.
+  const isCamp = camp?.type === "holiday_camp";
+  const headingFor = (label: string): string =>
+    groupBy === "team" || label === UNGRADED_LABEL || isCamp ? label : `${label} Training Group`;
+  // Teams in age order, then the club's own display order, then name; the
+  // unassigned bucket always last. Training groups keep U7 < U8 < U9 < U10
+  // (never alphabetical, where "U10" sorts before "U9") with "Not graded" last.
+  const orderGroups = (labels: string[]): string[] => {
+    if (groupBy === "training") return sortGroups(labels.map(l => (l === UNGRADED_LABEL ? null : l)));
+    const meta = new Map<string, { grade: number; order: number }>();
+    for (const p of all) if (p.team) meta.set(p.team.name, { grade: p.team.grade ?? 999, order: p.team.displayOrder });
+    const real = Array.from(new Set(labels.filter(l => l !== UNASSIGNED_LABEL)));
+    real.sort((a, b) => {
+      const ma = meta.get(a) ?? { grade: 999, order: 999 };
+      const mb = meta.get(b) ?? { grade: 999, order: 999 };
+      return ma.grade - mb.grade || ma.order - mb.order || a.localeCompare(b, "en-NZ");
+    });
+    return labels.includes(UNASSIGNED_LABEL) ? [...real, UNASSIGNED_LABEL] : real;
+  };
+  // The selector strip: every group this term has, with a count, "All" first.
+  // Counted over the whole term like the status chips beside it — the search
+  // box narrows within a group, it does not renumber the chips.
+  const groupCounts = new Map<string, number>();
+  for (const p of all) {
+    const label = groupLabelOf(p);
+    groupCounts.set(label, (groupCounts.get(label) ?? 0) + 1);
+  }
+  const groupOptions = orderGroups(Array.from(groupCounts.keys()));
+  // A `?group=` this term does not have (left over from a link into another
+  // term) reads as All rather than an empty list.
+  const groupFilter = groupParam && groupOptions.includes(groupParam) ? groupParam : "all";
+  const showGroupStrip = groupOptions.length > 1;
+
   const q = search.trim().toLowerCase();
   const unsorted = all.filter(p => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    if (groupFilter !== "all" && groupLabelOf(p) !== groupFilter) return false;
     if (!q) return true;
     const hay = [
       p.firstName, p.lastName,
@@ -2045,22 +2145,29 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
   const groupedPlayers = (() => {
     const by = new Map<string, ProgramPlayer[]>();
     for (const p of filtered) {
-      const label = p.trainingGroup ?? UNGRADED_LABEL;
+      const label = groupLabelOf(p);
       const list = by.get(label);
       if (list) list.push(p); else by.set(label, [p]);
     }
-    return sortGroups(filtered.map(p => p.trainingGroup ?? null))
+    return orderGroups(Array.from(by.keys()))
       .map(label => [label, by.get(label) ?? []] as const)
       .filter(([, list]) => list.length > 0);
   })();
-  const showGroups = groupedPlayers.length > 1;
+  // A heading whenever the term has more than one group, or one group has
+  // been picked — the heading is then the title of the focused view ("U10
+  // Training Group · 20"). A programme all of one grade with nothing picked
+  // stays a plain list.
+  const showGroups = groupedPlayers.length > 1 || groupFilter !== "all";
+  // Moving a child between TRAINING GROUPS is a summer-term action (the group
+  // is derived from their birth year). A winter team comes from the Squads
+  // tab, so the control is not offered when the list is by team.
+  const showGroupControl = showGroups && groupBy === "training";
 
   // The grades this programme actually spans, plus whatever anyone has been
   // moved to — never a hardcoded U9–U12, so the same control works on any
-  // programme without being edited.
-  const GROUP_CHOICES = Array.from(new Set(
-    groupedPlayers.map(([l]) => l).filter((l) => l !== UNGRADED_LABEL)
-  ));
+  // programme without being edited. From the whole term, not the group in
+  // view, or a child could never be moved OUT of the group you are looking at.
+  const GROUP_CHOICES = groupBy === "training" ? groupOptions.filter((l) => l !== UNGRADED_LABEL) : [];
 
   const setGroupOverride = async (p: ProgramPlayer, group: string | null) => {
     const regId = p.trainingGroupRegistrationId;
@@ -2159,6 +2266,46 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
         </div>
       )}
 
+      {/* WHICH GROUP OR TEAM — "a focused view of 'this is the age group I'm
+          viewing'". Under the terms because the term decides whether these are
+          training groups (Terms 4 and 1) or club teams (Terms 2 and 3); above
+          the status chips because it changes what the list is about while a
+          status chip only narrows it. */}
+      {showGroupStrip && (
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="filter-groups" data-group-by={groupBy}>
+          <button
+            onClick={() => setGroupParam(null)}
+            className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+              groupFilter === "all" ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                                    : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+            }`}
+            data-testid="filter-group-all"
+          >
+            {groupBy === "team" ? "All teams" : "All groups"}
+            <span className="ml-1.5 text-white/30">{all.length}</span>
+          </button>
+          {groupOptions.map((label) => {
+            const on = groupFilter === label;
+            const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+            return (
+              <button
+                key={label}
+                // Tapping the chip you are on takes you back to All.
+                onClick={() => setGroupParam(on ? null : label)}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+                  on ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                     : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+                }`}
+                data-testid={`filter-group-${slug}`}
+              >
+                {headingFor(label)}
+                <span className="ml-1.5 text-white/30">{groupCounts.get(label) ?? 0}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {chips.map(c => (
@@ -2219,7 +2366,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                 {showSessions && <SortHeader label="Sessions" sortKey="sessions" active={sortKey === "sessions"} dir={sortDir} onSort={toggleSort} align="center" className="hidden sm:table-cell" />}
                 {showPaid && <SortHeader label="Paid" sortKey="paid" active={sortKey === "paid"} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell" />}
                 <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort} />
-                {showGroups && (
+                {showGroupControl && (
                   <th className="px-2 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden md:table-cell w-[104px]">Group</th>
                 )}
               </tr>
@@ -2235,7 +2382,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                   <tr key={`group-${label}`} className="bg-blue-500/[0.05] border-b border-blue-500/[0.06]">
                     <td colSpan={9} className="px-4 py-1.5">
                       <span className="text-[10px] uppercase tracking-wider font-semibold text-blue-300/70" data-testid={`group-heading-${label}`}>
-                        {label === UNGRADED_LABEL ? label : `${label} Training Group`}
+                        {headingFor(label)}
                       </span>
                       <span className="ml-2 text-[11px] text-white/30">{group.length}</span>
                     </td>
@@ -2311,7 +2458,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                         birth, which is why it is the first option and not a
                         blank. stopPropagation because the row itself opens the
                         player's profile. */}
-                    {showGroups && (
+                    {showGroupControl && (
                       <td className="px-2 py-2.5 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={p.trainingGroupSource === "override" ? (p.trainingGroup ?? "auto") : "auto"}
@@ -2759,6 +2906,23 @@ export default function AdminCampDetail() {
     },
   });
 
+  // ── THE OTHER EDITIONS OF THIS CAMP ──────────────────────────────────────
+  // Daniel, 2026-09-21: "When you click inside, you've got the option to view
+  // the January camps, the April camps, the September/October camps…". A
+  // holiday camp is run every school holiday as its own programme row; the
+  // chips under the title reach every other run of the SAME camp
+  // (@shared/programme-series). Above every early return, like every hook.
+  const isHolidayCamp = camp?.type === "holiday_camp";
+  const { data: campEditions } = useQuery<CampEditions>({
+    queryKey: ["/api/admin/camps", campId, "editions"],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/editions`);
+      if (!res.ok) throw new Error("Failed to load camp editions");
+      return res.json();
+    },
+    enabled: isHolidayCamp,
+  });
+
   // Which section this programme's pages sit in. CUFC has a separate
   // /admin/academy list and /admin/camps; gymnastics has one /admin/programs.
   // 🔴 The section you are STANDING IN wins, whenever that section really
@@ -2865,7 +3029,9 @@ export default function AdminCampDetail() {
           </button>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg sm:text-xl font-semibold text-white tracking-tight truncate" data-testid="text-camp-name">{camp.name}</h1>
+          <h1 className="text-lg sm:text-xl font-semibold text-white tracking-tight truncate" data-testid="text-camp-name" data-edition-name={isHolidayCamp ? camp.name : undefined}>
+            {isHolidayCamp ? seriesName(camp.name) : camp.name}
+          </h1>
           <p className="text-[12px] text-blue-400/35 truncate">/{camp.slug}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -2899,6 +3065,35 @@ export default function AdminCampDetail() {
           </Button>
         </div>
       </div>
+
+      {/* WHICH RUN of this camp — the same shape as the term picker on an
+          academy programme. Each chip is another edition (its own programme
+          row), so choosing one opens that edition on the SAME tab. */}
+      {isHolidayCamp && campEditions && campEditions.editions.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap animate-fade-in-up" style={{ animationDelay: '30ms', opacity: 0 }} data-testid="filter-editions">
+          {campEditions.editions.map((e) => {
+            const on = e.id === campId;
+            return (
+              <button
+                key={e.id}
+                onClick={() => { if (!on) navigate(`${listPath}/${e.id}${typeof window !== "undefined" ? window.location.hash : ""}`); }}
+                aria-current={on ? "true" : undefined}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+                  on ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                     : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"
+                }`}
+                title={`${e.name}${e.startDate ? ` · ${e.startDate}` : ""}${e.endDate ? ` → ${e.endDate}` : ""}`}
+                data-testid={`filter-edition-${e.id}`}
+              >
+                {e.label}
+                {e.registrationOpen && <span className="ml-1.5 text-[10px] text-emerald-400/80">open</span>}
+                <span className="ml-1.5 text-white/30">{e.registrations}</span>
+                <span className="ml-1.5 text-white/25">{formatCurrency(e.revenueCents, { fromCents: true })}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 animate-fade-in-up scrollbar-hide" style={{ animationDelay: '50ms', opacity: 0 }}>
         <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04] w-max sm:w-auto">

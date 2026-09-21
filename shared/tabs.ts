@@ -306,6 +306,9 @@ const groupTabs: TabDef[] = [
   // (email/SMS), which is hidden in every sidebar. NOT locked: every figure is
   // an aggregate, with no names, emails or salaries in it.
   { slug: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub" },
+  // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever
+  // holds the tab sees a PASSWORD screen, and no figure is served until the password is in the session.
+  { slug: "finance-insight", title: "Financial Insight", url: "/admin/finance-insight" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "studio", title: "Studio", url: "/admin/studio", secondary: true },
   { slug: "esign", title: "E-Sign", url: "/admin/esign", secondary: true },
@@ -532,4 +535,36 @@ export function canAccessTab({
   if (membershipRole === "admin" || membershipRole === "manager") return true;
   if (membershipTabs == null) return true;
   return membershipTabs.includes(tabSlug);
+}
+
+/**
+ * May this person reach a tab from ANY workspace they belong to?
+ *
+ * For the few tools that are ONE thing for the whole organisation but are
+ * still granted per person. First: the POS register (Daniel, 2026-09-21:
+ * "it works across multiple things… a system that you can just find there at
+ * any time when you need it quickly"). The grant is unchanged — the POS tick
+ * in Team — what changed is that the sidebar link and the API honour it from
+ * whichever workspace the person is standing in.
+ *
+ * 🔴 A membership only counts in a workspace whose tab list actually HAS the
+ * tab. `canAccessTab` answers true for ANY slug when a membership has no
+ * whitelist, so without this an unrestricted member of United Prints — which
+ * has no register — would be deemed a seller.
+ */
+export function canAccessTabAnywhere(
+  globalRole: string | null | undefined,
+  memberships: { slug: string; userRole?: string | null; userTabs?: string[] | null; userUnlockedTabs?: string[] | null }[],
+  tabSlug: string,
+): boolean {
+  if (globalRole === "super_admin") return true;
+  return memberships.some((m) =>
+    tabsForOrgSlug(m.slug).some((t) => t.slug === tabSlug) &&
+    canAccessTab({
+      globalRole,
+      membershipRole: m.userRole,
+      membershipTabs: m.userTabs,
+      membershipUnlockedTabs: m.userUnlockedTabs,
+      tabSlug,
+    }));
 }

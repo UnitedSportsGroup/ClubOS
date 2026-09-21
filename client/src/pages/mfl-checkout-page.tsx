@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { mflPixelContent } from "@shared/league-captain";
 import { useRoute, Link, useLocation } from "wouter";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -20,7 +21,8 @@ const BRAND = {
   muted: "rgba(255,255,255,0.62)", dim: "rgba(255,255,255,0.38)",
 };
 const FONT = "'Inter Tight', Inter, system-ui, -apple-system, sans-serif";
-const PIXEL_CONTENT = "MFL Term 3 Team Registration";
+// Derived from the term in the URL — a constant here stayed on "Term 3" when Term 4 opened.
+const PIXEL_CONTENT = (slug: string | null | undefined) => mflPixelContent(slug);
 
 // Used both for the deposit checkout (?registrationId) and the manual balance
 // page (/league/balance/:registrationId) by passing a different `mode`.
@@ -90,7 +92,7 @@ function PaymentForm({ data, slug, mode }: { data: CheckoutData; slug: string; m
         // Deterministic eventId → dedupe with the server CAPI Purchase.
         if (mode === "deposit") {
           trackEvent("Purchase", {
-            content_name: PIXEL_CONTENT,
+            content_name: PIXEL_CONTENT(slug),
             content_category: "League Team Registration",
             value: data.amountDueNowCents / 100,
             currency: data.currency,

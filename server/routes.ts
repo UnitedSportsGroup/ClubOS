@@ -1,4 +1,6 @@
+import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
 import { hiddenContactIds, hiddenChildIds, contactHiddenSql } from "./registration-visibility";
@@ -3756,6 +3758,44 @@ export async function registerRoutes(
       const camp = await storage.getProgram(parseInt(req.params.id));
       if (!camp) return res.status(404).json({ message: "Camp not found" });
       res.json(camp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Every EDITION of this holiday camp — the timeframe selector on its page.
+  // One camp is run every school holiday as its own `programs` row; the SERIES
+  // they belong to is derived from the name (@shared/programme-series), and
+  // only rows in the SAME organisation count. Counts and money follow the one
+  // registration rule (@shared/registrations): paid, refunded, part-refunded.
+  app.get("/api/admin/camps/:id/editions", requireAuth, async (req, res) => {
+    try {
+      const camp = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!camp) return res.status(404).json({ message: "Camp not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, camp.organizationId)) return res.status(404).json({ message: "Camp not found" });
+      const key = seriesKey(camp.name);
+      const siblings = (await storage.getPrograms()).filter(p =>
+        p.type === "holiday_camp" && p.organizationId === camp.organizationId && seriesKey(p.name) === key);
+      const ids = siblings.map(p => p.id);
+      const stats = new Map<number, { n: number; cents: number }>();
+      if (ids.length > 0) {
+        const rows: any = await db.execute(sql`
+          SELECT program_id, count(*)::int AS n, coalesce(sum(total_cents), 0)::bigint AS cents
+          FROM registrations
+          WHERE program_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
+            AND status IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+          GROUP BY program_id`);
+        for (const r of rows.rows ?? []) stats.set(Number(r.program_id), { n: Number(r.n), cents: Number(r.cents) });
+      }
+      const editions = sortEditions(siblings.map(p => ({
+        id: p.id, name: p.name, slug: p.slug, startDate: p.startDate, endDate: p.endDate,
+        isActive: !!p.isActive, registrationOpen: !!p.registrationOpen,
+        label: editionLabel(p.startDate, p.endDate),
+        registrations: stats.get(p.id)?.n ?? 0,
+        revenueCents: stats.get(p.id)?.cents ?? 0,
+      })));
+      res.json({ series: seriesName(camp.name), currentId: currentEditionId(editions, nzTodayIso()), editions });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -9908,8 +9948,19 @@ export async function registerRoutes(
         balanceStatus: reg.balanceStatus, balanceCents: reg.balanceCents,
         nowMs: Date.now(),
       });
+      // Nothing overdue is not "nothing to send". A captain on the weekly plan
+      // who asks to pay the rest in one go (Seenal, Son's of Pitches, 2026-09-21:
+      // "an invoice to pay the remaining amount in full rather than weekly")
+      // gets the SAME payoff link — it clears the remaining weeks and stops the
+      // subscription — with wording that does not accuse them of being behind.
+      let kind: "weekly_missed" | "balance_failed" | "pay_in_full" = missed.kind ?? "pay_in_full";
+      let payoffCents = missed.payoffCents;
       if (!missed.kind || missed.missedCents <= 0) {
-        return res.status(400).json({ message: "Nothing is overdue for this team right now." });
+        kind = "pay_in_full";
+        if (reg.paymentMode === "installment" && reg.balanceStatus !== "paid") payoffCents = reg.balanceCents ?? 0;
+        if (reg.balanceStatus === "paid" || payoffCents <= 0) {
+          return res.status(400).json({ message: "Nothing left to pay on this team." });
+        }
       }
 
       const contact = await storage.getContact(reg.contactId);
@@ -9932,10 +9983,10 @@ export async function registerRoutes(
         captainEmail: contact.email,
         captainName: contact.firstName || "there",
         teamName: reg.teamName || "your team",
-        kind: missed.kind,
+        kind,
         missedCount: missed.missedCount,
         missedAmount: fmt(missed.missedCents),
-        payoffAmount: fmt(missed.payoffCents),
+        payoffAmount: fmt(payoffCents),
         payUrl: `${base}/league/balance/${reg.id}?rt=${token}`,
         pixelUrl: `${base}/api/public/league/reminder/${token}/pixel.gif`,
       });
@@ -9945,13 +9996,13 @@ export async function registerRoutes(
       const [row] = await db.insert(leaguePaymentReminders).values({
         registrationId: reg.id,
         token,
-        kind: missed.kind,
+        kind,
         sentTo: contact.email,
         sentByUserId: req.session.userId ?? null,
         sentByName: user ? `${(user as any).firstName ?? ""} ${(user as any).lastName ?? ""}`.trim() || (user as any).email : null,
         missedCount: missed.missedCount,
         missedCents: missed.missedCents,
-        payoffCents: missed.payoffCents,
+        payoffCents,
       }).returning();
       res.json(row);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22839,7 +22890,7 @@ export async function registerRoutes(
           lastName: captain.lastName,
           fbp, fbc, userAgent,
           eventId: leadEventId,
-          contentName: "MFL Term 3 Team Registration",
+          contentName: mflPixelContent(slug),
           contentIds: [slug],
         }).catch((e) => console.error("[MFL] Lead CAPI failed:", e));
       }
@@ -27332,7 +27383,7 @@ async function handleLeagueRegistrationSuccess(registrationId: number, metadata?
       userAgent: metadata?.userAgent || undefined,
       // Canonical deterministic id — matches mfl-checkout-page + mfl-success-page.
       eventId: purchaseEventId(primaryId),
-      contentName: "MFL Term 3 Team Registration",
+      contentName: mflPixelContent(program.slug || program.name),
       contentIds: [program.slug || String(program.id)],
     }).catch((e) => console.error("[MFL] Purchase CAPI failed:", e));
 
