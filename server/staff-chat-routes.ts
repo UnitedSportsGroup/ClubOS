@@ -114,6 +114,23 @@ async function canRead(channel: typeof staffChannels.$inferSelect, userId: numbe
   return !!(await activeMembership(channel.id, userId));
 }
 
+// ── Who runs a room ──────────────────────────────────────────────────────────
+// Daniel, 2026-09-21: "allow person who created chat to become admin, to
+// appoint admins and allow them to remove people from chats — currently not
+// possible to remove people from chats/channels."
+//
+// A membership role is 'owner' (the person who created the room — never
+// demoted, never removed), 'admin' (appointed by an owner or admin) or
+// 'member'. Leadership (super admin, or admin/manager of any workspace) runs
+// every room as before. ONE decider, so the appoint and remove routes, the
+// settings route and the client can never disagree about who may act.
+const MANAGER_ROLES = new Set(["owner", "admin"]);
+async function canManageChannel(channelId: number, userId: number): Promise<boolean> {
+  const m = await activeMembership(channelId, userId);
+  if (m && MANAGER_ROLES.has(m.role)) return true;
+  return isLeadershipUser(userId);
+}
+
 // ── The channel summary every poll returns ───────────────────────────────────
 // One aggregate pass: my channels + unread counts (pointer model) + mention
 // counts + DM participant names + browsable public channels I haven't joined.
@@ -915,9 +932,13 @@ export function registerStaffChatRoutes(app: Express) {
       const userId = req.session.userId!;
       const channelId = parseInt(String(req.params.id), 10);
       if (!Number.isFinite(channelId)) return res.status(400).json({ message: "Bad channel id" });
-      if (!(await isLeadershipUser(userId))) return res.status(403).json({ message: "Managers only" });
       const [channel] = await db.select().from(staffChannels).where(eq(staffChannels.id, channelId));
       if (!channel || channel.kind !== "channel") return res.status(404).json({ message: "Channel not found" });
+      // The room's owner and admins edit its name, topic, icon and posting
+      // rule (2026-09-21); archiving a channel stays with leadership.
+      if (!(await canManageChannel(channelId, userId))) return res.status(403).json({ message: "Only this channel's admins can change it" });
+      if (req.body.archived !== undefined && !(await isLeadershipUser(userId)))
+        return res.status(403).json({ message: "Only a manager can archive a channel" });
 
       const patch: Record<string, any> = {};
       if (req.body.topic !== undefined)
@@ -1034,6 +1055,67 @@ export function registerStaffChatRoutes(app: Express) {
     }
   });
 
+  // ── Appoint or demote an admin (owner/admin of the room, or leadership). ────
+  app.patch("/api/admin/chat/channels/:id/members/:userId", requireAuth, async (req, res) => {
+    try {
+      const actorId = req.session.userId!;
+      const channelId = parseInt(String(req.params.id), 10);
+      const targetId = parseInt(String(req.params.userId), 10);
+      if (!Number.isFinite(channelId) || !Number.isFinite(targetId)) return res.status(400).json({ message: "Bad id" });
+      const role = req.body?.role === "admin" ? "admin" : req.body?.role === "member" ? "member" : null;
+      if (!role) return res.status(400).json({ message: "Role must be admin or member" });
+      const [channel] = await db.select().from(staffChannels).where(eq(staffChannels.id, channelId));
+      if (!channel || channel.archivedAt) return res.status(404).json({ message: "Channel not found" });
+      if (!(await canManageChannel(channelId, actorId))) return res.status(403).json({ message: "Only this room's admins can appoint admins" });
+      const target = await activeMembership(channelId, targetId);
+      if (!target) return res.status(404).json({ message: "They are not in this room" });
+      // The owner is the owner — nobody appoints over or under the person who
+      // made the room, and it keeps at least one manager in every room.
+      if (target.role === "owner") return res.status(400).json({ message: "The person who created the room stays its owner" });
+      // A 1:1 message has nobody to manage.
+      if (channel.kind === "dm") {
+        const n = await db.select({ n: sql<number>`count(*)::int` }).from(staffChannelMembers)
+          .where(and(eq(staffChannelMembers.channelId, channelId), isNull(staffChannelMembers.leftAt)));
+        if ((n[0]?.n ?? 0) <= 2) return res.status(400).json({ message: "A one-to-one message has no admins" });
+      }
+      await db.update(staffChannelMembers).set({ role })
+        .where(and(eq(staffChannelMembers.channelId, channelId), eq(staffChannelMembers.userId, targetId)));
+      res.json({ ok: true, role });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── Remove somebody from a room (owner/admin of the room, or leadership). ───
+  // Same shape as leaving: the row keeps `leftAt`, so who was in the room and
+  // when survives. A private room stops answering them the moment it lands.
+  app.delete("/api/admin/chat/channels/:id/members/:userId", requireAuth, async (req, res) => {
+    try {
+      const actorId = req.session.userId!;
+      const channelId = parseInt(String(req.params.id), 10);
+      const targetId = parseInt(String(req.params.userId), 10);
+      if (!Number.isFinite(channelId) || !Number.isFinite(targetId)) return res.status(400).json({ message: "Bad id" });
+      const [channel] = await db.select().from(staffChannels).where(eq(staffChannels.id, channelId));
+      if (!channel || channel.archivedAt) return res.status(404).json({ message: "Channel not found" });
+      if (channel.isDefault) return res.status(400).json({ message: "Everyone stays in the default channels" });
+      if (targetId === actorId) return res.status(400).json({ message: "Leave the room instead" });
+      if (!(await canManageChannel(channelId, actorId))) return res.status(403).json({ message: "Only this room's admins can remove people" });
+      const target = await activeMembership(channelId, targetId);
+      if (!target) return res.status(404).json({ message: "They are not in this room" });
+      if (target.role === "owner") return res.status(400).json({ message: "The person who created the room can't be removed" });
+      if (channel.kind === "dm") {
+        const n = await db.select({ n: sql<number>`count(*)::int` }).from(staffChannelMembers)
+          .where(and(eq(staffChannelMembers.channelId, channelId), isNull(staffChannelMembers.leftAt)));
+        if ((n[0]?.n ?? 0) <= 2) return res.status(400).json({ message: "Nobody can be removed from a one-to-one message" });
+      }
+      await db.update(staffChannelMembers).set({ leftAt: new Date() })
+        .where(and(eq(staffChannelMembers.channelId, channelId), eq(staffChannelMembers.userId, targetId)));
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── Per-channel notification level (own membership). ───────────────────────
   app.post("/api/admin/chat/channels/:id/notify", requireAuth, async (req, res) => {
     try {
@@ -1080,7 +1162,13 @@ export function registerStaffChatRoutes(app: Express) {
           .returning();
         if (!dm) [dm] = await db.select().from(staffChannels).where(eq(staffChannels.dmKey, key)); // lost a race — fine
       }
-      for (const id of [userId, ...others]) await ensureMember(dm.id, id);
+      // The person who opened a GROUP message runs it (appoints admins, removes
+      // people); a 1:1 has nobody to manage, so both sides stay members.
+      // ensureMember keeps an existing role, so re-opening a group never
+      // hands ownership to whoever typed it second.
+      const groupOwner = others.length >= 2 && dm.createdBy === userId ? "owner" : "member";
+      await ensureMember(dm.id, userId, groupOwner);
+      for (const id of others) await ensureMember(dm.id, id);
       res.status(201).json({ id: dm.id });
     } catch (e: any) {
       console.error("[staff-chat] dm open failed:", e);
