@@ -6767,6 +6767,35 @@ export const fleetAssignments = pgTable("fleet_assignments", {
  * a licence. Super-admin-only tab, images served by short-lived signed URLs,
  * never a public link, never on a public route.
  */
+/**
+ * What staff saw on a walk-through of a club property.
+ *
+ * 🔴 No parent "inspection" row: an inspection IS the set of photos taken on
+ * one day, and grouping by `takenOn` is derived — always correct, and it cannot
+ * drift from the photos it claims to contain.
+ *
+ * 🔴 The house is required, the room is not. A photo of the kitchen, the roof
+ * or the driveway belongs to the property and to no room.
+ */
+export const housingInspectionMedia = pgTable("housing_inspection_media", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  houseId: integer("house_id").notNull(),
+  roomId: integer("room_id"),
+  takenOn: date("taken_on").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull(),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedByName: text("uploaded_by_name"),
+  storageKey: text("storage_key").notNull(),
+  fileName: text("file_name"),
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  caption: text("caption"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  houseIdx: index("housing_inspection_media_house_idx").on(t.houseId, t.takenOn),
+}));
+
 export const fleetDrivers = pgTable("fleet_drivers", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),

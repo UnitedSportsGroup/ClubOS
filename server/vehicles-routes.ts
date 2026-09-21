@@ -45,7 +45,16 @@ import {
   fleetInsurancePolicies,
   fleetServiceRecords,
   fleetCosts,
+  fleetDrivers,
+  fleetAgreements,
+  fleetConditionMedia,
+  fines,
+  fineAttachments,
+  users,
 } from "@shared/schema";
+import multer from "multer";
+import { driveStorage } from "./drive-storage";
+import { vehicleTimeline, type AssignmentLike } from "@shared/fleet-history";
 import { nzTodayIso } from "@shared/academy";
 import {
   isIsoDate,
@@ -186,6 +195,32 @@ export function registerVehicleRoutes(app: Express) {
       .where(and(eq(fleetVehicles.id, id), eq(fleetVehicles.organizationId, orgId)));
     if (!v) throw new NotFound("Vehicle not found");
     return v;
+  }
+
+  // 🔴 25MB, matching a fine's notice. A condition VIDEO of a scratch is a few
+  // seconds on a phone, not a feature film; anything larger belongs in Drive.
+  const FLEET_UPLOAD_MAX = 25 * 1024 * 1024;
+  const fleetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: FLEET_UPLOAD_MAX } });
+
+  /** Bytes go to the same storage adapter Club Drive uses, served by a
+   *  short-lived signed URL and never a public link. A licence photograph, an
+   *  agreement and a condition shot all carry a person. */
+  async function storeFile(req: Request) {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) throw new BadRequest("No file was attached");
+    const filename = (str((req.body ?? {}).filename) ?? file.originalname ?? "file").slice(0, 250);
+    const contentType = file.mimetype || "application/octet-stream";
+    const put = await driveStorage().put(file.buffer, contentType, filename);
+    return { filename, contentType, ...put };
+  }
+
+  async function redirectToFile(res: Response, storageKey: string | null, filename: string | null, download: boolean) {
+    if (!storageKey) { res.status(404).json({ message: "No file on this record" }); return; }
+    const url = await driveStorage().signedUrl(storageKey, {
+      download: download ? (filename ?? undefined) : undefined,
+      expiresIn: 300,
+    });
+    res.redirect(url);
   }
 
   /** Keep the vehicle's odometer as fresh as the newest reading anyone logs —
@@ -608,6 +643,392 @@ export function registerVehicleRoutes(app: Express) {
       }),
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // THE HISTORY LEDGER — who had it, when, and the stretches nobody did
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Daniel, 2026-09-21: "be able to see like for example travis had car from
+  // 20th july 2026 to 12th september 2026 and then we assign new person from
+  // start to end date and any dates not clicked are shown as blank, no one had
+  // car at this time and it was parked at United Sports Centre."
+  //
+  // 🔴 The gaps are computed by @shared/fleet-history, not stored. The server
+  // sends NZ's today with the answer, because a browser deciding "today" with
+  // toISOString() is a day behind here all evening — which on a handover means
+  // the wrong date.
+  app.get(
+    "/api/admin/vehicles/:id/history",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const todayIso = nzTodayIso();
+
+      const rows = await db
+        .select()
+        .from(fleetAssignments)
+        .where(and(eq(fleetAssignments.vehicleId, vehicle.id), eq(fleetAssignments.organizationId, orgId)))
+        .orderBy(asc(fleetAssignments.assignedOn), asc(fleetAssignments.id));
+
+      const segments = vehicleTimeline(
+        rows as unknown as AssignmentLike[],
+        vehicle.parkedLocation,
+        todayIso,
+      );
+
+      // Condition media, newest first. The CLIENT places each photo inside the
+      // segment its `takenOn` falls in — so correcting an assignment date moves
+      // the photo to the right person rather than leaving it misfiled.
+      const media = await db
+        .select()
+        .from(fleetConditionMedia)
+        .where(and(eq(fleetConditionMedia.vehicleId, vehicle.id), eq(fleetConditionMedia.organizationId, orgId)))
+        .orderBy(desc(fleetConditionMedia.takenOn), desc(fleetConditionMedia.id));
+
+      const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter((v): v is number => v != null)));
+      const drivers = driverIds.length
+        ? await db.select().from(fleetDrivers).where(inArray(fleetDrivers.id, driverIds))
+        : [];
+
+      res.json({
+        todayIso,
+        parkedLocation: vehicle.parkedLocation ?? null,
+        segments,
+        assignments: rows,
+        media,
+        drivers: drivers.map((d) => ({ ...d, frontStorageKey: undefined, backStorageKey: undefined })),
+      });
+    }),
+  );
+
+  // ── Condition media ────────────────────────────────────────────────────────
+  //
+  // 🔴 `takenOn` comes from the person; `uploadedAt` and `uploadedBy` are
+  // stamped by the SERVER. Who added a photograph is the half of the record a
+  // person must not be able to choose.
+  app.post(
+    "/api/admin/vehicles/:id/condition-media",
+    requireAuth,
+    tab,
+    fleetUpload.single("file"),
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const takenOn = str((req.body ?? {}).takenOn);
+      if (!takenOn || !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
+        throw new BadRequest("A date the photo was taken is required (yyyy-mm-dd)");
+      }
+      const stored = await storeFile(req);
+      const uid = userId(req);
+      const who = uid
+        ? (await db.select({ f: users.firstName, l: users.lastName }).from(users).where(eq(users.id, uid)))[0]
+        : undefined;
+
+      const [row] = await db.insert(fleetConditionMedia).values({
+        organizationId: orgId,
+        vehicleId: vehicle.id,
+        takenOn,
+        uploadedBy: uid ?? null,
+        uploadedByName: who ? (`${who.f ?? ""} ${who.l ?? ""}`.trim() || null) : null,
+        storageKey: stored.storageKey,
+        fileName: stored.filename,
+        contentType: stored.contentType,
+        sizeBytes: stored.sizeBytes,
+        caption: str((req.body ?? {}).caption),
+      }).returning();
+      res.status(201).json({ row: { ...row, storageKey: undefined } });
+    }),
+  );
+
+  app.get(
+    "/api/admin/vehicles/:id/condition-media/:mediaId",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const mediaId = reqInt(req.params.mediaId, "id");
+      const [row] = await db.select().from(fleetConditionMedia).where(and(
+        eq(fleetConditionMedia.id, mediaId),
+        eq(fleetConditionMedia.vehicleId, vehicle.id),
+        eq(fleetConditionMedia.organizationId, orgId),
+      ));
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      await redirectToFile(res, row.storageKey, row.fileName, !!req.query.download);
+    }),
+  );
+
+  app.delete(
+    "/api/admin/vehicles/:id/condition-media/:mediaId",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const mediaId = reqInt(req.params.mediaId, "id");
+      const [row] = await db.delete(fleetConditionMedia).where(and(
+        eq(fleetConditionMedia.id, mediaId),
+        eq(fleetConditionMedia.vehicleId, vehicle.id),
+        eq(fleetConditionMedia.organizationId, orgId),
+      )).returning();
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      if (row.storageKey) await driveStorage().remove(row.storageKey).catch(() => {});
+      res.json({ deleted: true });
+    }),
+  );
+
+  // ── Agreements ─────────────────────────────────────────────────────────────
+  app.get(
+    "/api/admin/vehicles/:id/agreements",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const rows = await db.select().from(fleetAgreements)
+        .where(and(eq(fleetAgreements.vehicleId, vehicle.id), eq(fleetAgreements.organizationId, orgId)))
+        .orderBy(desc(fleetAgreements.signedOn), desc(fleetAgreements.id));
+      res.json({
+        rows: rows.map((r) => ({ ...r, storageKey: undefined, hasFile: !!r.storageKey })),
+        todayIso: nzTodayIso(),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/admin/vehicles/:id/agreements",
+    requireAuth,
+    tab,
+    fleetUpload.single("file"),
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const b = req.body ?? {};
+      const holderName = str(b.holderName);
+      if (!holderName) throw new BadRequest("Who signed it is required");
+      // The database refuses a row that is neither a file nor a note; saying so
+      // here gives a usable message instead of a constraint violation.
+      const hasFile = !!(req as any).file;
+      const notes = str(b.notes);
+      if (!hasFile && !notes) throw new BadRequest("Attach the agreement, or write a note saying where it is");
+      const stored = hasFile ? await storeFile(req) : null;
+
+      const [row] = await db.insert(fleetAgreements).values({
+        organizationId: orgId,
+        vehicleId: vehicle.id,
+        assignmentId: b.assignmentId ? Number(b.assignmentId) : null,
+        holderName,
+        signedOn: str(b.signedOn) ?? null,
+        expiresOn: str(b.expiresOn) ?? null,
+        storageKey: stored?.storageKey ?? null,
+        fileName: stored?.filename ?? null,
+        contentType: stored?.contentType ?? null,
+        sizeBytes: stored?.sizeBytes ?? null,
+        notes,
+        uploadedBy: userId(req),
+      }).returning();
+      res.status(201).json({ row: { ...row, storageKey: undefined, hasFile: !!row.storageKey } });
+    }),
+  );
+
+  app.get(
+    "/api/admin/vehicles/:id/agreements/:agId/file",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const agId = reqInt(req.params.agId, "id");
+      const [row] = await db.select().from(fleetAgreements).where(and(
+        eq(fleetAgreements.id, agId),
+        eq(fleetAgreements.vehicleId, vehicle.id),
+        eq(fleetAgreements.organizationId, orgId),
+      ));
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      await redirectToFile(res, row.storageKey, row.fileName, !!req.query.download);
+    }),
+  );
+
+  app.delete(
+    "/api/admin/vehicles/:id/agreements/:agId",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const agId = reqInt(req.params.agId, "id");
+      const [row] = await db.delete(fleetAgreements).where(and(
+        eq(fleetAgreements.id, agId),
+        eq(fleetAgreements.vehicleId, vehicle.id),
+        eq(fleetAgreements.organizationId, orgId),
+      )).returning();
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      if (row.storageKey) await driveStorage().remove(row.storageKey).catch(() => {});
+      res.json({ deleted: true });
+    }),
+  );
+
+  // ── Fines, read where the vehicle is ───────────────────────────────────────
+  //
+  // Daniel, 2026-09-21: "fit fines into vehicles as you didn't understand me
+  // the first time we built that and just put it into separate tab."
+  // The Fines tab is unchanged and remains where fines are managed; these are
+  // the same rows, shown where somebody is already looking at the vehicle.
+  app.get(
+    "/api/admin/vehicles/:id/fines",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const vehicle = await vehicleOf(req, orgId);
+      const rows = await db.select().from(fines)
+        .where(and(eq(fines.vehicleId, vehicle.id), eq(fines.organizationId, orgId)))
+        .orderBy(desc(fines.offenceOn), desc(fines.id));
+      const ids = rows.map((r) => r.id);
+      const atts = ids.length
+        ? await db.select({
+            id: fineAttachments.id, fineId: fineAttachments.fineId,
+            kind: fineAttachments.kind, filename: fineAttachments.filename,
+          }).from(fineAttachments).where(inArray(fineAttachments.fineId, ids))
+        : [];
+      res.json({ rows, attachments: atts, todayIso: nzTodayIso() });
+    }),
+  );
+
+  // ── Drivers and their licences ─────────────────────────────────────────────
+  //
+  // 🔴 Org-level, not per vehicle: one person drives several vehicles and their
+  // licence is typed once. Behind the same locked tab — the most sensitive data
+  // in the fleet.
+  app.get(
+    "/api/admin/fleet-drivers",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const rows = await db.select().from(fleetDrivers)
+        .where(eq(fleetDrivers.organizationId, orgId))
+        .orderBy(asc(fleetDrivers.fullName));
+      // 🔴 Storage keys never reach the browser — the images are fetched
+      // through the signed-URL route, which re-checks the org every time.
+      res.json({
+        rows: rows.map((r) => ({
+          ...r,
+          frontStorageKey: undefined,
+          backStorageKey: undefined,
+          hasFront: !!r.frontStorageKey,
+          hasBack: !!r.backStorageKey,
+        })),
+        todayIso: nzTodayIso(),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/admin/fleet-drivers",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const b = req.body ?? {};
+      const fullName = str(b.fullName);
+      if (!fullName) throw new BadRequest("A name is required");
+      const [row] = await db.insert(fleetDrivers).values({
+        organizationId: orgId,
+        fullName,
+        email: str(b.email),
+        phone: str(b.phone),
+        licenceNumber: str(b.licenceNumber),
+        licenceClass: str(b.licenceClass),
+        licenceExpiresOn: str(b.licenceExpiresOn) ?? null,
+        licenceCountry: str(b.licenceCountry),
+        licenceConditions: str(b.licenceConditions),
+        verifiedOn: str(b.verifiedOn) ?? null,
+        verifiedBy: str(b.verifiedOn) ? userId(req) : null,
+        notes: str(b.notes),
+      }).returning();
+      res.status(201).json({ row: { ...row, frontStorageKey: undefined, backStorageKey: undefined } });
+    }),
+  );
+
+  app.patch(
+    "/api/admin/fleet-drivers/:driverId",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const driverId = reqInt(req.params.driverId, "id");
+      const b = req.body ?? {};
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      for (const k of ["fullName", "email", "phone", "licenceNumber", "licenceClass",
+                       "licenceCountry", "licenceConditions", "notes"] as const) {
+        if (k in b) patch[k] = str(b[k]);
+      }
+      for (const k of ["licenceExpiresOn", "verifiedOn"] as const) {
+        if (k in b) patch[k] = str(b[k]) ?? null;
+      }
+      // Who checked the card comes from the session, never the body.
+      if ("verifiedOn" in b) patch.verifiedBy = str(b.verifiedOn) ? userId(req) : null;
+      const [row] = await db.update(fleetDrivers).set(patch as any)
+        .where(and(eq(fleetDrivers.id, driverId), eq(fleetDrivers.organizationId, orgId)))
+        .returning();
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      res.json({ row: { ...row, frontStorageKey: undefined, backStorageKey: undefined } });
+    }),
+  );
+
+  // Front and back are separate uploads: a card photographed once is half a
+  // record, and the back carries the conditions and endorsements.
+  app.post(
+    "/api/admin/fleet-drivers/:driverId/licence/:side",
+    requireAuth,
+    tab,
+    fleetUpload.single("file"),
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const driverId = reqInt(req.params.driverId, "id");
+      const side = String(req.params.side);
+      if (side !== "front" && side !== "back") throw new BadRequest("Side must be front or back");
+      const [existing] = await db.select().from(fleetDrivers)
+        .where(and(eq(fleetDrivers.id, driverId), eq(fleetDrivers.organizationId, orgId)));
+      if (!existing) { res.status(404).json({ message: "Not found" }); return; }
+
+      const stored = await storeFile(req);
+      const patch = side === "front"
+        ? { frontStorageKey: stored.storageKey, frontFileName: stored.filename }
+        : { backStorageKey: stored.storageKey, backFileName: stored.filename };
+      const old = side === "front" ? existing.frontStorageKey : existing.backStorageKey;
+      const [row] = await db.update(fleetDrivers)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(fleetDrivers.id, driverId), eq(fleetDrivers.organizationId, orgId)))
+        .returning();
+      // Replacing a side removes the image it replaced — a licence photo nobody
+      // can reach is still a licence photo sitting in storage.
+      if (old) await driveStorage().remove(old).catch(() => {});
+      res.status(201).json({ ok: true, hasFront: !!row.frontStorageKey, hasBack: !!row.backStorageKey });
+    }),
+  );
+
+  app.get(
+    "/api/admin/fleet-drivers/:driverId/licence/:side",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const driverId = reqInt(req.params.driverId, "id");
+      const side = String(req.params.side);
+      if (side !== "front" && side !== "back") throw new BadRequest("Side must be front or back");
+      const [row] = await db.select().from(fleetDrivers)
+        .where(and(eq(fleetDrivers.id, driverId), eq(fleetDrivers.organizationId, orgId)));
+      if (!row) { res.status(404).json({ message: "Not found" }); return; }
+      await redirectToFile(res,
+        side === "front" ? row.frontStorageKey : row.backStorageKey,
+        side === "front" ? row.frontFileName : row.backFileName,
+        !!req.query.download);
+    }),
+  );
 }
 
 // ── Rollups ──────────────────────────────────────────────────────────────────
