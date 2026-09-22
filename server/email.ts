@@ -507,6 +507,29 @@ export const cufcShellWrap = (heading: string, inner: string) => `
 export const cufcInfoRow = (label: string, value: string) =>
   `<tr><td style="padding:6px 0;color:#7d8ba8;font-size:13px;width:130px;vertical-align:top;">${label}</td><td style="padding:6px 0;color:#ffffff;font-size:14px;font-weight:600;">${value}</td></tr>`;
 
+// South Island United's twin of the pair above — Unity Black, Leader Green,
+// Ambition Gold, the crest on top. Sends on southislandunited.com, the domain
+// SIU's shop, camp and membership emails already use (verified in Resend).
+export const SIU_FROM = "South Island United <noreply@southislandunited.com>";
+export const SIU_REPLY_TO = "info@southislandunited.com";
+export const siuShellWrap = (heading: string, inner: string) => `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(135deg,#000000,#1B3D24);padding:36px 16px;">
+    <div style="max-width:560px;margin:0 auto;">
+      <div style="text-align:center;padding:4px 0 22px;">
+        <img src="${SIU_SHOP_LOGO_URL}" alt="South Island United" width="72" height="72" style="display:inline-block;width:72px;height:72px;margin:0 0 14px;" />
+        <h1 style="color:#F4F1EA;margin:0;font-size:22px;font-weight:800;letter-spacing:0.2px;text-transform:uppercase;">${heading}</h1>
+      </div>
+      <div style="background:#0A0A09;border:1px solid #1f1f1f;border-radius:18px;padding:24px;color:#F4F1EA;font-size:14px;line-height:1.65;">
+        ${inner}
+      </div>
+      <p style="text-align:center;color:#F4F1EA;opacity:0.6;font-size:11px;line-height:1.7;margin:20px 0 0;">
+        South Island United · Christchurch, New Zealand
+      </p>
+    </div>
+  </div>`;
+export const siuInfoRow = (label: string, value: string) =>
+  `<tr><td style="padding:6px 0;color:#9a9a92;font-size:13px;width:130px;vertical-align:top;">${label}</td><td style="padding:6px 0;color:#ffffff;font-size:14px;font-weight:600;">${value}</td></tr>`;
+
 const esc = (v: string) => String(v || "").replace(/</g, "&lt;");
 
 /** Parent acknowledgement — sent the moment a request lands. Promises a

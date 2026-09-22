@@ -11,7 +11,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import { organizations, clubEvents, clubEventTicketTypes, clubEventOrders, clubEventGuests } from "@shared/schema";
 import { requireAuth, requireTab, requireRefundPermission } from "./auth";
-import { isClubEventStatus, isStripeAccountKey } from "@shared/club-events";
+import { isClubEventStatus, isStripeAccountKey, isClubEventBrandKey } from "@shared/club-events";
 import * as ce from "./club-events";
 
 const TAB = "club-events";
@@ -128,6 +128,7 @@ export function registerClubEventRoutes(app: Express) {
     if (!input.name || !input.slug || !input.startsAt || isNaN(input.startsAt.getTime())) return res.status(400).json({ message: "Name, slug and a start date/time are required." });
     if (input.status && !isClubEventStatus(input.status)) return res.status(400).json({ message: "Bad status." });
     if (input.stripeAccount && !isStripeAccountKey(input.stripeAccount)) return res.status(400).json({ message: "Bad Stripe account." });
+    if (input.brand !== undefined && !isClubEventBrandKey(input.brand)) return res.status(400).json({ message: "Unknown brand." });
     try {
       const [e] = await db.insert(clubEvents).values({ ...(input as any), organizationId: orgId, shortCode: input.shortCode || "EV" }).returning();
       await ce.logEvent({ eventId: e.id, kind: "event_created", actor: "staff", actorUserId: req.session.userId });
@@ -143,7 +144,7 @@ export function registerClubEventRoutes(app: Express) {
     res.json({
       event: e, ticketTypes: await ce.typesOf(e.id), stats: await ce.eventStats(e),
       orders: await ce.adminOrders(e.id), guests: await ce.adminGuests(e.id),
-      publicUrl: ce.eventUrl(e.slug), stripeReady: ce.stripeFor(e.stripeAccount).ok,
+      publicUrl: ce.eventUrl(e), stripeReady: ce.stripeFor(e.stripeAccount).ok,
     });
   });
 
@@ -152,6 +153,7 @@ export function registerClubEventRoutes(app: Express) {
     const input = ce.cleanEventInput(req.body ?? {});
     if (input.status && !isClubEventStatus(input.status)) return res.status(400).json({ message: "Bad status." });
     if (input.stripeAccount && !isStripeAccountKey(input.stripeAccount)) return res.status(400).json({ message: "Bad Stripe account." });
+    if (input.brand !== undefined && !isClubEventBrandKey(input.brand)) return res.status(400).json({ message: "Unknown brand." });
     if (input.startsAt && isNaN(input.startsAt.getTime())) return res.status(400).json({ message: "Bad start date." });
     try {
       const [u] = await db.update(clubEvents).set({ ...(input as any), updatedAt: new Date() }).where(eq(clubEvents.id, e.id)).returning();

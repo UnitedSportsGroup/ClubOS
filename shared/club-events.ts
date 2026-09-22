@@ -36,7 +36,12 @@ export function isStripeAccountKey(v: unknown): v is StripeAccountKey {
 // Same shape as Team Pay's brand so the public pages reuse its shell components.
 // CUFC values verbatim from apps/cufc-website/tailwind.config.js — navy
 // #0C1640 ground, ink #13182F cards, royal #263996, Chatham gold #D4AF37.
-export const CLUB_EVENT_BRANDS: Record<string, TeampayBrand & { royal: string; crest: string; siteName: string; siteUrl: string }> = {
+//
+// `publicBase` is the host the event is SOLD on: the ticket email's links, the
+// Meta source URL and the page's own canonical host all come from it, so an
+// SIU event is never handed out on a CUFC address.
+export type ClubEventBrandKey = "cufc" | "siu";
+export const CLUB_EVENT_BRANDS: Record<ClubEventBrandKey, TeampayBrand & { royal: string; crest: string; siteName: string; siteUrl: string; publicBase: string }> = {
   cufc: {
     bg: "#0C1640",
     ink: "#FFFFFF",
@@ -51,10 +56,33 @@ export const CLUB_EVENT_BRANDS: Record<string, TeampayBrand & { royal: string; c
     crest: "/logos/christchurch-united.png",
     siteName: "Christchurch United FC",
     siteUrl: "https://cufc.co.nz",
+    publicBase: "https://join.cufc.co.nz",
+  },
+  // South Island United — the Pupila brand: Unity Black, Ambition Gold #C59949,
+  // Leader Green #1B3D24, Rough Cut display + Arpona body (the same faces and
+  // files the SIU membership and camp pages already serve from /fonts/siu).
+  siu: {
+    bg: "#000000",
+    ink: "#FFFFFF",
+    accent: "#C59949",
+    onAccent: "#000000",
+    mute: "#9A9A92",
+    card: "#101010",
+    line: "#2A2A26",
+    fontHeading: "'Rough Cut SIU', Impact, 'Arial Narrow', sans-serif",
+    fontBody: "'Arpona SIU', 'Inter Tight', system-ui, sans-serif",
+    royal: "#1B3D24",
+    crest: "/logos/south-island-united.png",
+    siteName: "South Island United",
+    siteUrl: "https://dinner.southislandunited.com",
+    publicBase: "https://join.southislandunited.com",
   },
 };
+export function isClubEventBrandKey(v: unknown): v is ClubEventBrandKey {
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(CLUB_EVENT_BRANDS, v);
+}
 export function clubEventBrand(key?: string | null) {
-  return (key && CLUB_EVENT_BRANDS[key]) || CLUB_EVENT_BRANDS.cufc;
+  return (isClubEventBrandKey(key) && CLUB_EVENT_BRANDS[key]) || CLUB_EVENT_BRANDS.cufc;
 }
 
 // ── pricing ──────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import { CalendarDays, MapPin, Users, Minus, Plus, Lock, Loader2, CheckCircle2, 
 import { clubEventBrand, dollars, nzLongDate, nzClock, nzShortDate } from "@shared/club-events";
 import { getFbp, getFbc, trackEvent } from "@/lib/meta-pixel";
 import { TeampayShell, Card, Button, Field, inputStyle, Notice, Loading, NotFoundPage } from "../teampay/shell";
+import { useClubEventFonts, useCanonicalEventHost } from "./brand-hooks";
 
 const api = async (url: string, init?: RequestInit) => {
   const r = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
@@ -46,15 +47,10 @@ export default function ClubEventPage() {
   });
   const brand = useMemo(() => clubEventBrand(data?.event?.brand), [data?.event?.brand]);
 
-  // Oswald is the club's display face; Team Pay's shell loads the others.
-  useEffect(() => {
-    const id = "club-events-fonts";
-    if (document.getElementById(id)) return;
-    const l = document.createElement("link");
-    l.id = id; l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap";
-    document.head.appendChild(l);
-  }, []);
+  // The brand's own faces (Oswald for CUFC, Rough Cut + Arpona for SIU), and
+  // its own address: an SIU event opened on join.cufc.co.nz moves to SIU's.
+  useClubEventFonts(data?.event?.brand);
+  useCanonicalEventHost(data?.event?.brand);
   useEffect(() => { if (data?.event?.name) document.title = `${data.event.name} — ${data.event.siteName}`; }, [data?.event?.name, data?.event?.siteName]);
 
   if (isLoading) return <TeampayShell brand={brand}><Loading brand={brand} /></TeampayShell>;
@@ -112,7 +108,7 @@ export default function ClubEventPage() {
           {ev.description && (
             <Card brand={brand} className="p-5 sm:p-6">
               {String(ev.description).split(/\n\s*\n/).map((p: string, i: number) => (
-                <p key={i} className={`text-[15px] leading-relaxed ${i ? "mt-4" : ""}`} style={{ color: "#DCE2F5" }}>{p}</p>
+                <p key={i} className={`text-[15px] leading-relaxed ${i ? "mt-4" : ""}`} style={{ color: brand.ink, opacity: 0.88 }}>{p}</p>
               ))}
             </Card>
           )}
@@ -362,7 +358,7 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
 
         {ev.ageRestriction && (
           <label className="flex min-h-[44px] cursor-pointer items-start gap-3 text-[14px]">
-            <input type="checkbox" checked={ageOk} onChange={(e) => setAgeOk(e.target.checked)} className="mt-1 h-5 w-5 flex-none accent-[#D4AF37]" />
+            <input type="checkbox" checked={ageOk} onChange={(e) => setAgeOk(e.target.checked)} className="mt-1 h-5 w-5 flex-none" style={{ accentColor: brand.accent }} />
             <span>Everyone attending is {ev.ageRestriction}. This is a strict rule on the night.</span>
           </label>
         )}

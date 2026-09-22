@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ClubEvent, ClubEventTicketType } from "@shared/schema";
 import {
   CLUB_EVENT_STATUSES, STRIPE_ACCOUNTS, type ClubEventStatus, type StripeAccountKey,
+  CLUB_EVENT_BRANDS, isClubEventBrandKey, type ClubEventBrandKey,
   currentTicketType, dollars, nzClock, nzDateIso, nzLocalToUtc, nzLongDate, nzShortDate, nzTimeHm, typeOnSale,
 } from "@shared/club-events";
 import { OFFICE_PAYMENT_METHODS } from "@shared/payments";
@@ -199,6 +200,7 @@ export default function ClubEventDetailAdmin() {
     venueName: string; venueAddress: string; date: string; startTime: string; endTime: string;
     capacity: string; tableSize: string; maxPerOrder: string; ageRestriction: string;
     contactEmail: string; paymentNote: string; status: ClubEventStatus; stripeAccount: StripeAccountKey;
+    brand: ClubEventBrandKey;
   } | null>(null);
 
   useEffect(() => {
@@ -222,6 +224,7 @@ export default function ClubEventDetailAdmin() {
       paymentNote: e.paymentNote ?? "",
       status: (e.status as ClubEventStatus) ?? "draft",
       stripeAccount: (e.stripeAccount as StripeAccountKey) ?? "club",
+      brand: isClubEventBrandKey(e.brand) ? e.brand : "cufc",
     });
     // Re-sync whenever the server's copy of the event changes (another save, a status toggle).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -889,6 +892,18 @@ export default function ClubEventDetailAdmin() {
                   Trust = Cross Street Football Trust's own Stripe account; needs its keys configured.
                 </p>
               </div>
+              <div>
+                <Label className="text-slate-700">Brand</Label>
+                <Select value={settingsForm.brand} onValueChange={(v) => setSettingsForm((f) => f && { ...f, brand: v as ClubEventBrandKey })}>
+                  <SelectTrigger className="h-11 mt-1" data-testid="select-settings-brand"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(CLUB_EVENT_BRANDS) as ClubEventBrandKey[]).map((k) => <SelectItem key={k} value={k}>{CLUB_EVENT_BRANDS[k].siteName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  The ticket page's look and web address, and who the ticket email comes from. Money is unaffected.
+                </p>
+              </div>
             </div>
             <Button
               className="min-h-11 gap-2"
@@ -914,6 +929,7 @@ export default function ClubEventDetailAdmin() {
                   paymentNote: f.paymentNote.trim() || null,
                   status: f.status,
                   stripeAccount: f.stripeAccount,
+                  brand: f.brand,
                 });
               }}
               data-testid="button-save-settings"

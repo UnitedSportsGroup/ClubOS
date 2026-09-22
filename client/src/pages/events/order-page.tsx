@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Mail } from "lucide-react";
 import { clubEventBrand, dollars, nzLongDate, nzClock } from "@shared/club-events";
 import { TeampayShell, Card, Button, Field, inputStyle, Notice, Loading, NotFoundPage } from "../teampay/shell";
+import { useClubEventFonts, useCanonicalEventHost } from "./brand-hooks";
 
 const api = async (url: string, init?: RequestInit) => {
   const r = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
@@ -31,6 +32,8 @@ export default function ClubEventOrderPage() {
     retry: false,
   });
   const brand = useMemo(() => clubEventBrand(data?.event?.brand), [data?.event?.brand]);
+  useClubEventFonts(data?.event?.brand);
+  useCanonicalEventHost(data?.event?.brand);
 
   const [guests, setGuests] = useState<Guest[]>([]);
   const [tableName, setTableName] = useState("");
@@ -44,14 +47,6 @@ export default function ClubEventOrderPage() {
     setGuests((data.guests || []).map((g: any) => ({ seatNo: g.seatNo, fullName: g.fullName || "", dietary: g.dietary || "" })));
     setTableName(data.order?.tableName || "");
   }, [data]);
-  useEffect(() => {
-    const id = "club-events-fonts";
-    if (document.getElementById(id)) return;
-    const l = document.createElement("link");
-    l.id = id; l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap";
-    document.head.appendChild(l);
-  }, []);
 
   if (isLoading) return <TeampayShell brand={brand}><Loading brand={brand} /></TeampayShell>;
   if (isError || !data) return <NotFoundPage brand={brand} />;

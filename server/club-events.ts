@@ -25,12 +25,28 @@ import {
 } from "@shared/club-events";
 import { ONLINE_PAYMENT_METHOD, isOfficePaymentMethod } from "@shared/payments";
 import { stripe as clubStripe } from "./stripe";
-import { sendEmail, cufcShellWrap, cufcInfoRow, CUFC_FROM, CUFC_REPLY_TO } from "./email";
+import { sendEmail, cufcShellWrap, cufcInfoRow, CUFC_FROM, CUFC_REPLY_TO, siuShellWrap, siuInfoRow, SIU_FROM, SIU_REPLY_TO } from "./email";
 import { sendPurchaseEvent } from "./meta-capi";
 
-const PUBLIC_BASE_URL = process.env.CLUB_EVENTS_PUBLIC_URL || "https://join.cufc.co.nz";
-export function eventUrl(slug: string) { return `${PUBLIC_BASE_URL}/events/${slug}`; }
-export function orderUrl(slug: string, token: string) { return `${PUBLIC_BASE_URL}/events/${slug}/order/${token}`; }
+// The host an event is sold on comes from its BRAND (an SIU event is never
+// handed out on a CUFC address). CLUB_EVENTS_PUBLIC_URL still overrides the
+// CUFC default, for a staging host.
+type BrandedEvent = Pick<ClubEvent, "slug" | "brand">;
+function publicBaseFor(brand: string | null | undefined): string {
+  const b = clubEventBrand(brand);
+  if (b === clubEventBrand("cufc") && process.env.CLUB_EVENTS_PUBLIC_URL) return process.env.CLUB_EVENTS_PUBLIC_URL;
+  return b.publicBase;
+}
+export function eventUrl(e: BrandedEvent) { return `${publicBaseFor(e.brand)}/events/${e.slug}`; }
+export function orderUrl(e: BrandedEvent, token: string) { return `${publicBaseFor(e.brand)}/events/${e.slug}/order/${token}`; }
+
+/** Who an event's emails come from, and what they look like. One place, by brand. */
+function emailKit(e: Pick<ClubEvent, "brand" | "contactEmail">) {
+  const siu = clubEventBrand(e.brand) === clubEventBrand("siu");
+  return siu
+    ? { from: SIU_FROM, replyTo: e.contactEmail || SIU_REPLY_TO, wrap: siuShellWrap, row: siuInfoRow, accent: "#C59949", onAccent: "#000000", panel: "#000000", mute: "#9a9a92" }
+    : { from: CUFC_FROM, replyTo: e.contactEmail || CUFC_REPLY_TO, wrap: cufcShellWrap, row: cufcInfoRow, accent: "#D4AF37", onAccent: "#0C1640", panel: "#0c1226", mute: "#7d8ba8" };
+}
 
 const token = () => randomBytes(16).toString("hex");
 const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -287,13 +303,14 @@ async function refundOverfill(orderId: number, paymentIntentId: string, amountCe
   }).where(eq(clubEventOrders.id, o.id));
   await logEvent({ eventId: e.id, orderId: o.id, kind: "overfill_refund", actor: "system", detail: { amountCents, paymentIntentId, refundId } });
   try {
+    const kit = emailKit(e);
     await sendEmail({
-      to: o.buyerEmail, from: CUFC_FROM, replyTo: e.contactEmail || CUFC_REPLY_TO,
+      to: o.buyerEmail, from: kit.from, replyTo: kit.replyTo,
       subject: `Sorry — ${e.name} sold out while you were paying`,
-      html: cufcShellWrap("Sold out", `<p style="margin:0 0 14px;">Kia ora ${esc(o.buyerName.split(/\s+/)[0])},</p>
+      html: kit.wrap("Sold out", `<p style="margin:0 0 14px;">Kia ora ${esc(o.buyerName.split(/\s+/)[0])},</p>
         <p style="margin:0 0 14px;">The last seats for <strong>${esc(e.name)}</strong> went while your payment was going through, so we couldn't confirm your booking.</p>
         <p style="margin:0 0 14px;">${refundId ? `Your ${esc(dollars(amountCents))} has been refunded to your card. It can take 5 to 10 business days to show.` : `We are refunding your ${esc(dollars(amountCents))} by hand and will confirm by email.`}</p>
-        <p style="margin:0;color:#7d8ba8;font-size:12px;">Sorry to miss you. Questions: reply to this email.</p>`),
+        <p style="margin:0;color:${kit.mute};font-size:12px;">Sorry to miss you. Questions: reply to this email.</p>`),
     });
   } catch (err) { console.error("[club-events] overfill email failed:", err); }
 }
@@ -352,7 +369,7 @@ async function afterPayment(orderId: number) {
           totalCents: o.paidCents ?? 0, currency: e.currency,
           email: o.buyerEmail, phone: o.buyerPhone ?? undefined, firstName: first, lastName: rest.join(" "),
           fbp: o.fbp ?? undefined, fbc: o.fbc ?? undefined, userAgent: o.userAgent ?? undefined, ipAddress: o.ipAddress ?? undefined,
-          sourceUrl: eventUrl(e.slug),
+          sourceUrl: eventUrl(e),
           eventId: `club-event-order-${o.id}`,
           contentName: `${e.name} — ticket`, contentIds: [e.slug],
         });
@@ -366,32 +383,33 @@ export async function sendTicketEmail(o: ClubEventOrder, e: ClubEvent): Promise<
   const guests = await guestsOf(o.id);
   const when = `${nzLongDate(e.startsAt)}, ${nzClock(e.startsAt)}${e.endsAt ? ` to ${nzClock(e.endsAt)}` : ""}`;
   const names = guests.map((g) => g.fullName).filter(Boolean);
+  const kit = emailKit(e);
   const paidLine = o.paymentMethod === ONLINE_PAYMENT_METHOD ? "Paid by card online" : `Paid ${labelForMethod(o.paymentMethod)}${o.paymentReference ? ` · ref ${esc(o.paymentReference)}` : ""}`;
   const inner = `
     <p style="margin:0 0 14px;">Kia ora ${esc(o.buyerName.split(/\s+/)[0])},</p>
     <p style="margin:0 0 16px;">You're booked for <strong>${esc(e.name)}</strong>. This email is your ticket — show it on your phone at the door, or give your name and the ticket number below.</p>
-    <div style="background:#0c1226;border:1px solid #D4AF37;border-radius:12px;padding:16px 18px;margin:0 0 18px;text-align:center;">
-      <div style="color:#7d8ba8;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Ticket number</div>
-      <div style="color:#D4AF37;font-size:26px;font-weight:800;letter-spacing:1px;margin-top:4px;">${esc(o.ref)}</div>
+    <div style="background:${kit.panel};border:1px solid ${kit.accent};border-radius:12px;padding:16px 18px;margin:0 0 18px;text-align:center;">
+      <div style="color:${kit.mute};font-size:11px;letter-spacing:2px;text-transform:uppercase;">Ticket number</div>
+      <div style="color:${kit.accent};font-size:26px;font-weight:800;letter-spacing:1px;margin-top:4px;">${esc(o.ref)}</div>
       <div style="color:#ffffff;font-size:14px;margin-top:6px;">${o.quantity} ${o.quantity === 1 ? "seat" : "seats"} · ${esc(dollars(o.paidCents ?? o.totalCents))}</div>
     </div>
     <table style="width:100%;border-collapse:collapse;">
-      ${cufcInfoRow("When", esc(when))}
-      ${cufcInfoRow("Where", esc([e.venueName, e.venueAddress].filter(Boolean).join(", ")))}
-      ${cufcInfoRow("Tickets", `${o.quantity} × ${esc(dollars(o.unitPriceCents))}`)}
-      ${o.tableName ? cufcInfoRow("Table", esc(o.tableName)) : ""}
-      ${names.length ? cufcInfoRow("Guests", esc(names.join(", "))) : ""}
-      ${cufcInfoRow("Payment", paidLine)}
-      ${e.ageRestriction ? cufcInfoRow("Please note", `This event is ${esc(e.ageRestriction)}.`) : ""}
+      ${kit.row("When", esc(when))}
+      ${kit.row("Where", esc([e.venueName, e.venueAddress].filter(Boolean).join(", ")))}
+      ${kit.row("Tickets", `${o.quantity} × ${esc(dollars(o.unitPriceCents))}`)}
+      ${o.tableName ? kit.row("Table", esc(o.tableName)) : ""}
+      ${names.length ? kit.row("Guests", esc(names.join(", "))) : ""}
+      ${kit.row("Payment", paidLine)}
+      ${e.ageRestriction ? kit.row("Please note", `This event is ${esc(e.ageRestriction)}.`) : ""}
     </table>
     <p style="margin:18px 0 0;">Need to add guest names or dietary requirements, or want your group seated together? Open your booking:</p>
-    <p style="margin:12px 0 0;text-align:center;"><a href="${orderUrl(e.slug, o.token)}" style="display:inline-block;background:#D4AF37;color:#0C1640;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:999px;">Manage my booking</a></p>
-    ${e.paymentNote ? `<p style="margin:18px 0 0;color:#7d8ba8;font-size:12px;">${esc(e.paymentNote)}</p>` : ""}
-    <p style="margin:18px 0 0;color:#7d8ba8;font-size:12px;">Questions? Reply to this email${e.contactEmail ? ` or write to ${esc(e.contactEmail)}` : ""}.</p>`;
+    <p style="margin:12px 0 0;text-align:center;"><a href="${orderUrl(e, o.token)}" style="display:inline-block;background:${kit.accent};color:${kit.onAccent};font-weight:700;text-decoration:none;padding:12px 22px;border-radius:999px;">Manage my booking</a></p>
+    ${e.paymentNote ? `<p style="margin:18px 0 0;color:${kit.mute};font-size:12px;">${esc(e.paymentNote)}</p>` : ""}
+    <p style="margin:18px 0 0;color:${kit.mute};font-size:12px;">Questions? Reply to this email${e.contactEmail ? ` or write to ${esc(e.contactEmail)}` : ""}.</p>`;
   return sendEmail({
-    to: o.buyerEmail, from: CUFC_FROM, replyTo: e.contactEmail || CUFC_REPLY_TO,
+    to: o.buyerEmail, from: kit.from, replyTo: kit.replyTo,
     subject: `Your ticket — ${e.name} · ${o.ref}`,
-    html: cufcShellWrap(`You're in — ${e.name}`, inner),
+    html: kit.wrap(`You're in — ${e.name}`, inner),
   });
 }
 
