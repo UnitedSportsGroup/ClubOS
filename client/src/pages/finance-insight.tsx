@@ -9,8 +9,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceFetch } from "@/lib/queryClient";
 import { EMPTY, MON, PERIODS, byKey, describe, factor, fmt, monthsFor, narrow, nodeTotal, sum, summaryForAI, totals, type Model, type FiNode, type Period, type Scenario } from "@/lib/finance-insight-engine";
+import { CashForecastView, MoneyOwedView, TermFeesView, type CashForecast } from "@/components/finance-insight/forecast-views";
 
-type View = "overview" | "income" | "expenses" | "streams" | "ask";
+type View = "overview" | "forecast" | "owed" | "fees" | "income" | "expenses" | "streams" | "ask";
+// The views that look FORWARD (or at what is owed) read model.cashForecast and ignore the P&L levers and the period picker.
+const FORWARD: View[] = ["forecast", "owed", "fees"];
+const VIEW_LABEL: Record<View, string> = { overview: "The gap", forecast: "Cash to 31 Dec", owed: "Money owed", fees: "Term fees", income: "Income", expenses: "Expenses", streams: "By stream", ask: "Ask the analyst" };
+const VIEWS: View[] = ["overview", "forecast", "owed", "fees", "income", "expenses", "streams", "ask"];
+/** The view lives in the URL hash so Back, a refresh and a shared link all land on it (the ClubOS tab-state rule). */
+const viewFromHash = (): View => { const h = typeof window === "undefined" ? "" : window.location.hash.replace(/^#/, ""); return (VIEWS as string[]).includes(h) ? (h as View) : "overview"; };
 const LS = "finance-insight-scenarios";
 const API = "/api/admin/finance-insight";
 
@@ -57,29 +64,37 @@ function PasswordScreen({ configured, snapshot, onUnlocked }: { configured: bool
 
 function App({ onLock }: { onLock: () => void }) {
   const q = useQuery({ queryKey: [API, "model"], queryFn: async () => { const r = await workspaceFetch(`${API}/model`); if (!r.ok) throw new Error(r.status === 403 ? "locked" : `HTTP ${r.status}`); return r.json(); } });
-  const [s, setS] = useState<Scenario>(EMPTY); const [view, setView] = useState<View>("overview");
+  const [s, setS] = useState<Scenario>(EMPTY); const [view, setViewState] = useState<View>(viewFromHash);
+  useEffect(() => { const on = () => setViewState(viewFromHash()); window.addEventListener("hashchange", on); return () => window.removeEventListener("hashchange", on); }, []);
+  const setView = (v: View) => { setViewState(v); try { window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${v}`); } catch { /* ignore */ } };
+  const [owedGroup, setOwedGroup] = useState<string | undefined>(undefined);
   const [levers, setLevers] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [period, setPeriod] = useState<Period>("ytd"); const [from, setFrom] = useState("2026-01"); const [to, setTo] = useState("2026-09");
   if (q.isLoading) return <Frame><p className="text-sm text-muted-foreground">Loading the model…</p></Frame>;
   if (q.isError) { if (String((q.error as any)?.message) === "locked") onLock(); return <Frame><p className="text-sm text-destructive">{String((q.error as any)?.message)}</p></Frame>; }
   const full: Model = q.data.model;
   const model = narrow(full, monthsFor(full, period, from, to));            // every view below sees only the months in the window
+  const cf: CashForecast | undefined = (full as any).cashForecast;
+  const forward = FORWARD.includes(view);
   return (
     <div className="mx-auto max-w-[1500px] p-4 sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-2xl font-semibold tracking-tight">Financial Insight</h1><p className="text-sm text-muted-foreground">Cash P&amp;L Dec 2025 – Sep 2026 · refreshed {String(q.data.generatedAt).slice(0, 10)} · every figure from Xero, Xero Payroll and ClubOS — the same events as the P&amp;L sheet</p></div>
         <div className="flex flex-wrap items-center gap-2 text-xs print:hidden">
-          <PeriodPicker full={full} period={period} setPeriod={setPeriod} from={from} to={to} setFrom={setFrom} setTo={setTo} />
-          <button onClick={() => setLevers((v) => !v)} className="rounded-md border px-3 py-1.5 hover:bg-muted">{levers ? "Hide levers" : "Levers"}</button>
+          {!forward && <PeriodPicker full={full} period={period} setPeriod={setPeriod} from={from} to={to} setFrom={setFrom} setTo={setTo} />}
+          {!forward && <button onClick={() => setLevers((v) => !v)} className="rounded-md border px-3 py-1.5 hover:bg-muted">{levers ? "Hide levers" : "Levers"}</button>}
           <button onClick={() => window.print()} className="rounded-md border px-3 py-1.5 hover:bg-muted">Print / PDF</button>
           <button onClick={async () => { await workspaceFetch(`${API}/lock`, { method: "POST" }); onLock(); }} className="rounded-md border px-3 py-1.5 hover:bg-muted">Lock</button>
         </div>
       </div>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-        {levers && <Levers model={model} s={s} setS={setS} />}
+        {levers && !forward && <Levers model={model} s={s} setS={setS} />}
         <div className="min-w-0 flex-1">
-          <div className="mb-4 flex flex-wrap gap-2 print:hidden">{(["overview", "income", "expenses", "streams", "ask"] as View[]).map((v) => <button key={v} onClick={() => setView(v)} className={`rounded-md px-3 py-1.5 text-sm ${view === v ? "bg-primary text-primary-foreground" : "border hover:bg-muted"}`}>{{ overview: "The gap", income: "Income", expenses: "Expenses", streams: "By stream", ask: "Ask the analyst" }[v]}</button>)}</div>
+          <div className="mb-4 flex flex-wrap gap-2 print:hidden" data-testid="fi-views">{VIEWS.map((v) => <button key={v} data-view={v} onClick={() => setView(v)} className={`min-h-[36px] rounded-md px-3 py-1.5 text-sm ${view === v ? "bg-primary text-primary-foreground" : "border hover:bg-muted"}`}>{VIEW_LABEL[v]}</button>)}</div>
           {view === "overview" && <Overview model={model} s={s} />}
+          {view === "forecast" && <CashForecastView cf={cf} />}
+          {view === "owed" && <MoneyOwedView key={owedGroup ?? "all"} cf={cf} initialGroup={owedGroup} />}
+          {view === "fees" && <TermFeesView cf={cf} onOwed={() => { setOwedGroup("Academy families"); setView("owed"); }} />}
           {view === "income" && <Breakdown model={model} s={s} setS={setS} side="income" />}
           {view === "expenses" && <Breakdown model={model} s={s} setS={setS} side="expense" />}
           {view === "streams" && <Streams model={model} s={s} setS={setS} />}
