@@ -56,7 +56,9 @@ function ipOf(req: Request): string {
 }
 
 async function latest(): Promise<{ generated_at: string; model: any; node_count: number } | null> {
-  const r = await db.execute(sql`SELECT generated_at, model, node_count FROM finance_insight_snapshots ORDER BY generated_at DESC LIMIT 1`);
+  // 🔴 id breaks the tie: two pushes of the same model carry the same generated_at, and picking either one served a STALE
+  // snapshot on 23 Sep (the new forecast was in the newer row and the page showed the older).
+  const r = await db.execute(sql`SELECT generated_at, model, node_count FROM finance_insight_snapshots ORDER BY generated_at DESC, id DESC LIMIT 1`);
   const row = (r.rows as any[])[0];
   return row ? { generated_at: new Date(row.generated_at).toISOString(), model: row.model, node_count: row.node_count } : null;
 }
@@ -65,7 +67,7 @@ export function registerFinanceInsightRoutes(app: Express) {
   // Is it configured, is there a snapshot, is this session unlocked? (No figures.)
   app.get("/api/admin/finance-insight/status", requireAuth, requireTab(TAB), async (req, res) => {
     try {
-      const r = await db.execute(sql`SELECT generated_at, node_count FROM finance_insight_snapshots ORDER BY generated_at DESC LIMIT 1`);
+      const r = await db.execute(sql`SELECT generated_at, node_count FROM finance_insight_snapshots ORDER BY generated_at DESC, id DESC LIMIT 1`);
       const row = (r.rows as any[])[0];
       res.json({ configured: !!process.env.FINANCE_INSIGHT_PASSWORD_HASH, unlocked: unlocked(req),
                  snapshot: row ? { generatedAt: new Date(row.generated_at).toISOString(), nodes: row.node_count } : null });
