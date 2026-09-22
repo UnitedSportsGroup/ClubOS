@@ -23,6 +23,7 @@ export interface CfProgramme {
   t4Expected: number; t4Worse: number; t4Better: number; t4CardSold: number; t4CardN: number; t4Invoiced: number; t4InvoicedN: number; t4InvoicedPaid: number;
   t4PrePaid: number; t4CardStillToSell: number; t4StillToInvoice: number; note: string;
 }
+export interface CfOwed { who: string; amount: number | null; monthly?: number; asAt: string; state: string; inForecast: boolean; evidence: string; note: string }
 export interface CashForecast {
   version: number; generatedAt: string; asOf: string; through: string; bankFeedTo: string; plannedOn: string;
   months: { key: string; label: string }[];
@@ -33,6 +34,8 @@ export interface CashForecast {
   levers: { title: string; amount: string; who: string; what: string }[];
   blocks: { title: string; lines: string[] }[];
   receivables: CfReceivable[]; receivablesTotal: number;
+  withSiu?: { tree: CfNode; results: Record<Case, { in: number; out: number; net: number; low: number; lowWeek: number }>; weeks: CfWeek[]; preSeasonStart: string; paydays: string[]; basis: string[] };
+  owed?: CfOwed[]; owedTotal?: number; owedNotInForecast?: number;
   termFees: { programmes: CfProgramme[]; t3Book: number; t3Xero: number; t3CardOnly: number; t3ClubOSAlone: number; invoiceAssumption: string };
   bounced: { date: string; payee: string; amount: number }[];
 }
@@ -60,30 +63,42 @@ function Missing() {
 // =====================================================================================================================
 // CASH TO 31 DEC
 // =====================================================================================================================
-export function CashForecastView({ cf }: { cf?: CashForecast }) {
+export function CashForecastView({ cf, onOwe }: { cf?: CashForecast; onOwe?: () => void }) {
   const [kase, setKase] = useState<Case>("base");
+  const [siu, setSiu] = useState(false);
   const lsKey = cf ? `fi-bank-balance-${cf.asOf}` : "";
   const xeroBal = cf?.bankPosition ? Object.values(cf.bankPosition.accounts).reduce((a, b) => a + b, 0) : null;
   const [typed, setTyped] = useState<string>(() => { try { return lsKey ? localStorage.getItem(lsKey) ?? "" : ""; } catch { return ""; } });
   if (!cf) return <Missing />;
+  const withSiu = siu && !!cf.withSiu;                       // the same forecast with the 2027 OFC squad and staff switched on
+  const R = withSiu ? cf.withSiu!.results : cf.results;
+  const WEEKS = withSiu ? cf.withSiu!.weeks : cf.weeks;
+  const TREE = withSiu ? cf.withSiu!.tree : cf.tree;
   const parsed = typed.trim() === "" ? null : Number(typed.replace(/[$,\s]/g, ""));
   const balance = parsed !== null && Number.isFinite(parsed) ? parsed : xeroBal;
   const setBal = (v: string) => { setTyped(v); try { v.trim() ? localStorage.setItem(lsKey, v) : localStorage.removeItem(lsKey); } catch { /* private window */ } };
-  const r = cf.results[kase]; const need = Math.max(0, -r.low);
-  const running = cf.weeks.map((w) => w[kase].cum);
+  const r = R[kase]; const need = Math.max(0, -r.low);
+  const running = WEEKS.map((w) => w[kase].cum);
   const lowIdx = running.reduce((best, v, i) => (v < running[best] ? i : best), 0);
   const lowest = balance !== null ? balance + Math.min(0, ...running) : null;
   const yes = lowest !== null ? lowest >= 0 : null;
-  const lowWeek = cf.weeks[lowIdx];
+  const lowWeek = WEEKS[lowIdx]; const siuAdds = cf.withSiu ? Math.max(0, -cf.withSiu.results[kase].low) - Math.max(0, -cf.results[kase].low) : 0;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold tracking-tight">Christchurch United on its own — cash to 31 December</h2>
-          <p className="text-[13px] text-muted-foreground">No South Island United, no donations. Starts {dayLabel(cf.asOf)} and rolls forward every night — what is past is already in the bank balance.</p>
+          <h2 className="text-lg font-semibold tracking-tight">{withSiu ? "Christchurch United and South Island United — cash to 31 December" : "Christchurch United on its own — cash to 31 December"}</h2>
+          <p className="text-[13px] text-muted-foreground">{withSiu ? `With the 2027 OFC squad and staff from pre-season, Mon ${dayLabel(cf.withSiu!.preSeasonStart).slice(4)}.` : "No South Island United,"} no donations. Starts {dayLabel(cf.asOf)} and rolls forward every night — what is past is already in the bank balance.</p>
         </div>
-        <div className="flex rounded-md border p-1 text-sm" role="group" aria-label="case">
-          {CASES.map((c) => <button key={c.k} onClick={() => setKase(c.k)} title={c.hint} className={`min-h-[36px] rounded px-3 ${kase === c.k ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{c.label}</button>)}
+        <div className="flex flex-wrap items-center gap-2">
+          {cf.withSiu && (
+            <button onClick={() => setSiu((v) => !v)} data-testid="cf-siu" className={`min-h-[36px] rounded-md border px-3 text-sm ${siu ? "border-slate-800 bg-slate-800 text-white" : "hover:bg-muted"}`}>
+              {siu ? "✓ South Island United is in" : "Add South Island United"}
+            </button>
+          )}
+          <div className="flex rounded-md border p-1 text-sm" role="group" aria-label="case">
+            {CASES.map((c) => <button key={c.k} onClick={() => setKase(c.k)} title={c.hint} className={`min-h-[36px] rounded px-3 ${kase === c.k ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{c.label}</button>)}
+          </div>
         </div>
       </div>
 
@@ -92,7 +107,8 @@ export function CashForecastView({ cf }: { cf?: CashForecast }) {
         {yes !== null && lowest !== null ? (
           <p className="mt-1 text-[16px] leading-relaxed"><b className={yes ? "text-emerald-700" : "text-red-700"}>{yes ? "YES" : "NO"}</b> — with <b className="tabular-nums">{fmt(balance!)}</b> in the bank at the start of {dayLabel(cf.asOf)}, the lowest point is <b className={`tabular-nums ${tone(lowest)}`}>{fmt(lowest)}</b> in the week of {dayLabel(lowWeek.from)}.{!yes && <> The club would need another <b className="tabular-nums">{fmt(-lowest)}</b> by then — from the levers below, or from a donation.</>}</p>
         ) : null}
-        <p className={`${yes !== null ? "mt-1 text-[14px] text-muted-foreground" : "mt-1 text-[16px]"} leading-relaxed`}>Christchurch United alone needs <b className="tabular-nums text-foreground">{fmt(need)}</b> in the bank today to reach 31 December without a donation <span className="text-muted-foreground">(worse case {fmt(Math.max(0, -cf.results.worse.low))}, better {fmt(Math.max(0, -cf.results.better.low))})</span>.</p>
+        <p className={`${yes !== null ? "mt-1 text-[14px] text-muted-foreground" : "mt-1 text-[16px]"} leading-relaxed`}>{withSiu ? "Both clubs together need" : "Christchurch United alone needs"} <b className="tabular-nums text-foreground">{fmt(need)}</b> in the bank today to reach 31 December without a donation <span className="text-muted-foreground">(worse case {fmt(Math.max(0, -R.worse.low))}, better {fmt(Math.max(0, -R.better.low))})</span>.{withSiu && siuAdds > 0 && <span className="text-muted-foreground"> South Island United's pre-season adds <b className="tabular-nums">{fmt(siuAdds)}</b> of that.</span>}</p>
+        {cf.owedNotInForecast ? <p className="mt-1 text-[13px] text-muted-foreground">Not counted above: <b className="tabular-nums text-foreground">{fmt(cf.owedNotInForecast)}</b> of old bills nobody has scheduled — mostly the Belgravia kit account. {onOwe && <button onClick={onOwe} className="underline">See what we owe →</button>}</p> : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label htmlFor="cf-bank" className="text-[13px] font-medium">Bank balance at the start of {dayLabel(cf.asOf)}</label>
           <input id="cf-bank" value={typed} onChange={(e) => setBal(e.target.value)} inputMode="decimal" placeholder={xeroBal !== null ? `Xero: ${fmt(xeroBal)}` : "type the ANZ figure"} className="premium-input h-10 w-44 rounded-md border bg-white px-3 text-sm tabular-nums" />
@@ -111,7 +127,7 @@ export function CashForecastView({ cf }: { cf?: CashForecast }) {
         <Stat label={balance !== null ? "Lowest bank balance" : "Lowest point vs today"} v={balance !== null ? lowest! : Math.min(0, ...running)} colour sub={`week of ${short(lowWeek.from)}`} />
       </div>
 
-      <WeekChart cf={cf} kase={kase} balance={balance} />
+      <WeekChart weeks={WEEKS} kase={kase} balance={balance} />
 
       {cf.bounced.length > 0 && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-[13px]">
@@ -120,7 +136,13 @@ export function CashForecastView({ cf }: { cf?: CashForecast }) {
         </div>
       )}
 
-      <Tree cf={cf} kase={kase} />
+      <Tree cf={cf} kase={kase} tree={TREE} />
+      {withSiu && (
+        <div className="rounded-xl border bg-card p-4 text-[13px] shadow-sm">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">How South Island United is worked out</div>
+          <ul className="list-disc space-y-1 pl-5 leading-snug">{cf.withSiu!.basis.map((b) => <li key={b}>{b}</li>)}</ul>
+        </div>
+      )}
 
       <section className="space-y-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where to put the time — ranked by cash before 31 Dec</h3>
@@ -158,12 +180,12 @@ function Stat({ label, v, colour, sub }: { label: string; v: number; colour?: bo
   );
 }
 
-function WeekChart({ cf, kase, balance }: { cf: CashForecast; kase: Case; balance: number | null }) {
+function WeekChart({ weeks, kase, balance }: { weeks: CfWeek[]; kase: Case; balance: number | null }) {
   const [hov, setHov] = useState<number | null>(null);
   // drawn at the box's REAL width so the labels are true-size on a phone (a 960-wide viewBox shrunk to 350px made them 4px)
   const box = useRef<HTMLDivElement>(null); const [Wd, setWd] = useState(960);
   useEffect(() => { const el = box.current; if (!el || typeof ResizeObserver === "undefined") return; const ro = new ResizeObserver(() => setWd(Math.max(300, Math.round(el.clientWidth - 24)))); ro.observe(el); return () => ro.disconnect(); }, []);
-  const W = cf.weeks; const n = W.length;
+  const W = weeks; const n = W.length;
   const ins = W.map((w) => w[kase].in), outs = W.map((w) => -w[kase].out);
   const line = W.map((w) => (balance ?? 0) + w[kase].cum);
   const narrowChart = Wd < 600; const H = narrowChart ? 260 : 300, P = { l: narrowChart ? 46 : 64, r: 10, t: 14, b: 30 }; const iw = Wd - P.l - P.r, ih = H - P.t - P.b;
@@ -199,14 +221,14 @@ function WeekChart({ cf, kase, balance }: { cf: CashForecast; kase: Case; balanc
 }
 
 const BASIS_STYLE: Record<string, string> = { COMMITTED: "border-sky-300 bg-sky-50 text-sky-800", REPEATING: "border-slate-300 bg-slate-50 text-slate-700", ESTIMATE: "border-amber-300 bg-amber-50 text-amber-800", ASSUMPTION: "border-rose-300 bg-rose-50 text-rose-800" };
-function Tree({ cf, kase }: { cf: CashForecast; kase: Case }) {
+function Tree({ cf, kase, tree }: { cf: CashForecast; kase: Case; tree: CfNode }) {
   // open by default: the grand total and money in / money out; every category starts closed
   const [open, setOpen] = useState<Record<string, boolean>>({ "0": true, "0.0": true, "0.1": true });
   const [notes, setNotes] = useState(false);
   const rows: { node: CfNode; path: string; depth: number }[] = [];
   const walk = (n: CfNode, path: string, depth: number) => { rows.push({ node: n, path, depth }); if (open[path]) n.kids.forEach((k, i) => walk(k, `${path}.${i}`, depth + 1)); };
-  walk(cf.tree, "0", 0);
-  const openAll = (v: boolean) => { const o: Record<string, boolean> = {}; const w = (n: CfNode, p: string) => { if (n.kids.length) { o[p] = v || p === "0"; n.kids.forEach((k, i) => w(k, `${p}.${i}`)); } }; w(cf.tree, "0"); if (!v) { o["0.0"] = true; o["0.1"] = true; } setOpen(o); };
+  walk(tree, "0", 0);
+  const openAll = (v: boolean) => { const o: Record<string, boolean> = {}; const w = (n: CfNode, p: string) => { if (n.kids.length) { o[p] = v || p === "0"; n.kids.forEach((k, i) => w(k, `${p}.${i}`)); } }; w(tree, "0"); if (!v) { o["0.0"] = true; o["0.1"] = true; } setOpen(o); };
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -298,6 +320,42 @@ export function MoneyOwedView({ cf, initialGroup }: { cf?: CashForecast; initial
 }
 function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: any }) {
   return <button onClick={onClick} className={`min-h-[36px] rounded-full border px-3 text-[13px] ${on ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-muted"}`}>{children}</button>;
+}
+
+// =====================================================================================================================
+// WHAT WE OWE
+// =====================================================================================================================
+export function WeOweView({ cf, onForecast }: { cf?: CashForecast; onForecast?: () => void }) {
+  if (!cf || !cf.owed) return <Missing />;
+  const rows = cf.owed; const total = cf.owedTotal ?? 0; const extra = cf.owedNotInForecast ?? 0;
+  const unknown = rows.filter((o) => o.amount === null).length;
+  const need = Math.max(0, -cf.results.base.low);
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">What the club owes — {fmt(total)} found so far</h2>
+        <p className="text-[13px] text-muted-foreground">Xero holds almost no supplier bills (the office pays direct and reconciles after), so this is built from the suppliers' own statements and chasing emails in the club's mailboxes, plus what Xero Payroll and the GST lines say is owed to IRD. {unknown > 0 && <>There {unknown === 1 ? "is" : "are"} {unknown} more where the amount has not been confirmed.</>}</p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border bg-card p-3 shadow-sm"><div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Owed, all of it</div><div className="mt-1 text-2xl font-semibold tabular-nums">{fmt(total)}</div><div className="text-[12px] text-muted-foreground">{rows.length} accounts</div></div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm"><div className="text-[11px] font-semibold uppercase tracking-wider text-red-900">Not in the cash forecast</div><div className="mt-1 text-2xl font-semibold tabular-nums text-red-800">{fmt(extra)}</div><div className="text-[12px] text-red-900">nobody has scheduled paying it</div></div>
+        <button onClick={onForecast} className="rounded-xl border bg-card p-3 text-left shadow-sm hover:bg-muted"><div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Cash needed today, if it were all paid</div><div className="mt-1 text-2xl font-semibold tabular-nums">{fmt(need + extra)}</div><div className="text-[12px] text-muted-foreground">against {fmt(need)} in the forecast →</div></button>
+      </div>
+      <div className="overflow-x-auto rounded-xl border bg-card shadow-sm" data-testid="owe-table">
+        <table className="w-full min-w-[720px] text-[12.5px]">
+          <thead><tr className="text-[10px] uppercase tracking-wider text-muted-foreground"><th className="px-3 py-2 text-left">who</th><th className="px-2 py-2 text-right">amount</th><th className="px-2 py-2 text-left">where it stands</th><th className="px-3 py-2 text-left">evidence · what to do</th></tr></thead>
+          <tbody>{rows.map((o) => (
+            <tr key={o.who} className="border-t align-top">
+              <td className="px-3 py-2"><div className="font-medium">{o.who}</div><div className="text-[11px] text-muted-foreground">as at {short(o.asAt)}</div></td>
+              <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums">{o.amount !== null ? fmt(o.amount, 2) : o.monthly ? <span className="font-normal">{fmt(o.monthly, 2)}<div className="text-[11px] text-muted-foreground">a month</div></span> : <span className="font-normal text-muted-foreground">not confirmed</span>}</td>
+              <td className="px-2 py-2"><span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] ${/overdue|bounced|failed|disputed|chasing/.test(o.state) ? "border-red-300 bg-red-50 text-red-800" : "border-slate-300 bg-slate-50 text-slate-700"}`}>{o.state}</span><div className={`mt-1 text-[11px] ${o.inForecast ? "text-muted-foreground" : "font-medium text-red-700"}`}>{o.inForecast ? "in the forecast" : "not in the forecast"}</div></td>
+              <td className="px-3 py-2 text-[12px] leading-snug text-muted-foreground"><div>{o.evidence}</div><div className="mt-0.5 text-foreground/80">{o.note}</div></td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+      <p className="text-[12px] text-muted-foreground">Read from the club's own mailboxes (accounts, info, cufc, siu) and Xero. An amount marked "not confirmed" means a statement arrived and nobody has opened it yet — those are the next ones to chase.</p>
+    </div>
+  );
 }
 
 // =====================================================================================================================

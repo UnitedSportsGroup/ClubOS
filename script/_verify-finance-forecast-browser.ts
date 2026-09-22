@@ -66,6 +66,23 @@ async function main() {
       await sleep(200);
       const kids = await page.evaluate(() => /Academy U13–U17 and U20/.test((document.querySelector('[data-testid="cf-tree"]') as HTMLElement).innerText));
       ok(`${vp.label}: tapping "Term 4 fees" opens it into its programmes`, opened && kids);
+      // ---- the South Island United toggle ----
+      const cufcNeed = await page.$eval('[data-testid="cf-answer"]', (e) => (e as HTMLElement).innerText);
+      await page.click('[data-testid="cf-siu"]'); await sleep(400);
+      const siuNeed = await page.$eval('[data-testid="cf-answer"]', (e) => (e as HTMLElement).innerText);
+      ok(`${vp.label}: adding South Island United changes the answer and says what it adds`,
+         /Both clubs together need/.test(siuNeed) && /pre-season adds/.test(siuNeed) && siuNeed !== cufcNeed, siuNeed.replace(/\s+/g, " ").slice(0, 140));
+      const siuTree = await page.evaluate(() => /SOUTH ISLAND UNITED/i.test((document.querySelector('[data-testid="cf-tree"]') as HTMLElement).innerText));
+      ok(`${vp.label}: the SIU lines are in the tree`, siuTree);
+      await page.screenshot({ path: join(OUT, `${vp.label}-siu.png`), fullPage: vp.label === "desktop" });
+      await page.click('[data-testid="cf-siu"]'); await sleep(300);
+      ok(`${vp.label}: switching SIU back off restores the CUFC-only answer`, (await page.$eval('[data-testid="cf-answer"]', (e) => (e as HTMLElement).innerText)) === cufcNeed);
+      // ---- What we owe ----
+      await page.evaluate(() => (document.querySelector('[data-view="owe"]') as HTMLButtonElement).click());
+      const owe = await page.waitForFunction(() => /What the club owes/.test(document.body.innerText) && /Belgravia/.test(document.body.innerText) && document.querySelectorAll('[data-testid="owe-table"] tbody tr').length >= 8, { timeout: 15000 }).then(() => true).catch(() => false);
+      ok(`${vp.label}: What we owe lists the debts, Belgravia included`, owe);
+      overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth); ok(`${vp.label}: What we owe — no horizontal overflow`, overflow <= 1, `${overflow}px`);
+      await page.screenshot({ path: join(OUT, `${vp.label}-owe.png`), fullPage: vp.label === "desktop" });
       // ---- Money owed ----
       await page.evaluate(() => (document.querySelector('[data-view="owed"]') as HTMLButtonElement).click());
       const owed = await page.waitForFunction(() => /Money owed to the club — \$[\d,]+ on unpaid invoices/.test(document.body.innerText) && document.querySelectorAll('[data-testid="owed-table"] tbody tr').length > 10, { timeout: 15000 }).then(() => true).catch(() => false);
