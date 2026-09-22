@@ -9,13 +9,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceFetch } from "@/lib/queryClient";
 import { EMPTY, MON, PERIODS, byKey, describe, factor, fmt, monthsFor, narrow, nodeTotal, sum, summaryForAI, totals, type Model, type FiNode, type Period, type Scenario } from "@/lib/finance-insight-engine";
-import { CashForecastView, MoneyOwedView, TermFeesView, WeOweView, type CashForecast } from "@/components/finance-insight/forecast-views";
+import { CashForecastView, MoneyOwedView, TermFeesView, WeOweView, WeekByWeekView, type CashForecast } from "@/components/finance-insight/forecast-views";
 
-type View = "overview" | "forecast" | "owe" | "owed" | "fees" | "income" | "expenses" | "streams" | "ask";
+type View = "overview" | "forecast" | "weeks" | "owe" | "owed" | "fees" | "income" | "expenses" | "streams" | "ask";
 // The views that look FORWARD (or at what is owed) read model.cashForecast and ignore the P&L levers and the period picker.
-const FORWARD: View[] = ["forecast", "owe", "owed", "fees"];
-const VIEW_LABEL: Record<View, string> = { overview: "The gap", forecast: "Cash to 31 Dec", owe: "What we owe", owed: "Money owed", fees: "Term fees", income: "Income", expenses: "Expenses", streams: "By stream", ask: "Ask the analyst" };
-const VIEWS: View[] = ["overview", "forecast", "owe", "owed", "fees", "income", "expenses", "streams", "ask"];
+const FORWARD: View[] = ["forecast", "weeks", "owe", "owed", "fees"];
+const VIEW_LABEL: Record<View, string> = { overview: "The gap", forecast: "Cash to 31 Dec", weeks: "Week by week", owe: "What we owe", owed: "Money owed", fees: "Term fees", income: "Income", expenses: "Expenses", streams: "By stream", ask: "Ask the analyst" };
+const VIEWS: View[] = ["overview", "forecast", "weeks", "owe", "owed", "fees", "income", "expenses", "streams", "ask"];
 /** The view lives in the URL hash so Back, a refresh and a shared link all land on it (the ClubOS tab-state rule). */
 const viewFromHash = (): View => { const h = typeof window === "undefined" ? "" : window.location.hash.replace(/^#/, ""); return (VIEWS as string[]).includes(h) ? (h as View) : "overview"; };
 const LS = "finance-insight-scenarios";
@@ -93,6 +93,7 @@ function App({ onLock }: { onLock: () => void }) {
           <div className="mb-4 flex flex-wrap gap-2 print:hidden" data-testid="fi-views">{VIEWS.map((v) => <button key={v} data-view={v} onClick={() => setView(v)} className={`min-h-[36px] rounded-md px-3 py-1.5 text-sm ${view === v ? "bg-primary text-primary-foreground" : "border hover:bg-muted"}`}>{VIEW_LABEL[v]}</button>)}</div>
           {view === "overview" && <Overview model={model} s={s} />}
           {view === "forecast" && <CashForecastView cf={cf} onOwe={() => setView("owe")} />}
+          {view === "weeks" && <WeekByWeekView cf={cf} />}
           {view === "owe" && <WeOweView cf={cf} onForecast={() => setView("forecast")} />}
           {view === "owed" && <MoneyOwedView key={owedGroup ?? "all"} cf={cf} initialGroup={owedGroup} />}
           {view === "fees" && <TermFeesView cf={cf} onOwed={() => { setOwedGroup("Academy families"); setView("owed"); }} />}

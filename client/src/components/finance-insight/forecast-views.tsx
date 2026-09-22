@@ -16,7 +16,18 @@ import { fmt } from "@/lib/finance-insight-engine";
 
 export type Case = "base" | "worse" | "better";
 export interface CfNode { label: string; basis: string; note: string; vals: Record<Case, number[]>; kids: CfNode[] }
-export interface CfWeek { from: string; to: string; base: { in: number; out: number; cum: number }; worse: { in: number; out: number; cum: number }; better: { in: number; out: number; cum: number } }
+export interface CfLine { label: string; who?: string; side: "in" | "out"; amount: number; basis: string; day: string }
+/** A leaf on its own says "take-home pay" and never whose — `who` is its path down the tree. Show the named parent as the
+ *  headline when there is one (a person, a programme), otherwise the leaf's own label. */
+export const lineName = (l: CfLine) => {
+  const parts = (l.who ?? "").split(" · ").filter(Boolean);
+  const last = parts[parts.length - 1] ?? "";
+  return parts.length > 1 ? { top: last, sub: l.label } : { top: l.label, sub: last };
+};
+export interface CfWeekCase { in: number; out: number; cum: number; lines?: CfLine[] }
+export interface CfWeek { from: string; to: string; base: CfWeekCase; worse: CfWeekCase; better: CfWeekCase }
+export interface CfActualLine { who: string; account: string; amount: number; n: number; side: "in" | "out"; brand?: string; rollup?: boolean }
+export interface CfActualWeek { from: string; to: string; in: number; out: number; detail: boolean; lines: CfActualLine[] }
 export interface CfReceivable { invoice: string; invoiceId: string; contact: string; group: string; date: string; due: string; daysOverdue: number; amount: number; reference: string; accounts: string[] }
 export interface CfProgramme {
   name: string; t3Invoiced: number; t3Card: number; t3Book: number; t3Unpaid: number; ratio: number; cardShare: number;
@@ -36,6 +47,7 @@ export interface CashForecast {
   receivables: CfReceivable[]; receivablesTotal: number;
   withSiu?: { tree: CfNode; results: Record<Case, { in: number; out: number; net: number; low: number; lowWeek: number }>; weeks: CfWeek[]; preSeasonStart: string; paydays: string[]; basis: string[] };
   owed?: CfOwed[]; owedTotal?: number; owedNotInForecast?: number;
+  actualWeeks?: CfActualWeek[]; actualFrom?: string; actualTo?: string; accounts?: Record<string, string>;
   termFees: { programmes: CfProgramme[]; t3Book: number; t3Xero: number; t3CardOnly: number; t3ClubOSAlone: number; invoiceAssumption: string };
   bounced: { date: string; payee: string; amount: number }[];
 }
@@ -66,6 +78,7 @@ function Missing() {
 export function CashForecastView({ cf, onOwe }: { cf?: CashForecast; onOwe?: () => void }) {
   const [kase, setKase] = useState<Case>("base");
   const [siu, setSiu] = useState(false);
+  const [openWeek, setOpenWeek] = useState<number | null>(null);
   const lsKey = cf ? `fi-bank-balance-${cf.asOf}` : "";
   const xeroBal = cf?.bankPosition ? Object.values(cf.bankPosition.accounts).reduce((a, b) => a + b, 0) : null;
   const [typed, setTyped] = useState<string>(() => { try { return lsKey ? localStorage.getItem(lsKey) ?? "" : ""; } catch { return ""; } });
@@ -127,7 +140,11 @@ export function CashForecastView({ cf, onOwe }: { cf?: CashForecast; onOwe?: () 
         <Stat label={balance !== null ? "Lowest bank balance" : "Lowest point vs today"} v={balance !== null ? lowest! : Math.min(0, ...running)} colour sub={`week of ${short(lowWeek.from)}`} />
       </div>
 
-      <WeekChart weeks={WEEKS} kase={kase} balance={balance} />
+      <WeekChart weeks={WEEKS} kase={kase} balance={balance} onPick={(i) => setOpenWeek(i === openWeek ? null : i)} picked={openWeek} />
+      {openWeek !== null && WEEKS[openWeek] && (
+        <WeekBreakdown week={WEEKS[openWeek]} lines={(cf.weeks[openWeek]?.[kase].lines ?? []).concat(withSiu ? cf.withSiu!.weeks[openWeek]?.[kase].lines ?? [] : [])}
+                       kase={kase} onClose={() => setOpenWeek(null)} />
+      )}
 
       {cf.bounced.length > 0 && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-[13px]">
@@ -180,7 +197,7 @@ function Stat({ label, v, colour, sub }: { label: string; v: number; colour?: bo
   );
 }
 
-function WeekChart({ weeks, kase, balance }: { weeks: CfWeek[]; kase: Case; balance: number | null }) {
+function WeekChart({ weeks, kase, balance, onPick, picked }: { weeks: CfWeek[]; kase: Case; balance: number | null; onPick?: (i: number) => void; picked?: number | null }) {
   const [hov, setHov] = useState<number | null>(null);
   // drawn at the box's REAL width so the labels are true-size on a phone (a 960-wide viewBox shrunk to 350px made them 4px)
   const box = useRef<HTMLDivElement>(null); const [Wd, setWd] = useState(960);
@@ -196,9 +213,10 @@ function WeekChart({ weeks, kase, balance }: { weeks: CfWeek[]; kase: Case; bala
   const lab = balance !== null ? "bank balance" : "running total from today";
   return (
     <div ref={box} className="relative rounded-xl border bg-card p-3 shadow-sm" data-testid="cf-chart">
-      <div className="mb-1 flex flex-wrap items-center gap-4 px-1 text-[11px] text-muted-foreground"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />money in</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" />money out</span><span><i className="mr-1 inline-block h-0.5 w-4 bg-sky-700 align-middle" />{lab}</span><span className="ml-auto">week by week · tap a week</span></div>
+      <div className="mb-1 flex flex-wrap items-center gap-4 px-1 text-[11px] text-muted-foreground"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />money in</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" />money out</span><span><i className="mr-1 inline-block h-0.5 w-4 bg-sky-700 align-middle" />{lab}</span><span className="ml-auto">{onPick ? "week by week · tap a week to open it" : "week by week"}</span></div>
       <svg viewBox={`0 0 ${Wd} ${H}`} className="w-full" onMouseLeave={() => setHov(null)}>
         {tv.map((v, i) => <g key={i}><line x1={P.l} x2={Wd - P.r} y1={y(v)} y2={y(v)} stroke="#e5e7eb" /><text x={P.l - 6} y={y(v) + 4} textAnchor="end" fontSize="11" fill="#6b7280">{fmt(v / 1000)}k</text></g>)}
+        {picked !== null && picked !== undefined && <rect x={x(picked)} y={P.t} width={cw} height={ih} fill="#0369a1" opacity="0.10" />}
         {hov !== null && <rect x={x(hov)} y={P.t} width={cw} height={ih} fill="#0ea5e9" opacity="0.08" />}
         <line x1={P.l} x2={Wd - P.r} y1={y0} y2={y0} stroke="#9ca3af" />
         {W.map((w, i) => <g key={w.from}>
@@ -208,7 +226,7 @@ function WeekChart({ weeks, kase, balance }: { weeks: CfWeek[]; kase: Case; bala
         </g>)}
         <path d={line.map((v, i) => `${i ? "L" : "M"}${cx(i)},${y(v)}`).join(" ")} fill="none" stroke="#0369a1" strokeWidth="2.5" />
         {line.map((v, i) => <circle key={i} cx={cx(i)} cy={y(v)} r={hov === i ? 5 : 3} fill={v < 0 ? "#b91c1c" : "#0369a1"} />)}
-        {W.map((w, i) => <rect key={`h${w.from}`} x={x(i)} y={P.t} width={cw} height={ih + P.b} fill="transparent" onMouseEnter={() => setHov(i)} onTouchStart={() => setHov(hov === i ? null : i)} style={{ cursor: "crosshair" }} />)}
+        {W.map((w, i) => <rect key={`h${w.from}`} x={x(i)} y={P.t} width={cw} height={ih + P.b} fill="transparent" onMouseEnter={() => setHov(i)} onTouchStart={() => setHov(hov === i ? null : i)} onClick={() => onPick?.(i)} style={{ cursor: onPick ? "pointer" : "crosshair" }}><title>{`open ${short(w.from)}`}</title></rect>)}
       </svg>
       {hov !== null && (
         <div className="pointer-events-none absolute z-10 w-60 rounded-lg border bg-white p-3 text-[12px] shadow-lg" style={{ left: `min(max(${(cx(hov) / Wd) * 100}% - 7.5rem, 0.5rem), calc(100% - 15.5rem))`, top: "2.5rem" }}>
@@ -219,6 +237,135 @@ function WeekChart({ weeks, kase, balance }: { weeks: CfWeek[]; kase: Case; bala
     </div>
   );
 }
+
+/** One week opened up: every line of money in and money out, forecast or actual. */
+function LineList({ title, rows, total, tone: t }: { title: string; rows: { key: string; left: string; right?: string; amount: number; badge?: string }[]; total: number; tone: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-baseline justify-between gap-2"><span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</span><span className={`text-sm font-semibold tabular-nums ${t}`}>{fmt(total)}</span></div>
+      {rows.length === 0 ? <p className="text-[12px] text-muted-foreground">nothing</p> : (
+        <ul className="divide-y rounded-lg border bg-card">
+          {rows.map((r) => (
+            <li key={r.key} className="flex items-start justify-between gap-3 px-3 py-1.5 text-[12.5px]">
+              <span className="min-w-0"><span className="break-words">{r.left}</span>{r.badge && <span className={`ml-1.5 inline-block rounded border px-1 py-px align-middle text-[9px] font-semibold tracking-wide ${BASIS_STYLE[r.badge] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>{r.badge}</span>}{r.right && <span className="block text-[11px] text-muted-foreground">{r.right}</span>}</span>
+              <span className="shrink-0 tabular-nums">{fmt(Math.abs(r.amount), 2)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+function WeekBreakdown({ week, lines, kase, onClose }: { week: CfWeek; lines: CfLine[]; kase: Case; onClose: () => void }) {
+  const ins = lines.filter((l) => l.amount > 0), outs = lines.filter((l) => l.amount < 0);
+  const row = (l: CfLine, i: number) => { const n = lineName(l); return { key: `${l.label}-${l.day}-${i}`, left: n.top, right: [dayLabel(l.day), n.sub].filter(Boolean).join(" · "), amount: l.amount, badge: l.basis }; };
+  return (
+    <div className="rounded-xl border-2 border-sky-200 bg-sky-50/40 p-4" data-testid="cf-week">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div><span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Forecast week · {CASES.find((c) => c.k === kase)!.label.toLowerCase()} case</span>
+          <h3 className="text-base font-semibold">{dayLabel(week.from)} – {dayLabel(week.to)}</h3></div>
+        <div className="flex items-center gap-3 text-sm"><span className="tabular-nums text-emerald-700">in {fmt(week[kase].in)}</span><span className="tabular-nums text-rose-700">out {fmt(week[kase].out)}</span><span className={`font-semibold tabular-nums ${tone(week[kase].in + week[kase].out)}`}>net {fmt(week[kase].in + week[kase].out)}</span>
+          <button onClick={onClose} className="min-h-[32px] rounded-md border bg-white px-2.5 text-xs">close</button></div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <LineList title={`Money in · ${ins.length} line${ins.length === 1 ? "" : "s"}`} rows={ins.map(row)} total={week[kase].in} tone="text-emerald-700" />
+        <LineList title={`Money out · ${outs.length} line${outs.length === 1 ? "" : "s"}`} rows={outs.map(row)} total={week[kase].out} tone="text-rose-700" />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================================================================
+// WEEK BY WEEK — the weeks already gone (what actually moved) and the weeks ahead (what is forecast), each one opens up
+// =====================================================================================================================
+const span = (a: string, b: string) => (a === b ? dayLabel(a) : `${dayLabel(a)} – ${dayLabel(b)}`);
+/** The head of one week row. Date and net on top, in/out beneath — three figures and a date do not fit 390px on one line. */
+function WeekRowHead({ from, to, mIn, mOut, note, open, canOpen }: { from: string; to: string; mIn: number; mOut: number; note: string; open: boolean; canOpen: boolean }) {
+  return (
+    <>
+      <span className="flex items-center gap-2">
+        <span className="w-3 shrink-0 text-muted-foreground">{canOpen ? (open ? "−" : "+") : ""}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">{span(from, to)}</span>
+        <span className={`shrink-0 text-[13px] font-semibold tabular-nums ${tone(mIn + mOut)}`}>{fmt(mIn + mOut)}</span>
+      </span>
+      <span className="mt-0.5 flex items-center gap-3 pl-5 text-[11.5px] tabular-nums text-muted-foreground">
+        <span className="text-emerald-700">in {fmt(mIn)}</span>
+        <span className="text-rose-700">out {fmt(mOut)}</span>
+        <span>{note}</span>
+      </span>
+    </>
+  );
+}
+export function WeekByWeekView({ cf }: { cf?: CashForecast }) {
+  const [kase, setKase] = useState<Case>("base");
+  const [cufcOnly, setCufcOnly] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
+  if (!cf) return <Missing />;
+  const actual = (cf.actualWeeks ?? []).slice().reverse();                 // newest first — last week is what a person looks at
+  const keep = (l: CfActualLine) => !cufcOnly || !l.brand;                 // brand is only set when it is NOT plain CUFC (SIU, donations)
+  const money2 = (w: CfActualWeek, side: "in" | "out") => money2sum(w.lines.filter((l) => l.side === side && keep(l)));
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold tracking-tight">Week by week — what moved, and what is coming</h2>
+          <p className="text-[13px] text-muted-foreground">Open any week to see every line in it. The weeks up to {cf.actualTo ? short(cf.actualTo) : "today"} are what ACTUALLY moved through the bank (Xero); the weeks after are the forecast.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setCufcOnly((v) => !v)} className={`min-h-[36px] rounded-md border px-3 text-sm ${cufcOnly ? "border-slate-800 bg-slate-800 text-white" : "hover:bg-muted"}`}>{cufcOnly ? "✓ CUFC only" : "Everything (incl. SIU + donations)"}</button>
+          <div className="flex rounded-md border p-1 text-sm">{CASES.map((c) => <button key={c.k} onClick={() => setKase(c.k)} title={c.hint} className={`min-h-[36px] rounded px-3 ${kase === c.k ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{c.label}</button>)}</div>
+        </div>
+      </div>
+
+      <section data-testid="wk-forecast">
+        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ahead — forecast</h3>
+        <div className="divide-y overflow-hidden rounded-xl border bg-card shadow-sm">
+          {cf.weeks.map((w, i) => {
+            const id = `f${w.from}`; const isOpen = open === id; const c = w[kase];
+            const lines = c.lines ?? [];
+            return (
+              <div key={id}>
+                <button onClick={() => setOpen(isOpen ? null : id)} className="block w-full px-3 py-2 text-left hover:bg-muted/40">
+                  <WeekRowHead from={w.from} to={w.to} mIn={c.in} mOut={c.out} note={`${lines.length} lines`} open={isOpen} canOpen />
+                </button>
+                {isOpen && <div className="grid gap-4 border-t bg-muted/20 p-3 md:grid-cols-2">
+                  <LineList title="Money in" rows={lines.filter((l) => l.amount > 0).map((l, j) => fcRow(l, j))} total={c.in} tone="text-emerald-700" />
+                  <LineList title="Money out" rows={lines.filter((l) => l.amount < 0).map((l, j) => fcRow(l, j))} total={c.out} tone="text-rose-700" />
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section data-testid="wk-actual">
+        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gone — what actually moved{cufcOnly ? ", CUFC only" : ""}</h3>
+        <div className="divide-y overflow-hidden rounded-xl border bg-card shadow-sm">
+          {actual.map((w) => {
+            const id = `a${w.from}`; const isOpen = open === id;
+            const ins = money2(w, "in"), outs = money2(w, "out");
+            const rows = w.lines.filter(keep);
+            return (
+              <div key={id}>
+                <button onClick={() => w.detail && setOpen(isOpen ? null : id)} className={`block w-full px-3 py-2 text-left ${w.detail ? "hover:bg-muted/40" : "cursor-default opacity-70"}`}>
+                  <WeekRowHead from={w.from} to={w.to} mIn={cufcOnly && w.detail ? ins : w.in} mOut={cufcOnly && w.detail ? outs : w.out}
+                               note={w.detail ? `${rows.length} lines` : "totals only"} open={isOpen} canOpen={w.detail} />
+                </button>
+                {isOpen && <div className="grid gap-4 border-t bg-muted/20 p-3 md:grid-cols-2">
+                  <LineList title="Money in" rows={rows.filter((l) => l.side === "in").map((l, j) => ({ key: `${l.who}${l.account}${j}`, left: l.who + (l.n > 1 ? ` · ${l.n} payments` : ""), right: [cf.accounts?.[l.account] ?? l.account, l.brand].filter(Boolean).join(" · "), amount: l.amount }))} total={ins} tone="text-emerald-700" />
+                  <LineList title="Money out" rows={rows.filter((l) => l.side === "out").map((l, j) => ({ key: `${l.who}${l.account}${j}`, left: l.who + (l.n > 1 ? ` · ${l.n} payments` : ""), right: [cf.accounts?.[l.account] ?? l.account, l.brand].filter(Boolean).join(" · "), amount: l.amount }))} total={outs} tone="text-rose-700" />
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[12px] text-muted-foreground">Actuals come from the Xero bank feed and the sales invoices, grouped by payer and account inside each week — a week of card purchases from one shop is one line with a count. Weeks older than six months keep their totals only. Anything under $50 is rolled into "smaller items".</p>
+      </section>
+    </div>
+  );
+}
+const fcRow = (l: CfLine, j: number) => { const n = lineName(l); return { key: `${l.label}${j}`, left: n.top, right: [dayLabel(l.day), n.sub].filter(Boolean).join(" · "), amount: l.amount, badge: l.basis }; };
+const money2sum = (rows: CfActualLine[]) => Math.round(rows.reduce((a, r) => a + r.amount, 0) * 100) / 100;
 
 const BASIS_STYLE: Record<string, string> = { COMMITTED: "border-sky-300 bg-sky-50 text-sky-800", REPEATING: "border-slate-300 bg-slate-50 text-slate-700", ESTIMATE: "border-amber-300 bg-amber-50 text-amber-800", ASSUMPTION: "border-rose-300 bg-rose-50 text-rose-800" };
 function Tree({ cf, kase, tree }: { cf: CashForecast; kase: Case; tree: CfNode }) {

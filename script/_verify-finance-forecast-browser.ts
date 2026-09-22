@@ -96,6 +96,30 @@ async function main() {
       ok(`${vp.label}: Term fees shows the book by programme, card and invoice`, fees);
       overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth); ok(`${vp.label}: Term fees — no horizontal overflow`, overflow <= 1, `${overflow}px`);
       await page.screenshot({ path: join(OUT, `${vp.label}-fees.png`) });
+      // ---- Week by week: past actuals and forecast weeks, each opening into its lines ----
+      await page.evaluate(() => (document.querySelector('[data-view="weeks"]') as HTMLButtonElement).click());
+      const wk = await page.waitForFunction(() => document.querySelectorAll('[data-testid="wk-actual"] button').length > 20 && document.querySelectorAll('[data-testid="wk-forecast"] button').length > 5, { timeout: 20000 }).then(() => true).catch(() => false);
+      ok(`${vp.label}: Week by week lists the weeks gone and the weeks ahead`, wk);
+      ok(`${vp.label}: the view is in the URL (#weeks)`, (await page.evaluate(() => location.hash)) === "#weeks");
+      // a past week opens into real payees with real account names
+      await page.evaluate(() => (document.querySelector('[data-testid="wk-actual"] button') as HTMLButtonElement).click());
+      const openedA = await page.waitForFunction(() => { const s = document.querySelector('[data-testid="wk-actual"]')!; return /MONEY IN/.test((s as HTMLElement).innerText) && s.querySelectorAll("ul li").length >= 2; }, { timeout: 15000 }).then(() => true).catch(() => false);
+      ok(`${vp.label}: a past week opens into its lines`, openedA);
+      // and a forecast week opens into named lines, not bare leaf labels ("take-home pay" with nobody's name)
+      await page.evaluate(() => (document.querySelector('[data-testid="wk-forecast"] button') as HTMLButtonElement).click());
+      const openedF = await page.waitForFunction(() => { const s = document.querySelector('[data-testid="wk-forecast"]')!; return s.querySelectorAll("ul li").length >= 2; }, { timeout: 15000 }).then(() => true).catch(() => false);
+      ok(`${vp.label}: a forecast week opens into its lines`, openedF);
+      const anon = await page.evaluate(() => { const li = Array.from(document.querySelectorAll('[data-testid="wk-forecast"] ul li')); return li.filter((l) => /^(take-home pay|fee|instalment)$/i.test(((l as HTMLElement).innerText.split("\n")[0] || "").replace(/^\w{3} \d+ \w{3} · /, "").trim())).length; });
+      ok(`${vp.label}: no forecast line is nameless`, anon === 0, `${anon} unnamed`);
+      overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth); ok(`${vp.label}: Week by week — no horizontal overflow`, overflow <= 1, `${overflow}px`);
+      await page.screenshot({ path: join(OUT, `${vp.label}-weeks.png`) });
+      // clicking a week on the forecast chart opens that week's breakdown
+      await page.evaluate(() => (document.querySelector('[data-view="forecast"]') as HTMLButtonElement).click());
+      await page.waitForSelector('[data-testid="cf-chart"]', { timeout: 15000 });
+      await page.evaluate(() => { const r = Array.from(document.querySelectorAll('[data-testid="cf-chart"] rect')).filter((x) => x.getAttribute("fill") === "transparent"); (r[6] || r[0]).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      const cw = await page.waitForFunction(() => !!document.querySelector('[data-testid="cf-week"]'), { timeout: 15000 }).then(() => true).catch(() => false);
+      ok(`${vp.label}: clicking a week on the chart opens its breakdown`, cw);
+      await page.screenshot({ path: join(OUT, `${vp.label}-week-open.png`) });
       // ---- the P&L views still work ----
       await page.evaluate(() => (document.querySelector('[data-view="overview"]') as HTMLButtonElement).click());
       const gap = await page.waitForFunction(() => /TOTAL GAP/i.test(document.body.innerText), { timeout: 15000 }).then(() => true).catch(() => false);
