@@ -160,7 +160,12 @@ export function resolveTermForSale(
       return { ok: false, reason: "ended", message: `${wanted.name} has finished. Please choose the current term.` };
     }
     if (!wanted.enrolmentOpen) {
-      return { ok: false, reason: "closed", message: `Enrolments for ${wanted.name} aren't open yet.` };
+      // A term can be closed before it starts or while it runs out — "not
+      // open yet" is only true of the first.
+      const message = termStatus(wanted, todayIso) === "upcoming"
+        ? `Enrolments for ${wanted.name} aren't open yet.`
+        : `Enrolments for ${wanted.name} have closed. Please choose the next term.`;
+      return { ok: false, reason: "closed", message };
     }
     return { ok: true, term: wanted };
   }
