@@ -79,6 +79,29 @@ async function main() {
     good("every bookable option maps to real classes");
   }
 
+  // 🔴 The class times a parent picks from. The website keeps its own list
+  // (`times`) and the server accepts only a choice that runs in the term being
+  // bought — so a website offering a class the timetable does not have is a
+  // parent who fills in the whole form and is refused at the last step.
+  // Checked for every term that can be SOLD today, because the website shows
+  // one list: two open terms with different timetables fail here on purpose.
+  const { optionTimes } = await import("../shared/cugc-classes");
+  const selling = mine.sellableTerms();
+  const beforeTimes = fail;
+  for (const t of selling) {
+    for (const p of mineProgs.filter((x) => !x.inviteOnly)) {
+      for (const o of p.options) {
+        const want = optionTimes(p.slug, o.label, t.id).join(" · ");
+        const serverSays = o.times.join(" · ");
+        const site = (theirProgs as any[]).find((x) => x.slug === p.slug)?.options?.find((x: any) => x.label === o.label);
+        const siteSays = (site?.times ?? []).join(" · ");
+        if (serverSays !== want) bad(`${t.name} ${p.slug} "${o.label}": ClubOS lists [${serverSays}] but the timetable runs [${want}]`);
+        if (siteSays !== want) bad(`${t.name} ${p.slug} "${o.label}": the website offers [${siteSays}] but the timetable runs [${want}]`);
+      }
+    }
+  }
+  if (fail === beforeTimes) good(`class times match the timetable for ${selling.map((t) => t.name).join(", ") || "no open term"}`);
+
   console.log(fail ? `\n${fail} problem(s). Fix before deploying.\n` : "\nAll good.\n");
   process.exit(fail ? 1 : 0);
 }

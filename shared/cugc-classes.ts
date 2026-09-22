@@ -6,13 +6,18 @@
 // things and the gap between them is where the roll had to start:
 //
 //   🔴 One option attends MORE THAN ONE class. "Ages 5–7 · twice a week" is
-//      stored on the registration as the single string "Tuesday + Saturday",
+//      stored on the registration as a single string like "Tuesday + Saturday",
 //      which is not the name of any class. That child belongs on two rolls, and
 //      a roll built by matching the stored string to a class label would have
 //      silently left them off both.
 //
+//   🔴 The timetable CHANGES BY TERM. Every class carries the terms it runs
+//      in, and every question ("which classes", "what can I pick", "which roll
+//      is this child on") is asked of one term.
+//
 //   🔴 One option offers a CHOICE of classes. GymPlay's "1–2 sessions per week"
-//      names three; the family picked one and it is stored. A child whose pick
+//      named three in Term 3 and six in Term 4; the family picks one and it is
+//      stored. A child whose pick
 //      was never recorded (one live row, 2026-09-20) is on NO roll — they are
 //      an unanswered question, not a child who attends all three. The tab shows
 //      them by name so somebody can ask.
@@ -31,6 +36,16 @@ export type CugcClass = {
   /** 24-hour "HH:MM", for ordering a day's classes. */
   start: string;
   end: string;
+  /** The terms this class runs in, by term id (`shared/cugc-terms.ts`).
+   *
+   *  🔴 REQUIRED, and never "every term" by omission. The timetable changes
+   *  term to term — Term 4 2026 added four GymPlay days and a Thursday
+   *  GymBasics and dropped the Saturday 10:30 GymPlay — and a class assumed to
+   *  run in a term it never ran in shows on that term's roll as a class nobody
+   *  marked: red, "past and not taken", for a session that never happened.
+   *  A new term therefore starts with NO classes until a human writes them
+   *  down, and `check:cugc-terms` fails until they do. */
+  terms: string[];
 };
 
 export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -38,49 +53,91 @@ export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thurs
 /**
  * The timetable, per programme slug.
  *
- * Every entry is transcribed from the live cugc.co.nz option times — none is
- * invented. **Competitive Stream is deliberately absent**: its published times
- * read "Thursday" and "Tuesday or Thursday, + Saturday", and an "or" is not a
- * timetable. It is invite-only, has never sold through this flow and has zero
- * registrations, so it simply does not appear on the roll until a human writes
+ * Every entry is transcribed from the club's own term sheet — none is invented.
+ * Term 3 2026 from the live cugc.co.nz option times; Term 4 2026 from the
+ * club's email "Gymnastics sessions - to open for registration for Term 4"
+ * (22 Sep 2026). **Competitive Stream is deliberately absent**: its published
+ * times read "Thursday" and "Tuesday or Thursday, + Saturday", and an "or" is
+ * not a timetable. It is invite-only, has never sold through this flow and has
+ * zero registrations, so it does not appear on the roll until a human writes
  * its real classes down.
+ *
+ * 🔴 A class that stops running is RETIRED by narrowing its `terms`, never
+ * deleted: its id is on every attendance row ever taken for it.
  */
+const T3 = "t3-2026";
+const T4 = "t4-2026";
+
 export const CUGC_CLASSES: Record<string, CugcClass[]> = {
   gymplay: [
-    { id: "gymplay-wed-1600", label: "Wednesday 4:00–4:45pm", weekday: 3, start: "16:00", end: "16:45" },
-    { id: "gymplay-sat-0930", label: "Saturday 9:30–10:15am", weekday: 6, start: "09:30", end: "10:15" },
-    { id: "gymplay-sat-1030", label: "Saturday 10:30–11:15am", weekday: 6, start: "10:30", end: "11:15" },
+    { id: "gymplay-mon-1530", label: "Monday 3:30–4:15pm", weekday: 1, start: "15:30", end: "16:15", terms: [T4] },
+    { id: "gymplay-tue-1600", label: "Tuesday 4:00–4:45pm", weekday: 2, start: "16:00", end: "16:45", terms: [T4] },
+    { id: "gymplay-wed-1600", label: "Wednesday 4:00–4:45pm", weekday: 3, start: "16:00", end: "16:45", terms: [T3, T4] },
+    { id: "gymplay-thu-1545", label: "Thursday 3:45–4:30pm", weekday: 4, start: "15:45", end: "16:30", terms: [T4] },
+    { id: "gymplay-fri-1600", label: "Friday 4:00–4:45pm", weekday: 5, start: "16:00", end: "16:45", terms: [T4] },
+    { id: "gymplay-sat-0930", label: "Saturday 9:30–10:15am", weekday: 6, start: "09:30", end: "10:15", terms: [T3, T4] },
+    // Not on the Term 4 sheet.
+    { id: "gymplay-sat-1030", label: "Saturday 10:30–11:15am", weekday: 6, start: "10:30", end: "11:15", terms: [T3] },
   ],
   gymbasics: [
-    { id: "gymbasics-tue-1600", label: "Tuesday 4:00–5:30pm", weekday: 2, start: "16:00", end: "17:30" },
-    { id: "gymbasics-sat-0900", label: "Saturday 9:00–10:30am", weekday: 6, start: "09:00", end: "10:30" },
-    { id: "gymbasics-fri-1600", label: "Friday 4:00–5:00pm", weekday: 5, start: "16:00", end: "17:00" },
+    { id: "gymbasics-tue-1600", label: "Tuesday 4:00–5:30pm", weekday: 2, start: "16:00", end: "17:30", terms: [T3, T4] },
+    { id: "gymbasics-thu-1600", label: "Thursday 4:00–5:30pm", weekday: 4, start: "16:00", end: "17:30", terms: [T4] },
+    { id: "gymbasics-sat-0900", label: "Saturday 9:00–10:30am", weekday: 6, start: "09:00", end: "10:30", terms: [T3, T4] },
+    // The Term 3 8+ class. From Term 4 the same Friday slot is its own
+    // programme, GymSkills 8+ — a new class id so each term's roll files
+    // under the programme it was sold as.
+    { id: "gymbasics-fri-1600", label: "Friday 4:00–5:00pm", weekday: 5, start: "16:00", end: "17:00", terms: [T3] },
+  ],
+  gymskills: [
+    { id: "gymskills-fri-1600", label: "Friday 4:00–5:00pm", weekday: 5, start: "16:00", end: "17:00", terms: [T4] },
   ],
 };
 
 /**
  * Which classes each purchasable option covers, keyed `"<slug>|<option label>"`.
  *
- * `attendsAll` is the distinction the stored string cannot make on its own:
- * true means the option attends EVERY class named (a twice-a-week place),
- * false means the family picks one of them.
+ * `perWeek` is how many of those classes a family CHOOSES:
+ *   1 → pick one (GymPlay, GymBasics once a week, GymSkills);
+ *   2 → pick two different days (GymBasics twice a week).
+ *
+ * 🔴 The choices are DERIVED per term from the classes that actually run in
+ * it, never listed by hand. In Term 3 GymBasics ran Tuesday and Saturday, so
+ * "twice a week" had exactly one choice ("Tuesday + Saturday") and a blank was
+ * unambiguous. Term 4 added Thursday, so it has three — and the old rule
+ * ("twice a week attends everything named") would have put a Tuesday +
+ * Thursday child on all three rolls.
+ *
+ * GymPlay's option is called "1–2 sessions per week" but the enrol form has
+ * always recorded ONE chosen class, so it is `perWeek: 1` — a second weekly
+ * session is arranged with the club, not through checkout.
+ *
+ * Keys for options no longer sold ("gymbasics|Ages 8+ · once a week") STAY:
+ * every Term 3 registration that bought one still needs its roll.
  */
-export const CUGC_OPTION_CLASSES: Record<string, { classIds: string[]; attendsAll: boolean }> = {
+export const CUGC_OPTION_CLASSES: Record<string, { classIds: string[]; perWeek: 1 | 2 }> = {
   "gymplay|1–2 sessions per week": {
-    classIds: ["gymplay-wed-1600", "gymplay-sat-0930", "gymplay-sat-1030"],
-    attendsAll: false,
+    classIds: [
+      "gymplay-mon-1530", "gymplay-tue-1600", "gymplay-wed-1600", "gymplay-thu-1545",
+      "gymplay-fri-1600", "gymplay-sat-0930", "gymplay-sat-1030",
+    ],
+    perWeek: 1,
   },
   "gymbasics|Ages 5–7 · once a week": {
-    classIds: ["gymbasics-tue-1600", "gymbasics-sat-0900"],
-    attendsAll: false,
+    classIds: ["gymbasics-tue-1600", "gymbasics-thu-1600", "gymbasics-sat-0900"],
+    perWeek: 1,
   },
   "gymbasics|Ages 5–7 · twice a week": {
-    classIds: ["gymbasics-tue-1600", "gymbasics-sat-0900"],
-    attendsAll: true,
+    classIds: ["gymbasics-tue-1600", "gymbasics-thu-1600", "gymbasics-sat-0900"],
+    perWeek: 2,
   },
+  // Term 3 only — sold as GymSkills from Term 4.
   "gymbasics|Ages 8+ · once a week": {
     classIds: ["gymbasics-fri-1600"],
-    attendsAll: false,
+    perWeek: 1,
+  },
+  "gymskills|Once a week": {
+    classIds: ["gymskills-fri-1600"],
+    perWeek: 1,
   },
 };
 
@@ -96,22 +153,65 @@ export function classById(id: string): CugcClass | null {
   return null;
 }
 
-/** Every class that runs, ordered by day then start time. */
-export function allClasses(): (CugcClass & { programSlug: string })[] {
+export function classRunsInTerm(c: CugcClass, termId: string): boolean {
+  return c.terms.includes(termId);
+}
+
+/** Every class, ordered by day then start time — only those running in
+ *  `termId` when one is given. */
+export function allClasses(termId?: string): (CugcClass & { programSlug: string })[] {
   return Object.entries(CUGC_CLASSES)
     .flatMap(([programSlug, list]) => list.map((c) => ({ ...c, programSlug })))
+    .filter((c) => !termId || classRunsInTerm(c, termId))
     .sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start) || a.id.localeCompare(b.id));
 }
 
-/** The timetable strings for an option — derived, so the roll and the page a
- *  family reads can never describe different classes. */
-export function optionTimes(programSlug: string, optionLabel: string): string[] {
+export type OptionChoice = {
+  /** What the family picks and what is stored as `session_time`. */
+  label: string;
+  classIds: string[];
+};
+
+/**
+ * 🔴 THE ONE DECIDER for "what can a family choose for this option in this
+ * term" — the enrol form's list, the server's check of what came back, and
+ * the roll's reading of a stored choice all come from here.
+ *
+ * A one-class choice is labelled with the class ("Tuesday 4:00–5:30pm"). A
+ * two-class choice is labelled with the two days ("Tuesday + Saturday"),
+ * which is how the club has always written it and what every Term 3
+ * twice-a-week row already stores; if two choices would share that label (two
+ * classes on one weekday) the full class labels are used instead.
+ */
+export function optionChoices(programSlug: string, optionLabel: string, termId: string): OptionChoice[] {
   const entry = CUGC_OPTION_CLASSES[optionKey(programSlug, optionLabel)];
   if (!entry) return [];
-  const labels = entry.classIds.map((id) => classById(id)?.label).filter((l): l is string => !!l);
-  // A twice-a-week place attends both, and saying so as one phrase is how the
-  // club has always written it.
-  return entry.attendsAll && labels.length > 1 ? [labels.join(" + ")] : labels;
+  const running = entry.classIds
+    .map((id) => classById(id))
+    .filter((c): c is CugcClass => !!c && classRunsInTerm(c, termId))
+    .sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+
+  if (entry.perWeek === 1) return running.map((c) => ({ label: c.label, classIds: [c.id] }));
+
+  const pairs: { a: CugcClass; b: CugcClass }[] = [];
+  for (let i = 0; i < running.length; i++) {
+    for (let j = i + 1; j < running.length; j++) {
+      // Twice a week means two DIFFERENT days.
+      if (running[i].weekday !== running[j].weekday) pairs.push({ a: running[i], b: running[j] });
+    }
+  }
+  const dayLabel = (p: { a: CugcClass; b: CugcClass }) => `${WEEKDAY_NAMES[p.a.weekday]} + ${WEEKDAY_NAMES[p.b.weekday]}`;
+  const ambiguous = new Set(pairs.map(dayLabel)).size !== pairs.length;
+  return pairs.map((p) => ({
+    label: ambiguous ? `${p.a.label} + ${p.b.label}` : dayLabel(p),
+    classIds: [p.a.id, p.b.id],
+  }));
+}
+
+/** The timetable strings for an option in a term — derived, so the roll and
+ *  the page a family reads can never describe different classes. */
+export function optionTimes(programSlug: string, optionLabel: string, termId: string): string[] {
+  return optionChoices(programSlug, optionLabel, termId).map((c) => c.label);
 }
 
 export type RollPlacement =
@@ -121,36 +221,36 @@ export type RollPlacement =
 /**
  * 🔴 THE ONE DECIDER for "which rolls is this child on".
  *
+ * Read against the term the REGISTRATION is for (the term stamped on the row),
+ * because a choice means different classes in different terms.
+ *
  * Order matters. The stored `session_time` is the family's own choice and wins
- * whenever it names a real class. Only when it does not do we fall back to what
- * the option itself implies — and only when the option leaves no room for
+ * whenever it names a real choice. Only when it does not do we fall back to
+ * what the option itself implies — and only when the option leaves no room for
  * doubt.
  */
 export function classesForRegistration(
   programSlug: string,
   optionLabel: string,
   sessionTime: string | null | undefined,
+  termId: string,
 ): RollPlacement {
-  const entry = CUGC_OPTION_CLASSES[optionKey(programSlug, optionLabel)];
-  if (!entry || entry.classIds.length === 0) return { placed: false, reason: "no-timetable", classIds: [] };
+  const choices = optionChoices(programSlug, optionLabel, termId);
+  if (choices.length === 0) return { placed: false, reason: "no-timetable", classIds: [] };
 
-  // 1. They named a class. Compare on the trimmed label — the stored strings
+  // 1. They named a choice. Compare on the trimmed label — the stored strings
   //    come from the same config, but a stray space must not lose a child.
   const named = (sessionTime ?? "").trim();
   if (named) {
-    const exact = entry.classIds.filter((id) => classById(id)?.label.trim() === named);
-    if (exact.length) return { placed: true, classIds: exact };
+    const exact = choices.find((c) => c.label.trim() === named);
+    if (exact) return { placed: true, classIds: [...exact.classIds] };
   }
 
-  // 2. The option attends everything it names ("twice a week"), so the stored
-  //    "Tuesday + Saturday" needs no parsing at all.
-  if (entry.attendsAll) return { placed: true, classIds: [...entry.classIds] };
+  // 2. There was only ever one thing to choose (a single Friday class; Term
+  //    3's "Tuesday + Saturday"), so a blank is not ambiguous.
+  if (choices.length === 1) return { placed: true, classIds: [...choices[0].classIds] };
 
-  // 3. The option covers exactly one class, so there was never a choice to make
-  //    and a blank is not ambiguous.
-  if (entry.classIds.length === 1) return { placed: true, classIds: [...entry.classIds] };
-
-  // 4. A choice existed and nobody recorded it. NOT every class — that would
+  // 3. A choice existed and nobody recorded it. NOT every class — that would
   //    invent an attendance expectation for a real child.
   return { placed: false, reason: "not-recorded", classIds: [] };
 }

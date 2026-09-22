@@ -18,7 +18,7 @@ import { readFileSync } from "fs";
 import {
   CUGC_TERMS, termStatus, isSellable, sellableTerms, defaultTerm, resolveTermForSale,
 } from "../shared/cugc-terms";
-import { classesForRegistration, classDatesInTerm, allClasses, classById } from "../shared/cugc-classes";
+import { classesForRegistration, classDatesInTerm, allClasses, classById, optionTimes } from "../shared/cugc-classes";
 import { proratedTermPrice } from "../server/cugc-pricing";
 
 const COMMIT = process.argv.includes("--commit");
@@ -76,8 +76,11 @@ async function main() {
      endedPrice.status === "ended" && endedPrice.price === 165);
   ok("on 26 Sep the only sellable term is Term 4",
      sellableTerms("2026-09-26").map((t) => t.id).join() === "t4-2026");
-  ok("today BOTH terms are sellable (Daniel's call, 2026-09-20)",
-     sellableTerms("2026-09-20").map((t) => t.id).join() === "t3-2026,t4-2026");
+  // Both terms sold from 20 Sep (Daniel's call); Term 3 was closed on 22 Sep
+  // with three days left because Term 4's timetable is different and the
+  // website shows one timetable.
+  ok("Term 3 is CLOSED to new enrolments — only Term 4 sells",
+     sellableTerms("2026-09-22").map((t) => t.id).join() === "t4-2026");
   ok("the default is the WHOLE term, not the two-week stub",
      defaultTerm("2026-09-20")?.id === "t4-2026");
 
@@ -87,26 +90,59 @@ async function main() {
   const unknown = resolveTermForSale("t9-2099", "2026-09-20");
   ok("a request naming a term that does not exist is refused", !unknown.ok && unknown.reason === "unknown");
   const legacy = resolveTermForSale(null, "2026-09-20");
-  ok("an OLD cugc.co.nz bundle (no term) still works, and means the running term",
-     legacy.ok && legacy.term.id === "t3-2026");
+  ok("an OLD cugc.co.nz bundle (no term) still works — and with Term 3 closed it buys Term 4",
+     legacy.ok && legacy.term.id === "t4-2026");
+  const closedT3 = resolveTermForSale("t3-2026", "2026-09-22");
+  ok("a request naming the closed Term 3 is refused", !closedT3.ok && closedT3.reason === "closed");
   const legacyGap = resolveTermForSale(null, "2026-10-01");
   ok("…and in the holidays it means the term about to start",
      legacyGap.ok && legacyGap.term.id === "t4-2026");
 
   console.log("\nThe roll — which classes a child is on");
-  const pick = classesForRegistration("gymplay", "1–2 sessions per week", "Wednesday 4:00–4:45pm");
+  const pick = classesForRegistration("gymplay", "1–2 sessions per week", "Wednesday 4:00–4:45pm", "t3-2026");
   ok("a family's own choice wins", pick.placed && pick.classIds.join() === "gymplay-wed-1600");
-  const twice = classesForRegistration("gymbasics", "Ages 5–7 · twice a week", "Tuesday + Saturday");
+  const twice = classesForRegistration("gymbasics", "Ages 5–7 · twice a week", "Tuesday + Saturday", "t3-2026");
   ok("'Tuesday + Saturday' puts one child on TWO rolls",
      twice.placed && twice.classIds.length === 2, twice.classIds.join(" + "));
-  const only = classesForRegistration("gymbasics", "Ages 8+ · once a week", null);
+  const twiceBlank3 = classesForRegistration("gymbasics", "Ages 5–7 · twice a week", null, "t3-2026");
+  ok("Term 3 twice-a-week had ONE possible pair, so a blank is still both rolls",
+     twiceBlank3.placed && twiceBlank3.classIds.join() === "gymbasics-tue-1600,gymbasics-sat-0900");
+  const only = classesForRegistration("gymbasics", "Ages 8+ · once a week", null, "t3-2026");
   ok("a blank is fine when the option has only one class", only.placed && only.classIds.length === 1);
-  const blank = classesForRegistration("gymplay", "1–2 sessions per week", null);
+  const blank = classesForRegistration("gymplay", "1–2 sessions per week", null, "t3-2026");
   ok("🔴 a blank with THREE classes to choose from is NOT all three",
      !blank.placed && blank.reason === "not-recorded");
-  const comp = classesForRegistration("competitive", "1× per week (2 hours)", "Thursday");
+  const comp = classesForRegistration("competitive", "1× per week (2 hours)", "Thursday", "t4-2026");
   ok("Competitive has no timetable and says so rather than guessing",
      !comp.placed && comp.reason === "no-timetable");
+
+  console.log("\nThe roll — Term 4's timetable is its own");
+  const play4 = optionTimes("gymplay", "1–2 sessions per week", "t4-2026");
+  ok("GymPlay offers SIX Term 4 classes, Monday to Saturday", play4.length === 6, play4.join(" · "));
+  ok("…and Saturday 10:30 is not one of them", !play4.includes("Saturday 10:30–11:15am"));
+  ok("Term 3's GymPlay was still Wed / Sat 9:30 / Sat 10:30",
+     optionTimes("gymplay", "1–2 sessions per week", "t3-2026").join(" · ") === "Wednesday 4:00–4:45pm · Saturday 9:30–10:15am · Saturday 10:30–11:15am");
+  const pairs4 = optionTimes("gymbasics", "Ages 5–7 · twice a week", "t4-2026");
+  ok("GymBasics twice a week is any TWO of Tue / Thu / Sat in Term 4",
+     pairs4.join(" · ") === "Tuesday + Thursday · Tuesday + Saturday · Thursday + Saturday", pairs4.join(" · "));
+  const tt = classesForRegistration("gymbasics", "Ages 5–7 · twice a week", "Tuesday + Thursday", "t4-2026");
+  ok("🔴 'Tuesday + Thursday' is on Tuesday's and Thursday's rolls and NOT Saturday's",
+     tt.placed && tt.classIds.join() === "gymbasics-tue-1600,gymbasics-thu-1600", tt.classIds.join(" + "));
+  const twiceBlank4 = classesForRegistration("gymbasics", "Ages 5–7 · twice a week", null, "t4-2026");
+  ok("🔴 a Term 4 twice-a-week blank is an unanswered question, not all three rolls",
+     !twiceBlank4.placed && twiceBlank4.reason === "not-recorded");
+  const skills = classesForRegistration("gymskills", "Once a week", null, "t4-2026");
+  ok("GymSkills 8+ (one Friday class) places a blank on its roll",
+     skills.placed && skills.classIds.join() === "gymskills-fri-1600");
+  const old8 = classesForRegistration("gymbasics", "Ages 8+ · once a week", "Friday 4:00–5:00pm", "t4-2026");
+  ok("the retired 'GymBasics 8+' option is not sellable into Term 4", !old8.placed && old8.reason === "no-timetable");
+  const t3ids = allClasses("t3-2026").map((c) => c.id);
+  ok("🔴 Term 3's roll does NOT grow Term 4's new classes (no phantom red sessions)",
+     !t3ids.some((id) => ["gymplay-mon-1530", "gymplay-tue-1600", "gymplay-thu-1545", "gymplay-fri-1600", "gymbasics-thu-1600", "gymskills-fri-1600"].includes(id)),
+     `${t3ids.length} Term 3 classes`);
+  ok("Term 4 has 10 classes on its roll", allClasses("t4-2026").length === 10, `${allClasses("t4-2026").length}`);
+  ok("every class names at least one real term",
+     allClasses().every((c) => c.terms.length > 0 && c.terms.every((t) => CUGC_TERMS.some((x) => x.id === t))));
 
   console.log("\nThe roll — session dates");
   const wed = classDatesInTerm(3, t4.start, t4.end);

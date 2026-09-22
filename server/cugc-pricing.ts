@@ -25,6 +25,15 @@ export type CugcProgram = {
 };
 
 // Mirrors apps/cugc-website/src/site.ts `programs` (slug, title, ages, options[].label/price/times).
+// `times` is what the website offers for the term being SOLD; it is checked
+// against `optionTimes()` in shared/cugc-classes.ts by `check:cugc-terms`, and
+// the enrol endpoint accepts only a choice that runs in the term being bought.
+//
+// Term 4 2026 (club email, 22 Sep): GymPlay gains Mon/Tue/Thu/Fri and loses
+// Saturday 10:30; GymBasics (now 5–7 only) gains Thursday; the Friday 8+ class
+// becomes its own programme, GymSkills 8+. Prices unchanged ("Prices are the
+// same as this term"). 🔴 Option LABELS are a contract with stored rows — the
+// roll finds a child's classes by them — so none was reworded.
 export const CUGC_PROGRAMS: CugcProgram[] = [
   {
     slug: "gymplay",
@@ -35,19 +44,30 @@ export const CUGC_PROGRAMS: CugcProgram[] = [
       {
         label: "1–2 sessions per week",
         price: 165,
-        times: ["Wednesday 4:00–4:45pm", "Saturday 9:30–10:15am", "Saturday 10:30–11:15am"],
+        times: [
+          "Monday 3:30–4:15pm", "Tuesday 4:00–4:45pm", "Wednesday 4:00–4:45pm",
+          "Thursday 3:45–4:30pm", "Friday 4:00–4:45pm", "Saturday 9:30–10:15am",
+        ],
       },
     ],
   },
   {
     slug: "gymbasics",
     title: "GymBasics",
-    ages: "5–7 & 8+ years",
+    ages: "5–7 years",
     image: "/img/program-2.jpg",
     options: [
-      { label: "Ages 5–7 · once a week", price: 250, times: ["Tuesday 4:00–5:30pm", "Saturday 9:00–10:30am"] },
-      { label: "Ages 5–7 · twice a week", price: 350, times: ["Tuesday + Saturday"] },
-      { label: "Ages 8+ · once a week", price: 195, times: ["Friday 4:00–5:00pm"] },
+      { label: "Ages 5–7 · once a week", price: 250, times: ["Tuesday 4:00–5:30pm", "Thursday 4:00–5:30pm", "Saturday 9:00–10:30am"] },
+      { label: "Ages 5–7 · twice a week", price: 350, times: ["Tuesday + Thursday", "Tuesday + Saturday", "Thursday + Saturday"] },
+    ],
+  },
+  {
+    slug: "gymskills",
+    title: "GymSkills",
+    ages: "8+ years",
+    image: "/img/club.jpg",
+    options: [
+      { label: "Once a week", price: 195, times: ["Friday 4:00–5:00pm"] },
     ],
   },
   {

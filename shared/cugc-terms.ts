@@ -46,8 +46,13 @@ export type CugcTerm = {
  * "same as Term 3" meant nothing to copy. If Term 4 ever needs its own prices
  * that is a real change here, not a number typed into a page.
  */
+//
+// Term 3 enrolment CLOSED 2026-09-22 with three days of term left: Term 4's
+// timetable is different (new days, a dropped Saturday class), the website
+// shows one timetable, and selling a last-week Term 3 place beside it would
+// have shown a parent Term 4's times for a Term 3 class.
 export const CUGC_TERMS: CugcTerm[] = [
-  { id: "t3-2026", name: "Term 3 2026", start: "2026-07-20", end: "2026-09-25", weeks: 10, enrolmentOpen: true },
+  { id: "t3-2026", name: "Term 3 2026", start: "2026-07-20", end: "2026-09-25", weeks: 10, enrolmentOpen: false },
   { id: "t4-2026", name: "Term 4 2026", start: "2026-10-12", end: "2026-12-18", weeks: 10, enrolmentOpen: true },
 ];
 

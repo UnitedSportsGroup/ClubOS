@@ -48,7 +48,7 @@ import {
   CUGC_TERMS, resolveTermForSale, termStatus, isSellable, defaultTerm,
   termByName, termWindowLabel, type CugcTerm,
 } from "@shared/cugc-terms";
-import { allClasses, classById, classesForRegistration, classDatesInTerm, CUGC_CLASSES } from "@shared/cugc-classes";
+import { allClasses, classById, classesForRegistration, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
 import * as splitPay from "./split-pay";
 import { markInvoicePaidByPaymentIntent } from "./invoice-routes";
 import * as rewards from "./rewards";
@@ -24721,6 +24721,22 @@ export async function registerRoutes(
 
       const { program, option, pricing } = priced;
 
+      // 🔴 The class they picked must run in the term they are buying. The
+      // browser used to send any string and it was stored unchecked — a stale
+      // page still offering Saturday 10:30 (not on the Term 4 timetable) would
+      // have taken money for a class that does not exist. Refused BEFORE any
+      // Stripe intent, like every other check here. An option with no
+      // timetable (invite-only Competitive) is left as it was.
+      const sessionTime = String(req.body.sessionTime || "").trim();
+      const choices = optionChoices(program.slug, option.label, sellingTerm.id);
+      if (choices.length && !choices.some((c) => c.label === sessionTime)) {
+        return res.status(400).json({
+          message: sessionTime
+            ? `${sessionTime} isn't on the ${sellingTerm.name} timetable. Please refresh the page and choose a class time again.`
+            : "Please choose a class time.",
+        });
+      }
+
       // Optional discount code (server-side list — see cugc-pricing.ts). An
       // unknown code is rejected loudly rather than silently charging full price.
       const discountCode = String(req.body.discountCode || "").trim().toUpperCase();
@@ -24743,7 +24759,7 @@ export async function registerRoutes(
         programSlug: program.slug,
         programName: program.title,
         optionLabel: option.label,
-        sessionTime: String(req.body.sessionTime || "").trim() || null,
+        sessionTime: sessionTime || null,
         priceCents,
         fullPriceCents,
         term: termName,
@@ -25097,7 +25113,7 @@ export async function registerRoutes(
       const onClass = new Map<string, number>();
       const unplaced: { id: number; name: string; programName: string; optionLabel: string; reason: string }[] = [];
       for (const r of paid) {
-        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime);
+        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id);
         if (!placement.placed) {
           unplaced.push({
             id: r.id, name: r.gymnastName, programName: r.programName, optionLabel: r.optionLabel,
@@ -25119,7 +25135,10 @@ export async function registerRoutes(
         ));
       const markedOn = new Set(marks.map((m) => `${m.classId}|${m.sessionDate}`));
 
-      const classes = allClasses().map((c) => {
+      // Only the classes that RAN in this term. A class added in Term 4 must
+      // not appear on Term 3's roll as a red "past and not taken" session
+      // that never happened.
+      const classes = allClasses(term.id).map((c) => {
         const dates = classDatesInTerm(c.weekday, term.start, term.end).map((date) => ({
           date,
           // 🔴 "Taken" means somebody marked SOMEBODY — never that anyone was
@@ -25153,6 +25172,9 @@ export async function registerRoutes(
 
       const term = cugcTermForDate(date);
       if (!term) return res.status(400).json({ message: "That date isn't inside a term." });
+      if (!classRunsInTerm(klass, term.id)) {
+        return res.status(400).json({ message: `${klass.label} doesn't run in ${term.name}.` });
+      }
       // A class only runs on its own weekday. Without this a URL could invent a
       // Tuesday session for a Saturday class and take a roll on it.
       if (!classDatesInTerm(klass.weekday, term.start, term.end).includes(date)) {
@@ -25163,7 +25185,7 @@ export async function registerRoutes(
         .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
       const expected = regos
         .filter((r) => CUGC_ON_ROLL.includes(r.status))
-        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime).classIds.includes(klass.id));
+        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id));
 
       const marks = expected.length
         ? await db.select().from(cugcAttendance).where(and(
@@ -25224,7 +25246,7 @@ export async function registerRoutes(
       if (!klass) return res.status(404).json({ message: "No such class." });
       const date = String(req.params.date).slice(0, 10);
       const term = cugcTermForDate(date);
-      if (!term || !classDatesInTerm(klass.weekday, term.start, term.end).includes(date)) {
+      if (!term || !classRunsInTerm(klass, term.id) || !classDatesInTerm(klass.weekday, term.start, term.end).includes(date)) {
         return res.status(400).json({ message: "That class doesn't run on that date." });
       }
 
@@ -25240,7 +25262,7 @@ export async function registerRoutes(
       if (!rego) return res.status(404).json({ message: "No such enrolment." });
       if (rego.term !== term.name) return res.status(400).json({ message: "That enrolment is for a different term." });
       if (!CUGC_ON_ROLL.includes(rego.status)) return res.status(400).json({ message: "That enrolment isn't paid." });
-      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime).classIds.includes(klass.id)) {
+      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime, term.id).classIds.includes(klass.id)) {
         return res.status(400).json({ message: "That child isn't in this class." });
       }
 

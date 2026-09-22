@@ -52,13 +52,10 @@ async function main() {
   // ── 1. The term gate on the paying endpoint ───────────────────────────────
   console.log("The browser no longer decides which term it is buying");
 
+  // Term 3 was closed to new enrolments on 22 Sep (its timetable differs from
+  // Term 4's) and finishes on the 25th — refused either way.
   const finished = await post("/api/public/cugc/enrol", enrolment({ termId: "t3-2026", term: "Term 3 2026" }));
-  const t3Over = new Date() > new Date("2026-09-25T23:59:59+12:00");
-  if (t3Over) {
-    ok("a finished term is REFUSED", finished.status === 400, finished.json?.message);
-  } else {
-    ok("Term 3 still sells while it is running", finished.status === 200, `HTTP ${finished.status}`);
-  }
+  ok("Term 3 is REFUSED (closed, then finished)", finished.status === 400, finished.json?.message);
 
   const bogus = await post("/api/public/cugc/enrol", enrolment({ termId: "t9-2099" }));
   ok("a term that does not exist is refused", bogus.status === 400, bogus.json?.message);
@@ -87,6 +84,25 @@ async function main() {
   ok("Term 4 is charged at the FULL price, not Term 3's leftovers",
      !!t4Row && t4Row.price_cents === t4Row.full_price_cents,
      t4Row ? `$${(t4Row.price_cents / 100).toFixed(2)} of $${(t4Row.full_price_cents / 100).toFixed(2)}` : "no row");
+
+  // ── 1b. The Term 4 timetable on the paying endpoint (22 Sep 2026) ─────────
+  console.log("\nTerm 4's own timetable is what the paying endpoint accepts");
+  const cases: { label: string; body: Record<string, unknown>; dollars: number }[] = [
+    { label: "GymPlay, the new Monday class", body: { programSlug: "gymplay", optionIndex: 0, sessionTime: "Monday 3:30–4:15pm" }, dollars: 165 },
+    { label: "GymBasics once a week, the new Thursday", body: { programSlug: "gymbasics", optionIndex: 0, sessionTime: "Thursday 4:00–5:30pm" }, dollars: 250 },
+    { label: "GymBasics twice a week, Tuesday + Thursday", body: { programSlug: "gymbasics", optionIndex: 1, sessionTime: "Tuesday + Thursday" }, dollars: 350 },
+    { label: "GymSkills 8+, Friday", body: { programSlug: "gymskills", optionIndex: 0, sessionTime: "Friday 4:00–5:00pm" }, dollars: 195 },
+  ];
+  for (const c of cases) {
+    const r = await post("/api/public/cugc/enrol", enrolment({ termId: "t4-2026", ...c.body }));
+    ok(`🟢 ${c.label} — $${c.dollars}`, r.status === 200 && r.json?.amount === c.dollars,
+       r.status === 200 ? `charged $${r.json?.amount}` : `HTTP ${r.status} ${r.json?.message ?? ""}`);
+  }
+  const stale = await post("/api/public/cugc/enrol", enrolment({ termId: "t4-2026", sessionTime: "Saturday 10:30–11:15am" }));
+  ok("🔴 a class NOT on the Term 4 sheet (Sat 10:30) is refused before any payment",
+     stale.status === 400 && !stale.json?.clientSecret, stale.json?.message);
+  const retired = await post("/api/public/cugc/enrol", enrolment({ termId: "t4-2026", programSlug: "gymbasics", optionIndex: 2, sessionTime: "Friday 4:00–5:00pm" }));
+  ok("the old 'GymBasics 8+' option is gone (sold as GymSkills now)", retired.status === 400, retired.json?.message);
 
   // ── 2. The admin surfaces are gated ───────────────────────────────────────
   console.log("\nThe admin surfaces exist and are gated");
