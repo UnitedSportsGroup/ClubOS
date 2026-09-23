@@ -94,3 +94,93 @@ export function followUpStatus(nextFollowUpOn: string | null | undefined, todayI
   if (nextFollowUpOn <= addDaysIso(todayIso, 7)) return "upcoming";
   return "scheduled";
 }
+
+// ── Outreach email ───────────────────────────────────────────────────────────
+// The first email to a prospect, pre-filled from what the research fleet found
+// and then rewritten by a human before it goes. ONE draft function, used by the
+// dialog; the server sends whatever the person finally typed and never
+// rewrites it (the footer below is the only thing it adds).
+
+const NAME_TITLES = /^(dr|mr|mrs|ms|miss|mx|prof|sir|dame)\.?$/i;
+
+/** "Dr Rachel Dovey" → "Rachel"; "Rachel & Tom Smith" → "Rachel". Null when
+ *  there is no usable name — the greeting then says "Hi there", never a guess. */
+export function firstNameOf(contactName: string | null | undefined): string | null {
+  const first = (contactName ?? "").split(/[&/,;]| and /i)[0].trim();
+  const parts = first.split(/\s+/).filter((w) => w && !NAME_TITLES.test(w));
+  const name = parts[0] ?? "";
+  if (name.length < 2 || !/^[\p{L}'-]+$/u.test(name)) return null;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** info@, office@, enquiries@… — a shared inbox, so the named contact may
+ *  never see it unless someone forwards it. Shown as a hint, never blocked. */
+export function isSharedInbox(email: string | null | undefined): boolean {
+  const local = (email ?? "").split("@")[0].toLowerCase();
+  return /^(info|office|enquir(y|ies)|admin|hello|contact|reception|mail|general|school\.information|sales|team|events?)$/.test(local);
+}
+
+const SERVICE_WORDS: Record<string, string> = {
+  "banners-signage": "banners and signage",
+  "merch": "printed apparel",
+  "trophies-medals": "trophies and medals",
+  "design": "design",
+};
+
+/** One line per category the research fleet used — what that kind of buyer
+ *  actually orders. No claim about the prospect itself. */
+const CATEGORY_LINES: Record<string, string> = {
+  "real-estate": "Real estate runs on signage — boards, sold stickers, open-home signs — and it's the kind of work we turn around quickly.",
+  "secondary-schools": "Schools come to us for prizegiving trophies and medals, sports-day banners and team gear.",
+  "primary-schools": "Schools come to us for prizegiving trophies and medals, sports-day banners and team gear.",
+  "football-rugby-clubs": "We're a club ourselves, so we know what a season needs: team gear, sponsor banners and end-of-season trophies.",
+  "other-sports-clubs": "We're a club ourselves, so we know what a season needs: team gear, sponsor banners and end-of-season trophies.",
+  "event-organisers": "Events are a lot of what we do — finisher medals, course and sponsor banners, and event tees.",
+  "hospitality": "For hospitality we do signage, banners and printed staff tees.",
+  "charities-community": "For community groups we do event banners, fundraising tees and volunteer gear.",
+  "councils-education": "We do banners, signage and merch for campus and community events.",
+  "dance-gym-martialarts": "Studios come to us for branded tees and hoodies, signage, and trophies and medals for competitions.",
+  "gyms-fitness": "Gyms come to us for branded tees and hoodies, signage, and trophies and medals for challenges.",
+  "retail-franchise": "For retail we do window and promo signage, banners and staff uniforms.",
+  "construction-trades": "For trades we do site signage, banners and branded workwear.",
+  "tourism-adventure": "For tourism operators we do signage, banners and branded merch guests take home.",
+  "car-dealers-marine": "For dealerships we do forecourt banners, signage and staff uniforms.",
+  "corporate-awards": "We make trophies and awards, plus branded merch for staff and events.",
+};
+
+function listJoin(xs: string[]): string {
+  if (xs.length <= 1) return xs[0] ?? "";
+  return xs.length === 2 ? `${xs[0]} and ${xs[1]}` : `${xs.slice(0, -1).join(", ")}, and ${xs[xs.length - 1]}`;
+}
+
+export interface OutreachDraftInput {
+  name: string;
+  contactName: string | null;
+  category: string | null;
+  servicesMatch: string[] | null;
+}
+
+export function outreachEmailDraft(p: OutreachDraftInput, sender: { firstName: string; lastName: string }): { subject: string; body: string } {
+  const first = firstNameOf(p.contactName);
+  const services = (p.servicesMatch ?? []).map((s) => SERVICE_WORDS[s]).filter(Boolean);
+  const offer = services.length ? listJoin(services) : "banners, signage, printed apparel, trophies and medals";
+  const categoryLine = (p.category && CATEGORY_LINES[p.category]) || null;
+
+  const paragraphs = [
+    `Hi ${first ?? "there"},`,
+    `I'm ${sender.firstName} from United Prints, a Christchurch print shop and part of Christchurch United Football Club.`,
+    categoryLine,
+    `We do ${offer} in-house, so it's one place to go and one person to deal with, all made here in Christchurch.`,
+    `Would a quick 10-minute call be worth it to see if we can help with your next job? Or if something's coming up, send me the details and I'll get a quote back to you quickly.`,
+    `Cheers,\n${[sender.firstName, sender.lastName].filter(Boolean).join(" ")}\nUnited Prints\n0800 800 199 · unitedprints.co.nz`,
+  ].filter(Boolean) as string[];
+
+  return { subject: `Printing for ${p.name}`, body: paragraphs.join("\n\n") };
+}
+
+/** Added by the SERVER to every outreach email and never editable: who we are
+ *  and how to opt out. NZ's Unsolicited Electronic Messages Act 2007 requires
+ *  both on a commercial message (s10 sender info, s11 unsubscribe). */
+export const OUTREACH_FOOTER =
+  "United Prints · Christchurch United Football Club Inc. · Christchurch, New Zealand\n" +
+  "If you'd rather not hear from us, reply \"unsubscribe\" and we won't email again.";

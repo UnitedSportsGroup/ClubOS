@@ -6,6 +6,7 @@
 //   GET|PATCH|DELETE /api/admin/sales/prospects/:id
 //   POST             /api/admin/sales/prospects/:id/activities
 //   PATCH|DELETE     /api/admin/sales/prospects/:id/activities/:childId
+//   POST             /api/admin/sales/prospects/:id/email   (send + log + New→Contacted)
 //
 // Org scoping. `organizationId` always comes from the X-Workspace-Slug header
 // via `workspaceOrg`, never from the request body — same as vehicles/housing.
@@ -19,13 +20,15 @@
 //   - Money in integer cents; dates as ISO strings, never through `new Date()`.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
-import { organizations, printContacts, salesActivities, salesProspects } from "@shared/schema";
+import { organizations, printContacts, salesActivities, salesProspects, users } from "@shared/schema";
+import { sendEmail } from "./email";
 import { nzTodayIso } from "@shared/academy";
 import {
   OPEN_PIPELINE_STAGES,
+  OUTREACH_FOOTER,
   isIsoDate,
   isSalesActivityType,
   isSalesOutcome,
@@ -329,6 +332,105 @@ export function registerSalesRoutes(app: Express) {
         .delete(salesProspects)
         .where(and(eq(salesProspects.id, prospect.id), eq(salesProspects.organizationId, orgId)));
       res.json({ deleted: true });
+    }),
+  );
+
+  // ── Outreach email ─────────────────────────────────────────────────────────
+  // The dialog pre-fills a draft (outreachEmailDraft in @shared/sales); this
+  // sends exactly what the person finally wrote — never rewritten — plus the
+  // fixed legal footer. Only AFTER Resend accepts it do we log the activity,
+  // set the follow-up and move New → Contacted, so a failed send never reads
+  // as a contacted lead.
+  const EMAIL_RE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  /** Plain text → the plainest HTML: a personal email, not a newsletter, which
+   *  is also what keeps it in the Primary tab rather than Promotions. */
+  function outreachHtml(body: string): string {
+    const paras = body.split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br/>")}</p>`).join("");
+    const foot = esc(OUTREACH_FOOTER).replace(/\n/g, "<br/>");
+    return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#111;margin:0;padding:16px">
+<div style="max-width:600px">${paras}<p style="margin:28px 0 0;font-size:11px;line-height:1.5;color:#888">${foot}</p></div></body></html>`;
+  }
+
+  app.post(
+    "/api/admin/sales/prospects/:id/email",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const prospect = await prospectOf(req, orgId);
+      const b = req.body ?? {};
+
+      const to = reqStr(b.to, "To").toLowerCase();
+      if (!EMAIL_RE.test(to)) throw new BadRequest("That doesn't look like an email address.");
+      const subject = reqStr(b.subject, "Subject");
+      if (subject.length > 200) throw new BadRequest("Subject is too long (200 characters max).");
+      const body = String(b.body ?? "").replace(/\r\n/g, "\n").trim();
+      if (body.length < 20) throw new BadRequest("Write a message first.");
+      if (body.length > 10000) throw new BadRequest("That message is too long.");
+      const followUp = isoDate(b.nextFollowUpOn, "Follow-up date");
+
+      // A double-click is not a second email. One minute is long enough to
+      // catch it and short enough that a deliberate resend still works.
+      const [recent] = await db
+        .select({ id: salesActivities.id })
+        .from(salesActivities)
+        .where(and(
+          eq(salesActivities.prospectId, prospect.id),
+          eq(salesActivities.organizationId, orgId),
+          eq(salesActivities.type, "email"),
+          gte(salesActivities.occurredAt, new Date(Date.now() - 60_000)),
+        ))
+        .limit(1);
+      if (recent) return res.status(409).json({ message: "An email to this prospect went out less than a minute ago." });
+
+      // The sender is the signed-in person, read from the database — never the
+      // request body — and replies come back to their own inbox.
+      const uid = userId(req);
+      const [me] = uid
+        ? await db.select({ firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users).where(eq(users.id, uid))
+        : [];
+      if (!me) throw new BadRequest("Couldn't work out who is sending this.");
+      const senderName = `${me.firstName} ${me.lastName}`.replace(/[^\p{L}\p{N} '.-]/gu, "").trim() || "United Prints";
+
+      const ok = await sendEmail({
+        to,
+        from: `${senderName} from United Prints <orders@unitedprints.co.nz>`,
+        replyTo: me.email,
+        subject,
+        html: outreachHtml(body),
+        text: `${body}\n\n--\n${OUTREACH_FOOTER}`,
+      });
+      if (!ok) {
+        return res.status(502).json({ message: "The email didn't send, so nothing was logged. Try again in a moment." });
+      }
+
+      const [activity] = await db
+        .insert(salesActivities)
+        .values({
+          organizationId: orgId,
+          prospectId: prospect.id,
+          type: "email",
+          note: `To: ${to}\nSubject: ${subject}\n\n${body}`,
+          createdBy: uid,
+        })
+        .returning();
+
+      const patch: Record<string, unknown> = {};
+      if ("nextFollowUpOn" in b) patch.nextFollowUpOn = followUp;
+      if (!prospect.email) patch.email = to;
+      if (Object.keys(patch).length) {
+        await db
+          .update(salesProspects)
+          .set({ ...(patch as any), updatedAt: new Date() })
+          .where(and(eq(salesProspects.id, prospect.id), eq(salesProspects.organizationId, orgId)));
+      }
+      const updated = prospect.stage === "new"
+        ? await moveStage(prospect, orgId, "contacted", uid, "via email")
+        : prospect;
+
+      res.status(201).json({ activity, prospect: updated });
     }),
   );
 

@@ -35,11 +35,12 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { centsToDollarInput, dollarInputToCents, formatCurrency } from "@/lib/format";
 import {
   PhoneCall, Phone, Mail, Plus, Search, ExternalLink, Trash2, Globe,
-  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2,
+  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2, Send,
 } from "lucide-react";
 import {
   SALES_STAGES, SALES_OUTCOMES, SALES_TIERS, SALES_REGIONS,
   followUpStatus, addDaysIso, stageLabel,
+  outreachEmailDraft, isSharedInbox, firstNameOf, OUTREACH_FOOTER,
   type SalesStage, type SalesOutcome, type FollowUpStatus,
 } from "@shared/sales";
 
@@ -195,6 +196,8 @@ export default function PrintsSales() {
   const [stageFilter, setStageFilter] = useState<string>("");
   const [detailId, setDetailId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [emailId, setEmailId] = useState<number | null>(null);
+  const emailProspect = emailId === null ? null : prospects.find((p) => p.id === emailId) ?? null;
 
   const categories = useMemo(
     () => Array.from(new Set(prospects.map((p) => p.category).filter(Boolean) as string[])).sort(),
@@ -345,7 +348,7 @@ export default function PrintsSales() {
             <p className="text-xs text-white/35">Seed the researched database, or add your first prospect by hand.</p>
           </div>
         ) : view === "prospects" ? (
-          <ProspectsTable rows={filtered} today={today} onOpen={setDetailId} onStage={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
+          <ProspectsTable rows={filtered} today={today} onOpen={setDetailId} onEmail={setEmailId} onStage={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
         ) : view === "pipeline" ? (
           <PipelineBoard rows={filtered} today={today} onOpen={setDetailId} onMove={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
         ) : (
@@ -359,8 +362,10 @@ export default function PrintsSales() {
           onClose={() => setDetailId(null)}
           onSave={(payload) => saveProspect.mutate({ id: detailId, payload })}
           onLog={(payload) => logActivity.mutate({ id: detailId, payload })}
+          onEmail={() => setEmailId(detailId)}
         />
       )}
+      {emailProspect && <EmailDialog prospect={emailProspect} today={today} onClose={() => setEmailId(null)} />}
       {showAdd && <AddProspectDialog categories={categories} onClose={() => setShowAdd(false)} />}
     </div>
   );
@@ -401,14 +406,15 @@ function FilterSelect({ value, onChange, label, children }: {
 
 // ── Prospects table ──────────────────────────────────────────────────────────
 
-function ProspectsTable({ rows, today, onOpen, onStage }: {
+function ProspectsTable({ rows, today, onOpen, onEmail, onStage }: {
   rows: Prospect[]; today: string;
   onOpen: (id: number) => void;
+  onEmail: (id: number) => void;
   onStage: (id: number, stage: SalesStage) => void;
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs min-w-[900px]">
+      <table className="w-full text-xs min-w-[1000px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-white/35 border-b border-white/[0.06]">
             <th className="text-left font-medium px-3 py-2">#</th>
@@ -417,6 +423,7 @@ function ProspectsTable({ rows, today, onOpen, onStage }: {
             <th className="text-left font-medium px-2 py-2">Category</th>
             <th className="text-left font-medium px-2 py-2">Phone</th>
             <th className="text-left font-medium px-2 py-2">Email</th>
+            <th className="px-2 py-2"><span className="sr-only">Send email</span></th>
             <th className="text-left font-medium px-2 py-2">Stage</th>
             <th className="text-left font-medium px-2 py-2">Follow-up</th>
             <th className="text-right font-medium px-3 py-2">Score</th>
@@ -450,6 +457,20 @@ function ProspectsTable({ rows, today, onOpen, onStage }: {
                   {p.email ? (
                     <a href={`mailto:${p.email}`} className="text-sky-300/80 hover:text-sky-200 truncate">{p.email}</a>
                   ) : <span className="text-white/25">—</span>}
+                </td>
+                <td className="px-2 py-1 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  {/* Only for leads nobody has contacted yet — once it's sent the
+                      row moves to Contacted and the button steps aside. The
+                      detail view can still write to anyone. */}
+                  {p.email && p.stage === "new" && (
+                    <button
+                      onClick={() => onEmail(p.id)}
+                      data-testid={`button-email-${p.id}`}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition"
+                    >
+                      <Send className="w-3 h-3" /> Send email
+                    </button>
+                  )}
                 </td>
                 <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                   <SelectInput
@@ -678,11 +699,12 @@ interface DetailResponse {
   today: string;
 }
 
-function ProspectDetail({ id, onClose, onSave, onLog }: {
+function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
   id: number;
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => void;
   onLog: (payload: Record<string, unknown>) => void;
+  onEmail: () => void;
 }) {
   const { toast } = useToast();
   const { data } = useQuery<DetailResponse>({ queryKey: ["/api/admin/sales/prospects", String(id)] });
@@ -752,9 +774,18 @@ function ProspectDetail({ id, onClose, onSave, onLog }: {
                 </a>
               ) : <span className="flex items-center gap-2 text-white/30"><Phone className="w-3.5 h-3.5" /> no phone on file</span>}
               {p.email ? (
-                <a href={`mailto:${p.email}`} className="flex items-center gap-2 text-sky-300 hover:text-sky-200">
-                  <Mail className="w-3.5 h-3.5" /> {p.email}
-                </a>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <a href={`mailto:${p.email}`} className="flex items-center gap-2 text-sky-300 hover:text-sky-200">
+                    <Mail className="w-3.5 h-3.5" /> {p.email}
+                  </a>
+                  <button
+                    onClick={onEmail}
+                    data-testid="detail-send-email"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition"
+                  >
+                    <Send className="w-3 h-3" /> Write email
+                  </button>
+                </div>
               ) : <span className="flex items-center gap-2 text-white/30"><Mail className="w-3.5 h-3.5" /> no email on file</span>}
               {(p.contactName || p.contactRole) && (
                 <div className="text-white/60">{[p.contactName, p.contactRole].filter(Boolean).join(" — ")}</div>
@@ -871,7 +902,12 @@ function ProspectDetail({ id, onClose, onSave, onLog }: {
                   <span className="text-white/30 whitespace-nowrap tabular-nums">{a.occurredAt.slice(0, 10)}</span>
                   <span className="text-white/55 font-medium whitespace-nowrap">{a.type === "stage_change" ? "stage" : a.type}</span>
                   {a.outcome && <span className="text-white/45">{OUTCOME_LABELS[a.outcome as SalesOutcome] ?? a.outcome}</span>}
-                  {a.note && <span className="text-white/40">{a.note}</span>}
+                  {a.note && (a.type === "email" && a.note.includes("\n\n") ? (
+                    <details className="text-white/40 min-w-0">
+                      <summary className="cursor-pointer">{a.note.split("\n\n")[0].split("\n").join(" · ")}</summary>
+                      <div className="whitespace-pre-line mt-1 text-white/50">{a.note.split("\n\n").slice(1).join("\n\n")}</div>
+                    </details>
+                  ) : <span className="text-white/40">{a.note}</span>)}
                 </div>
               ))
             )}
@@ -890,6 +926,159 @@ function ProspectDetail({ id, onClose, onSave, onLog }: {
               {p.stageChangedAt ? `stage since ${p.stageChangedAt.slice(0, 10)}` : ""}
             </span>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Send email ───────────────────────────────────────────────────────────────
+// A draft written from what the research fleet found (first name, business,
+// what that kind of buyer orders), then made bespoke by a human. The server
+// sends exactly what is here plus a fixed legal footer, and only once it has
+// gone does it log the email and move New → Contacted.
+
+interface Me { firstName: string; lastName: string; email: string }
+
+const draftKey = (id: number) => `sales-email-draft-${id}`;
+function readDraft(id: number): { to: string; subject: string; body: string } | null {
+  try { const raw = sessionStorage.getItem(draftKey(id)); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function writeDraft(id: number, d: { to: string; subject: string; body: string } | null) {
+  try { d ? sessionStorage.setItem(draftKey(id), JSON.stringify(d)) : sessionStorage.removeItem(draftKey(id)); } catch { /* private mode */ }
+}
+
+function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; today: string; onClose: () => void }) {
+  const { toast } = useToast();
+  const { data: me } = useQuery<Me>({ queryKey: ["/api/auth/me"] });
+  const template = () => outreachEmailDraft(p, { firstName: me?.firstName ?? "", lastName: me?.lastName ?? "" });
+
+  const saved = useMemo(() => readDraft(p.id), [p.id]);
+  const [to, setTo] = useState(saved?.to ?? p.email ?? "");
+  const [subject, setSubject] = useState<string | null>(saved?.subject ?? null);
+  const [body, setBody] = useState<string | null>(saved?.body ?? null);
+  // The draft is signed with the sender's name, which arrives with /auth/me.
+  // Until the person types, it follows the template; after that it is theirs.
+  const shownSubject = subject ?? template().subject;
+  const shownBody = body ?? (me ? template().body : "");
+  const [followUp, setFollowUp] = useState(p.nextFollowUpOn ?? (today ? addDaysIso(today, 4) : ""));
+
+  const edit = (patch: Partial<{ to: string; subject: string; body: string }>) => {
+    const next = { to, subject: shownSubject, body: shownBody, ...patch };
+    if (patch.to !== undefined) setTo(patch.to);
+    if (patch.subject !== undefined) setSubject(patch.subject);
+    if (patch.body !== undefined) setBody(patch.body);
+    writeDraft(p.id, next);
+  };
+
+  const send = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/sales/prospects/${p.id}/email`, {
+        to: to.trim(), subject: shownSubject.trim(), body: shownBody, nextFollowUpOn: followUp || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      writeDraft(p.id, null);
+      queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sales/prospects", String(p.id)] });
+      toast({ title: `Email sent to ${p.name}`, description: p.stage === "new" ? "Moved to Contacted and logged in the history." : "Logged in the history." });
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Email not sent", description: e.message, variant: "destructive" }),
+  });
+
+  const first = firstNameOf(p.contactName);
+  const shared = isSharedInbox(to);
+  const canSend = !!me && to.includes("@") && shownSubject.trim().length > 0 && shownBody.trim().length >= 20 && !send.isPending;
+  const field = "w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-white/25";
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !send.isPending && onClose()}>
+      <DialogContent className="max-w-2xl w-[calc(100vw-1.5rem)] bg-neutral-950 border-white/10 text-white max-h-[90vh] overflow-y-auto">
+        <div className="space-y-3 min-w-0">
+          <div className="pr-6">
+            <h2 className="text-base font-semibold flex items-center gap-2"><Send className="w-4 h-4 text-sky-300" /> Email {p.name}</h2>
+            <p className="text-[11px] text-white/45 mt-0.5">
+              {[p.contactName, p.contactRole].filter(Boolean).join(" — ") || "No named contact"}{p.category ? ` · ${p.category}` : ""}
+            </p>
+          </div>
+
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wider text-white/40">To</span>
+            <input value={to} onChange={(e) => edit({ to: e.target.value })} className={field} data-testid="email-to" inputMode="email" />
+          </label>
+          {shared && first && (
+            <p className="text-[11px] text-amber-300/80 -mt-1">
+              This is a shared inbox, so {first} may only see it if someone passes it on.
+            </p>
+          )}
+
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wider text-white/40">Subject</span>
+            <input value={shownSubject} onChange={(e) => edit({ subject: e.target.value })} className={field} data-testid="email-subject" />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-white/40">
+              <span>Message — make it theirs</span>
+              {(subject !== null || body !== null) && (
+                <button
+                  type="button"
+                  onClick={() => { setSubject(null); setBody(null); writeDraft(p.id, null); }}
+                  className="normal-case tracking-normal text-[11px] text-white/45 hover:text-white/80"
+                >
+                  Start again from the template
+                </button>
+              )}
+            </span>
+            <textarea
+              value={shownBody}
+              onChange={(e) => edit({ body: e.target.value })}
+              rows={14}
+              className={`${field} leading-relaxed resize-y`}
+              data-testid="email-body"
+              placeholder={me ? "" : "Loading the template…"}
+            />
+          </label>
+
+          {p.whyFit && (
+            <p className="text-[11px] text-white/40 border-l-2 border-white/10 pl-2">
+              <span className="text-white/55 font-semibold">Why they fit:</span> {p.whyFit}
+            </p>
+          )}
+
+          <div className="text-[11px] text-white/35 whitespace-pre-line rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
+            <span className="text-white/50 font-semibold">Added to the bottom automatically</span>{"\n"}{OUTREACH_FOOTER}
+          </div>
+
+          <div className="flex items-end justify-between gap-3 flex-wrap">
+            <label className="space-y-1">
+              <span className="block text-[10px] uppercase tracking-wider text-white/40">Follow up on</span>
+              <DatePickerInput
+                value={followUp}
+                onChange={(e) => setFollowUp(e.target.value)}
+                className="bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none"
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} disabled={send.isPending} className="text-xs px-3 py-2 rounded-lg text-white/55 hover:text-white/85">Cancel</button>
+              <button
+                onClick={() => send.mutate()}
+                disabled={!canSend}
+                data-testid="email-send"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-40 transition"
+              >
+                <Send className="w-3.5 h-3.5" /> {send.isPending ? "Sending…" : "Send email"}
+              </button>
+            </div>
+          </div>
+          {me && (
+            <p className="text-[10px] text-white/30">
+              Sends as “{me.firstName} {me.lastName} from United Prints”. Replies come to {me.email}.
+              {p.stage === "new" ? " The lead moves to Contacted and the email is saved in its history." : " The email is saved in its history."}
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
