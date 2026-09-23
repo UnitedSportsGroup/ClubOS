@@ -150,7 +150,7 @@ const CATEGORY_LINES: Record<string, string> = {
 
 function listJoin(xs: string[]): string {
   if (xs.length <= 1) return xs[0] ?? "";
-  return xs.length === 2 ? `${xs[0]} and ${xs[1]}` : `${xs.slice(0, -1).join(", ")}, and ${xs[xs.length - 1]}`;
+  return xs.length === 2 ? `${xs[0]}${xs.some((x) => x.includes(" and ")) ? ", and" : " and"} ${xs[1]}` : `${xs.slice(0, -1).join(", ")}, and ${xs[xs.length - 1]}`;
 }
 
 export interface OutreachDraftInput {
