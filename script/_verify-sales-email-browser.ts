@@ -6,14 +6,17 @@
 // desktop and phone widths, checks the draft is personalised, sends ONE real
 // email to Resend's test sink (never a real lead), then checks the email was
 // logged, the lead moved New → Contacted, the button stepped aside, and a
-// second send inside a minute is refused. Everything it made is deleted in the
-// `finally`, even if an assertion throws.
+// second send inside a minute is refused. Then the whole JOURNEY: a link added
+// with Add link, a PDF attached, the preview, Resend's real delivered webhook,
+// an open (pixel) and a click (redirect), and a throwaway quote + paid order
+// that must surface as Quote submitted / Order confirmed / Paid. Everything it
+// made is deleted in the `finally`, even if an assertion throws.
 import pg from "pg";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import puppeteer from "puppeteer-core";
 import { execFileSync } from "child_process";
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const BASE = "https://app.usg.co.nz";
@@ -32,6 +35,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let userId: number | null = null;
 let prospectId: number | null = null;
 let browser: any = null;
+let quoteId: number | null = null; let orderId: number | null = null;
 
 try {
   const org = (await pool.query(`SELECT id, slug FROM organizations WHERE id = 8`)).rows[0];
@@ -101,10 +105,30 @@ try {
 
     if (label === "mobile") { await page.close(); continue; }
 
-    // Make it bespoke, then send for real — to Resend's sink.
+    // Make it bespoke: an edit, a link added with Add link, and a PDF.
     await page.focus('[data-testid="email-body"]');
     await page.keyboard.press("End");
-    await page.keyboard.type("\n\nPS — probe edit.");
+    await page.keyboard.type("\n\nPS — probe edit. ");
+    await page.click('[data-testid="email-add-link"]');
+    await page.type('[data-testid="email-link-label"]', "get an instant quote");
+    await page.type('[data-testid="email-link-url"]', "unitedprints.co.nz/instant-quote");
+    await page.click('[data-testid="email-link-insert"]');
+    const bodyNow = await page.$eval('[data-testid="email-body"]', (el: any) => el.value);
+    ok("Add link inserts [words](url) into the message", bodyNow.includes("[get an instant quote](https://unitedprints.co.nz/instant-quote)"), bodyNow.slice(-120));
+    const pdf = join(outDir, "probe-price-list.pdf");
+    writeFileSync(pdf, "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+    const input = await page.$('[data-testid="email-file-input"]');
+    await (input as any).uploadFile(pdf);
+    await page.waitForSelector('[data-testid="email-attachments"]', { timeout: 5000 }).catch(() => {});
+    ok("the PDF shows as attached", /probe-price-list\.pdf/.test(await page.evaluate(() => document.body.innerText)));
+    await page.click('[data-testid="email-mode-preview"]');
+    const prev = await page.$eval('[data-testid="email-preview"]', (el: any) => ({ links: Array.from(el.querySelectorAll("a")).map((a: any) => a.getAttribute("href")), text: el.innerText }));
+    ok("preview: the added link is clickable", prev.links.includes("https://unitedprints.co.nz/instant-quote"), JSON.stringify(prev.links));
+    ok("preview: the signature's web address is clickable", prev.links.includes("https://unitedprints.co.nz/"), JSON.stringify(prev.links));
+    ok("preview: the phone number is clickable", prev.links.includes("tel:0800800199"), JSON.stringify(prev.links));
+    ok("preview: markdown is not shown raw", !/\]\(https/.test(prev.text));
+    await page.screenshot({ path: join(outDir, `desktop-preview.png`) });
+    await page.click('[data-testid="email-mode-write"]');
     await page.click('[data-testid="email-send"]');
     await page.waitForFunction((b: string) => !document.querySelector(b) && !document.querySelector('[data-testid="email-body"]'),
       { timeout: 30000 }, btn).catch(() => {});
@@ -131,12 +155,58 @@ try {
       return r.status;
     }, prospectId, org.slug);
     ok("a second send within a minute is refused (409)", again === 409, String(again));
+
+    // ── The stored email: tracked links, UTM tags, the attachment, Resend's id.
+    const se = (await pool.query(`SELECT id, token, links, attachments, provider_message_id FROM sales_emails WHERE prospect_id=$1`, [prospectId])).rows[0];
+    ok("the email is stored with Resend's message id", !!se?.provider_message_id);
+    ok("the attachment is recorded", Array.isArray(se?.attachments) && se.attachments[0]?.filename === "probe-price-list.pdf");
+    const quoteLink = (se?.links ?? []).findIndex((l: any) => l.label === "get an instant quote");
+    ok("our own links carry utm tags", quoteLink >= 0 && /utm_source=sales-email/.test(se.links[quoteLink].url), JSON.stringify(se?.links?.[quoteLink]));
+
+    // Delivered: Resend's real webhook, signed, into production.
+    let delivered = false;
+    for (let i = 0; i < 30 && !delivered; i++) {
+      await sleep(3000);
+      delivered = (await pool.query(`SELECT 1 FROM sales_email_events WHERE sales_email_id=$1 AND type='delivered'`, [se.id])).rowCount! > 0;
+    }
+    ok("Resend's delivered webhook arrived and was recorded", delivered);
+
+    // Opened + clicked, the way a person's mail app would.
+    const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+    execFileSync("curl", ["-s", "-o", "/dev/null", "-A", UA, `${BASE}/t/se/${se.token}/o.gif`]);
+    const loc = execFileSync("curl", ["-s", "-o", "/dev/null", "-A", UA, "-w", "%{redirect_url}", `${BASE}/t/se/${se.token}/${quoteLink}`]).toString();
+    ok("the tracked link lands on the real page", loc === se.links[quoteLink].url, loc);
+
+    // Quote → order → paid, created AFTER the email, from the same address.
+    quoteId = (await pool.query(`INSERT INTO print_quotes (organization_id, token, status, customer_name, customer_email, subtotal_cents, total_cents) VALUES ($1,$2,'approved','ZZ Probe',$3,43478,50000) RETURNING id`,
+      [org.id, crypto.randomBytes(24).toString("hex"), SINK])).rows[0].id;
+    orderId = (await pool.query(`INSERT INTO print_orders (organization_id, customer_name, customer_email, title, status, total_cents, paid_cents) VALUES ($1,'ZZ Probe',$2,'ZZ probe order','paid',50000,50000) RETURNING id`, [org.id, SINK])).rows[0].id;
+    await pool.query(`INSERT INTO print_order_events (order_id, event_type) VALUES ($1,'paid')`, [orderId]);
+
+    await page.goto(`${BASE}/admin/print-sales`, { waitUntil: "networkidle2", timeout: 60000 });
+    await page.waitForSelector('[data-testid="input-search"]', { timeout: 30000 });
+    await page.type('[data-testid="input-search"]', "ZZ PROBE");
+    await page.waitForSelector('[data-testid="outreach-chip"]', { timeout: 15000 }).catch(() => {});
+    const chip = await page.$eval('[data-testid="outreach-chip"]', (el: any) => el.innerText).catch(() => "");
+    ok("the prospect row reads Paid", /Paid/.test(chip), chip);
+    ok("the outreach strip shows", !!(await page.$('[data-testid="outreach-strip"]')));
+    // Click the NAME: the middle of the row is the email/status cell, which
+    // deliberately stops a click from opening the lead.
+    await page.click(`[data-testid="row-prospect-${prospectId}"] td:nth-child(3)`);
+    await page.waitForSelector('[data-testid="journey-events"]', { timeout: 15000 }).catch(() => {});
+    const j = await page.$eval('[data-testid="email-journeys"]', (el: any) => el.innerText).catch(() => "");
+    for (const step of ["Sent", "Delivered", "Opened", "Clicked", "Quote submitted", "Order confirmed", "Paid"]) ok(`journey shows ${step}`, new RegExp(`\\b${step}\\b`).test(j), "");
+    ok("journey names the link clicked", /get an instant quote/.test(j));
+    ok("journey shows times", /\d{1,2}:\d{2}(am|pm)/.test(j));
+    await page.screenshot({ path: join(outDir, `desktop-journey.png`) });
     await page.close();
   }
 } catch (e: any) {
   fails.push(`threw: ${e?.message}`); console.log("  ✗ threw", e);
 } finally {
   if (browser) await browser.close().catch(() => {});
+  if (orderId) { await pool.query(`DELETE FROM print_order_events WHERE order_id=$1`, [orderId]); await pool.query(`DELETE FROM print_orders WHERE id=$1`, [orderId]); }
+  if (quoteId) await pool.query(`DELETE FROM print_quotes WHERE id=$1`, [quoteId]);
   if (prospectId) {
     await pool.query(`DELETE FROM sales_activities WHERE prospect_id=$1`, [prospectId]);
     await pool.query(`DELETE FROM sales_prospects WHERE id=$1`, [prospectId]);

@@ -1217,7 +1217,7 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
 // tables (matched on the address, or the company's domain). Times are NZ.
 
 const STEP_TONE: Record<string, string> = {
-  sent: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+  sent: "bg-blue-500/15 text-blue-300 border-blue-500/30",
   delivered: "bg-sky-500/15 text-sky-300 border-sky-500/30",
   opened: "bg-violet-500/15 text-violet-300 border-violet-500/30",
   clicked: "bg-amber-500/15 text-amber-300 border-amber-500/30",
