@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { CoachOverview } from "@/components/coach-overview";
+import { CampHistoryTab } from "@/components/camp-history-tab";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
@@ -3001,6 +3002,7 @@ export default function AdminCampDetail() {
     { key: "discounts", label: "Discounts", icon: Percent },
     { key: "email", label: "Email Template", icon: Settings },
     { key: "performance", label: "Performance", icon: FlaskConical },
+    ...(camp?.type === "holiday_camp" ? [{ key: "history", label: "History", icon: TrendingUp }] : []),
   ];
 
   if (isLoading) {
@@ -3129,6 +3131,7 @@ export default function AdminCampDetail() {
         {tab === "discounts" && <DiscountsTab campId={campId} />}
         {tab === "email" && <EmailTab campId={campId} />}
         {tab === "performance" && <PerformanceTab campId={campId} />}
+        {tab === "history" && <CampHistoryTab campId={campId} />}
       </div>
 
       {showEditModal && (

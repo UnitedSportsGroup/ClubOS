@@ -3807,6 +3807,23 @@ export async function registerRoutes(
     }
   });
 
+  // Every holiday camp this club has ever run — Friendly Manager, Xero,
+  // Shopify and ClubOS on one timeline, beside Xero's own yearly income line.
+  // Same gate as the editions above: the camp must be in the caller's scope.
+  app.get("/api/admin/camps/:id/history", requireAuth, async (req, res) => {
+    try {
+      const camp = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!camp || camp.type !== "holiday_camp") return res.status(404).json({ message: "Camp not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, camp.organizationId)) return res.status(404).json({ message: "Camp not found" });
+      const { holidayCampHistory } = await import("./camp-history");
+      res.json(await holidayCampHistory(camp.organizationId!, camp.name));
+    } catch (error: any) {
+      console.error("[camp-history]", error);
+      res.status(500).json({ message: "Couldn't build the camp history." });
+    }
+  });
+
   app.patch("/api/admin/camps/:id", requireAuth, async (req, res) => {
     try {
       const camp = await storage.updateProgram(parseInt(req.params.id), req.body);
