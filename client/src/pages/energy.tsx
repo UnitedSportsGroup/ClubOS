@@ -135,7 +135,7 @@ export default function EnergyPage() {
   if (error || !data || !d) return <div className="p-8 text-sm text-red-400">{(error as Error)?.message ?? "Couldn't load energy."}</div>;
 
   const change = d.costPrev > 0 ? Math.round(((d.cost12 - d.costPrev) / d.costPrev) * 100) : null;
-  const bounced = data.payments.filter((p) => p.kind === "dishonour");
+  const bounced = data.payments.filter((p) => p.kind === "dishonour").sort((a, b) => a.paidOn.localeCompare(b.paidOn));
   const methods = data.payments.filter((p) => p.kind === "payment");
   const lastDD = methods.filter((p) => /direct debit/i.test(p.method ?? "")).map((p) => p.paidOn).sort().pop();
   const firstOnline = methods.filter((p) => /online/i.test(p.method ?? "")).map((p) => p.paidOn).sort()[0];
@@ -202,7 +202,7 @@ export default function EnergyPage() {
                 tickFormatter={(v) => (metric === "cost" ? `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 formatter={(v: number, k: string) => [metric === "cost" ? `$${Number(v).toLocaleString("en-NZ", { minimumFractionDigits: 2 })}` : `${Math.round(Number(v)).toLocaleString("en-NZ")} kWh`, d.siteOf.get(Number(k.slice(1)))?.name ?? k]} />
-              {d.sites.map((s) => <Bar key={s.id} dataKey={`s${s.id}`} stackId="a" fill={d.color.get(s.id)} />)}
+              {d.sites.map((s) => <Bar key={s.id} dataKey={`s${s.id}`} stackId="a" fill={d.color.get(s.id)} isAnimationActive={false} />)}
             </BarChart>
           </ResponsiveContainer>
         </div>
