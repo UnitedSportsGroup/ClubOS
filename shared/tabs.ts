@@ -259,6 +259,9 @@ const groupTabs: TabDef[] = [
   { slug: "proposals", title: "Proposals", url: "/admin/proposals" },
   { slug: "grants", title: "Grants", url: "/admin/grants" },
   { slug: "invoices", title: "Invoices", url: "/admin/invoices" },
+  // Every sales invoice raised in Xero, mirrored nightly. Deliberately NOT the slug "invoices" — that one is the
+  // branded payable invoice PAGES (usg_invoices) and is a different thing entirely.
+  { slug: "xero-invoices", title: "Xero Invoices", url: "/admin/xero-invoices" },
   // Stripe bulk payouts decoded — which programmes, players and parents are
   // inside each bank deposit. Read-only over the Stripe API + existing rows.
   { slug: "payouts", title: "Payouts", url: "/admin/payouts" },

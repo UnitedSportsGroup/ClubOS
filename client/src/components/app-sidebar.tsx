@@ -413,6 +413,7 @@ const groupNav = [
     tab: "finance-insight", title: "Finance", url: "/admin/finance-insight", icon: Calculator,
     children: [
       { tab: "invoices", title: "Invoices", url: "/admin/invoices", icon: Receipt },
+      { tab: "xero-invoices", title: "Xero Invoices", url: "/admin/xero-invoices", icon: FileText },
       { tab: "payouts", title: "Payouts", url: "/admin/payouts", icon: Banknote },
       { tab: "budget", title: "Budget", url: "/admin/budget", icon: CreditCard },
       { tab: "coding-budget", title: "Coding Budget", url: "/admin/coding-budget", icon: Calculator },

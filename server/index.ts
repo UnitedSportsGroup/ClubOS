@@ -251,6 +251,8 @@ app.use(attributionCookieMiddleware);
   registerFootballFestRoutes(app);
   const { registerFinanceInsightRoutes } = await import("./finance-insight-routes");
   registerFinanceInsightRoutes(app);
+  const { registerXeroInvoiceRoutes } = await import("./xero-invoices-routes");
+  registerXeroInvoiceRoutes(app);
 
   // Team Pay — team entries, per-player squad payment, the manager's dashboard
   // and the fill-in marketplace. Public routes are authenticated by a token in
