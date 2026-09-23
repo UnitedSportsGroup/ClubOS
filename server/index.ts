@@ -330,6 +330,8 @@ app.use(attributionCookieMiddleware);
   // Daniel shapes it. No public surface: a prospect list is a sales asset.
   const { registerSalesRoutes } = await import("./sales-routes");
   registerSalesRoutes(app);
+  const { registerEnergyRoutes } = await import("./energy-routes");
+  registerEnergyRoutes(app);
   const { registerSalesEmailPublicRoutes } = await import("./sales-email-tracking");
   registerSalesEmailPublicRoutes(app);
 

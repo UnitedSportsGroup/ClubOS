@@ -260,6 +260,7 @@ const venueNav = [
   // Accommodation moved to the group sidebar on 2026-08-18 — the residency is
   // the club's, not the sports centre's hireable stock.
   { tab: "maintenance", title: "Maintenance", url: "/admin/maintenance", icon: Wrench },
+  { tab: "energy", title: "Energy", url: "/admin/energy", icon: Zap },
   { tab: "people", title: "People & Access", url: "/admin/people", icon: Users },
   { tab: "payments", title: "Payments", url: "/admin/payments", icon: CreditCard },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
@@ -439,6 +440,7 @@ const groupNav = [
   // already reads as the money-out icon in this nav.
   { tab: "fines", title: "Fines", url: "/admin/fines", icon: ReceiptText },
   { tab: "housing", title: "Accommodation", url: "/admin/accommodation", icon: Home },
+  { tab: "energy", title: "Energy", url: "/admin/energy", icon: Zap },
   { tab: "sponsor-traffic", title: "Sponsor Traffic", url: "/admin/sponsor-traffic", icon: Share2 },
   // `Video`, not `Clapperboard` — Content owns Clapperboard in this nav.
   { tab: "videos", title: "Videos", url: "/admin/videos", icon: Video },

@@ -7624,6 +7624,54 @@ export const salesActivities = pgTable("sales_activities", {
   orgIdx: index("sales_activities_org_idx").on(t.organizationId, t.occurredAt),
 }));
 
+// Energy (migrations/2026-09-23_energy.sql) — sites, bills, payments. Cents incl GST.
+export const energySites = pgTable("energy_sites", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  address: text("address"),
+  utility: text("utility").notNull(),
+  area: text("area"),
+  supplier: text("supplier"),
+  accountNumber: text("account_number"),
+  icp: text("icp").unique(),
+  meter: text("meter"),
+  paidBy: text("paid_by"),
+  notes: text("notes"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const energyBills = pgTable("energy_bills", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  siteId: integer("site_id").notNull().references(() => energySites.id, { onDelete: "restrict" }),
+  source: text("source").notNull(),
+  sourceKey: text("source_key").notNull().unique(),
+  invoiceNumber: text("invoice_number"),
+  kind: text("kind").notNull().default("bill"),
+  periodStart: date("period_start"),
+  periodEnd: date("period_end"),
+  billDate: date("bill_date"),
+  units: numeric("units", { precision: 12, scale: 3 }),
+  unit: text("unit"),
+  cents: integer("cents").notNull(),
+  fixedCents: integer("fixed_cents").notNull().default(0),
+  lines: jsonb("lines").notNull().default([]),
+  readings: jsonb("readings").notNull().default([]),
+  file: text("file"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export const energyPayments = pgTable("energy_payments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  supplier: text("supplier").notNull(),
+  accountNumber: text("account_number"),
+  paidOn: date("paid_on").notNull(),
+  cents: integer("cents").notNull(),
+  method: text("method"),
+  kind: text("kind").notNull().default("payment"),
+  sourceKey: text("source_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // Sales outreach emails (migrations/2026-09-23_sales_emails.sql). One row per
 // email Resend accepted; quote/order/paid are derived from the print tables.
 export const salesEmails = pgTable("sales_emails", {

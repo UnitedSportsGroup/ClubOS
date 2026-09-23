@@ -94,6 +94,7 @@ import VenueFacilities from "@/pages/venue-facilities";
 import VenueAddons from "@/pages/venue-addons";
 import VenueHousing from "@/pages/venue-housing";
 import VenueMaintenance from "@/pages/venue-maintenance";
+import EnergyPage from "@/pages/energy";
 import VenuePeople from "@/pages/venue-people";
 import VenuePayments from "@/pages/venue-payments";
 import VenueSettings from "@/pages/venue-settings";
@@ -426,6 +427,7 @@ function AdminRouter() {
             is kept as an alias so a bookmark from the venue workspace still
             resolves instead of hitting the catch-all NotFound. */}
         <Route path="/admin/accommodation" component={VenueHousing} />
+        <Route path="/admin/energy" component={EnergyPage} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/marketing-hub" component={MarketingHub} />
         <Route path="/admin/finance-insight" component={FinanceInsight} />
@@ -614,6 +616,7 @@ function AdminRouter() {
         <Route path="/admin/addons" component={VenueAddons} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/maintenance" component={VenueMaintenance} />
+        <Route path="/admin/energy" component={EnergyPage} />
         <Route path="/admin/people" component={VenuePeople} />
         <Route path="/admin/payments" component={VenuePayments} />
         <Route path="/admin/venue-settings" component={VenueSettings} />

@@ -118,6 +118,9 @@ const venueTabs: TabDef[] = [
   // Cleaning/consumable supplies + machines & equipment. NOT super-admin-only —
   // Riley (grounds staff) needs it once ticked for him in Team.
   { slug: "maintenance", title: "Maintenance", url: "/admin/maintenance" },
+  // Energy — power, gas and water: every site, bill and payment (2026-09-23).
+  // In the venue AND the group workspace: one account pays for both.
+  { slug: "energy", title: "Energy", url: "/admin/energy" },
   { slug: "people", title: "People & Access", url: "/admin/people" },
   { slug: "payments", title: "Payments", url: "/admin/payments" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
@@ -295,6 +298,7 @@ const groupTabs: TabDef[] = [
   // label silently revokes access. The URL and the title are the parts a human
   // reads, so those are what changed.
   { slug: "housing", title: "Accommodation", url: "/admin/accommodation" },
+  { slug: "energy", title: "Energy", url: "/admin/energy" },
   // How much website traffic we send sponsors via tracked /s/{code} redirects,
   // plus a sponsor-site health check. Launched dark (SUPER_ADMIN_ONLY_TABS)
   // while Daniel shapes it.
