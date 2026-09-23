@@ -7624,6 +7624,35 @@ export const salesActivities = pgTable("sales_activities", {
   orgIdx: index("sales_activities_org_idx").on(t.organizationId, t.occurredAt),
 }));
 
+// Sales outreach emails (migrations/2026-09-23_sales_emails.sql). One row per
+// email Resend accepted; quote/order/paid are derived from the print tables.
+export const salesEmails = pgTable("sales_emails", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  prospectId: integer("prospect_id").notNull().references(() => salesProspects.id, { onDelete: "cascade" }),
+  activityId: integer("activity_id").references(() => salesActivities.id, { onDelete: "set null" }),
+  token: text("token").notNull().unique(),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  links: jsonb("links").notNull().default([]),
+  attachments: jsonb("attachments").notNull().default([]),
+  providerMessageId: text("provider_message_id").unique(),
+  sentBy: integer("sent_by").references(() => users.id, { onDelete: "set null" }),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const salesEmailEvents = pgTable("sales_email_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  salesEmailId: integer("sales_email_id").notNull().references(() => salesEmails.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+  linkIndex: integer("link_index"),
+  url: text("url"),
+  userAgent: text("user_agent"),
+  providerEventId: text("provider_event_id").unique(),
+});
+
 export const insertSalesProspectSchema = createInsertSchema(salesProspects).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSalesProspect = z.infer<typeof insertSalesProspectSchema>;
 export type SalesProspect = typeof salesProspects.$inferSelect;

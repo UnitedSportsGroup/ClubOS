@@ -50,10 +50,16 @@ function htmlToText(html: string): string {
 }
 
 export async function sendEmail(params: EmailParams): Promise<boolean> {
+  return (await sendEmailDetailed(params)).ok;
+}
+
+/** sendEmail, but also hands back Resend's message id — what its webhook
+ *  events are keyed on. Same send path, same logging. */
+export async function sendEmailDetailed(params: EmailParams): Promise<{ ok: boolean; id: string | null }> {
   if (!RESEND_API_KEY) {
     console.log("[Email] Skipping — RESEND_API_KEY not configured. Would have sent to:", params.to);
     console.log("[Email] Subject:", params.subject);
-    return false;
+    return { ok: false, id: null };
   }
 
   // T14: instrument ours-domain links with utm (+ ci) when the caller opts in.
@@ -105,10 +111,10 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
       console.error("[Email] API error:", JSON.stringify(result));
     }
 
-    return success;
+    return { ok: success, id: success ? (result.id ?? null) : null };
   } catch (error) {
     console.error("[Email] Request failed:", error);
-    return false;
+    return { ok: false, id: null };
   }
 }
 

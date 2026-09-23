@@ -23,12 +23,19 @@ import type { Express, Request, Response } from "express";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
-import { organizations, printContacts, salesActivities, salesProspects, users } from "@shared/schema";
-import { sendEmail } from "./email";
+import { organizations, printContacts, salesActivities, salesEmails, salesProspects, users } from "@shared/schema";
+import { sendEmailDetailed } from "./email";
+import crypto from "crypto";
+import { emailJourneys } from "./sales-email-tracking";
 import { nzTodayIso } from "@shared/academy";
 import {
   OPEN_PIPELINE_STAGES,
   OUTREACH_FOOTER,
+  OUTREACH_ATTACHMENT_MAX_BYTES,
+  OUTREACH_ATTACHMENT_MAX_FILES,
+  OUTREACH_ATTACHMENT_TYPES,
+  outreachPlainText,
+  renderOutreachBody,
   isIsoDate,
   isSalesActivityType,
   isSalesOutcome,
@@ -342,15 +349,46 @@ export function registerSalesRoutes(app: Express) {
   // set the follow-up and move New → Contacted, so a failed send never reads
   // as a contacted lead.
   const EMAIL_RE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
+  const PUBLIC_BASE = (process.env.PUBLIC_APP_URL || "https://app.usg.co.nz").replace(/\/$/, "");
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  /** Plain text → the plainest HTML: a personal email, not a newsletter, which
-   *  is also what keeps it in the Primary tab rather than Promotions. */
-  function outreachHtml(body: string): string {
-    const paras = body.split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br/>")}</p>`).join("");
+  /** The plainest HTML: a personal email, not a newsletter — which is also
+   *  what keeps it in the Primary tab rather than Promotions. */
+  function outreachShell(inner: string, pixelUrl: string): string {
     const foot = esc(OUTREACH_FOOTER).replace(/\n/g, "<br/>");
     return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#111;margin:0;padding:16px">
-<div style="max-width:600px">${paras}<p style="margin:28px 0 0;font-size:11px;line-height:1.5;color:#888">${foot}</p></div></body></html>`;
+<div style="max-width:600px">${inner}<p style="margin:28px 0 0;font-size:11px;line-height:1.5;color:#888">${foot}</p></div><img src="${pixelUrl}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" /></body></html>`;
+  }
+  /** Our own site's links carry where the visit came from, so a quote that
+   *  follows can be read against the email in analytics too. */
+  function tagOwnLink(url: string, prospectId: number): string {
+    try {
+      const u = new URL(url);
+      if (!/(^|\.)unitedprints\.co\.nz$/i.test(u.hostname)) return url;
+      u.searchParams.set("utm_source", "sales-email");
+      u.searchParams.set("utm_medium", "email");
+      u.searchParams.set("utm_campaign", "united-prints-outreach");
+      u.searchParams.set("utm_content", `prospect-${prospectId}`);
+      return u.toString();
+    } catch { return url; }
+  }
+  function readAttachments(v: unknown): Array<{ filename: string; content: string; contentType: string; bytes: number }> {
+    if (v == null) return [];
+    if (!Array.isArray(v)) throw new BadRequest("Attachments must be a list.");
+    if (v.length > OUTREACH_ATTACHMENT_MAX_FILES) throw new BadRequest(`Attach up to ${OUTREACH_ATTACHMENT_MAX_FILES} files.`);
+    let total = 0;
+    return v.map((a: any) => {
+      const filename = String(a?.filename ?? "").replace(/[\\/\u0000-\u001f<>:"|?*]+/g, "_").trim().slice(0, 120);
+      const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+      const contentType = OUTREACH_ATTACHMENT_TYPES[ext];
+      if (!filename || !contentType) throw new BadRequest(`“${filename || "file"}” — PDFs, pictures and Office files only.`);
+      const content = String(a?.contentBase64 ?? "");
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content)) throw new BadRequest(`“${filename}” couldn't be read.`);
+      const bytes = Math.floor((content.length * 3) / 4) - (content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0);
+      total += bytes;
+      if (total > OUTREACH_ATTACHMENT_MAX_BYTES) throw new BadRequest("Attachments add up to more than 10 MB — send a link instead.");
+      return { filename, content, contentType, bytes };
+    });
   }
 
   app.post(
@@ -370,6 +408,7 @@ export function registerSalesRoutes(app: Express) {
       if (body.length < 20) throw new BadRequest("Write a message first.");
       if (body.length > 10000) throw new BadRequest("That message is too long.");
       const followUp = isoDate(b.nextFollowUpOn, "Follow-up date");
+      const files = readAttachments(b.attachments);
 
       // A double-click is not a second email. One minute is long enough to
       // catch it and short enough that a deliberate resend still works.
@@ -394,28 +433,49 @@ export function registerSalesRoutes(app: Express) {
       if (!me) throw new BadRequest("Couldn't work out who is sending this.");
       const senderName = `${me.firstName} ${me.lastName}`.replace(/[^\p{L}\p{N} '.-]/gu, "").trim() || "United Prints";
 
-      const ok = await sendEmail({
+      // Every web link goes through /t/se/:token/:i, which reads the
+      // destination from THIS row — so the redirect can't be pointed elsewhere.
+      const token = crypto.randomBytes(24).toString("base64url");
+      const rendered = renderOutreachBody(body, (_u, i) => `${PUBLIC_BASE}/t/se/${token}/${i}`);
+      const links = rendered.links.map((l) => ({ url: tagOwnLink(l.url, prospect.id), label: l.label }));
+
+      const sent = await sendEmailDetailed({
         to,
         from: `${senderName} from United Prints <orders@unitedprints.co.nz>`,
         replyTo: me.email,
         subject,
-        html: outreachHtml(body),
-        text: `${body}\n\n--\n${OUTREACH_FOOTER}`,
+        html: outreachShell(rendered.html, `${PUBLIC_BASE}/t/se/${token}/o.gif`),
+        text: `${outreachPlainText(body)}\n\n--\n${OUTREACH_FOOTER}`,
+        attachments: files.map((f) => ({ filename: f.filename, content: f.content, contentType: f.contentType })),
       });
-      if (!ok) {
+      if (!sent.ok) {
         return res.status(502).json({ message: "The email didn't send, so nothing was logged. Try again in a moment." });
       }
 
+      const attachmentNote = files.length ? `\nAttached: ${files.map((f) => f.filename).join(", ")}` : "";
       const [activity] = await db
         .insert(salesActivities)
         .values({
           organizationId: orgId,
           prospectId: prospect.id,
           type: "email",
-          note: `To: ${to}\nSubject: ${subject}\n\n${body}`,
+          note: `To: ${to}\nSubject: ${subject}${attachmentNote}\n\n${body}`,
           createdBy: uid,
         })
         .returning();
+      await db.insert(salesEmails).values({
+        organizationId: orgId,
+        prospectId: prospect.id,
+        activityId: activity.id,
+        token,
+        toEmail: to,
+        subject,
+        body,
+        links,
+        attachments: files.map((f) => ({ filename: f.filename, bytes: f.bytes })),
+        providerMessageId: sent.id,
+        sentBy: uid,
+      });
 
       const patch: Record<string, unknown> = {};
       if ("nextFollowUpOn" in b) patch.nextFollowUpOn = followUp;
@@ -431,6 +491,56 @@ export function registerSalesRoutes(app: Express) {
         : prospect;
 
       res.status(201).json({ activity, prospect: updated });
+    }),
+  );
+
+  // Every email to one prospect, each with its journey.
+  app.get(
+    "/api/admin/sales/prospects/:id/emails",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const prospect = await prospectOf(req, orgId);
+      res.json({ emails: await emailJourneys(orgId, prospect.id) });
+    }),
+  );
+
+  // The whole outreach: where each prospect's emails have got to, and totals.
+  // Orders and quotes are counted once each even when two emails match them.
+  app.get(
+    "/api/admin/sales/outreach",
+    requireAuth,
+    tab,
+    handler(async (req, res) => {
+      const orgId = await orgOf(req);
+      const all = await emailJourneys(orgId);
+      const RANK = ["sent", "delivered", "opened", "clicked", "quoted", "ordered", "paid"];
+      const byProspect: Record<number, { reached: string; emails: number; lastSentAt: string; opens: number; clicks: number; bounced: boolean }> = {};
+      const quoteIds = new Set<number>(); const orders = new Map<number, { totalCents: number; paidCents: number }>();
+      let delivered = 0, opened = 0, clicked = 0, bounced = 0;
+      for (const e of all) {
+        const p = (byProspect[e.prospectId] ??= { reached: "sent", emails: 0, lastSentAt: e.sentAt, opens: 0, clicks: 0, bounced: false });
+        p.emails++; p.opens += e.opens; p.clicks += e.clicks; p.bounced ||= e.bounced;
+        if (e.sentAt > p.lastSentAt) p.lastSentAt = e.sentAt;
+        if (RANK.indexOf(e.reached) > RANK.indexOf(p.reached)) p.reached = e.reached;
+        if (e.events.some((x) => x.step === "delivered")) delivered++;
+        if (e.opens) opened++;
+        if (e.clicks) clicked++;
+        if (e.bounced) bounced++;
+        e.quotes.forEach((q) => quoteIds.add(q.id));
+        e.orders.forEach((o) => orders.set(o.id, { totalCents: o.totalCents, paidCents: o.paidCents }));
+      }
+      const orderList = Array.from(orders.values());
+      res.json({
+        byProspect,
+        totals: {
+          sent: all.length, delivered, opened, clicked, bounced,
+          quotes: quoteIds.size, orders: orders.size,
+          orderValueCents: orderList.reduce((s, o) => s + o.totalCents, 0),
+          paidCents: orderList.reduce((s, o) => s + o.paidCents, 0),
+        },
+      });
     }),
   );
 

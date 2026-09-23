@@ -26,7 +26,7 @@ import { DatePickerInput } from "@/components/ui/date-picker-input";
 // 🔴 Never a bare <SelectInput>: its option panel is painted by the OS, so it is
 // dark-on-light on one machine and fine on another. Drawn by us instead.
 import { SelectInput } from "@/components/ui/select-input";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -35,12 +35,13 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { centsToDollarInput, dollarInputToCents, formatCurrency } from "@/lib/format";
 import {
   PhoneCall, Phone, Mail, Plus, Search, ExternalLink, Trash2, Globe,
-  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2, Send,
+  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2, Send, Link2, Paperclip, Eye, MousePointerClick, AlertTriangle,
 } from "lucide-react";
 import {
   SALES_STAGES, SALES_OUTCOMES, SALES_TIERS, SALES_REGIONS,
   followUpStatus, addDaysIso, stageLabel,
   outreachEmailDraft, isSharedInbox, firstNameOf, OUTREACH_FOOTER,
+  renderOutreachBody, normaliseUrl, OUTREACH_ATTACHMENT_TYPES, OUTREACH_ATTACHMENT_MAX_BYTES, OUTREACH_ATTACHMENT_MAX_FILES, OUTREACH_STEPS,
   type SalesStage, type SalesOutcome, type FollowUpStatus,
 } from "@shared/sales";
 
@@ -108,6 +109,18 @@ interface ListResponse {
 }
 
 const LIST_KEY = ["/api/admin/sales/prospects"];
+const OUTREACH_KEY = ["/api/admin/sales/outreach"];
+
+interface OutreachTotals { sent: number; delivered: number; opened: number; clicked: number; bounced: number; quotes: number; orders: number; orderValueCents: number; paidCents: number }
+interface ProspectOutreach { reached: string; emails: number; lastSentAt: string; opens: number; clicks: number; bounced: boolean }
+interface OutreachResponse { byProspect: Record<number, ProspectOutreach>; totals: OutreachTotals }
+interface JourneyEvent { step: string; at: string | null; detail?: string; scanner?: boolean; href?: string }
+interface EmailJourney {
+  id: number; to: string; subject: string; body: string; sentAt: string;
+  attachments: Array<{ filename: string; bytes: number }>;
+  links: Array<{ url: string; label: string; clicks: number }>;
+  opens: number; clicks: number; reached: string; bounced: boolean; events: JourneyEvent[];
+}
 
 // ── Small render helpers ─────────────────────────────────────────────────────
 
@@ -197,6 +210,7 @@ export default function PrintsSales() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [emailId, setEmailId] = useState<number | null>(null);
+  const { data: outreach } = useQuery<OutreachResponse>({ queryKey: OUTREACH_KEY });
   const emailProspect = emailId === null ? null : prospects.find((p) => p.id === emailId) ?? null;
 
   const categories = useMemo(
@@ -291,6 +305,8 @@ export default function PrintsSales() {
           </div>
         )}
 
+        {outreach && outreach.totals.sent > 0 && <OutreachStrip t={outreach.totals} />}
+
         {/* View switch + filters */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-lg border border-white/10 overflow-hidden text-xs">
@@ -348,7 +364,7 @@ export default function PrintsSales() {
             <p className="text-xs text-white/35">Seed the researched database, or add your first prospect by hand.</p>
           </div>
         ) : view === "prospects" ? (
-          <ProspectsTable rows={filtered} today={today} onOpen={setDetailId} onEmail={setEmailId} onStage={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
+          <ProspectsTable rows={filtered} today={today} onOpen={setDetailId} onEmail={setEmailId} emailed={outreach?.byProspect ?? {}} onStage={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
         ) : view === "pipeline" ? (
           <PipelineBoard rows={filtered} today={today} onOpen={setDetailId} onMove={(id, stage) => saveProspect.mutate({ id, payload: { stage } })} />
         ) : (
@@ -406,8 +422,8 @@ function FilterSelect({ value, onChange, label, children }: {
 
 // ── Prospects table ──────────────────────────────────────────────────────────
 
-function ProspectsTable({ rows, today, onOpen, onEmail, onStage }: {
-  rows: Prospect[]; today: string;
+function ProspectsTable({ rows, today, onOpen, onEmail, onStage, emailed }: {
+  rows: Prospect[]; today: string; emailed: Record<number, ProspectOutreach>;
   onOpen: (id: number) => void;
   onEmail: (id: number) => void;
   onStage: (id: number, stage: SalesStage) => void;
@@ -462,7 +478,9 @@ function ProspectsTable({ rows, today, onOpen, onEmail, onStage }: {
                   {/* Only for leads nobody has contacted yet — once it's sent the
                       row moves to Contacted and the button steps aside. The
                       detail view can still write to anyone. */}
-                  {p.email && p.stage === "new" && (
+                  {emailed[p.id] ? (
+                    <OutreachChip o={emailed[p.id]} />
+                  ) : p.email && p.stage === "new" && (
                     <button
                       onClick={() => onEmail(p.id)}
                       data-testid={`button-email-${p.id}`}
@@ -891,6 +909,8 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
             </div>
           </div>
 
+          <EmailJourneys prospectId={p.id} />
+
           {/* Activity timeline */}
           <div className="space-y-1.5">
             <div className="text-[10px] uppercase tracking-wider text-white/40">History</div>
@@ -948,6 +968,8 @@ function writeDraft(id: number, d: { to: string; subject: string; body: string }
   try { d ? sessionStorage.setItem(draftKey(id), JSON.stringify(d)) : sessionStorage.removeItem(draftKey(id)); } catch { /* private mode */ }
 }
 
+const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
 function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; today: string; onClose: () => void }) {
   const { toast } = useToast();
   const { data: me } = useQuery<Me>({ queryKey: ["/api/auth/me"] });
@@ -962,6 +984,47 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
   const shownSubject = subject ?? template().subject;
   const shownBody = body ?? (me ? template().body : "");
   const [followUp, setFollowUp] = useState(p.nextFollowUpOn ?? (today ? addDaysIso(today, 4) : ""));
+  const [mode, setMode] = useState<"write" | "preview">("write");
+  const [linkForm, setLinkForm] = useState<{ label: string; url: string } | null>(null);
+  const [files, setFiles] = useState<Array<{ filename: string; contentBase64: string; bytes: number }>>([]);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const selectedText = () => {
+    const t = bodyRef.current;
+    return t ? t.value.slice(t.selectionStart, t.selectionEnd).trim() : "";
+  };
+  const insertLink = () => {
+    if (!linkForm) return;
+    const url = normaliseUrl(linkForm.url);
+    if (!url) { toast({ title: "That link doesn't look right", description: "Use a web address like unitedprints.co.nz/instant-quote", variant: "destructive" }); return; }
+    const label = linkForm.label.trim().replace(/[\[\]]/g, "") || url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const t = bodyRef.current;
+    const text = shownBody;
+    const [a, z] = t ? [t.selectionStart, t.selectionEnd] : [text.length, text.length];
+    const md = `[${label}](${url})`;
+    edit({ body: text.slice(0, a) + md + text.slice(z) });
+    setLinkForm(null);
+    requestAnimationFrame(() => { if (t) { t.focus(); t.setSelectionRange(a + md.length, a + md.length); } });
+  };
+  const addFiles = async (list: FileList | null) => {
+    if (!list) return;
+    const next = [...files];
+    for (const f of Array.from(list)) {
+      const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!OUTREACH_ATTACHMENT_TYPES[ext]) { toast({ title: `${f.name} can't be attached`, description: "PDFs, pictures and Office files only.", variant: "destructive" }); continue; }
+      if (next.length >= OUTREACH_ATTACHMENT_MAX_FILES) { toast({ title: `Up to ${OUTREACH_ATTACHMENT_MAX_FILES} files`, variant: "destructive" }); break; }
+      if (next.reduce((s, x) => s + x.bytes, 0) + f.size > OUTREACH_ATTACHMENT_MAX_BYTES) { toast({ title: "Over 10 MB", description: "Send a link to anything larger.", variant: "destructive" }); break; }
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(f);
+      });
+      next.push({ filename: f.name, contentBase64: b64, bytes: f.size });
+    }
+    setFiles(next);
+  };
+
 
   const edit = (patch: Partial<{ to: string; subject: string; body: string }>) => {
     const next = { to, subject: shownSubject, body: shownBody, ...patch };
@@ -975,12 +1038,15 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/admin/sales/prospects/${p.id}/email`, {
         to: to.trim(), subject: shownSubject.trim(), body: shownBody, nextFollowUpOn: followUp || null,
+        attachments: files.map(({ filename, contentBase64 }) => ({ filename, contentBase64 })),
       });
       return res.json();
     },
     onSuccess: () => {
       writeDraft(p.id, null);
       queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      queryClient.invalidateQueries({ queryKey: OUTREACH_KEY });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sales/prospects", String(p.id), "emails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/sales/prospects", String(p.id)] });
       toast({ title: `Email sent to ${p.name}`, description: p.stage === "new" ? "Moved to Contacted and logged in the history." : "Logged in the history." });
       onClose();
@@ -1019,28 +1085,88 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
             <input value={shownSubject} onChange={(e) => edit({ subject: e.target.value })} className={field} data-testid="email-subject" />
           </label>
 
-          <label className="block space-y-1">
-            <span className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-white/40">
-              <span>Message — make it theirs</span>
-              {(subject !== null || body !== null) && (
-                <button
-                  type="button"
-                  onClick={() => { setSubject(null); setBody(null); writeDraft(p.id, null); }}
-                  className="normal-case tracking-normal text-[11px] text-white/45 hover:text-white/80"
-                >
-                  Start again from the template
-                </button>
-              )}
-            </span>
-            <textarea
-              value={shownBody}
-              onChange={(e) => edit({ body: e.target.value })}
-              rows={14}
-              className={`${field} leading-relaxed resize-y`}
-              data-testid="email-body"
-              placeholder={me ? "" : "Loading the template…"}
-            />
-          </label>
+          {/* A <div>, not a <label>: a label forwards clicks on its own
+              buttons to the textarea. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider text-white/40">Message — make it theirs</span>
+              <div className="flex items-center gap-1 text-[11px]">
+                {(["write", "preview"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    data-testid={`email-mode-${m}`}
+                    className={`px-2.5 py-1 rounded-md ${mode === m ? "bg-white/10 text-white font-semibold" : "text-white/45 hover:text-white/75"}`}
+                  >
+                    {m === "write" ? "Write" : "Preview"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {mode === "write" ? (
+              <>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button type="button" onClick={() => setLinkForm(linkForm ? null : { label: selectedText(), url: "" })} data-testid="email-add-link"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-md border border-white/10 text-white/70 hover:text-white">
+                    <Link2 className="w-3.5 h-3.5" /> Add link
+                  </button>
+                  <button type="button" onClick={() => fileRef.current?.click()} data-testid="email-attach"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-md border border-white/10 text-white/70 hover:text-white">
+                    <Paperclip className="w-3.5 h-3.5" /> Attach files
+                  </button>
+                  <input ref={fileRef} type="file" multiple className="hidden" data-testid="email-file-input"
+                    accept={Object.keys(OUTREACH_ATTACHMENT_TYPES).map((x) => `.${x}`).join(",")}
+                    onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
+                  {(subject !== null || body !== null) && (
+                    <button type="button" onClick={() => { setSubject(null); setBody(null); writeDraft(p.id, null); }}
+                      className="ml-auto text-[11px] text-white/45 hover:text-white/80">
+                      Start again from the template
+                    </button>
+                  )}
+                </div>
+                {linkForm && (
+                  <div className="flex items-center gap-1.5 flex-wrap rounded-lg border border-white/10 p-2" data-testid="email-link-form">
+                    <input value={linkForm.label} onChange={(e) => setLinkForm({ ...linkForm, label: e.target.value })} placeholder="Words to click (e.g. get an instant quote)"
+                      className={`${field} flex-1 min-w-[160px] py-1.5 text-xs`} data-testid="email-link-label" />
+                    <input value={linkForm.url} onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })} placeholder="unitedprints.co.nz/instant-quote"
+                      className={`${field} flex-1 min-w-[160px] py-1.5 text-xs`} data-testid="email-link-url" inputMode="url" />
+                    <button type="button" onClick={insertLink} data-testid="email-link-insert"
+                      className="text-xs font-semibold px-3 py-1.5 rounded-md bg-sky-500 text-white hover:bg-sky-400">Insert</button>
+                  </div>
+                )}
+                <textarea
+                  ref={bodyRef}
+                  value={shownBody}
+                  onChange={(e) => edit({ body: e.target.value })}
+                  rows={14}
+                  className={`${field} leading-relaxed resize-y`}
+                  data-testid="email-body"
+                  placeholder={me ? "" : "Loading the template…"}
+                />
+                <p className="text-[10px] text-white/35">
+                  Web addresses, email addresses and phone numbers turn into links on their own. Every click and open is recorded.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-white px-4 py-3 text-[14px] leading-relaxed text-neutral-900 [&_a]:text-blue-700 [&_a]:underline"
+                data-testid="email-preview"
+                // Built by the same renderer the server sends with, from text it escapes.
+                dangerouslySetInnerHTML={{ __html: renderOutreachBody(shownBody).html }} />
+            )}
+
+            {files.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap" data-testid="email-attachments">
+                {files.map((f, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md bg-white/[0.05] border border-white/10 text-white/70">
+                    <Paperclip className="w-3 h-3" /> {f.filename} <span className="text-white/35">{kb(f.bytes)}</span>
+                    <button type="button" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label={`Remove ${f.filename}`} className="text-white/40 hover:text-white/80 px-0.5">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {p.whyFit && (
             <p className="text-[11px] text-white/40 border-l-2 border-white/10 pl-2">
@@ -1082,6 +1208,123 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Outreach tracking ────────────────────────────────────────────────────────
+// Sent / delivered / opened / clicked come from Resend's webhook and our own
+// pixel + link redirect; quote / order / paid are read live from the print
+// tables (matched on the address, or the company's domain). Times are NZ.
+
+const STEP_TONE: Record<string, string> = {
+  sent: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+  delivered: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  opened: "bg-violet-500/15 text-violet-300 border-violet-500/30",
+  clicked: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  quoted: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+  ordered: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  paid: "bg-emerald-500/25 text-emerald-200 border-emerald-500/40",
+  bounced: "bg-red-500/15 text-red-300 border-red-500/30",
+  complained: "bg-red-500/15 text-red-300 border-red-500/30",
+  delivery_delayed: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+};
+const stepLabel = (k: string) =>
+  OUTREACH_STEPS.find((s) => s.key === k)?.label ?? ({ bounced: "Bounced", complained: "Marked as spam", delivery_delayed: "Delivery delayed" } as Record<string, string>)[k] ?? k;
+
+/** "23 Sep, 7:05pm" in NZ time, whatever the viewer's clock says. */
+function nzStamp(iso: string | null): string {
+  if (!iso) return "time not recorded";
+  return new Intl.DateTimeFormat("en-NZ", { timeZone: "Pacific/Auckland", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+    .format(new Date(iso)).replace(" am", "am").replace(" pm", "pm");
+}
+
+function OutreachChip({ o }: { o: ProspectOutreach }) {
+  const k = o.bounced ? "bounced" : o.reached;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border ${STEP_TONE[k] ?? STEP_TONE.sent}`} data-testid="outreach-chip"
+      title={`${o.emails} email${o.emails === 1 ? "" : "s"} · ${o.opens} open${o.opens === 1 ? "" : "s"} · ${o.clicks} click${o.clicks === 1 ? "" : "s"} · last sent ${nzStamp(o.lastSentAt)}`}>
+      {stepLabel(k)}
+      {o.opens > 0 && k !== "bounced" && <span className="font-normal opacity-70 inline-flex items-center gap-0.5"><Eye className="w-3 h-3" />{o.opens}</span>}
+      {o.clicks > 0 && <span className="font-normal opacity-70 inline-flex items-center gap-0.5"><MousePointerClick className="w-3 h-3" />{o.clicks}</span>}
+    </span>
+  );
+}
+
+function OutreachStrip({ t }: { t: OutreachTotals }) {
+  const pct = (n: number) => (t.sent ? `${Math.round((n / t.sent) * 100)}%` : "—");
+  const cells: Array<[string, string, string?]> = [
+    ["Emails sent", String(t.sent)],
+    ["Delivered", String(t.delivered), pct(t.delivered)],
+    ["Opened", String(t.opened), pct(t.opened)],
+    ["Clicked", String(t.clicked), pct(t.clicked)],
+    ["Quotes", String(t.quotes)],
+    ["Orders", String(t.orders), t.orderValueCents ? money(t.orderValueCents) : undefined],
+    ["Paid", money(t.paidCents)],
+  ];
+  return (
+    <div className="rounded-xl border border-white/[0.07] px-3 py-2 flex items-center gap-x-5 gap-y-1 flex-wrap text-xs" data-testid="outreach-strip">
+      <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">Email outreach</span>
+      {cells.map(([label, v, sub]) => (
+        <span key={label} className="whitespace-nowrap">
+          <span className="text-white/45">{label}</span> <span className="font-semibold text-white/85 tabular-nums">{v}</span>
+          {sub && <span className="text-white/40 tabular-nums"> · {sub}</span>}
+        </span>
+      ))}
+      {t.bounced > 0 && <span className="text-red-300 inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{t.bounced} bounced</span>}
+    </div>
+  );
+}
+
+function EmailJourneys({ prospectId }: { prospectId: number }) {
+  const { data } = useQuery<{ emails: EmailJourney[] }>({ queryKey: ["/api/admin/sales/prospects", String(prospectId), "emails"] });
+  const emails = data?.emails ?? [];
+  if (!emails.length) return null;
+  return (
+    <div className="space-y-2" data-testid="email-journeys">
+      <div className="text-[10px] uppercase tracking-wider text-white/40">Emails — the customer journey</div>
+      {emails.map((e) => (
+        <div key={e.id} className="rounded-xl border border-white/[0.07] p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-white/85 truncate">{e.subject}</div>
+              <div className="text-[11px] text-white/40">to {e.to} · {nzStamp(e.sentAt)}</div>
+            </div>
+            <OutreachChip o={{ reached: e.reached, emails: 1, lastSentAt: e.sentAt, opens: e.opens, clicks: e.clicks, bounced: e.bounced }} />
+          </div>
+          {/* The ladder: every step, reached or not, so a gap is visible. */}
+          <div className="flex items-center gap-1 flex-wrap" data-testid="journey-steps">
+            {OUTREACH_STEPS.map((s) => {
+              const first = e.events.find((x) => x.step === s.key && !x.scanner);
+              return (
+                <span key={s.key} className={`text-[10px] px-1.5 py-0.5 rounded border ${first ? STEP_TONE[s.key] : "border-white/10 text-white/25"}`}
+                  title={first ? nzStamp(first.at) : "not yet"}>
+                  {s.label}
+                </span>
+              );
+            })}
+          </div>
+          <ol className="space-y-1 text-[11px]" data-testid="journey-events">
+            {e.events.map((x, i) => (
+              <li key={i} className={`flex items-start gap-2 ${x.scanner ? "opacity-50" : ""}`}>
+                <span className="text-white/35 tabular-nums whitespace-nowrap w-[108px] shrink-0">{nzStamp(x.at)}</span>
+                <span className="text-white/75 font-medium whitespace-nowrap">{stepLabel(x.step)}</span>
+                {x.detail && <span className="text-white/45 min-w-0 break-words">{x.detail}</span>}
+                {x.scanner && <span className="text-white/35 whitespace-nowrap">· likely a mail scanner, not a person</span>}
+              </li>
+            ))}
+          </ol>
+          {(e.links.length > 0 || e.attachments.length > 0) && (
+            <div className="text-[11px] text-white/45 space-y-0.5 border-t border-white/[0.05] pt-2">
+              {e.links.map((l, i) => (
+                <div key={i} className="flex justify-between gap-2"><span className="truncate">🔗 {l.label}</span><span className="tabular-nums whitespace-nowrap">{l.clicks} click{l.clicks === 1 ? "" : "s"}</span></div>
+              ))}
+              {e.attachments.map((a, i) => <div key={`a${i}`} className="truncate">📎 {a.filename} · {kb(a.bytes)}</div>)}
+            </div>
+          )}
+        </div>
+      ))}
+      <p className="text-[10px] text-white/30">Opens are a guide: Apple Mail loads images for its users automatically. Quotes and orders count when they come from this address, or from the same company's domain, after the email was sent.</p>
+    </div>
   );
 }
 

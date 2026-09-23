@@ -184,3 +184,132 @@ export function outreachEmailDraft(p: OutreachDraftInput, sender: { firstName: s
 export const OUTREACH_FOOTER =
   "United Prints · Christchurch United Football Club Inc. · Christchurch, New Zealand\n" +
   "If you'd rather not hear from us, reply \"unsubscribe\" and we won't email again.";
+
+// ── Turning the typed message into the email ─────────────────────────────────
+// ONE renderer for the dialog's preview and for the email that is sent, so
+// what Daniel previews is what arrives. Plain text in; out comes HTML where
+//   [words](https://…)            → a link reading "words"
+//   https://… · www.… · x.co.nz   → a link reading the address
+//   name@company.nz               → a mailto: link
+//   0800 800 199 · +64 21 …       → a tel: link
+// Web links are collected in order so the server can send each one through
+// the tracked redirect; mailto: and tel: open the reader's own app directly.
+
+export interface OutreachLink { url: string; label: string }
+
+const escHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** "unitedprints.co.nz/quote" → "https://unitedprints.co.nz/quote". Only
+ *  http(s) survives — a javascript: or data: "link" is left as plain text. */
+export function normaliseUrl(raw: string): string | null {
+  const s = raw.trim();
+  const withScheme = /^https?:\/\//i.test(s) ? s : /^[a-z]+:/i.test(s) ? null : `https://${s}`;
+  if (!withScheme) return null;
+  try {
+    const u = new URL(withScheme);
+    if (!/^https?:$/.test(u.protocol) || !u.hostname.includes(".")) return null;
+    return u.toString();
+  } catch { return null; }
+}
+
+const TLD = "(?:co\\.nz|org\\.nz|net\\.nz|govt\\.nz|school\\.nz|ac\\.nz|nz|com|org|net|io|co)";
+const BARE_URL = `(?:https?:\\/\\/[^\\s<>()]+|www\\.[^\\s<>()]+|\\b[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.${TLD}\\b(?:\\/[^\\s<>()]*)?)`;
+const EMAIL = "\\b[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b";
+const PHONE = "(?:\\+64[\\s-]?\\d{1,2}|0800|0508|0\\d{1,2})[\\s-]?\\d{3}[\\s-]?\\d{3,4}\\b";
+const TOKENS = new RegExp(`\\[([^\\]\\n]{1,120})\\]\\(([^)\\s]{3,500})\\)|(${EMAIL})|(${BARE_URL})|(${PHONE})`, "gi");
+
+/** Render one paragraph's text; `href(url, i)` decides where web link i points. */
+function renderInline(text: string, links: OutreachLink[], href: (url: string, i: number) => string): string {
+  let out = "";
+  let last = 0;
+  TOKENS.lastIndex = 0;
+  for (let m: RegExpExecArray | null; (m = TOKENS.exec(text)); ) {
+    let whole = m[0];
+    let trail = "";
+    // A sentence's full stop or comma is not part of the address.
+    if (!m[1]) {
+      const t = /[.,;:!?'"]+$/.exec(whole);
+      if (t) { trail = t[0]; whole = whole.slice(0, -trail.length); }
+    }
+    out += escHtml(text.slice(last, m.index));
+    const a = (h: string, label: string) => `<a href="${escHtml(h)}" style="color:#1d4ed8;text-decoration:underline">${escHtml(label)}</a>`;
+    if (m[1]) {
+      const url = normaliseUrl(m[2]);
+      if (url) { links.push({ url, label: m[1] }); out += a(href(url, links.length - 1), m[1]); }
+      else out += escHtml(m[0]);
+    } else if (m[3]) {
+      out += a(`mailto:${whole}`, whole);
+    } else if (m[4]) {
+      const url = normaliseUrl(whole);
+      if (url) { links.push({ url, label: whole }); out += a(href(url, links.length - 1), whole); }
+      else out += escHtml(whole);
+    } else {
+      out += a(`tel:${whole.replace(/[\s-]/g, "")}`, whole);
+    }
+    out += escHtml(trail);
+    last = m.index + m[0].length;
+  }
+  return out + escHtml(text.slice(last));
+}
+
+/** The message as email HTML (paragraphs only — the caller adds the shell) and
+ *  the web links in it, in order. */
+export function renderOutreachBody(body: string, href: (url: string, i: number) => string = (u) => u): { html: string; links: OutreachLink[] } {
+  const links: OutreachLink[] = [];
+  const html = body
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .split(/\n{2,}/)
+    .map((p) => `<p style="margin:0 0 14px">${p.split("\n").map((l) => renderInline(l, links, href)).join("<br/>")}</p>`)
+    .join("");
+  return { html, links };
+}
+
+/** The same message as plain text — a link reads "words (https://…)". */
+export function outreachPlainText(body: string): string {
+  return body.replace(/\[([^\]\n]{1,120})\]\(([^)\s]{3,500})\)/g, (_m, label, url) => `${label} (${normaliseUrl(url) ?? url})`);
+}
+
+// Attachments: what a sales email may carry. Office files, PDFs and pictures;
+// nothing executable, and small enough that Gmail and Outlook accept it.
+export const OUTREACH_ATTACHMENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  csv: "text/csv",
+};
+export const OUTREACH_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const OUTREACH_ATTACHMENT_MAX_FILES = 5;
+
+// The customer journey after an email, in order. Quote/order/paid are read
+// from the print tables, never stored against the email.
+export const OUTREACH_STEPS = [
+  { key: "sent", label: "Sent" },
+  { key: "delivered", label: "Delivered" },
+  { key: "opened", label: "Opened" },
+  { key: "clicked", label: "Clicked" },
+  { key: "quoted", label: "Quote submitted" },
+  { key: "ordered", label: "Order confirmed" },
+  { key: "paid", label: "Paid" },
+] as const;
+export type OutreachStep = (typeof OUTREACH_STEPS)[number]["key"];
+
+/** Free mailbox domains — a quote from one proves nothing about a company, so
+ *  quotes and orders are matched to an email by the exact address there, and
+ *  by the company's domain everywhere else. */
+export const FREE_MAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.nz", "outlook.com", "outlook.co.nz", "live.com", "live.co.nz",
+  "msn.com", "yahoo.com", "yahoo.co.nz", "icloud.com", "me.com", "mac.com", "xtra.co.nz", "slingshot.co.nz",
+  "orcon.net.nz", "vodafone.co.nz", "paradise.net.nz", "clear.net.nz", "actrix.co.nz", "windowslive.com", "proton.me", "protonmail.com",
+]);
+export function emailDomain(email: string | null | undefined): string | null {
+  const d = (email ?? "").trim().toLowerCase().split("@")[1];
+  return d && d.includes(".") ? d : null;
+}

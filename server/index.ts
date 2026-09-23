@@ -330,6 +330,8 @@ app.use(attributionCookieMiddleware);
   // Daniel shapes it. No public surface: a prospect list is a sales asset.
   const { registerSalesRoutes } = await import("./sales-routes");
   registerSalesRoutes(app);
+  const { registerSalesEmailPublicRoutes } = await import("./sales-email-tracking");
+  registerSalesEmailPublicRoutes(app);
 
   // Friendly Manager History — 10 years of CUFC registrations + payments,
   // imported 2026-07-14 (fm_registration_history / fm_payment_history).
