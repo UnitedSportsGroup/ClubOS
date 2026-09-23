@@ -37,7 +37,7 @@ const SOURCE_LABEL: Record<Source, string> = {
   xero: "Xero invoice",
   clubos: "ClubOS",
 };
-const dollars = (c: number) => formatCurrency(c / 100).replace(/\.00$/, "");
+const dollars = (c: number) => formatCurrency(Math.round(c / 100)).replace(/\.00$/, "");
 const short = (title: string) => title.replace("Sep–Oct ", "Sep ").replace(/^Dec (\d{4}) – Jan \d{4}$/, "Dec $1");
 
 type Filter = "all" | CampSeries;
