@@ -104,8 +104,13 @@ export default function XeroInvoicesPage() {
       {t.unsent > 0 && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-[13px] text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span><strong>{t.unsent}</strong> {t.unsent === 1 ? "invoice is" : "invoices are"} still owing and were never marked as
-            sent in Xero — they may never have reached the customer. Check before chasing.</span>
+          <span>
+            <strong>{t.unsent}</strong>{" "}
+            {t.unsent === 1
+              ? "invoice is still owing and was never marked as sent in Xero — it may never have reached the customer."
+              : "invoices are still owing and were never marked as sent in Xero — they may never have reached the customer."}{" "}
+            Check before chasing.
+          </span>
         </div>
       )}
 
@@ -151,22 +156,25 @@ export default function XeroInvoicesPage() {
               <div key={r.invoice_id}>
                 <button onClick={() => setOpen(isOpen ? null : r.invoice_id)}
                         className="block w-full px-3 py-2.5 text-left hover:bg-muted/40">
-                  <span className="flex items-center gap-2">
+                  {/* 🔴 The NAME is what a person reads, so it keeps the whole first line to itself and the badges drop
+                      beneath it. Sharing that line with two badges and an amount clipped "(S) Pak'nSave Tamatea" to
+                      "(S)…" at 390px — caught by a screenshot, by nothing else. */}
+                  <span className="flex items-baseline gap-2">
                     <span className="w-3 shrink-0 text-muted-foreground">{isOpen ? "−" : "+"}</span>
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">{r.contact}</span>
-                    <span className={`shrink-0 rounded border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${TONE[r.status] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>
-                      {r.status}
-                    </span>
-                    {r.overdue && (
-                      <span className="shrink-0 rounded border border-rose-300 bg-rose-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-rose-700">
-                        {r.days_overdue}d overdue
-                      </span>
-                    )}
-                    <span className={`w-24 shrink-0 text-right text-[13.5px] font-semibold tabular-nums ${r.due_cents ? "text-rose-700" : "text-muted-foreground"}`}>
+                    <span className="min-w-0 flex-1 break-words text-[13.5px] font-medium">{r.contact}</span>
+                    <span className={`shrink-0 text-[13.5px] font-semibold tabular-nums ${r.due_cents ? "text-rose-700" : "text-muted-foreground"}`}>
                       {r.due_cents ? fmt(r.due_cents) : "—"}
                     </span>
                   </span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-5 text-[11.5px] text-muted-foreground">
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-5 text-[11.5px] text-muted-foreground">
+                    <span className={`rounded border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ${TONE[r.status] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                      {r.status}
+                    </span>
+                    {r.overdue && (
+                      <span className="rounded border border-rose-300 bg-rose-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+                        {r.days_overdue}d overdue
+                      </span>
+                    )}
                     <span>{r.number}</span>
                     <span>{r.category}{r.programme ? ` · ${r.programme}` : ""}</span>
                     <span>issued {dayLabel(r.issued)}{r.due ? ` · due ${dayLabel(r.due)}` : ""}</span>
