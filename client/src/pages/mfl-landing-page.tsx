@@ -597,7 +597,10 @@ function Hero({ org, headline, sub, ctaHref, showCta, video }: { org: any; headl
     <header className="relative overflow-hidden" style={{ background: `radial-gradient(120% 80% at 50% 0%, ${BRAND.cardSoft} 0%, ${BRAND.black} 60%)` }}>
       <div className="max-w-3xl mx-auto px-6 pt-16 pb-14 text-center">
         <img src={org?.logoUrl || MFL_LOGO} alt="Mini Football Leagues" className="h-14 w-auto mx-auto mb-8 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).src = MFL_LOGO; }} />
-        <h1 className="text-3xl sm:text-5xl font-bold leading-[1.08] tracking-tight whitespace-pre-line">{headline}</h1>
+        <h1 className="text-3xl sm:text-5xl font-bold leading-[1.08] tracking-tight whitespace-pre-line">
+          {/* *Words in asterisks* render gold; a newline in the data breaks the line. */}
+          {headline.split(/\*([^*]+)\*/).map((part, i) => i % 2 ? <span key={i} style={{ color: BRAND.gold }}>{part}</span> : part)}
+        </h1>
         <p className="text-base sm:text-lg mt-4" style={{ color: BRAND.muted }}>{sub}</p>
         {video && <HeroVideo {...video} />}
         {showCta && ctaHref && (
