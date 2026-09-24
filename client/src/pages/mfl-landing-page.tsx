@@ -191,6 +191,35 @@ function SignupToast({ slug }: { slug: string }) {
   );
 }
 
+/**
+ * Slim gold bar across the top that rotates one message every few seconds
+ * (Daniel 2026-09-24): the early-bird countdown, the tightest night, the
+ * deposit, Player Pay. Every message is built from live data — a message
+ * with nothing true to say is simply left out. Taps through to register.
+ */
+function AnnouncementBar({ messages, href }: { messages: { key: string; node: React.ReactNode }[]; href: string }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (messages.length < 2) return;
+    const t = setInterval(() => setI((n) => (n + 1) % messages.length), 4500);
+    return () => clearInterval(t);
+  }, [messages.length]);
+  if (!messages.length) return null;
+  const m = messages[i % messages.length];
+  return (
+    <Link href={href}>
+      <a className="sticky top-0 z-30 flex h-10 items-center justify-center px-4 text-center text-[12.5px] sm:text-[13.5px] font-semibold"
+        style={{ background: BRAND.gold, color: BRAND.black }} data-testid="announcement-bar">
+        <style>{`@keyframes mflBarIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.mfl-bar-msg{animation:none!important}}`}</style>
+        <span key={m.key} className="mfl-bar-msg inline-flex min-w-0 items-center gap-1.5 truncate" style={{ animation: "mflBarIn .45s ease" }} data-testid={`bar-${m.key}`}>
+          {m.node}
+          <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
+        </span>
+      </a>
+    </Link>
+  );
+}
+
 function Stars() {
   return (
     <span className="inline-flex gap-0.5">
@@ -343,8 +372,20 @@ export default function MflLandingPage() {
   const lowestWeeklyCents = isWeeklyPlan && cheapest ? cheapest.weekly : 0;
   const lowestCents = cheapest ? cheapest.total : (program.termPriceCents ?? 0);
 
+  // Top bar messages — only the ones that are true right now.
+  const barMessages: { key: string; node: React.ReactNode }[] = [];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (promo) barMessages.push({ key: "earlybird", node: <><Flame className="h-3.5 w-3.5 flex-shrink-0" /> Early bird {promoPct} ends in <span className="tabular-nums font-bold">{countdown.days}d {pad(countdown.hours)}h {pad(countdown.mins)}m {pad(countdown.secs)}s</span></> });
+  const tight = divisions
+    .filter((d) => d.spotsLeft != null && d.spotsLeft > 0 && d.maxTeams != null && d.maxTeams > 0 && d.teamCount > d.maxTeams / 2)
+    .sort((a, b) => (a.spotsLeft ?? 99) - (b.spotsLeft ?? 99))[0];
+  if (tight) barMessages.push({ key: "spots", node: <>Only <b>{tight.spotsLeft} spot{tight.spotsLeft === 1 ? "" : "s"}</b> left on {tight.name}</> });
+  if (depositCents != null && depositCents > 0) barMessages.push({ key: "deposit", node: <>Lock in your team for just <b>{formatCurrency(depositCents, { fromCents: true }).replace(/\.00$/, "")}</b> — Play Now, Pay Later</> });
+  if (data.splitEnabled) barMessages.push({ key: "playerpay", node: <>Chasing mates for fees? Use <b>Player Pay</b></> });
+
   return (
     <div className="min-h-screen" style={{ background: BRAND.black, color: BRAND.white, fontFamily: FONT }}>
+      <AnnouncementBar messages={barMessages} href={registerHref} />
       <Hero
         org={organization}
         headline={program.heroHeadline || program.name}
