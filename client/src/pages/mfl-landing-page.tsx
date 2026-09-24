@@ -127,6 +127,70 @@ function seasonWeeks(start: string, end: string): number {
   return Math.ceil((ms / 86_400_000 + 1) / 7);
 }
 
+/** "just now" / "12 minutes ago" / "4 hours ago" / "3 days ago" — from a real timestamp. */
+function timeAgo(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * Bottom-left "Tikki Mo Solah FC signed up 4 hours ago" (Daniel 2026-09-24).
+ * REAL paid sign-ups only, from /recent — if there are none it renders nothing,
+ * never an invented team. Sits above the phone's sticky Register bar, stops
+ * after one pass, and a tap on × ends it for the visit.
+ */
+function SignupToast({ slug }: { slug: string }) {
+  const [items, setItems] = useState<{ name: string; division: string | null; at: string }[]>([]);
+  const [idx, setIdx] = useState(-1);
+  const [shown, setShown] = useState(false);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    fetch(`/api/public/league/register/${slug}/recent`).then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.signups?.length) setItems(d.signups.slice(0, 6)); }).catch(() => {});
+  }, [slug]);
+  useEffect(() => {
+    if (!items.length || closed) return;
+    let i = 0; const timers: any[] = [];
+    const cycle = () => {
+      if (i >= items.length) return;
+      setIdx(i); setShown(true);
+      timers.push(setTimeout(() => setShown(false), 5500));
+      i += 1;
+      timers.push(setTimeout(cycle, 5500 + 9000));
+    };
+    timers.push(setTimeout(cycle, 5000));
+    return () => timers.forEach(clearTimeout);
+  }, [items, closed]);
+  if (closed || idx < 0 || !items[idx]) return null;
+  const t = items[idx];
+  return (
+    <div role="status" aria-live="polite"
+      className="fixed z-40 left-3 right-3 sm:right-auto sm:left-5 sm:max-w-[340px] bottom-[calc(88px+env(safe-area-inset-bottom))] sm:bottom-5 transition-all duration-500"
+      style={{ opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(12px)", pointerEvents: shown ? "auto" : "none" }}
+      data-testid="signup-toast">
+      <div className="flex items-center gap-3 rounded-2xl pl-3 pr-2 py-2.5"
+        style={{ background: "rgba(20,20,20,0.96)", border: `1px solid ${BRAND.border}`, boxShadow: "0 12px 40px rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}>
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full" style={{ background: `${BRAND.gold}1f` }}>
+          <Trophy className="h-5 w-5" style={{ color: BRAND.gold }} />
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[14px] font-bold" style={{ color: BRAND.white }}>{t.name}</p>
+          <p className="truncate text-[12px] mt-0.5" style={{ color: BRAND.muted }}>
+            signed up{t.division ? <> for <span style={{ color: BRAND.gold }}>{t.division}</span></> : ""} · {timeAgo(t.at)}
+          </p>
+        </div>
+        <button type="button" onClick={() => setClosed(true)} aria-label="Dismiss"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xl leading-none" style={{ color: BRAND.dim }}>×</button>
+      </div>
+    </div>
+  );
+}
+
 function Stars() {
   return (
     <span className="inline-flex gap-0.5">
@@ -326,7 +390,7 @@ export default function MflLandingPage() {
       {/* Key info */}
       <section className="max-w-5xl mx-auto px-6 py-14 grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: Trophy, label: "Format", value: program.name },
+          { icon: Trophy, label: "Format", value: "5 vs 5 & 7 vs 7" },
           { icon: CreditCard, label: promo ? "Early bird from" : "From", value: cheapest && (promo || cheapest.list) ? <><s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(cheapest.list ?? cheapest.full, { fromCents: true })}</s>{formatCurrency(lowestCents, { fromCents: true })} / team</> : `${formatCurrency(lowestCents, { fromCents: true })} / team` },
           { icon: Calendar, label: "Season", value: seasonValue },
           { icon: MapPin, label: "Where", value: whereValue },
@@ -342,18 +406,25 @@ export default function MflLandingPage() {
       {/* 3 ways to pay (Daniel 2026-09-24): Player Pay · Play Now Pay Later (most popular) · Pay upfront.
           Each card shows only if the checkout actually offers it — never promise a route that isn't on sale. */}
       {(() => {
-        const ways: { icon: any; title: string; body: React.ReactNode; badge?: string }[] = [];
+        const ways: { icon: any; title: string; body: React.ReactNode; badge?: string; price?: React.ReactNode }[] = [];
+        // "From" figures come from the cheapest night on sale right now (early bird included).
+        const money = (c: number) => formatCurrency(c, { fromCents: true }).replace(/\.00$/, "");
+        const SPLIT_SQUAD = 8; // the register page's default squad for Player Pay
         if (data.splitEnabled) ways.push({
           icon: Users, title: "Player Pay",
-          body: "Split the fee across your squad — everyone pays their own share on their own card.",
+          price: lowestCents > 0 ? <>from {money(Math.ceil(lowestCents / SPLIT_SQUAD / 100) * 100)}<span className="text-sm font-semibold" style={{ color: BRAND.muted }}> / player</span></> : undefined,
+          body: `Split the fee across your squad — everyone pays their own share on their own card.${lowestCents > 0 ? ` Based on ${SPLIT_SQUAD} players.` : ""}`,
         });
         if (depositCents != null && depositCents > 0) ways.push({
           icon: Clock, title: "Play Now, Pay Later", badge: "Most popular",
+          price: isWeeklyPlan && lowestWeeklyCents > 0 ? <>from {money(lowestWeeklyCents)}<span className="text-sm font-semibold" style={{ color: BRAND.muted }}> / week</span></> : undefined,
           body: isWeeklyPlan
-            ? <>{formatCurrency(depositCents, { fromCents: true })} deposit today{lowestWeeklyCents > 0 ? <>, then from <strong style={{ color: BRAND.white }}>{formatCurrency(lowestWeeklyCents, { fromCents: true })}/week</strong></> : ", then small weekly payments"}.</>
+            ? <>{money(depositCents)} deposit today to lock your spot, then small weekly payments.</>
             : <>{formatCurrency(depositCents, { fromCents: true })} deposit today, the balance about three weeks into the term.</>,
         });
-        ways.push({ icon: CreditCard, title: "Pay upfront", body: "One payment for the whole term and you're done." });
+        ways.push({ icon: CreditCard, title: "Pay upfront",
+          price: lowestCents > 0 ? <>from {money(lowestCents)}<span className="text-sm font-semibold" style={{ color: BRAND.muted }}> / team</span></> : undefined,
+          body: "One payment for the whole term and you're done." });
         return (
           <section className="max-w-5xl mx-auto px-6 pb-4">
             <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: BRAND.gold }}>{ways.length} ways to pay</h2>
@@ -369,7 +440,8 @@ export default function MflLandingPage() {
                     <w.icon className="w-5 h-5" style={{ color: BRAND.gold }} />
                   </div>
                   <h3 className="text-lg font-bold">{w.title}</h3>
-                  <p className="text-sm mt-1" style={{ color: BRAND.muted }}>{w.body}</p>
+                  {w.price && <p className="text-2xl font-bold mt-1 tracking-tight" style={{ color: BRAND.gold }} data-testid={`way-price-${w.title}`}>{w.price}</p>}
+                  <p className="text-sm mt-1.5" style={{ color: BRAND.muted }}>{w.body}</p>
                 </div>
               ))}
             </div>
@@ -398,6 +470,8 @@ export default function MflLandingPage() {
           {divisions.map((d) => {
             const full = d.spotsLeft != null && d.spotsLeft <= 0;
             const lowSpots = !full && d.spotsLeft != null && d.spotsLeft <= 4;
+            // More than half full → say how many are left, up top (Daniel 2026-09-24).
+            const halfFull = !full && d.spotsLeft != null && d.spotsLeft > 0 && d.maxTeams != null && d.maxTeams > 0 && d.teamCount > d.maxTeams / 2;
             const price = priced(d);
             const weeklyCents = isWeeklyPlan ? price.weekly : 0;
             const href = full ? `/league/${slug}/waitlist?division=${d.id}` : `${registerHref}?division=${d.id}`;
@@ -419,7 +493,7 @@ export default function MflLandingPage() {
                       discount it can't honour. Sits above the title rather than
                       as a corner ribbon because the price occupies the top-right
                       of every night that is still open. */}
-                  {!full && (promo || d.badgeText) && (
+                  {!full && (promo || d.badgeText || halfFull) && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {/* The early bird pill is the urgency; a night's own badge
                           (a structural price, like the new-league discount) sits
@@ -427,6 +501,11 @@ export default function MflLandingPage() {
                       {promo && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ background: BRAND.gold, color: BRAND.black }} data-testid={`early-bird-badge-${d.id}`}>
                           <Flame className="w-3 h-3" /> Early bird · {promoPct}
+                        </span>
+                      )}
+                      {halfFull && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ background: BRAND.red, color: "#fff" }} data-testid={`spots-badge-${d.id}`}>
+                          <Flame className="w-3 h-3" /> {d.spotsLeft} spot{d.spotsLeft === 1 ? "" : "s"} left
                         </span>
                       )}
                       {d.badgeText && (
@@ -554,6 +633,7 @@ export default function MflLandingPage() {
       <Footer />
 
       {/* Sticky mobile CTA */}
+      {slug && <SignupToast slug={slug} />}
       <div className="fixed bottom-0 inset-x-0 sm:hidden px-4 py-3" style={{ background: "rgba(0,0,0,0.92)", borderTop: `1px solid ${BRAND.border}`, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
         <Link href={registerHref}>
           <a className="flex items-center justify-center gap-2 w-full py-3.5 rounded-full font-bold" style={{ background: BRAND.gold, color: BRAND.black }}>

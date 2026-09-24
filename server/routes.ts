@@ -22730,6 +22730,45 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // Recent sign-ups for the landing page's "X signed up 4 hours ago" toast
+  // (Daniel 2026-09-24). REAL paid teams only — status 'confirmed' through the
+  // registration (never pending, never refunded), last 30 days, team name +
+  // night + time. No captain, no email, nothing a fixture list doesn't show.
+  app.get("/api/public/league/register/:slug/recent", async (req, res) => {
+    try {
+      const program = await getMflRegistrationProgram(req.params.slug);
+      const compId = (program as any)?.leagueCompetitionId;
+      if (!compId) return res.json({ signups: [] });
+      const since = new Date(Date.now() - 30 * 86_400_000);
+      const rows = await db
+        .select({ name: leagueTeams.name, division: leagueDivisions.name, at: leagueTeams.createdAt })
+        .from(leagueTeams)
+        .innerJoin(registrations, eq(registrations.id, leagueTeams.registrationId))
+        .leftJoin(leagueDivisions, eq(leagueDivisions.id, leagueTeams.divisionId))
+        .where(and(
+          eq(leagueTeams.competitionId, compId),
+          eq(leagueTeams.active, true),
+          eq(registrations.status, "confirmed"),
+          gte(leagueTeams.createdAt, since),
+        ))
+        .orderBy(desc(leagueTeams.createdAt))
+        .limit(30);
+      // One team entering two nights is one sign-up to a visitor.
+      const seen = new Set<string>();
+      const signups = [];
+      for (const r of rows) {
+        const name = (r.name || "").trim();
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) continue;
+        seen.add(key);
+        signups.push({ name, division: r.division, at: r.at });
+        if (signups.length >= 12) break;
+      }
+      res.set("Cache-Control", "public, max-age=120");
+      res.json({ signups });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Landing/registration page data — program + competition + divisions (with
   // spots-left) + upsells + early-bird state + deposit.
   app.get("/api/public/league/register/:slug", async (req, res) => {
