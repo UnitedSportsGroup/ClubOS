@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { shortCompetitionName, termLabelFromSlug, mflPixelContent } from "@shared/league-captain";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
@@ -111,6 +111,19 @@ const FAQS = [
   { q: "When does it run?", a: "Games run weeknights at United Sports Centre, 466 Yaldhurst Road, Russley. Pick your night when you register — see the options below." },
 ];
 
+/** "2026-10-12" → "12 Oct", from the y-m-d parts (never through a Date: NZ/UTC shifts a day). */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+}
+/** Whole weeks the competition window spans (12 Oct Mon → 18 Dec Fri = 10). */
+function seasonWeeks(start: string, end: string): number {
+  const ms = Date.UTC(...(end.split("-").map(Number) as [number, number, number])) -
+    Date.UTC(...(start.split("-").map(Number) as [number, number, number]));
+  return Math.ceil((ms / 86_400_000 + 1) / 7);
+}
+
 function Stars() {
   return (
     <span className="inline-flex gap-0.5">
@@ -128,6 +141,7 @@ export default function MflLandingPage() {
   const [list, setList] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [, setLocation] = useLocation();
 
   // League Builders: capture a ?ref=BUILD-… referral code so it carries through
   // to the register page and attributes the referral on checkout.
@@ -138,17 +152,30 @@ export default function MflLandingPage() {
   // Init the shared Meta pixel + ViewContent (tagged for MFL).
   useEffect(() => {
     const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
-    if (pixelId) {
-      initPixel(pixelId);
-      trackEvent("ViewContent", { content_name: PIXEL_CONTENT(slug), content_category: "League Team Registration", currency: "NZD" });
-    }
+    if (pixelId) initPixel(pixelId);
   }, []);
+  const trackView = () => {
+    if (!(import.meta as any).env?.VITE_META_PIXEL_ID) return;
+    trackEvent("ViewContent", { content_name: PIXEL_CONTENT(slug), content_category: "League Team Registration", currency: "NZD" });
+  };
 
   useEffect(() => {
     const url = slug ? `/api/public/league/register/${slug}` : `/api/public/league/register`;
     fetch(url)
       .then((r) => { if (!r.ok) throw new Error("not found"); return r.json(); })
-      .then((d) => { if (slug) setData(d); else setList(d); })
+      .then((d) => {
+        if (slug) { setData(d); trackView(); return; }
+        // Daniel 2026-09-24: with ONE league open the chooser is a wasted
+        // click — go straight to it. replace (not push) so Back doesn't bounce
+        // here, and carry the query so utm_*/fbclid/?ref= survive. No
+        // ViewContent here: the league page fires its own, once.
+        const offerings = d?.offerings ?? [];
+        if (offerings.length === 1 && offerings[0]?.slug) {
+          setLocation(`/league/${offerings[0].slug}${window.location.search}`, { replace: true });
+          return;
+        }
+        setList(d); trackView();
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [slug]);
@@ -210,6 +237,19 @@ export default function MflLandingPage() {
   }
 
   const { program, organization, divisions, upsells, earlyBird, depositCents, paymentPlan, numWeeklyPayments } = data;
+  // Season card: "10 weeks" + the competition's own dates. Blank dates → "Full term", never a guess.
+  const compStart: string | null = data.competition?.startDate ?? null;
+  const compEnd: string | null = data.competition?.endDate ?? null;
+  const seasonValue = compStart && compEnd
+    ? <>{seasonWeeks(compStart, compEnd)} weeks<span className="block font-normal text-[13px] mt-0.5" style={{ color: BRAND.muted }}>{shortDate(compStart)} – {shortDate(compEnd)}</span></>
+    : "Full term";
+  // Where card: venue name in gold, street on the line below (suburb dropped).
+  const [venueName, venueStreet] = (program.location || "United Sports Centre, 466 Yaldhurst Rd")
+    .split(",").map((x: string) => x.trim());
+  const whereValue = <>
+    <span className="block" style={{ color: BRAND.gold }}>{venueName}</span>
+    {venueStreet && <span className="block">{venueStreet.replace(/\bRd\b/, "Road")}</span>}
+  </>;
   const isWeeklyPlan = paymentPlan === "deposit_weekly";
   const registerHref = `/league/${slug}/register`;
 
@@ -285,8 +325,8 @@ export default function MflLandingPage() {
         {[
           { icon: Trophy, label: "Format", value: program.name },
           { icon: CreditCard, label: promo ? "Early bird from" : "From", value: cheapest && (promo || cheapest.list) ? <><s className="font-normal mr-1.5" style={{ color: BRAND.dim }}>{formatCurrency(cheapest.list ?? cheapest.full, { fromCents: true })}</s>{formatCurrency(lowestCents, { fromCents: true })} / team</> : `${formatCurrency(lowestCents, { fromCents: true })} / team` },
-          { icon: Calendar, label: "Season", value: "Full term" },
-          { icon: MapPin, label: "Where", value: program.location || "United Sports Centre, 466 Yaldhurst Rd" },
+          { icon: Calendar, label: "Season", value: seasonValue },
+          { icon: MapPin, label: "Where", value: whereValue },
         ].map((c, i) => (
           <div key={i} className="rounded-2xl p-5" style={{ background: BRAND.card, border: `1px solid ${BRAND.border}` }}>
             <c.icon className="w-5 h-5 mb-2.5" style={{ color: BRAND.gold }} />

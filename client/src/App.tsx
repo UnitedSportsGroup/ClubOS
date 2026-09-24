@@ -827,7 +827,8 @@ function App() {
                 if (isVenueHost) return <VenueBookPage />;
                 if (isPrintHost) return <PrintHub />;
                 if (isRefHost) return <Redirect to={isMflRefHost ? "/mfl-ref" : "/login"} />;
-                if (isMflHost) return <Redirect to="/league" />;
+                // Keep the query string (utm_*, fbclid, ?ref=) — a bare Redirect drops it.
+                if (isMflHost) return <Redirect to={`/league${window.location.search}`} />;
                 if (isCicHost) return <Redirect to="/skills" />;
                 return <Redirect to={isAdminHost ? "/admin/login" : "/fundamentals-camp"} />;
               })()}
