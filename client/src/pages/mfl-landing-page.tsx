@@ -599,7 +599,7 @@ function Hero({ org, headline, sub, ctaHref, showCta, video }: { org: any; headl
         <img src={org?.logoUrl || MFL_LOGO} alt="Mini Football Leagues" className="h-14 w-auto mx-auto mb-8 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).src = MFL_LOGO; }} />
         <h1 className="text-3xl sm:text-5xl font-bold leading-[1.08] tracking-tight whitespace-pre-line">
           {/* *Words in asterisks* render gold; a newline in the data breaks the line. */}
-          {headline.split(/\*([^*]+)\*/).map((part, i) => i % 2 ? <span key={i} style={{ color: BRAND.gold }}>{part}</span> : part)}
+          {headline.split(/\*([^*]+)\*/).map((part, i) => i % 2 ? <span key={i} className="whitespace-nowrap" style={{ color: BRAND.gold }}>{part}</span> : part)}
         </h1>
         <p className="text-base sm:text-lg mt-4" style={{ color: BRAND.muted }}>{sub}</p>
         {video && <HeroVideo {...video} />}
