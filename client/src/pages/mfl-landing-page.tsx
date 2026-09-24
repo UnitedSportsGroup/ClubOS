@@ -212,7 +212,7 @@ function AnnouncementBar({ messages, href }: { messages: { key: string; node: Re
         style={{ background: BRAND.gold, color: BRAND.black }} data-testid="announcement-bar">
         <style>{`@keyframes mflBarIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.mfl-bar-msg{animation:none!important}}`}</style>
         <span key={m.key} className="mfl-bar-msg inline-flex min-w-0 items-center gap-1.5 truncate" style={{ animation: "mflBarIn .45s ease" }} data-testid={`bar-${m.key}`}>
-          {m.node}
+          <span className="min-w-0 truncate">{m.node}</span>
           <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
         </span>
       </a>
@@ -375,7 +375,7 @@ export default function MflLandingPage() {
   // Top bar messages — only the ones that are true right now.
   const barMessages: { key: string; node: React.ReactNode }[] = [];
   const pad = (n: number) => String(n).padStart(2, "0");
-  if (promo) barMessages.push({ key: "earlybird", node: <><Flame className="h-3.5 w-3.5 flex-shrink-0" /> Early bird {promoPct} ends in <span className="tabular-nums font-bold">{countdown.days}d {pad(countdown.hours)}h {pad(countdown.mins)}m {pad(countdown.secs)}s</span></> });
+  if (promo) barMessages.push({ key: "earlybird", node: <><Flame className="inline h-3.5 w-3.5 -mt-0.5 mr-1 align-middle" />Early bird {promoPct} ends in <span className="tabular-nums font-bold">{countdown.days}d {pad(countdown.hours)}h {pad(countdown.mins)}m {pad(countdown.secs)}s</span></> });
   const tight = divisions
     .filter((d) => d.spotsLeft != null && d.spotsLeft > 0 && d.maxTeams != null && d.maxTeams > 0 && d.teamCount > d.maxTeams / 2)
     .sort((a, b) => (a.spotsLeft ?? 99) - (b.spotsLeft ?? 99))[0];
