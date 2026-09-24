@@ -372,6 +372,26 @@ export default function MflLandingPage() {
   const lowestWeeklyCents = isWeeklyPlan && cheapest ? cheapest.weekly : 0;
   const lowestCents = cheapest ? cheapest.total : (program.termPriceCents ?? 0);
 
+  // Nights grouped by format, each in weekday order. The format is read from the
+  // division name ("Monday 5's"); anything unrecognised gets its own group, never dropped.
+  const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const dayRank = (d: Division) => { const i = DAY_ORDER.indexOf((d.dayOfWeek || "").toLowerCase()); return i < 0 ? 99 : i; };
+  const formatOf = (d: Division) => { const m = d.name.match(/\b(\d+)\s*['’]?\s*s\b/i) || d.name.match(/\b(\d+)\s*-?\s*a\s*-?\s*side/i); return m ? m[1] : "other"; };
+  const nightGroups = Array.from(
+    divisions.reduce((acc, d) => { const k = formatOf(d); acc.set(k, [...(acc.get(k) || []), d]); return acc; }, new Map<string, Division[]>())
+  )
+    .sort(([a], [b]) => (a === "other" ? 1 : b === "other" ? -1 : Number(a) - Number(b)))
+    .map(([k, list]) => {
+      const sorted = [...list].sort((a, b) => dayRank(a) - dayRank(b));
+      return {
+        key: k,
+        title: k === "other" ? "More nights" : `${k}-a-side`,
+        sub: k === "other" ? "" : `${k} vs ${k} · ${sorted.length} nights a week`,
+        divisions: sorted,
+        open: sorted.filter((d) => !(d.spotsLeft != null && d.spotsLeft <= 0)).length,
+      };
+    });
+
   // Top bar messages — only the ones that are true right now.
   const barMessages: { key: string; node: React.ReactNode }[] = [];
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -491,7 +511,7 @@ export default function MflLandingPage() {
       })()}
 
       {/* Divisions / nights with spots-left */}
-      <section className="max-w-5xl mx-auto px-6 py-12">
+      <section className="max-w-5xl xl:max-w-7xl mx-auto px-4 sm:px-6 py-12">
         <h2 className="text-2xl font-bold mb-2 text-center" style={{ color: BRAND.gold }}>Pick your night</h2>
         {promo && (
           <p className="text-center text-sm mb-2 inline-flex w-full items-center justify-center gap-2 flex-wrap" style={{ color: BRAND.muted }} data-testid="early-bird-cards-line">
@@ -507,8 +527,23 @@ export default function MflLandingPage() {
             </p>
           ) : <div className="mb-6" />;
         })()}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {divisions.map((d) => {
+        {/* Grouped by format (Daniel 2026-09-24): all the 5-a-side nights together,
+            then all the 7-a-side, each Mon→Thu. 4 across on a big screen,
+            2×2 on a tablet/small laptop, 1 per row on a phone. */}
+        <div className="mt-8 space-y-12">
+        {nightGroups.map((g) => (
+        <div key={g.key} data-testid={`night-group-${g.key}`}>
+          <div className="flex items-end justify-between gap-3 mb-4 pb-3" style={{ borderBottom: `1px solid ${BRAND.border}` }}>
+            <div>
+              <h3 className="text-xl sm:text-2xl font-bold tracking-tight">{g.title}</h3>
+              {g.sub && <p className="text-[13px] mt-0.5" style={{ color: BRAND.muted }}>{g.sub}</p>}
+            </div>
+            <span className="text-[12px] font-semibold whitespace-nowrap" style={{ color: BRAND.gold }}>
+              {g.open} of {g.divisions.length} nights open
+            </span>
+          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {g.divisions.map((d) => {
             const full = d.spotsLeft != null && d.spotsLeft <= 0;
             const lowSpots = !full && d.spotsLeft != null && d.spotsLeft <= 4;
             // More than half full → say how many are left, up top (Daniel 2026-09-24).
@@ -594,7 +629,7 @@ export default function MflLandingPage() {
                       )}
                     </div>
                   )}
-                  <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center justify-between mt-auto pt-4">
                     {full ? (
                       <span className="text-[12px] font-bold inline-flex items-center gap-1" style={{ color: BRAND.red }}>
                         <Flame className="w-3.5 h-3.5" /> Waitlist open
@@ -613,6 +648,9 @@ export default function MflLandingPage() {
               </Link>
             );
           })}
+        </div>
+        </div>
+        ))}
         </div>
       </section>
 
