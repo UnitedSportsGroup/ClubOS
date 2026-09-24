@@ -20811,6 +20811,38 @@ export async function registerRoutes(
   // 🔴 A contact is only answered if it has history in one of the KEY's
   //    workspaces; anything else is simply absent from the reply (not 403),
   //    so the endpoint cannot be used to probe who exists.
+  /* Brothers and sisters: the other children of this player's parents, read
+     through the same resolver (Daniel, 2026-09-24: "so has full family
+     profile"). 🔴 Name, birth year and what they are signed up for NOW —
+     never a sibling's medical notes, allergies or full date of birth, which
+     the family record also carries. Records of one child in both people
+     tables collapse by name, as they do on the family screen. */
+  async function siblingsOf(playerId: number, playerName: string, guardians: { kind: string; id: number }[]) {
+    const self = playerName.trim().toLowerCase();
+    const seen = new Map<string, { contactId: number | null; name: string; birthYear: number | null; programmes: string[] }>();
+    const yearAgo = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    for (const g of guardians.filter((g) => g.kind === "contact").slice(0, 4)) {
+      const gf = await resolveFamily("contact", g.id);
+      for (const ch of gf?.children ?? []) {
+        const name = `${ch.firstName ?? ""} ${ch.lastName ?? ""}`.trim();
+        const key = name.toLowerCase();
+        if (!name || key === self || (ch.kind === "contact" && ch.id === playerId)) continue;
+        const current = (ch.registrations ?? [])
+          .filter((r) => ["confirmed", "completed", "paid", "partially_refunded"].includes(r.status) && (r.registeredAt ?? "") >= yearAgo)
+          .map((r) => r.programName);
+        const prev = seen.get(key);
+        const programmes = Array.from(new Set([...(prev?.programmes ?? []), ...current]));
+        seen.set(key, {
+          contactId: prev?.contactId ?? (ch.kind === "contact" ? ch.id : null),
+          name,
+          birthYear: prev?.birthYear ?? (ch.dateOfBirth ? Number(String(ch.dateOfBirth).slice(0, 4)) : null),
+          programmes,
+        });
+      }
+    }
+    return Array.from(seen.values());
+  }
+
   app.get("/api/v1/players/profiles", requireApiKey, requireScope("players:read"), async (req: Request, res: Response) => {
     try {
       const orgIds: number[] = ((req as any).apiKeyOrgIds as number[] | undefined) ?? [(req as any).apiKeyOrg];
@@ -20870,6 +20902,7 @@ export async function registerRoutes(
             email: g.email ?? null,
             phone: g.phone ?? null,
           })),
+          siblings: await siblingsOf(id, `${row.first_name ?? ""} ${row.last_name ?? ""}`, fam?.guardians ?? []),
         });
       }
       res.json({ players });
