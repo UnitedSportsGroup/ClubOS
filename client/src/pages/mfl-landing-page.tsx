@@ -62,6 +62,8 @@ interface RegisterData {
   depositCents: number | null;
   paymentPlan?: string;
   numWeeklyPayments?: number;
+  /** Player Pay (split the fee across the squad) is on for this league. */
+  splitEnabled?: boolean;
 }
 
 /**
@@ -336,26 +338,43 @@ export default function MflLandingPage() {
         ))}
       </section>
 
-      {/* Pay-in-two explainer */}
-      {depositCents != null && depositCents > 0 && (
-        <section className="max-w-4xl mx-auto px-6 pb-4">
-          <div className="rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-5" style={{ background: BRAND.cardSoft, border: `1px solid ${BRAND.border}` }}>
-            <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${BRAND.gold}1f` }}>
-              <CreditCard className="w-6 h-6" style={{ color: BRAND.gold }} />
+      {/* 3 ways to pay (Daniel 2026-09-24): Player Pay · Play Now Pay Later (most popular) · Pay upfront.
+          Each card shows only if the checkout actually offers it — never promise a route that isn't on sale. */}
+      {(() => {
+        const ways: { icon: any; title: string; body: React.ReactNode; badge?: string }[] = [];
+        if (data.splitEnabled) ways.push({
+          icon: Users, title: "Player Pay",
+          body: "Split the fee across your squad — everyone pays their own share on their own card.",
+        });
+        if (depositCents != null && depositCents > 0) ways.push({
+          icon: Clock, title: "Play Now, Pay Later", badge: "Most popular",
+          body: isWeeklyPlan
+            ? <>{formatCurrency(depositCents, { fromCents: true })} deposit today{lowestWeeklyCents > 0 ? <>, then from <strong style={{ color: BRAND.white }}>{formatCurrency(lowestWeeklyCents, { fromCents: true })}/week</strong></> : ", then small weekly payments"}.</>
+            : <>{formatCurrency(depositCents, { fromCents: true })} deposit today, the balance about three weeks into the term.</>,
+        });
+        ways.push({ icon: CreditCard, title: "Pay upfront", body: "One payment for the whole term and you're done." });
+        return (
+          <section className="max-w-5xl mx-auto px-6 pb-4">
+            <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: BRAND.gold }}>{ways.length} ways to pay</h2>
+            <div className={`grid gap-4 ${ways.length === 3 ? "md:grid-cols-3" : ways.length === 2 ? "md:grid-cols-2" : ""}`}>
+              {ways.map((w) => (
+                <div key={w.title} className="relative rounded-2xl p-6"
+                  style={{ background: BRAND.cardSoft, border: `1px solid ${w.badge ? BRAND.gold : BRAND.border}` }}>
+                  {w.badge && (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider"
+                      style={{ background: BRAND.gold, color: BRAND.black }}>{w.badge}</span>
+                  )}
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center mb-3" style={{ background: `${BRAND.gold}1f` }}>
+                    <w.icon className="w-5 h-5" style={{ color: BRAND.gold }} />
+                  </div>
+                  <h3 className="text-lg font-bold">{w.title}</h3>
+                  <p className="text-sm mt-1" style={{ color: BRAND.muted }}>{w.body}</p>
+                </div>
+              ))}
             </div>
-            <div>
-              <h3 className="text-lg font-bold">{isWeeklyPlan ? "Deposit now, then pay weekly" : "Pay in two — lock your spot today"}</h3>
-              <p className="text-sm mt-1" style={{ color: BRAND.muted }}>
-                {isWeeklyPlan ? (
-                  <>Pay a {formatCurrency(depositCents, { fromCents: true })} deposit now to secure your team{lowestWeeklyCents > 0 ? <>, then from <strong>{formatCurrency(lowestWeeklyCents, { fromCents: true })}/week</strong></> : ", then automatic weekly payments"} across the season. Your deposit covers the final weeks — no big bill up front.</>
-                ) : (
-                  <>Pay a {formatCurrency(depositCents, { fromCents: true })} deposit now to secure your team. We'll automatically take the balance about three weeks into the term — no chasing your mates for the full amount up front.</>
-                )}
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
+          </section>
+        );
+      })()}
 
       {/* Divisions / nights with spots-left */}
       <section className="max-w-5xl mx-auto px-6 py-12">
