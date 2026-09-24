@@ -78,6 +78,13 @@ export const API_SCOPES: ApiScopeDef[] = [
       "The club's own teams and who is in them — squad name, age grade, season, and each player's name, number and position. Never DOB, contact details, medical notes or assessments.",
     personal: true,
   },
+  {
+    scope: "players:read",
+    label: "Player profiles",
+    description:
+      "One player at a time, by ClubOS contact id: date of birth, sex, when they first joined the club, and their parents' names and contact details. Built for the club's own coaching platform (2026-09-24). Never medical notes, payments or ID documents.",
+    personal: true,
+  },
 ];
 
 export const VALID_API_SCOPES = new Set(API_SCOPES.map((s) => s.scope));

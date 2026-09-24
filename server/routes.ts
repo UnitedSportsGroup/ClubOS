@@ -144,7 +144,7 @@ import {
 } from "./payshare";
 import { registerMediaRoutes } from "./media-routes";
 import { registerMarketingRoutes } from "./marketing/routes";
-import { registerFamilyRoutes } from "./family-routes";
+import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
@@ -20791,6 +20791,88 @@ export async function registerRoutes(
       }
 
       res.json({ season, squads: Array.from(bySquad.values()) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Player profiles for the club's coaching platform (2026-09-24) ─────────
+  // Daniel: sex, date of birth, "at CUFC since" and the parents belong in ONE
+  // database — ClubOS, where NZ Football makes them required at sign-up — and
+  // the coach / player platforms should read them from here instead of a
+  // coach typing them again. Own scope (players:read), so no existing key
+  // gained a date of birth or a parent's phone number by this change.
+  //
+  // 🔴 Parents come from resolveFamily() — the ONE resolver every family screen
+  //    in ClubOS uses — never a second guardian query that would drift.
+  // 🔴 "Since" is the person's earliest recorded activity across all four
+  //    history sources (FM terms and payments back to 2016, ClubOS terms and
+  //    camps), from resolvePeopleHistory via the same resolver.
+  // 🔴 A contact is only answered if it has history in one of the KEY's
+  //    workspaces; anything else is simply absent from the reply (not 403),
+  //    so the endpoint cannot be used to probe who exists.
+  app.get("/api/v1/players/profiles", requireApiKey, requireScope("players:read"), async (req: Request, res: Response) => {
+    try {
+      const orgIds: number[] = ((req as any).apiKeyOrgIds as number[] | undefined) ?? [(req as any).apiKeyOrg];
+      const ids = String(req.query.contactIds ?? "")
+        .split(",")
+        .map((v) => parseInt(v, 10))
+        .filter((v) => Number.isInteger(v) && v > 0);
+      const unique = Array.from(new Set(ids)).slice(0, 50);
+      if (unique.length === 0) return res.status(400).json({ error: "contactIds is required (comma-separated, max 50)" });
+
+      const idSql = sql.join(unique.map((i) => sql`${i}`), sql`, `);
+      const orgSql = sql.join(orgIds.map((i) => sql`${i}`), sql`, `);
+      const inScope = await db.execute(sql`
+        SELECT DISTINCT c.id FROM contacts c
+        WHERE c.id IN (${idSql}) AND (
+          EXISTS (SELECT 1 FROM registrations r JOIN programs p ON p.id = r.program_id
+                  WHERE r.contact_id = c.id AND p.organization_id IN (${orgSql}))
+          OR EXISTS (SELECT 1 FROM club_squad_members m JOIN club_squads s ON s.id = m.squad_id
+                  WHERE m.contact_id = c.id AND s.organization_id IN (${orgSql}))
+          OR EXISTS (SELECT 1 FROM fm_registration_history h
+                  WHERE h.contact_id = c.id AND h.organization_id IN (${orgSql}))
+        )`);
+      const allowed = (inScope.rows as any[]).map((r) => Number(r.id));
+
+      const people = await db.execute(sql`
+        SELECT id, first_name, last_name, date_of_birth::text AS dob, gender::text AS gender
+        FROM contacts WHERE id IN (${allowed.length ? sql.join(allowed.map((i) => sql`${i}`), sql`, `) : sql`NULL`})`);
+      const byId = new Map((people.rows as any[]).map((r) => [Number(r.id), r]));
+
+      const players = [];
+      for (const id of allowed) {
+        const row = byId.get(id);
+        if (!row) continue;
+        const fam = await resolveFamily("contact", id);
+        const programmes = fam?.history?.programmes ?? [];
+        const earliest = programmes
+          .slice()
+          .sort((a, b) => {
+            const ya = a.seasonYear ?? (a.registeredAt ? Number(a.registeredAt.slice(0, 4)) : 9999);
+            const yb = b.seasonYear ?? (b.registeredAt ? Number(b.registeredAt.slice(0, 4)) : 9999);
+            return ya - yb || String(a.registeredAt ?? "9999").localeCompare(String(b.registeredAt ?? "9999"));
+          })[0];
+        const firstDate = fam?.history?.totals?.firstActivity ?? null;
+        const firstYear = earliest?.seasonYear ?? (firstDate ? Number(firstDate.slice(0, 4)) : null);
+        players.push({
+          contactId: id,
+          name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+          dateOfBirth: row.dob ? String(row.dob).slice(0, 10) : null,
+          sex: row.gender === "male" || row.gender === "female" ? row.gender : null,
+          since:
+            firstDate || firstYear
+              ? { date: firstDate, seasonYear: firstYear, termLabel: earliest?.termLabel ?? null, terms: fam?.history?.totals?.termCount ?? 0 }
+              : null,
+          guardians: (fam?.guardians ?? []).map((g) => ({
+            name: `${g.firstName ?? ""} ${g.lastName ?? ""}`.trim(),
+            relationship: g.relationship ?? null,
+            email: g.email ?? null,
+            phone: g.phone ?? null,
+          })),
+        });
+      }
+      res.json({ players });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
