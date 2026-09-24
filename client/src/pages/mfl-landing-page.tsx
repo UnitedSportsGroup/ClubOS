@@ -26,6 +26,7 @@ const BRAND = {
 };
 const FONT = "'Inter Tight', Inter, system-ui, -apple-system, sans-serif";
 const MFL_LOGO = "/logos/mini-football-leagues.png";
+const MFL_CREST = "/logos/mini-football-leagues-crest.png";
 
 /**
  * The promo film in the hero, per offering. Daniel, 2026-09-20: "add our
@@ -595,8 +596,9 @@ function HeroVideo({ src, poster, seconds }: { src: string; poster: string; seco
 function Hero({ org, headline, sub, ctaHref, showCta, video }: { org: any; headline: string; sub: string; ctaHref?: string; showCta: boolean; video?: { src: string; poster: string; seconds: number } | null }) {
   return (
     <header className="relative overflow-hidden" style={{ background: `radial-gradient(120% 80% at 50% 0%, ${BRAND.cardSoft} 0%, ${BRAND.black} 60%)` }}>
-      <div className="max-w-3xl mx-auto px-6 pt-16 pb-14 text-center">
-        <img src={org?.logoUrl || MFL_LOGO} alt="Mini Football Leagues" className="h-20 sm:h-24 w-auto mx-auto mb-8 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).src = MFL_LOGO; }} />
+      <div className="max-w-3xl mx-auto px-6 pt-8 sm:pt-12 pb-12 text-center">
+        {/* The trimmed crest: the org logo file carries ~11% transparent padding per side, which read as dead space. */}
+        <img src={MFL_CREST} alt="Mini Football Leagues" className="h-16 sm:h-20 w-auto mx-auto mb-5 sm:mb-6 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).src = org?.logoUrl || MFL_LOGO; }} />
         <h1 className="text-3xl sm:text-5xl font-bold leading-[1.08] tracking-tight whitespace-pre-line">
           {/* *Words in asterisks* render gold; a newline in the data breaks the line. */}
           {headline.split(/\*([^*]+)\*/).map((part, i) => i % 2 ? <span key={i} className="whitespace-nowrap" style={{ color: BRAND.gold }}>{part}</span> : part)}
