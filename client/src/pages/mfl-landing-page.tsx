@@ -554,7 +554,7 @@ export default function MflLandingPage() {
             return (
               <Link key={d.id} href={href}>
                 <a
-                  className="group rounded-2xl p-5 flex flex-col transition-all relative overflow-hidden"
+                  className="group h-full rounded-2xl p-5 flex flex-col transition-all relative overflow-hidden"
                   style={{ background: BRAND.card, border: `1px solid ${full ? `${BRAND.red}66` : BRAND.border}`, cursor: "pointer" }}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = full ? BRAND.red : BRAND.gold; }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = full ? `${BRAND.red}66` : BRAND.border; }}
