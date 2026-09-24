@@ -97,7 +97,7 @@ export default function EthnicCupRegistrations() {
           Ethnic Cup — Registrations of Interest
         </h1>
         <p className="mt-1 text-sm text-white/50">
-          From ethniccup.com. 14–15 November 2026 · $800 per team. Registering is free and is not an
+          From ethniccup.com. 14–15 November 2026 · $500 per team, eight places. Registering is free and is not an
           entry — use <strong className="text-white/70">Create entry &amp; send link</strong> to turn
           one into a real team that can pay.
         </p>
