@@ -210,7 +210,7 @@ export default function TaskBoard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight">Task Tracker</h1>
-          <p className="text-sm text-white/50 mt-0.5">{people.map((p) => p.firstName).join(" & ") || "Mini Football Leagues"} · what's on, who has it, what's next</p>
+          <p className="text-sm text-white/50 mt-0.5">Mini Football Leagues · what's on, who has it, what's next</p>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.02] p-1" role="tablist">
           {([["list", "List", List], ["board", "Board", KanbanSquare], ["people", "People", Users]] as const).map(([k, label, Icon]) => (
