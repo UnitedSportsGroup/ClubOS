@@ -150,6 +150,8 @@ const CANARIES: Canary[] = [
   // position, ladder and fill-ins by night. A deploy without it would strand
   // every captain who set a password, and the Players page on minifootball.co.nz.
   { feature: "mfl captain dashboard", path: "/api/public/teampay/captain/league/mine",  expect: [401] },
+  // Daniel + Isaac's MFL project board (tb_*), separate from the System Task Tracker.
+  { feature: "mfl task board",       path: "/api/admin/task-board",                      expect: [401] },
   { feature: "mfl fill-in pool",     path: "/api/public/teampay/marketplace/mfl-term-4", expect: [200] },
   { feature: "sales email tracking", path: "/api/admin/sales/outreach",                 expect: [401] },
   { feature: "camp history",         path: "/api/admin/camps/1/history",                expect: [401] },
