@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -160,13 +160,15 @@ function ageLabel(p: { ageMin?: number | null; ageMax?: number | null }): string
   return "—";
 }
 
-function ProgramTable({ programs, regCounts, navigate, emptyMessage }: {
+function ProgramTable({ programs, regCounts, navigate, emptyMessage, extraRow }: {
   programs: AcademyProgram[];
   regCounts: Record<number, number>;
   navigate: (path: string) => void;
   emptyMessage: string;
+  /** A row that is not a `programs` row (Football in Schools), drawn in the same table so its columns line up. */
+  extraRow?: ReactNode;
 }) {
-  if (programs.length === 0) {
+  if (programs.length === 0 && !extraRow) {
     return (
       <div className="py-6 text-center">
         <p className="text-[12px] text-white/20">{emptyMessage}</p>
@@ -241,6 +243,7 @@ function ProgramTable({ programs, regCounts, navigate, emptyMessage }: {
               </tr>
             );
           })}
+          {extraRow}
         </tbody>
       </table>
     </div>
@@ -349,10 +352,7 @@ function CampSeriesTable({ series, regCounts, navigate, emptyMessage }: {
  *  ProgramTable so it reads as one list, but it opens the outreach pipeline. */
 function FisProgramRow({ summary, onOpen }: { summary: { total: number; booked: number; inPlay: number }; onOpen: () => void }) {
   return (
-    <div className="overflow-x-auto border-t border-blue-500/[0.05]">
-      <table className="w-full min-w-[500px]">
-        <tbody>
-          <tr onClick={onOpen} className="group cursor-pointer transition-colors duration-200 hover:bg-blue-500/[0.04]" data-testid="row-academy-football-in-schools">
+          <tr onClick={onOpen} className="border-t border-blue-500/[0.05] group cursor-pointer transition-colors duration-200 hover:bg-blue-500/[0.04]" data-testid="row-academy-football-in-schools">
             <td className="px-5 py-3.5">
               <div className="flex flex-col gap-0.5">
                 <span className="text-[13px] font-medium text-white/80">Football in Schools</span>
@@ -367,13 +367,10 @@ function FisProgramRow({ summary, onOpen }: { summary: { total: number; booked: 
             <td className="px-5 py-3.5 text-center">
               <span className="text-[12px] text-white/60 font-medium" title={`${summary.inPlay} in play`}>{summary.booked} booked · {summary.total} leads</span>
             </td>
-            <td className="px-3 py-3.5 text-right w-10">
+            <td className="px-3 py-3.5 text-right">
               <ChevronRight className="w-4 h-4 text-white/15 group-hover:text-blue-400/50 transition-colors duration-200" />
             </td>
           </tr>
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -511,10 +508,10 @@ export default function AdminAcademy() {
                 regCounts={regCounts || {}}
                 navigate={navigate}
                 emptyMessage="No additional programs yet. Add technification, goalkeeper training, etc."
+                extraRow={fisSummary && (!filter || "football in schools".includes(filter.toLowerCase())) ? (
+                  <FisProgramRow summary={fisSummary} onOpen={() => navigate("/admin/football-in-schools")} />
+                ) : undefined}
               />
-              {fisSummary && (!filter || "football in schools".includes(filter.toLowerCase())) && (
-                <FisProgramRow summary={fisSummary} onOpen={() => navigate("/admin/football-in-schools")} />
-              )}
             </div>
 
             <div className="glass-card rounded-2xl overflow-hidden">
