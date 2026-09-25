@@ -602,10 +602,10 @@ function CalendarView({ tasks, terms, today, projectById, personById, renderRow,
         </div>
       </div>
 
-      <div className={`grid gap-4 ${cv === "year" ? "" : "lg:grid-cols-[1fr_280px]"}`}>
+      <div className={`grid gap-4 grid-cols-[minmax(0,1fr)] ${cv === "year" ? "" : "lg:grid-cols-[minmax(0,1fr)_280px]"}`}>
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden min-w-0">{body}</div>
         {cv !== "year" && (
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {cv !== "week" && (
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden" data-testid="tb-calendar-day">
                 <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
