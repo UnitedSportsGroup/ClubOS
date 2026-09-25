@@ -171,6 +171,9 @@ try {
     if (found) {
       await found.click();
       await page.waitForSelector('[data-testid="lead-drawer"]', { timeout: 8000 }).catch(() => {});
+      // The sheet slides in; measure once it has landed and the history has loaded.
+      await page.waitForSelector('[data-testid="lead-timeline"]', { timeout: 10000 }).catch(() => {});
+      await new Promise((res) => setTimeout(res, 700));
       const drawer = await page.$('[data-testid="lead-drawer"]');
       is(!!drawer, `[${size.label}] clicking a card opens the lead`);
       const txt = await page.evaluate(() => (document.querySelector('[data-testid="lead-drawer"]') as HTMLElement)?.innerText || "");

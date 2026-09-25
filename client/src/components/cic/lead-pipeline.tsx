@@ -52,7 +52,7 @@ const initials = (name: string) => name.split(/\s+/).map((p) => p[0]).join("").s
 const PRIORITY_CLS: Record<string, string> = {
   hot: "bg-red-500/15 text-red-300", warm: "bg-amber-500/15 text-amber-300", cold: "bg-sky-500/15 text-sky-300",
 };
-const STAGE_ORDER = Object.fromEntries(LEAD_STAGES.map((s, i) => [s.key, i]));
+const SEL = "h-10 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-white";
 
 type Quick = "all" | "untouched" | "due" | "flagged" | "spam";
 
@@ -130,7 +130,7 @@ export default function LeadPipeline() {
   }, [visible, today]);
   // The order Prev/Next walks: the board, left to right, top to bottom.
   const order = useMemo(
-    () => LEAD_STAGES.filter((s) => showClosed || OPEN_STAGES.includes(s.key)).flatMap((s) => byStage.get(s.key) || []),
+    () => LEAD_STAGES.filter((s) => showClosed || !CLOSED_STAGES.includes(s.key)).flatMap((s) => byStage.get(s.key) || []),
     [byStage, showClosed],
   );
 
@@ -191,7 +191,7 @@ export default function LeadPipeline() {
   if (isLoading) return <div className="py-16 text-center text-sm text-white/30"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />Loading leads…</div>;
   if (error) return <div className="rounded-xl border border-red-500/20 bg-red-500/[0.06] p-4 text-sm text-red-300">{(error as Error).message}</div>;
 
-  const stageCols = LEAD_STAGES.filter((s) => showClosed || OPEN_STAGES.includes(s.key));
+  const stageCols = LEAD_STAGES.filter((s) => showClosed || !CLOSED_STAGES.includes(s.key));
   const tiles: { k: Quick; label: string; value: number; sub: string; tone?: string }[] = [
     { k: "untouched", label: "Untouched", value: stats.untouched, sub: "nobody has contacted them" },
     { k: "due", label: "Follow-ups due", value: stats.due, sub: "today or overdue", tone: stats.due ? "text-amber-300" : undefined },
@@ -219,22 +219,22 @@ export default function LeadPipeline() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search club, name, email, phone, city…" data-testid="lead-search"
             className="w-full h-10 pl-9 pr-3 rounded-lg border border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/30 outline-none focus:border-amber-500/50" />
         </div>
-        <SelectInput value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Owner" className="h-10 min-w-[150px]">
+        <SelectInput value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Owner" className={`${SEL} w-44`}>
           <option value="all">Everyone's leads</option>
           <option value="unassigned">Unassigned</option>
           {team.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
         </SelectInput>
-        <SelectInput value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Region" className="h-10 min-w-[150px]">
+        <SelectInput value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Region" className={`${SEL} w-44`}>
           <option value="all">All countries</option>
           <option value="nz">New Zealand</option>
           <option value="intl">International</option>
           {countries.map(([c, n]) => <option key={c} value={c}>{`${c} (${n})`}</option>)}
         </SelectInput>
-        <SelectInput value={age} onChange={(e) => setAge(e.target.value)} aria-label="Age group" className="h-10 min-w-[120px]">
+        <SelectInput value={age} onChange={(e) => setAge(e.target.value)} aria-label="Age group" className={`${SEL} w-32`}>
           <option value="all">All ages</option>
           {AGE_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
         </SelectInput>
-        <SelectInput value={source} onChange={(e) => setSource(e.target.value as any)} aria-label="Source" className="h-10 min-w-[130px]">
+        <SelectInput value={source} onChange={(e) => setSource(e.target.value as any)} aria-label="Source" className={`${SEL} w-40`}>
           <option value="all">Any source</option>
           <option value="paid">From ads</option>
           <option value="organic">Website / organic</option>
@@ -254,11 +254,11 @@ export default function LeadPipeline() {
       {selected.size > 0 && (
         <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-[#141511] px-3 py-2 shadow-lg" data-testid="lead-bulk-bar">
           <span className="text-sm font-semibold text-white">{selected.size} selected</span>
-          <SelectInput value="" onChange={(e) => e.target.value && move(Array.from(selected), e.target.value as LeadStage)} aria-label="Move selected" className="h-9 min-w-[150px]">
+          <SelectInput value="" onChange={(e) => e.target.value && move(Array.from(selected), e.target.value as LeadStage)} aria-label="Move selected" className={`${SEL} h-9 w-40`}>
             <option value="">Move to…</option>
             {LEAD_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
           </SelectInput>
-          <SelectInput value="" onChange={(e) => e.target.value && bulk.mutate({ ids: Array.from(selected), ownerUserId: e.target.value === "none" ? null : Number(e.target.value) })} aria-label="Assign selected" className="h-9 min-w-[150px]">
+          <SelectInput value="" onChange={(e) => e.target.value && bulk.mutate({ ids: Array.from(selected), ownerUserId: e.target.value === "none" ? null : Number(e.target.value) })} aria-label="Assign selected" className={`${SEL} h-9 w-40`}>
             <option value="">Assign to…</option>
             <option value="none">Nobody</option>
             {team.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
@@ -441,7 +441,7 @@ function LeadDrawer({ lead: l, flags, today, team, position, onPrev, onNext, onO
           <SelectInput value={l.stage} onChange={(e) => {
             const to = e.target.value as LeadStage;
             if (CLOSED_STAGES.includes(to)) onClose(to); else onPatch({ stage: to });
-          }} aria-label="Stage" className="h-9 min-w-[170px]" data-testid="lead-stage-select">
+          }} aria-label="Stage" className={`${SEL} h-9 w-48`} data-testid="lead-stage-select">
             {LEAD_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
           </SelectInput>
           {l.closedReason && <span className="text-xs px-2 py-1 rounded-full bg-white/[0.06] text-white/60">{reasonLabel(l.stage, l.closedReason)}</span>}
@@ -515,7 +515,7 @@ function LeadDrawer({ lead: l, flags, today, team, position, onPrev, onNext, onO
           <div className="space-y-3">
             <div className="space-y-1.5">
               <p className="text-[11px] uppercase tracking-wider text-white/35 flex items-center gap-1"><UserRound className="w-3 h-3" />Owner</p>
-              <SelectInput value={l.ownerUserId != null ? String(l.ownerUserId) : ""} onChange={(e) => onPatch({ ownerUserId: e.target.value ? Number(e.target.value) : null })} aria-label="Owner" className="h-10 w-full">
+              <SelectInput value={l.ownerUserId != null ? String(l.ownerUserId) : ""} onChange={(e) => onPatch({ ownerUserId: e.target.value ? Number(e.target.value) : null })} aria-label="Owner" className={`${SEL} w-full`}>
                 <option value="">Nobody yet</option>
                 {team.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
               </SelectInput>
