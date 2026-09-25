@@ -87,6 +87,7 @@ import GroupBudgetCostCentre from "@/pages/group-budget-cost-centre";
 import GroupCashflow from "@/pages/group-cashflow";
 import AdminAcademy from "@/pages/admin-academy";
 import AdminSquads from "@/pages/admin-squads";
+import AdminFisPipeline from "@/pages/admin-fis-pipeline";
 import LinksPage from "@/pages/links";
 import AttributionPage from "@/pages/attribution";
 import BehaviorPage from "@/pages/behavior";
@@ -656,6 +657,7 @@ function AdminRouter() {
       <Route path="/admin/academy/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/academy/:id" component={AdminCampDetail} />
       <Route path="/admin/squads" component={AdminSquads} />
+      <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />

@@ -194,6 +194,7 @@ const campsNav = [
     tab: "academy", title: "Academy", url: "/admin/academy", icon: GraduationCap,
     children: [
       { tab: "squads", title: "Squads", url: "/admin/squads", icon: Shield },
+      { tab: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools", icon: School },
     ],
   },
   // Terms intentionally NOT in the sidebar — it's reachable as a sub-tab
@@ -238,7 +239,10 @@ const siuNav = [
   // sidebar. Store is NOT filtered here: SIU is the fourth brand on the
   // shop_* engine (2026-09-09) and picks up the Store item straight off
   // campsNav, same as CUFC does.
-  ...campsNav.filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings"),
+  // Football in Schools is CUFC's outreach board — its child row comes off too.
+  ...campsNav
+    .filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings")
+    .map((t) => (t.children ? { ...t, children: t.children.filter((c) => c.tab !== "football-in-schools") } : t)),
   { tab: "licensing", title: "OFC Licensing", url: "/admin/licensing", icon: Award },
   { tab: "declarations", title: "Declarations", url: "/admin/declarations", icon: FileSignature },
   { tab: "events", title: "Community Events", url: "/admin/events", icon: Calendar },

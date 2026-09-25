@@ -952,6 +952,60 @@ export const cicInterestActivities = pgTable("cic_interest_activities", {
   regIdx: index("cic_interest_activities_reg_idx").on(t.registrationId, t.createdAt),
 }));
 
+// Football in Schools — the outreach pipeline (2026-09-25). One row per school
+// or early learning centre with a proposal page on cufc.co.nz; (kind, slug) IS
+// the page. Stages live in shared/fis-leads.ts. `background` is internal only.
+export const fisLeads = pgTable("fis_leads", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  suburb: text("suburb"),
+  address: text("address"),
+  website: text("website"),
+  driveMin: integer("drive_min"),
+  returning: boolean("worked_with_us").notNull().default(false),
+  deliveredText: text("delivered_text"),
+  leadGroup: text("lead_group"),
+  phone: text("phone"),
+  email: text("email"),
+  contactName: text("contact_name"),
+  contactRole: text("contact_role"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  sheetStatus: text("sheet_status"),
+  background: jsonb("background").$type<Record<string, string>>().notNull().default({}),
+  status: text("status").notNull().default("new"),
+  closedReason: text("closed_reason"),
+  priority: text("priority"),
+  nextFollowUpOn: date("next_follow_up_on", { mode: "string" }),
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  kindSlugUq: uniqueIndex("fis_leads_org_kind_slug_uq").on(t.organizationId, t.kind, t.slug),
+  stageIdx: index("fis_leads_stage_idx").on(t.organizationId, t.status),
+}));
+
+export const fisLeadActivities = pgTable("fis_lead_activities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  leadId: integer("lead_id").notNull().references(() => fisLeads.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  outcome: text("outcome"),
+  note: text("note"),
+  fromStage: text("from_stage"),
+  toStage: text("to_stage"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  leadIdx: index("fis_lead_activities_lead_idx").on(t.leadId, t.createdAt),
+}));
+
 // Email suppression list — anyone who unsubscribed from broadcasts. Per-org
 // (organizationId null = global). The mailer audience resolver excludes these.
 export const emailUnsubscribes = pgTable("email_unsubscribes", {

@@ -144,6 +144,7 @@ import {
 } from "./payshare";
 import { registerMediaRoutes } from "./media-routes";
 import { registerCicLeadRoutes } from "./cic-leads-routes";
+import { registerFisLeadRoutes } from "./fis-leads-routes";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
@@ -23579,6 +23580,9 @@ export async function registerRoutes(
   // route (incl. the two legacy ones the staff app calls) lives in
   // server/cic-leads-routes.ts, gated on the tab AND the CIC workspace.
   registerCicLeadRoutes(app);
+  // Football in Schools outreach pipeline (CUFC → Academy → Additional Programs),
+  // server/fis-leads-routes.ts, gated on its own tab AND the CUFC workspace.
+  registerFisLeadRoutes(app);
 
   // ── CIC "Become a Volunteer" → CIC Volunteers tab + email info@cicyouth.com ──
   // Posted cross-origin from cicyouth.com/volunteer. Lands as a 'new' volunteer

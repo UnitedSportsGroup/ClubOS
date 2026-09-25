@@ -345,6 +345,38 @@ function CampSeriesTable({ series, regCounts, navigate, emptyMessage }: {
   );
 }
 
+/** The Football in Schools row under Additional Programs — same columns as
+ *  ProgramTable so it reads as one list, but it opens the outreach pipeline. */
+function FisProgramRow({ summary, onOpen }: { summary: { total: number; booked: number; inPlay: number }; onOpen: () => void }) {
+  return (
+    <div className="overflow-x-auto border-t border-blue-500/[0.05]">
+      <table className="w-full min-w-[500px]">
+        <tbody>
+          <tr onClick={onOpen} className="group cursor-pointer transition-colors duration-200 hover:bg-blue-500/[0.04]" data-testid="row-academy-football-in-schools">
+            <td className="px-5 py-3.5">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-medium text-white/80">Football in Schools</span>
+                <span className="text-[11px] text-blue-400/30">Schools & early learning outreach pipeline</span>
+              </div>
+            </td>
+            <td className="px-5 py-3.5 hidden md:table-cell"><span className="text-[12px] text-white/40">Ongoing</span></td>
+            <td className="px-5 py-3.5 hidden lg:table-cell"><span className="text-[12px] text-white/40">—</span></td>
+            <td className="px-5 py-3.5 text-center">
+              <Badge variant="outline" className="text-[9px] text-emerald-400/70 border-emerald-500/15 bg-emerald-500/10 uppercase tracking-wider no-default-hover-elevate no-default-active-elevate">Active</Badge>
+            </td>
+            <td className="px-5 py-3.5 text-center">
+              <span className="text-[12px] text-white/60 font-medium" title={`${summary.inPlay} in play`}>{summary.booked} booked · {summary.total} leads</span>
+            </td>
+            <td className="px-3 py-3.5 text-right w-10">
+              <ChevronRight className="w-4 h-4 text-white/15 group-hover:text-blue-400/50 transition-colors duration-200" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminAcademy() {
   const search = useSearch();
   const [, navigate] = useLocation();
@@ -363,6 +395,15 @@ export default function AdminAcademy() {
   // a tab of their own (Daniel, 2026-09-02). The camps endpoint is unchanged;
   // ProgramTable already routes each row by type via programDetailPath().
   const { data: camps } = useQuery<AcademyProgram[]>({ queryKey: ["/api/admin/camps"] });
+  // Football in Schools is not a `programs` row — nobody registers for it; a
+  // school books a term. Its row here opens the outreach pipeline, and only
+  // shows for someone who can open it (the endpoint answers 403/404 otherwise).
+  const isCufc = currentOrg?.slug === "christchurch-united";
+  const { data: fisSummary } = useQuery<{ total: number; booked: number; inPlay: number }>({
+    queryKey: ["/api/admin/fis/summary"],
+    enabled: isCufc,
+    retry: false,
+  });
 
   const filtered = programs?.filter(p =>
     p.name.toLowerCase().includes(filter.toLowerCase()) ||
@@ -462,7 +503,7 @@ export default function AdminAcademy() {
                 <Sparkles className="w-4 h-4 text-amber-400/40" />
                 <h2 className="text-[13px] font-semibold text-white/60">Additional Programs</h2>
                 <Badge variant="outline" className="text-[9px] text-amber-400/50 border-amber-500/15 bg-amber-500/5 ml-auto no-default-hover-elevate no-default-active-elevate">
-                  {additionalPrograms.length}
+                  {additionalPrograms.length + (fisSummary ? 1 : 0)}
                 </Badge>
               </div>
               <ProgramTable
@@ -471,6 +512,9 @@ export default function AdminAcademy() {
                 navigate={navigate}
                 emptyMessage="No additional programs yet. Add technification, goalkeeper training, etc."
               />
+              {fisSummary && (!filter || "football in schools".includes(filter.toLowerCase())) && (
+                <FisProgramRow summary={fisSummary} onOpen={() => navigate("/admin/football-in-schools")} />
+              )}
             </div>
 
             <div className="glass-card rounded-2xl overflow-hidden">

@@ -403,6 +403,9 @@ const siuExtraTabs: TabDef[] = [
 // type entirely).
 const cufcExtraTabs: TabDef[] = [
   { slug: "store", title: "Store", url: "/admin/store" },
+  // Football in Schools outreach pipeline — schools + early learning centres.
+  // Its own slug (not "academy") so it can be granted alone, e.g. to Connor.
+  { slug: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools" },
 ];
 
 export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
