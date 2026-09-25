@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
+import { useWorkspace } from "@/lib/workspace-context";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -76,6 +77,9 @@ type Quick = "all" | "untouched" | "due" | "booked";
 
 export default function AdminFisPipeline() {
   const { toast } = useToast();
+  // The board opens in CUFC (under Academy) and in United Sports Group.
+  const { currentOrg } = useWorkspace();
+  const inCufc = currentOrg?.slug === "christchurch-united";
   const { data, isLoading, error } = useQuery<Board>({
     queryKey: KEY,
     queryFn: async () => {
@@ -207,9 +211,11 @@ export default function AdminFisPipeline() {
     <div className="p-4 sm:p-8 space-y-5 max-w-[1600px] mx-auto" data-testid="fis-pipeline">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <Link href="/admin/academy" className="inline-flex items-center gap-1 text-[12px] text-white/40 hover:text-white/70 mb-1">
-            <ArrowLeft className="w-3.5 h-3.5" /> Academy
-          </Link>
+          {inCufc && (
+            <Link href="/admin/academy" className="inline-flex items-center gap-1 text-[12px] text-white/40 hover:text-white/70 mb-1">
+              <ArrowLeft className="w-3.5 h-3.5" /> Academy
+            </Link>
+          )}
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Football in Schools</h1>
           <p className="text-blue-400/35 text-[13px] mt-1">Every school and early learning centre with a proposal page — who we've contacted, who's next, and who's booked.</p>
         </div>

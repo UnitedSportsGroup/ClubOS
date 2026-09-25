@@ -410,6 +410,7 @@ function AdminRouter() {
         <Route path="/admin/hiring" component={GroupHiring} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/proposals" component={GroupProposals} />
+        <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
         <Route path="/admin/grants" component={GroupGrants} />
         <Route path="/admin/invoices" component={GroupInvoices} />
         <Route path="/admin/xero-invoices" component={GroupXeroInvoices} />

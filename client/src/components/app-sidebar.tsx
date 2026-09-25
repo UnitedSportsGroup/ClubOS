@@ -434,6 +434,10 @@ const groupNav = [
   { tab: "hiring", title: "Hiring", url: "/admin/hiring", icon: Briefcase },
   { tab: "sponsorship", title: "Sponsorship", url: "/admin/sponsorship", icon: Handshake },
   { tab: "proposals", title: "Proposals", url: "/admin/proposals", icon: Send },
+  // Football in Schools outreach — the same board as CUFC → Academy, opened here
+  // for people (Connor) who work it but hold no CUFC membership: any CUFC
+  // membership reads every registration through older requireAuth-only routes.
+  { tab: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools", icon: School },
   { tab: "grants", title: "Grants", url: "/admin/grants", icon: Landmark },
   // `Calculator`, not `CreditCard` — Budget already owns that, and this tab is
   // the chart of accounts rather than a spend figure.

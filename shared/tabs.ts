@@ -260,6 +260,8 @@ const groupTabs: TabDef[] = [
   { slug: "hiring", title: "Hiring", url: "/admin/hiring" },
   { slug: "sponsorship", title: "Sponsorship", url: "/admin/sponsorship" },
   { slug: "proposals", title: "Proposals", url: "/admin/proposals" },
+  // Same board as CUFC → Academy → Football in Schools (see server/fis-leads-routes.ts).
+  { slug: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools" },
   { slug: "grants", title: "Grants", url: "/admin/grants" },
   { slug: "invoices", title: "Invoices", url: "/admin/invoices" },
   // Every sales invoice raised in Xero, mirrored nightly. Deliberately NOT the slug "invoices" — that one is the

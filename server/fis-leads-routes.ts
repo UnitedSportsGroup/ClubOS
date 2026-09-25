@@ -40,8 +40,17 @@ async function cufcOrgId(): Promise<number> {
   return org.id;
 }
 
+/**
+ * The board is CUFC's and always shows CUFC's leads, but it opens from TWO
+ * workspaces: CUFC (Academy → Additional Programs) and United Sports Group.
+ * 🔴 USG exists for Connor. Any CUFC membership — even one holding only this
+ *    tab — reads every registration through older routes that check membership
+ *    and not tabs (measured 2026-09-25: 12 MB of /api/admin/registrations). So
+ *    the person who works schools gets this tab in USG, not a seat in CUFC.
+ */
+const BOARD_WORKSPACES = new Set([CUFC_SLUG, "united-sports-group"]);
 function requireCufcWorkspace(req: Request, res: Response, next: NextFunction) {
-  if (req.headers["x-workspace-slug"] !== CUFC_SLUG) return res.status(404).json({ message: "Not found" });
+  if (!BOARD_WORKSPACES.has(String(req.headers["x-workspace-slug"] || ""))) return res.status(404).json({ message: "Not found" });
   next();
 }
 export const fisLeadGate = [requireTab(TAB), requireCufcWorkspace];
@@ -50,13 +59,14 @@ class HttpError extends Error { constructor(public status: number, msg: string) 
 const send = (res: Response, e: any) =>
   res.status(e instanceof HttpError ? e.status : 500).json({ message: e?.message || "Something went wrong" });
 
-/** People who can own a lead: members of the CUFC workspace. */
-async function cufcTeam(orgId: number) {
+/** People who can own a lead: members of either workspace the board opens in. */
+async function cufcTeam(_orgId: number) {
   const rows = await db
-    .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email })
+    .selectDistinct({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email })
     .from(userOrganizations)
     .innerJoin(users, eq(users.id, userOrganizations.userId))
-    .where(eq(userOrganizations.organizationId, orgId));
+    .innerJoin(organizations, eq(organizations.id, userOrganizations.organizationId))
+    .where(inArray(organizations.slug, Array.from(BOARD_WORKSPACES)));
   return rows
     .map((u) => ({ id: u.id, name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -99,7 +109,7 @@ async function moveStage(tx: Tx, opts: {
 async function validOwner(orgId: number, raw: unknown): Promise<number | null> {
   if (raw === null) return null;
   const team = await cufcTeam(orgId);
-  if (!team.some((t) => t.id === Number(raw))) throw new HttpError(400, "That person isn't in the Christchurch United workspace.");
+  if (!team.some((t) => t.id === Number(raw))) throw new HttpError(400, "That person isn't on the Christchurch United or United Sports Group team.");
   return Number(raw);
 }
 
