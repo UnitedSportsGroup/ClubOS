@@ -920,12 +920,36 @@ export const cicInterestRegistrations = pgTable("cic_interest_registrations", {
   club: text("club"),
   location: text("location"),  // "Melbourne, Australia" — where the team is travelling from
   ageGroups: text("age_groups").array().notNull().default(sql`ARRAY[]::text[]`), // e.g. {U9,U11,U13}
-  status: text("status").notNull().default("new"),  // 'new'|'confirmed'|'declined'|'archived'
+  // The pipeline STAGE (2026-09-25) — validated app-side in shared/cic-leads.ts.
+  status: text("status").notNull().default("new"),
   notes: text("notes"),
   sourceUrl: text("source_url"),
+  closedReason: text("closed_reason"),          // only on not_coming / disqualified
+  priority: text("priority"),                   // hot | warm | cold | null
+  nextFollowUpOn: date("next_follow_up_on", { mode: "string" }),
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
   orgIdx: index("cic_interest_org_idx").on(t.organizationId, t.createdAt),
+}));
+
+// Every call, email, WhatsApp, note and stage move on a CIC lead, with WHO.
+export const cicInterestActivities = pgTable("cic_interest_activities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  registrationId: integer("registration_id").notNull().references(() => cicInterestRegistrations.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  outcome: text("outcome"),
+  note: text("note"),
+  fromStage: text("from_stage"),
+  toStage: text("to_stage"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  regIdx: index("cic_interest_activities_reg_idx").on(t.registrationId, t.createdAt),
 }));
 
 // Email suppression list — anyone who unsubscribed from broadcasts. Per-org

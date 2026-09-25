@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Inbox, Globe, Mail, Instagram, Facebook, MessageCircle, X, Phone, Reply, Check, Archive, Users, ClipboardList, CheckCircle2, XCircle, MapPin, Megaphone } from "lucide-react";
-import { NZF_COUNTRIES } from "@shared/nzf-vocabulary";
+import { Inbox, Globe, Mail, KanbanSquare, Instagram, Facebook, MessageCircle, X, Phone, Reply, Check, Archive, Users, ClipboardList, CheckCircle2, XCircle, MapPin, Megaphone } from "lucide-react";
+import { countryOf, marketOf, normaliseStage, stageLabel } from "@shared/cic-leads";
+import LeadPipeline from "@/components/cic/lead-pipeline";
 
 // CIC "Register Your Interest" — two views under the Registrations tab:
 //  • By Age Group — the structured board; each grade's slots fill with the exact
@@ -37,72 +38,36 @@ const STATUS_CLS: Record<string, string> = {
   new: "bg-amber-500/15 text-amber-300", confirmed: "bg-green-500/15 text-green-300",
   read: "bg-white/10 text-white/50", replied: "bg-green-500/15 text-green-300",
   declined: "bg-red-500/15 text-red-300", archived: "bg-white/[0.06] text-white/30",
+  contacted: "bg-sky-500/15 text-sky-300", talking: "bg-violet-500/15 text-violet-300",
+  info_sent: "bg-amber-500/15 text-amber-300", committed: "bg-orange-500/15 text-orange-300",
+  entered: "bg-green-500/15 text-green-300", not_coming: "bg-white/[0.06] text-white/40",
+  disqualified: "bg-red-500/15 text-red-300",
 };
 
 const fmt = (d: string) => new Date(d).toLocaleString("en-NZ", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const fmtFull = (d: string) => new Date(d).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 const regName = (r: Reg) => `${r.firstName}${r.lastName ? " " + r.lastName : ""}`.trim();
 
-// ── Where a registration is from (2026-09-08) ────────────────────────────────
-// Daniel: "confirming we are capturing where submissions coming from like what
-// country and city so we can filter … and see how we tracking on internationals
-// vs NZ." The form now always saves location as "City, Country"; older rows
-// sometimes hold a bare city ("Hamilton", "timaru"), so the country is DERIVED,
-// never guessed: the location's last segment if it is a real country name (NZ
-// Football's own list), else the phone's dial code, else unknown. Nothing is
-// written back — a filter must never rewrite a family's record.
-const COUNTRY_BY_LOWER = new Map(NZF_COUNTRIES.map((c) => [c.name.toLowerCase(), c.name]));
-const DIAL_TO_COUNTRY: Record<string, string> = {
-  "+64": "New Zealand", "+61": "Australia", "+66": "Thailand", "+81": "Japan", "+82": "South Korea", "+852": "Hong Kong",
-  "+65": "Singapore", "+1": "USA / Canada", "+27": "South Africa", "+55": "Brazil", "+54": "Argentina", "+56": "Chile",
-  "+598": "Uruguay", "+44": "United Kingdom", "+353": "Ireland", "+49": "Germany", "+31": "Netherlands", "+34": "Spain",
-  "+351": "Portugal", "+977": "Nepal", "+679": "Fiji", "+685": "Samoa", "+676": "Tonga", "+91": "India", "+86": "China",
-  "+60": "Malaysia", "+62": "Indonesia", "+63": "Philippines", "+33": "France", "+39": "Italy",
-};
-export function countryOf(r: Pick<Reg, "location" | "phone">): string | null {
-  const loc = (r.location || "").trim();
-  if (loc.includes(",")) {
-    const last = loc.split(",").pop()!.trim().toLowerCase();
-    const hit = COUNTRY_BY_LOWER.get(last);
-    if (hit) return hit;
-  }
-  const digits = (r.phone || "").replace(/[^\d+]/g, "");
-  if (digits.startsWith("+")) {
-    for (const len of [4, 3, 2]) { const k = digits.slice(0, len); if (DIAL_TO_COUNTRY[k]) return DIAL_TO_COUNTRY[k]; }
-  }
-  return null;
-}
+// Country and ad-market derivation moved to shared/cic-leads.ts (2026-09-25)
+// so the pipeline, this page and the server read ONE rule.
 const isNZ = (r: Reg) => countryOf(r) === "New Zealand";
 
-// Which ad market (or page) brought them — read off the utm tags the website
-// writes into sourceUrl: "cicyouth.com/cic-2027 [utm_campaign=cic-2027-asia&…]".
-const MARKET_LABEL: Record<string, string> = {
-  "north-island": "North Island", australia: "Australia", asia: "Asia", usa: "USA", "rest-of-world": "Rest of World", "south-island": "South Island",
-};
-export function marketOf(sourceUrl: string | null): { label: string; paid: boolean } {
-  const s = sourceUrl || "";
-  const m = s.match(/utm_campaign=cic-2027-([a-z-]+)/i);
-  if (m) return { label: `Meta ad · ${MARKET_LABEL[m[1].toLowerCase()] || m[1]}`, paid: true };
-  if (/utm_source=|fbclid=/i.test(s)) return { label: "Ad click", paid: true };
-  if (/\/cic-2027/i.test(s)) return { label: "CIC 2027 page", paid: false };
-  return { label: "Website", paid: false };
-}
-
 export default function CicRegistrations() {
-  const [view, setView] = useState<"board" | "list" | "enquiries">("board");
+  const [view, setView] = useState<"pipeline" | "board" | "list" | "enquiries">("pipeline");
   const [selectedReg, setSelectedReg] = useState<Reg | null>(null);
   const [selectedMsg, setSelectedMsg] = useState<Msg | null>(null);
 
   const { data: regs = [], isLoading: regsLoading } = useQuery<Reg[]>({
     queryKey: ["/api/admin/cic/registrations"],
-    queryFn: () => fetch("/api/admin/cic/registrations").then((r) => r.json()),
+    queryFn: async () => { const r = await workspaceFetch("/api/admin/cic/registrations"); if (!r.ok) throw new Error(`Couldn't load registrations (${r.status})`); return r.json(); },
   });
   const { data: messages = [], isLoading: msgLoading } = useQuery<Msg[]>({
     queryKey: ["/api/admin/cic/inbox"],
-    queryFn: () => fetch("/api/admin/cic/inbox").then((r) => r.json()),
+    queryFn: async () => { const r = await workspaceFetch("/api/admin/cic/inbox"); if (!r.ok) throw new Error(`Couldn't load enquiries (${r.status})`); return r.json(); },
   });
 
-  const activeRegs = regs.filter((r) => r.status !== "archived" && r.status !== "declined");
+  // Closed leads (not coming / disqualified) never count as active interest.
+  const activeRegs = regs.filter((r) => !["not_coming", "disqualified"].includes(normaliseStage(r.status)));
 
   // NZ vs international, and per-country — a filter over the same rows, never a
   // second list. Applies to the board and the list alike.
@@ -128,6 +93,7 @@ export default function CicRegistrations() {
   const visibleAll = regs.filter(passesGeo);
 
   const tabs = [
+    { k: "pipeline" as const, label: "Pipeline", icon: KanbanSquare },
     { k: "board" as const, label: "By Age Group", icon: Users },
     { k: "list" as const, label: "All Registrations", icon: ClipboardList, count: regs.length },
     { k: "enquiries" as const, label: "Enquiries", icon: Inbox, count: messages.filter((m) => m.status !== "archived").length },
@@ -150,7 +116,7 @@ export default function CicRegistrations() {
       </div>
 
       {/* ── NZ vs international scoreboard + filters (board and list) ── */}
-      {view !== "enquiries" && !regsLoading && (
+      {(view === "board" || view === "list") && !regsLoading && (
         <div className="space-y-3">
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             {[
@@ -184,6 +150,9 @@ export default function CicRegistrations() {
         </div>
       )}
 
+      {/* ── Lead pipeline (Isaac's working view) ── */}
+      {view === "pipeline" && <LeadPipeline />}
+
       {/* ── By Age Group board ── */}
       {view === "board" && (
         regsLoading ? <div className="text-center py-12 text-white/20 text-sm">Loading…</div> : (
@@ -204,7 +173,7 @@ export default function CicRegistrations() {
                         <button key={r.id} onClick={() => setSelectedReg(r)} className="w-full text-left rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-colors px-3 py-2" data-testid={`cic-reg-${g}-${r.id}`}>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-white/90 truncate">{r.club || regName(r)}</span>
-                            {r.status === "confirmed" && <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />}
+                            {normaliseStage(r.status) === "entered" && <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />}
                             <span className="ml-auto text-[10px] text-white/30 shrink-0">{fmt(r.createdAt)}</span>
                           </div>
                           <div className="text-[11px] text-white/45 truncate mt-0.5">{regName(r)} · {r.location || countryOf(r) || "location unknown"}</div>
@@ -242,7 +211,7 @@ export default function CicRegistrations() {
                   <div className="text-[12.5px] text-white/50 truncate mt-0.5">{regName(r)} · {r.email}{r.phone ? " · " + r.phone : ""}</div>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     {r.ageGroups.map((g) => <span key={g} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">{g}</span>)}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full capitalize ml-1 ${STATUS_CLS[r.status] || STATUS_CLS.new}`}>{r.status}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full capitalize ml-1 ${STATUS_CLS[normaliseStage(r.status)] || STATUS_CLS.new}`}>{stageLabel(normaliseStage(r.status))}</span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 ${country === "New Zealand" ? "bg-white/[0.06] text-white/55" : country ? "bg-sky-500/15 text-sky-300" : "bg-white/[0.04] text-white/30"}`}>
                       <MapPin className="w-3 h-3" />{r.location || country || "location unknown"}
                     </span>
@@ -346,7 +315,7 @@ function RegModal({ reg, onClose }: { reg: Reg; onClose: () => void }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`text-[11px] px-2 py-0.5 rounded-full capitalize ${STATUS_CLS[reg.status] || STATUS_CLS.new}`}>{reg.status}</span>
+            <span className={`text-[11px] px-2 py-0.5 rounded-full capitalize ${STATUS_CLS[normaliseStage(reg.status)] || STATUS_CLS.new}`}>{stageLabel(normaliseStage(reg.status))}</span>
             <span className={`text-[11px] px-2 py-0.5 rounded-full ${countryOf(reg) === "New Zealand" ? "bg-white/[0.06] text-white/55" : countryOf(reg) ? "bg-sky-500/15 text-sky-300" : "bg-white/[0.04] text-white/30"}`}>
               {countryOf(reg) ? (countryOf(reg) === "New Zealand" ? "New Zealand" : `International · ${countryOf(reg)}`) : "Country unknown"}
             </span>

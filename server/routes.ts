@@ -143,6 +143,7 @@ import {
   sweepExpiredPayShareSessions,
 } from "./payshare";
 import { registerMediaRoutes } from "./media-routes";
+import { registerCicLeadRoutes } from "./cic-leads-routes";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
@@ -23574,26 +23575,10 @@ export async function registerRoutes(
     } catch (e: any) { console.error("[CIC register-interest] error:", e); res.status(400).json({ message: e.message }); }
   });
 
-  // Admin: structured interest registrations (grouped into the age-group board client-side).
-  app.get("/api/admin/cic/registrations", requireAuth, async (_req, res) => {
-    try {
-      const orgId = await skillsOrgId();
-      const rows = await db.select().from(cicInterestRegistrations)
-        .where(eq(cicInterestRegistrations.organizationId, orgId))
-        .orderBy(desc(cicInterestRegistrations.createdAt));
-      res.json(rows);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
-  });
-  app.post("/api/admin/cic/registrations/:id/status", requireAuth, async (req, res) => {
-    try {
-      const status = String(req.body.status || "");
-      if (!["new", "confirmed", "declined", "archived"].includes(status)) return res.status(400).json({ message: "invalid status" });
-      const orgId = await skillsOrgId();
-      await db.update(cicInterestRegistrations).set({ status })
-        .where(and(eq(cicInterestRegistrations.id, parseInt(req.params.id)), eq(cicInterestRegistrations.organizationId, orgId)));
-      res.json({ ok: true });
-    } catch (e: any) { res.status(400).json({ message: e.message }); }
-  });
+  // Admin: the registrations of interest — now a lead pipeline. Every admin
+  // route (incl. the two legacy ones the staff app calls) lives in
+  // server/cic-leads-routes.ts, gated on the tab AND the CIC workspace.
+  registerCicLeadRoutes(app);
 
   // ── CIC "Become a Volunteer" → CIC Volunteers tab + email info@cicyouth.com ──
   // Posted cross-origin from cicyouth.com/volunteer. Lands as a 'new' volunteer

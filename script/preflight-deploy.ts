@@ -116,6 +116,7 @@ const CANARIES: Canary[] = [
   // and a deploy that dropped the form would have it posting business expo
   // enquiries into a 404 with nobody the wiser.
   { feature: "football fest admin", path: "/api/admin/football-fest/registrations", expect: [401] },
+  { feature: "cic lead pipeline",   path: "/api/admin/cic/leads", expect: [401] },
   { feature: "football fest form",  path: "/api/public/football-fest/register-interest", method: "OPTIONS", expect: [204] },
   // Team Pay. The public canary is the one that matters: a manager's dashboard
   // link and a player's payment link are both sitting in people's inboxes, and
