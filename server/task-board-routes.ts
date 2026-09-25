@@ -30,9 +30,13 @@ async function workspace(req: Request) {
   return org ?? null;
 }
 
-/** Who can hold a task here = who can open this tab in this workspace:
- *  super admins, plus anyone granted it by name. Read live, never cached. */
-async function peopleFor(orgId: number) {
+/** Who can hold a task here: anyone granted the tab by name (Isaac), the
+ *  person who set the board up (whoever created a project — Daniel), and the
+ *  viewer. NOT every super admin: this is "me and Isaac's" board, and listing
+ *  Slava as an owner option would say otherwise. Read live, never cached. */
+async function peopleFor(orgId: number, viewerId?: number) {
+  const creators = (await db.execute(sql`SELECT DISTINCT created_by AS id FROM tb_projects WHERE organization_id = ${orgId} AND created_by IS NOT NULL`)).rows as any[];
+  const keep = new Set<number>([...creators.map((r) => Number(r.id)), ...(viewerId ? [viewerId] : [])]);
   const rows = await db
     .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email,
       avatarUrl: users.avatarUrl, globalRole: users.role, role: userOrganizations.role, unlocked: userOrganizations.unlockedTabs })
@@ -40,7 +44,8 @@ async function peopleFor(orgId: number) {
     .innerJoin(users, eq(users.id, userOrganizations.userId))
     .where(eq(userOrganizations.organizationId, orgId));
   return rows
-    .filter((r) => r.globalRole === "super_admin" || r.role === "super_admin" || (Array.isArray(r.unlocked) && (r.unlocked as string[]).includes(TAB)))
+    .filter((r) => keep.has(r.id) || (Array.isArray(r.unlocked) && (r.unlocked as string[]).includes(TAB)))
+    .sort((a, b) => a.id - b.id)
     .map((r) => ({ id: r.id, name: [r.firstName, r.lastName].filter(Boolean).join(" ") || r.email, firstName: r.firstName || r.email, avatarUrl: r.avatarUrl ?? null }));
 }
 
@@ -73,7 +78,7 @@ export function registerTaskBoardRoutes(app: Express) {
     const [projects, tasks, people] = await Promise.all([
       db.select().from(tbProjects).where(and(eq(tbProjects.organizationId, org.id), isNull(tbProjects.archivedAt))).orderBy(asc(tbProjects.position), asc(tbProjects.id)),
       db.select().from(tbTasks).where(and(eq(tbTasks.organizationId, org.id), isNull(tbTasks.archivedAt))).orderBy(asc(tbTasks.position), asc(tbTasks.id)),
-      peopleFor(org.id),
+      peopleFor(org.id, req.session.userId),
     ]);
     res.json({ projects, tasks, people, today: nzTodayIso(), me: req.session.userId });
   });
@@ -81,7 +86,7 @@ export function registerTaskBoardRoutes(app: Express) {
   app.post("/api/admin/task-board/tasks", ...gate, async (req: Request, res: Response) => {
     const org = await workspace(req);
     if (!org) return res.status(400).json({ message: "X-Workspace-Slug header required" });
-    const people = await peopleFor(org.id);
+    const people = await peopleFor(org.id, req.session.userId);
     const { out, errors } = taskPatch({ status: "todo", ...req.body }, people);
     if (!out.title) errors.push("A task needs a title");
     if (errors.length) return res.status(400).json({ message: errors[0] });
@@ -105,7 +110,7 @@ export function registerTaskBoardRoutes(app: Express) {
     const id = Number(req.params.id);
     const [cur] = await db.select().from(tbTasks).where(and(eq(tbTasks.id, id), eq(tbTasks.organizationId, org.id), isNull(tbTasks.archivedAt)));
     if (!cur) return res.status(404).json({ message: "Not found" });
-    const { out, errors } = taskPatch(req.body || {}, await peopleFor(org.id));
+    const { out, errors } = taskPatch(req.body || {}, await peopleFor(org.id, req.session.userId));
     if (errors.length) return res.status(400).json({ message: errors[0] });
     if (out.projectId != null) {
       const [p] = await db.select({ id: tbProjects.id }).from(tbProjects).where(and(eq(tbProjects.id, out.projectId), eq(tbProjects.organizationId, org.id)));
