@@ -12,8 +12,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, X, Handshake, TrendingUp, DollarSign, Award, Filter, Check, Trash2,
   CheckCircle2, Circle, Clock, AlertCircle, Link as LinkIcon, GripVertical, ListChecks,
-  Target, ExternalLink, ArrowUpRight, Search, Star, Mail, Phone,
+  Target, ExternalLink, ArrowUpRight, Search, Star, Mail, Phone, Beer,
 } from "lucide-react";
+import { BreweriesView } from "@/components/sponsorship/breweries-view";
 
 // Stages mirror Daniel's existing Pipedrive flow exactly so muscle memory carries over.
 const STAGES = [
@@ -103,7 +104,9 @@ export default function GroupSponsorship() {
   const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<SponsorshipDeal> } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<StageKey | null>(null);
-  const [view, setView] = useState<"pipeline" | "prospects" | "deliverables" | "onboarding" | "billboards">("pipeline");
+  const [view, setView] = useState<"pipeline" | "prospects" | "deliverables" | "onboarding" | "billboards" | "breweries">(
+    () => (typeof window !== "undefined" && window.location.hash.startsWith("#breweries") ? "breweries" : "pipeline"),
+  );
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -192,22 +195,28 @@ export default function GroupSponsorship() {
         </div>
 
         {/* Sub-nav */}
-        <div className="flex items-center gap-1 mt-4 border-b border-white/[0.06] -mb-4">
+        <div className="flex items-center gap-1 mt-4 border-b border-white/[0.06] -mb-4 overflow-x-auto">
           {([
             { key: "pipeline",     label: "Pipeline",     icon: TrendingUp },
             { key: "prospects",    label: "Prospects",    icon: Target },
             { key: "deliverables", label: "Deliverables", icon: ListChecks },
             { key: "onboarding",   label: "Onboarding",   icon: CheckCircle2 },
             { key: "billboards",   label: "Billboards",   icon: DollarSign },
+            { key: "breweries",    label: "Breweries",    icon: Beer },
           ] as const).map(t => {
             const Icon = t.icon;
             const active = view === t.key;
             return (
               <button
                 key={t.key}
-                onClick={() => setView(t.key)}
+                onClick={() => {
+                  setView(t.key);
+                  // Breweries keeps its own sub-view in the hash; leaving it clears that.
+                  if (t.key === "breweries") { if (!window.location.hash.startsWith("#breweries")) window.history.replaceState(null, "", "#breweries-overview"); }
+                  else if (window.location.hash.startsWith("#breweries")) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+                }}
                 data-testid={`tab-${t.key}`}
-                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? "text-white border-blue-500"
                     : "text-white/50 hover:text-white/80 border-transparent"
@@ -274,6 +283,7 @@ export default function GroupSponsorship() {
         {view === "deliverables" && orgId && <CrossDeliverablesView orgId={orgId} team={team} category="contract" />}
         {view === "onboarding" && orgId && <OnboardingMatrixView orgId={orgId} team={team} deals={deals} />}
         {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
+        {view === "breweries" && <BreweriesView />}
         {view === "pipeline" && (dealsLoading ? (
           <div className="flex gap-3 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}
