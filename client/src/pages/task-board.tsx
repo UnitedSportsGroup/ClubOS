@@ -32,10 +32,10 @@ type Task = {
 };
 type Project = { id: number; name: string; color: string; position: number };
 type Person = { id: number; name: string; firstName: string; avatarUrl: string | null };
-type Board = { projects: Project[]; tasks: Task[]; people: Person[]; today: string; me: number };
+type Board = { projects: Project[]; tasks: Task[]; people: Person[]; terms?: { name: string; start: string; end: string }[]; today: string; me: number };
 
 const KEY = ["/api/admin/task-board"];
-type View = "list" | "board" | "people";
+type View = "list" | "board" | "people" | "calendar";
 
 const DOT: Record<string, string> = {
   gold: "bg-amber-400", blue: "bg-blue-500", green: "bg-emerald-500",
@@ -82,7 +82,7 @@ export default function TaskBoard() {
   // View + filters live in the URL hash so Back and a shared link keep them.
   const readHash = () => {
     const p = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    return { view: (["list", "board", "people"].includes(p.get("view") || "") ? p.get("view") : "list") as View, who: p.get("who") || "all" };
+    return { view: (["list", "board", "people", "calendar"].includes(p.get("view") || "") ? p.get("view") : "list") as View, who: p.get("who") || "all" };
   };
   const [view, setView] = useState<View>(() => readHash().view);
   const [who, setWho] = useState<string>(() => readHash().who);
@@ -213,7 +213,7 @@ export default function TaskBoard() {
           <p className="text-sm text-white/50 mt-0.5">Mini Football Leagues · what's on, who has it, what's next</p>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.02] p-1" role="tablist">
-          {([["list", "List", List], ["board", "Board", KanbanSquare], ["people", "People", Users]] as const).map(([k, label, Icon]) => (
+          {([["list", "List", List], ["board", "Board", KanbanSquare], ["calendar", "Calendar", CalendarDays], ["people", "People", Users]] as const).map(([k, label, Icon]) => (
             <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 h-9 text-sm font-medium transition-colors ${view === k ? "bg-blue-600 text-white" : "text-white/60 hover:text-white/90"}`}
               data-testid={`tb-view-${k}`}>
@@ -315,6 +315,12 @@ export default function TaskBoard() {
         </div>
       )}
 
+      {/* CALENDAR — tasks on their due dates */}
+      {view === "calendar" && (
+        <CalendarView tasks={visible} terms={data.terms ?? []} today={today} projectById={projectById} personById={personById}
+          renderRow={renderRow} onOpen={setOpenId} onSetDue={(id, dueOn) => save.mutate({ id, patch: { dueOn } })} />
+      )}
+
       {/* PEOPLE — who has what */}
       {view === "people" && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -336,7 +342,7 @@ export default function TaskBoard() {
       )}
 
       {/* Done — out of the way, one tap to see */}
-      {view !== "board" && done.length > 0 && (
+      {(view === "list" || view === "people") && done.length > 0 && (
         <div>
           <button type="button" onClick={() => setShowDone((v) => !v)} className="inline-flex items-center gap-1.5 text-[13px] text-white/50 hover:text-white/80 h-9" data-testid="tb-show-done">
             {showDone ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />} Done ({done.length})
@@ -355,6 +361,284 @@ export default function TaskBoard() {
           )}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS_LONG = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+type Term = { name: string; start: string; end: string };
+type CalView = "week" | "month" | "term" | "year";
+const CAL_VIEWS: { key: CalView; label: string }[] = [
+  { key: "week", label: "Week" }, { key: "month", label: "Month" }, { key: "term", label: "Term" }, { key: "year", label: "Year" },
+];
+// Dates are y-m-d strings throughout — never a local Date (a NZ date read as UTC slips a day).
+const parts = (iso: string) => iso.split("-").map(Number) as [number, number, number];
+const dow = (iso: string) => { const [y, m, d] = parts(iso); return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; }; // Mon = 0
+const mondayOf = (iso: string) => addDays(iso, -dow(iso));
+const monthAdd = (ym: string, n: number) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); };
+const range = (from: string, to: string) => { const out: string[] = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(d); return out; };
+const longDay = (iso: string) => { const [, m, d] = parts(iso); return `${WEEKDAYS[dow(iso)]} ${d} ${MONTHS_LONG[m - 1]}`; };
+
+function CalendarView({ tasks, terms, today, projectById, personById, renderRow, onOpen, onSetDue }: {
+  tasks: Task[]; terms: Term[]; today: string; projectById: Map<number, Project>; personById: Map<number, Person>;
+  renderRow: (t: Task) => JSX.Element; onOpen: (id: number) => void; onSetDue: (id: number, dueOn: string | null) => void;
+}) {
+  const [cv, setCv] = useState<CalView>(() => {
+    try { const v = localStorage.getItem("tb_cal_view"); if (v && CAL_VIEWS.some((x) => x.key === v)) return v as CalView; } catch { /* private mode */ }
+    return "week";
+  });
+  useEffect(() => { try { localStorage.setItem("tb_cal_view", cv); } catch { /* ignore */ } }, [cv]);
+  const [cursor, setCursor] = useState(today);
+  const [selected, setSelected] = useState(today);
+  const [overDay, setOverDay] = useState<string | null>(null);
+
+  // Keyboard: W M T Y switch view, ← → step (not while typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement; if (el && /INPUT|TEXTAREA|SELECT/.test(el.tagName) || el?.isContentEditable || e.metaKey || e.ctrlKey) return;
+      const k = e.key.toLowerCase(); const map: Record<string, CalView> = { w: "week", m: "month", t: "term", y: "year" };
+      if (map[k]) setCv(map[k]);
+    };
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const byDay = useMemo(() => { const m = new Map<string, Task[]>(); for (const t of tasks) if (t.dueOn) m.set(t.dueOn, [...(m.get(t.dueOn) || []), t]); return m; }, [tasks]);
+  const undated = tasks.filter((t) => !t.dueOn && t.status !== "done");
+  // The term the cursor sits in, else the next one, else the last one.
+  const termFor = (d: string) => terms.find((t) => d >= t.start && d <= t.end) || terms.find((t) => t.start > d) || terms[terms.length - 1];
+  const term = termFor(cursor);
+
+  const step = (dir: 1 | -1) => {
+    if (cv === "week") setCursor(addDays(cursor, 7 * dir));
+    else if (cv === "month") setCursor(`${monthAdd(cursor.slice(0, 7), dir)}-01`);
+    else if (cv === "year") setCursor(`${Number(cursor.slice(0, 4)) + dir}-01-01`);
+    else if (term) { const i = terms.indexOf(term); const next = terms[i + dir]; if (next) setCursor(next.start); }
+  };
+  const canStep = (dir: 1 | -1) => cv !== "term" || (!!term && !!terms[terms.indexOf(term) + dir]);
+  const stepName = cv === "term" ? "term" : cv;
+
+  let title = "";
+  if (cv === "week") { const s = mondayOf(cursor), e = addDays(s, 6); const [, sm] = parts(s), [ey, em] = parts(e); title = sm === em ? `${MONTHS_LONG[em - 1]} ${ey}` : `${MONTHS_LONG[sm - 1].slice(0, 3)} – ${MONTHS_LONG[em - 1].slice(0, 3)} ${ey}`; }
+  else if (cv === "month") { const [y, m] = parts(`${cursor.slice(0, 7)}-01`); title = `${MONTHS_LONG[m - 1]} ${y}`; }
+  else if (cv === "year") title = cursor.slice(0, 4);
+  else title = term ? term.name : "No terms yet";
+
+  const drop = (day: string | null) => (e: React.DragEvent) => {
+    e.preventDefault(); setOverDay(null);
+    const id = Number(e.dataTransfer.getData("text/plain")); if (id) onSetDue(id, day);
+  };
+  const chip = (t: Task) => {
+    const proj = t.projectId ? projectById.get(t.projectId) : undefined;
+    const overdue = tbIsOverdue(t, today);
+    return (
+      <div key={t.id} draggable onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData("text/plain", String(t.id)); }}
+        onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} title={t.title}
+        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] leading-tight border cursor-pointer
+          ${t.status === "done" ? "line-through text-white/35 border-transparent bg-white/[0.03]" : overdue ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-white/[0.06] bg-white/[0.05] text-white/85 hover:border-blue-500/40"}`}>
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${proj ? DOT[proj.color] || DOT.slate : "bg-white/30"}`} />
+        <span className="truncate">{t.title}</span>
+      </div>
+    );
+  };
+  const dayCell = (day: string, opts: { dim?: boolean; max: number; tall: string }) => {
+    const list = byDay.get(day) || [];
+    const isToday = day === today, isSel = day === selected;
+    const hasOverdue = list.some((t) => tbIsOverdue(t, today));
+    return (
+      <div key={day} role="button" tabIndex={0} onClick={() => setSelected(day)} onKeyDown={(e) => { if (e.key === "Enter") setSelected(day); }}
+        onDragOver={(e) => { e.preventDefault(); setOverDay(day); }} onDragLeave={() => setOverDay((d) => (d === day ? null : d))} onDrop={drop(day)}
+        className={`relative ${opts.tall} border-b border-r border-white/[0.05] p-1 sm:p-1.5 cursor-pointer transition-colors min-w-0
+          ${opts.dim ? "bg-white/[0.015]" : ""} ${isSel ? "bg-blue-500/[0.08]" : "hover:bg-white/[0.03]"} ${overDay === day ? "ring-2 ring-inset ring-blue-500" : ""}`}
+        data-testid={`tb-day-${day}`}>
+        <div className="flex items-center justify-between">
+          <span className={`inline-flex h-6 min-w-6 px-1 items-center justify-center rounded-full text-[12px] ${isToday ? "bg-blue-600 text-white font-semibold" : opts.dim ? "text-white/25" : "text-white/80"}`}>{Number(day.slice(8))}</span>
+          {list.length > 0 && <span className={`sm:hidden text-[10px] font-semibold ${hasOverdue ? "text-rose-400" : "text-blue-400"}`}>{list.length}</span>}
+        </div>
+        <div className="hidden sm:block mt-1 space-y-1">
+          {list.slice(0, opts.max).map(chip)}
+          {list.length > opts.max && <div className="text-[11px] text-white/45 px-1">+{list.length - opts.max} more</div>}
+        </div>
+      </div>
+    );
+  };
+
+  let body: JSX.Element;
+  if (cv === "week") {
+    const days = range(mondayOf(cursor), addDays(mondayOf(cursor), 6));
+    body = (
+      <>
+        {/* Desktop: seven columns */}
+        <div className="hidden md:grid grid-cols-7">
+          {days.map((d) => (
+            <div key={d} className="border-r border-white/[0.05] last:border-r-0 min-w-0">
+              <div className={`px-2 py-2 border-b border-white/[0.06] text-center ${d === today ? "text-blue-400" : "text-white/50"}`}>
+                <div className="text-[11px] uppercase tracking-wider">{WEEKDAYS[dow(d)]}</div>
+                <div className={`mx-auto mt-1 inline-flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-semibold ${d === today ? "bg-blue-600 text-white" : "text-white/85"}`}>{Number(d.slice(8))}</div>
+              </div>
+              <div onClick={() => setSelected(d)} onDragOver={(e) => { e.preventDefault(); setOverDay(d); }} onDragLeave={() => setOverDay((x) => (x === d ? null : x))} onDrop={drop(d)}
+                className={`min-h-[360px] p-1.5 space-y-1.5 cursor-pointer ${d === selected ? "bg-blue-500/[0.06]" : ""} ${overDay === d ? "ring-2 ring-inset ring-blue-500" : ""}`} data-testid={`tb-day-${d}`}>
+                {(byDay.get(d) || []).map((t) => (
+                  <div key={t.id} draggable onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData("text/plain", String(t.id)); }}
+                    onClick={(e) => { e.stopPropagation(); onOpen(t.id); }}
+                    className={`rounded-lg border p-2 text-[12.5px] leading-snug cursor-pointer ${t.status === "done" ? "line-through text-white/35 border-transparent bg-white/[0.03]" : tbIsOverdue(t, today) ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-white/[0.08] bg-white/[0.04] text-white/85 hover:border-blue-500/40"}`}>
+                    <div className="flex items-start gap-1.5">
+                      <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${t.projectId && projectById.get(t.projectId) ? DOT[projectById.get(t.projectId)!.color] || DOT.slate : "bg-white/30"}`} />
+                      <span className="min-w-0 break-words">{t.title}</span>
+                    </div>
+                    <div className="mt-1.5 flex justify-end"><Avatar person={t.ownerUserId ? personById.get(t.ownerUserId) : undefined} size={18} /></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Phone/tablet: one day under another */}
+        <div className="md:hidden divide-y divide-white/[0.06]">
+          {days.map((d) => {
+            const list = byDay.get(d) || [];
+            return (
+              <div key={d} data-testid={`tb-day-${d}`}>
+                <div className={`px-4 py-2 text-[12px] font-semibold ${d === today ? "text-blue-400" : "text-white/55"}`}>{longDay(d)}{d === today ? " · Today" : ""}</div>
+                {list.length ? list.map((t) => renderRow(t)) : <p className="px-4 pb-3 text-[12.5px] text-white/25">Nothing due</p>}
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  } else if (cv === "month") {
+    const ym = cursor.slice(0, 7), first = `${ym}-01`;
+    const last = addDays(`${monthAdd(ym, 1)}-01`, -1);
+    const days = range(mondayOf(first), addDays(mondayOf(last), 6));
+    body = (
+      <>
+        <div className="grid grid-cols-7 border-b border-white/[0.06]">
+          {WEEKDAYS.map((d) => <div key={d} className="py-2 text-center text-[11px] uppercase tracking-wider text-white/40">{d.slice(0, 1)}<span className="hidden sm:inline">{d.slice(1)}</span></div>)}
+        </div>
+        <div className="grid grid-cols-7">{days.map((d) => dayCell(d, { dim: d.slice(0, 7) !== ym, max: 3, tall: "min-h-[52px] sm:min-h-[112px]" }))}</div>
+      </>
+    );
+  } else if (cv === "term") {
+    if (!term) body = <p className="px-4 py-10 text-center text-sm text-white/40">No terms set up for this workspace yet.</p>;
+    else {
+      const weeks: string[][] = [];
+      for (let w = mondayOf(term.start); w <= term.end; w = addDays(w, 7)) weeks.push(range(w, addDays(w, 6)));
+      body = (
+        <>
+          <div className="grid grid-cols-[34px_repeat(7,minmax(0,1fr))] sm:grid-cols-[48px_repeat(7,minmax(0,1fr))] border-b border-white/[0.06]">
+            <div />
+            {WEEKDAYS.map((d) => <div key={d} className="py-2 text-center text-[11px] uppercase tracking-wider text-white/40">{d.slice(0, 1)}<span className="hidden sm:inline">{d.slice(1)}</span></div>)}
+          </div>
+          {weeks.map((w, i) => (
+            <div key={w[0]} className="grid grid-cols-[34px_repeat(7,minmax(0,1fr))] sm:grid-cols-[48px_repeat(7,minmax(0,1fr))]">
+              <div className="border-b border-r border-white/[0.05] flex items-start justify-center pt-2 text-[10px] sm:text-[11px] font-semibold text-white/40">Wk{i + 1}</div>
+              {w.map((d) => dayCell(d, { dim: d < term.start || d > term.end, max: 2, tall: "min-h-[48px] sm:min-h-[84px]" }))}
+            </div>
+          ))}
+        </>
+      );
+    }
+  } else {
+    const y = cursor.slice(0, 4);
+    body = (
+      <div className="grid gap-4 p-3 sm:p-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 12 }, (_, i) => {
+          const ym = `${y}-${String(i + 1).padStart(2, "0")}`, first = `${ym}-01`, last = addDays(`${monthAdd(ym, 1)}-01`, -1);
+          const days = range(mondayOf(first), addDays(mondayOf(last), 6));
+          const count = tasks.filter((t) => t.dueOn?.startsWith(ym) && t.status !== "done").length;
+          return (
+            <div key={ym} className="rounded-lg border border-white/[0.06] p-2.5" data-testid={`tb-month-${ym}`}>
+              <button type="button" onClick={() => { setCursor(first); setCv("month"); }} className="w-full flex items-center justify-between mb-1.5 text-left">
+                <span className="text-[13px] font-semibold text-white/85">{MONTHS_LONG[i]}</span>
+                {count > 0 && <span className="text-[11px] text-blue-400">{count} open</span>}
+              </button>
+              <div className="grid grid-cols-7 text-center">
+                {WEEKDAYS.map((d) => <span key={d} className="text-[9.5px] text-white/30 py-0.5">{d[0]}</span>)}
+                {days.map((d) => {
+                  const list = byDay.get(d) || []; const inM = d.slice(0, 7) === ym;
+                  const od = list.some((t) => tbIsOverdue(t, today)); const open = list.some((t) => t.status !== "done");
+                  return (
+                    <button key={d} type="button" disabled={!inM} onClick={() => { setSelected(d); setCursor(d); setCv("week"); }}
+                      className={`relative h-7 text-[11px] rounded-full ${!inM ? "invisible" : d === today ? "bg-blue-600 text-white font-semibold" : "text-white/70 hover:bg-white/[0.06]"}`}>
+                      {Number(d.slice(8))}
+                      {inM && list.length > 0 && <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${od ? "bg-rose-400" : open ? "bg-blue-400" : "bg-white/30"}`} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const selectedTasks = byDay.get(selected) || [];
+  return (
+    <div className="space-y-4" data-testid="tb-calendar">
+      {/* Toolbar — Google's chrome: Today, ‹ ›, title, the view slider */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <button type="button" onClick={() => { setCursor(today); setSelected(today); }}
+          className="h-10 rounded-full border border-white/15 px-5 text-[12px] font-bold uppercase tracking-wide text-white/80 hover:border-blue-500 hover:text-blue-400">Today</button>
+        <div className="flex items-center gap-1">
+          {([-1, 1] as const).map((dir) => (
+            <button key={dir} type="button" onClick={() => step(dir)} disabled={!canStep(dir)} aria-label={`${dir < 0 ? "Previous" : "Next"} ${stepName}`}
+              className="grid h-10 w-10 place-items-center rounded-full text-white/60 hover:bg-white/[0.06] hover:text-white disabled:opacity-25">
+              <ChevronRight className={`w-5 h-5 ${dir < 0 ? "rotate-180" : ""}`} />
+            </button>
+          ))}
+        </div>
+        <h2 className="min-w-0 flex-1 basis-[10rem] text-lg sm:text-xl font-semibold text-white" data-testid="tb-cal-title">
+          {title}
+          {cv === "term" && term && <span className="ml-2 text-[12px] font-medium text-white/40">{shortDate(term.start)} – {shortDate(term.end)}</span>}
+        </h2>
+        <div role="tablist" aria-label="Calendar view" className="flex w-full sm:w-auto rounded-full border border-white/10 bg-white/[0.03] p-1">
+          {CAL_VIEWS.map((v) => (
+            <button key={v.key} type="button" role="tab" aria-selected={cv === v.key} onClick={() => setCv(v.key)} title={`${v.label} (${v.label[0]})`}
+              className={`h-9 flex-1 sm:flex-none rounded-full px-4 text-[12px] font-bold uppercase tracking-wide transition ${cv === v.key ? "bg-blue-600 text-white" : "text-white/55 hover:text-white"}`}
+              data-testid={`tb-cal-${v.key}`}>{v.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className={`grid gap-4 ${cv === "year" ? "" : "lg:grid-cols-[1fr_280px]"}`}>
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden min-w-0">{body}</div>
+        {cv !== "year" && (
+          <div className="space-y-4">
+            {cv !== "week" && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden" data-testid="tb-calendar-day">
+                <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+                  <span className="text-sm font-semibold text-white/90">{longDay(selected)}</span>
+                  <span className="text-xs text-white/40">{selectedTasks.length} task{selectedTasks.length === 1 ? "" : "s"}</span>
+                </div>
+                {selectedTasks.length ? selectedTasks.map((t) => renderRow(t)) : <p className="px-4 py-4 text-[13px] text-white/30">Nothing due this day.</p>}
+              </div>
+            )}
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={drop(null)} data-testid="tb-undated">
+              <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+                <span className="text-sm font-semibold text-white/90">No due date</span>
+                <span className="text-xs text-white/40">{undated.length}</span>
+              </div>
+              <p className="hidden md:block px-4 pt-2 text-[11.5px] text-white/35">Drag one onto a day to give it a date.</p>
+              <div className="p-2 space-y-1.5 max-h-[420px] overflow-y-auto">
+                {undated.map((t) => {
+                  const proj = t.projectId ? projectById.get(t.projectId) : undefined;
+                  return (
+                    <div key={t.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", String(t.id))} onClick={() => onOpen(t.id)}
+                      className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 text-[13px] text-white/85 cursor-pointer hover:border-blue-500/40">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${proj ? DOT[proj.color] || DOT.slate : "bg-white/30"}`} />
+                      <span className="flex-1 min-w-0 truncate">{t.title}</span>
+                      <Avatar person={t.ownerUserId ? personById.get(t.ownerUserId) : undefined} size={18} />
+                    </div>
+                  );
+                })}
+                {!undated.length && <p className="px-2 py-3 text-[12px] text-white/30">Every open task has a date.</p>}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

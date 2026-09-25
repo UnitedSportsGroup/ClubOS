@@ -17,7 +17,7 @@ import type { Express, Request, Response } from "express";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
-import { organizations, tbProjects, tbTasks, users, userOrganizations } from "@shared/schema";
+import { organizations, tbProjects, tbTasks, users, userOrganizations, leagueCompetitions } from "@shared/schema";
 import { nzTodayIso } from "@shared/academy";
 import { isTbStatus, isTbPriority, isTbColor, isIsoDate } from "@shared/task-board";
 
@@ -75,12 +75,19 @@ export function registerTaskBoardRoutes(app: Express) {
   app.get("/api/admin/task-board", ...gate, async (req: Request, res: Response) => {
     const org = await workspace(req);
     if (!org) return res.status(400).json({ message: "X-Workspace-Slug header required" });
-    const [projects, tasks, people] = await Promise.all([
+    const [projects, tasks, people, comps] = await Promise.all([
       db.select().from(tbProjects).where(and(eq(tbProjects.organizationId, org.id), isNull(tbProjects.archivedAt))).orderBy(asc(tbProjects.position), asc(tbProjects.id)),
       db.select().from(tbTasks).where(and(eq(tbTasks.organizationId, org.id), isNull(tbTasks.archivedAt))).orderBy(asc(tbTasks.position), asc(tbTasks.id)),
       peopleFor(org.id, req.session.userId),
+      // The workspace's own terms (MFL: its league competitions) for the Term view.
+      db.select({ name: leagueCompetitions.name, start: leagueCompetitions.startDate, end: leagueCompetitions.endDate })
+        .from(leagueCompetitions).where(eq(leagueCompetitions.organizationId, org.id)),
     ]);
-    res.json({ projects, tasks, people, today: nzTodayIso(), me: req.session.userId });
+    const terms = comps
+      .filter((c) => c.start && c.end)
+      .map((c) => ({ name: String(c.name).replace(/^Mini Football Leagues\s*[—-]\s*/i, ""), start: String(c.start).slice(0, 10), end: String(c.end).slice(0, 10) }))
+      .sort((a, b) => a.start.localeCompare(b.start));
+    res.json({ projects, tasks, people, terms, today: nzTodayIso(), me: req.session.userId });
   });
 
   app.post("/api/admin/task-board/tasks", ...gate, async (req: Request, res: Response) => {
