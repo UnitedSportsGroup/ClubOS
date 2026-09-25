@@ -5,7 +5,7 @@
  * Data: GET /api/admin/sponsorship/breweries (server/brewery-offers.ts — server-only).
  * Maths: breweryValue() in shared/brewery-offers.ts — the ONE place an offer is priced.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceFetch } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,6 +43,12 @@ export function BreweriesView() {
     setView(v);
     try { window.history.replaceState(null, "", `#breweries-${v}`); } catch { /* ignore */ }
   };
+  // On a phone both tab rows scroll sideways; keep the chosen ones on screen.
+  useEffect(() => {
+    for (const id of ["tab-breweries", `breweries-view-${view}`]) {
+      document.querySelector(`[data-testid="${id}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [view]);
 
   const { data, isLoading, error } = useQuery<BreweryBoard>({
     queryKey: ["/api/admin/sponsorship/breweries"],

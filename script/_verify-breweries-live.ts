@@ -114,7 +114,7 @@ try {
       is(!seen.overflow, `[${size.label}] ${v}: no sideways page overflow`, seen.overflow);
       if (v === "overview") is(/Moa Brewing/i.test(seen.text) && /DB Breweries/i.test(seen.text), `[${size.label}] offers are VISIBLE, not an empty state`);
       if (v === "submissions") is(/Southern Alps Brewing & Moa Brewing/i.test(seen.text), `[${size.label}] a submission reads word for word`);
-      if (v === "value") is(/\$45,400/.test(seen.text) || /\$22,600/.test(seen.text), `[${size.label}] the calculator prices the offers`);
+      if (v === "value") is(/\$22,520/.test(seen.text) && /\$45,330/.test(seen.text), `[${size.label}] the calculator prices the offers`);
       await page.screenshot({ path: `../../../../outputs/ui-preflight/breweries-${v}-${size.label}.png`, fullPage: size.label === "desktop" });
     }
     is(errors.length === 0, `[${size.label}] no runtime errors`, errors.join(" | "));
