@@ -98,6 +98,7 @@ import {
   HardDrive,
   QrCode,
   TrendingUp,
+  KanbanSquare,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -280,6 +281,8 @@ const campsSecondary = [
 
 const leagueNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
+  // Daniel + Isaac's project board (2026-09-25) — its own thing, not the System Task Tracker.
+  { tab: "task-board", title: "Task Tracker", url: "/admin/task-board", icon: KanbanSquare },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
   { tab: "attribution", title: "Attribution", url: "/admin/attribution", icon: Target },
   { tab: "behavior", title: "Behavior", url: "/admin/behavior", icon: Activity },

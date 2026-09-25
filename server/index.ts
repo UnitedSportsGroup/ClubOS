@@ -247,6 +247,9 @@ app.use(attributionCookieMiddleware);
   // requireTab("ethnic-cup-registrations") inside the CIC workspace.
   const { registerEthnicCupRoutes } = await import("./ethnic-cup-routes");
   registerEthnicCupRoutes(app);
+  // Task Board — Daniel + Isaac's MFL project board (separate from Task Tracker).
+  const { registerTaskBoardRoutes } = await import("./task-board-routes");
+  registerTaskBoardRoutes(app);
   const { registerFootballFestRoutes } = await import("./football-fest-routes");
   registerFootballFestRoutes(app);
   const { registerFinanceInsightRoutes } = await import("./finance-insight-routes");

@@ -129,6 +129,7 @@ import LeagueStore from "@/pages/league-store";
 import CicInbox from "@/pages/cic-inbox";
 import CicLiveChat from "@/pages/cic-livechat";
 import MflLiveChat from "@/pages/mfl-livechat";
+import TaskBoard from "@/pages/task-board";
 import CugcLiveChat from "@/pages/cugc-livechat";
 import PrintLiveChat from "@/pages/print-livechat";
 import PrintsRequests from "@/pages/prints-requests";
@@ -570,6 +571,7 @@ function AdminRouter() {
         <Route path="/admin/academy/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />
         <Route path="/admin/academy/:id" component={AdminCampDetail} />
         <Route path="/admin/registrations" component={AdminRegistrations} />
+        <Route path="/admin/task-board" component={TaskBoard} />
         <Route path="/admin/mfl-referees" component={MflReferees} />
         <Route path="/admin/mfl-game-feed" component={MflGameFeedPage} />
         <Route path="/admin/mfl-score/:id" component={MflScoreGame} />

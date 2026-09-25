@@ -9950,3 +9950,40 @@ export const leagueFillinRequests = pgTable("league_fillin_requests", {
   fillinIdx: index("league_fillin_requests_fillin_idx").on(t.fillinId),
 }));
 export type LeagueFillinRequest = typeof leagueFillinRequests.$inferSelect;
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task Board — Daniel + Isaac's MFL project board (2026-09-25). SEPARATE from
+// the org-wide Task Tracker (tt_*). Migration 2026-09-25_task_board.sql.
+// ─────────────────────────────────────────────────────────────────────────────
+export const tbProjects = pgTable("tb_projects", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("gold"),
+  position: integer("position").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
+export const tbTasks = pgTable("tb_tasks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").references(() => tbProjects.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  notes: text("notes"),
+  status: text("status").notNull().default("todo"),
+  priority: text("priority").notNull().default("normal"),
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  dueOn: date("due_on", { mode: "string" }),
+  position: integer("position").notNull().default(0),
+  sourceLabel: text("source_label"),
+  sourceUrl: text("source_url"),
+  sourceQuote: text("source_quote"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});

@@ -133,6 +133,9 @@ const venueTabs: TabDef[] = [
 
 const leagueTabs: TabDef[] = [
   { slug: "dashboard", title: "Dashboard", url: "/admin" },
+  // Daniel + Isaac's MFL project board (2026-09-25). SEPARATE from the universal
+  // Task Tracker (tt_*): own tables tb_*, own page. Locked below; Isaac by name.
+  { slug: "task-board", title: "Task Tracker", url: "/admin/task-board" },
   // Register (POS) — one register for every brand, every programme, every
   // counter (2026-09-09). NOT super-admin-locked: selling is low blast radius;
   // refunds keep their own per-person flag. Lives in the club, venue, league,
@@ -432,6 +435,10 @@ export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
  * system (workspace role + tabs whitelist) takes over.
  */
 export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
+  // Daniel + Isaac's MFL project board — "me and isaac's". A workspace admin
+  // (Ryan, Natalia) would otherwise get it by role; Isaac holds it by name
+  // (grant-unlocked-tab.ts). Justified by Daniel's own scope for it, 2026-09-25.
+  "task-board",
   // ── OPENED 2026-09-03 (Daniel) ──────────────────────────────────────────
   // studio · cic-watch · market-research · store · media · sales ·
   // sponsor-traffic were all "launched dark while Daniel shapes it" and every
