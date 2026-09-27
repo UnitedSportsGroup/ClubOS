@@ -185,6 +185,7 @@ export default function PosRegister() {
   const [floatDollars, setFloatDollars] = useState("100.00");
   const [recentOpen, setRecentOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
 
   const register = useMemo(() => boot.data?.registers.find((r) => r.id === registerId) ?? boot.data?.registers[0] ?? null, [boot.data, registerId]);
   useEffect(() => { if (register && register.id !== registerId) { setRegisterId(register.id); ls.set("clubos_pos_register", String(register.id)); } }, [register, registerId]);
@@ -297,6 +298,16 @@ export default function PosRegister() {
   const done = sale.data && sale.data.status !== "open" ? sale.data : null;
   const cardPending = s?.payments.find((p) => p.status === "pending") ?? null;
   useEffect(() => { if (cardPending && cardPaymentId !== cardPending.id) setCardPaymentId(cardPending.id); }, [cardPending, cardPaymentId]);
+  // The parent watches the reader while the sale is built: mirror the cart onto
+  // its screen whenever what they would pay changes. Fire-and-forget — a busy
+  // or offline reader must never slow the till.
+  const displayKey = s && register?.hasReader && !cardPending ? `${s.id}|${s.totalCents}|${s.discountCents}|${s.lines.map((l) => `${l.id}x${l.qty}`).join(",")}` : "";
+  useEffect(() => {
+    if (!displayKey) return;
+    const id = Number(displayKey.split("|")[0]);
+    const t = setTimeout(() => { json("POST", `/api/admin/pos/sales/${id}/display`, {}).catch(() => {}); }, 350);
+    return () => clearTimeout(t);
+  }, [displayKey]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (boot.isLoading) return <div className="p-8 text-neutral-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading the register…</div>;
@@ -312,6 +323,7 @@ export default function PosRegister() {
           <div className="text-[15px] font-semibold leading-tight truncate">{register.name}</div>
           <div className="text-[12px] text-neutral-500 truncate">{shift ? (register.handlesCash ? `Shift open · ${shift.openedByName ?? "staff"} · float ${$(shift.openingFloatCents)}` : `Open · ${shift.openedByName ?? "staff"}`) : (register.handlesCash ? "No shift open" : "Not started")}</div>
         </div>
+        <button className={`${btnGhost} px-3`} onClick={() => setReaderOpen(true)} data-testid="pos-reader" title="Card reader"><CreditCard className="h-4 w-4" /><span className="hidden sm:inline">{register.hasReader ? "Reader" : "Add reader"}</span></button>
         {shift && <button className={`${btnGhost} px-3`} onClick={() => setRecentOpen(true)} data-testid="pos-recent" title="This shift's sales"><Receipt className="h-4 w-4" /><span className="hidden sm:inline">Sales</span></button>}
         {shift && <button className={`${btnGhost} px-3`} onClick={() => setDeclineOpen(true)} data-testid="pos-decline" title="Couldn't pay"><AlertTriangle className="h-4 w-4" /><span className="hidden sm:inline">Couldn't pay</span></button>}
         {shift && <button className={`${btnGhost} px-3`} onClick={() => setCashupOpen(true)} data-testid="pos-cashup" title="Cash up"><Banknote className="h-4 w-4" /><span className="hidden sm:inline">{register.handlesCash ? "Cash up" : "Takings"}</span></button>}
@@ -485,6 +497,7 @@ export default function PosRegister() {
       {s && <CustomerDialog open={customerOpen} onClose={() => setCustomerOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {s && <DiscountDialog open={discountOpen} onClose={() => setDiscountOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {done && <RefundDialog open={refundOpen} onClose={() => setRefundOpen(false)} sale={done} onSave={(b) => refund.mutate(b)} pending={refund.isPending} />}
+      <ReaderDialog open={readerOpen} onClose={() => setReaderOpen(false)} registerId={register.id} registerName={register.name} onChanged={refreshBoot} />
       <CashupDialog open={cashupOpen} onClose={() => { setCashupOpen(false); refreshBoot(); }} shiftId={shift?.id ?? null} handlesCash={register.handlesCash} onClosed={() => { setSaleId(null); ls.set("clubos_pos_sale", null); refreshBoot(); }} />
       <DeclineDialog open={declineOpen} onClose={() => setDeclineOpen(false)} reasons={boot.data.declineReasons} onSave={(b) => decline.mutate(b)} pending={decline.isPending} />
       <RecentDialog open={recentOpen} onClose={() => setRecentOpen(false)} sales={recent.data ?? []} onOpen={(id) => { setSaleId(id); ls.set("clubos_pos_sale", String(id)); setRecentOpen(false); }} />
@@ -759,6 +772,67 @@ function RecentDialog({ open, onClose, sales, onOpen }: { open: boolean; onClose
           {sales.length === 0 && <div className="p-4 text-[13px] text-neutral-500">No sales yet this shift.</div>}
           {sales.map((s) => <button key={s.id} className="w-full text-left px-3 py-2.5 text-[13px] hover:bg-neutral-50 flex items-center justify-between gap-2" onClick={() => onOpen(s.id)}><span>{s.saleNumber}<span className="text-neutral-500"> · {s.status.replace("_", " ")}{s.customerName ? ` · ${s.customerName}` : ""}</span></span><span className="font-medium">{$(s.totalCents)}</span></button>)}
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface ReaderInfo { id: string; label: string | null; deviceType: string | null; serial: string | null; online: boolean; lastSeenAt: string | null; livemode: boolean }
+const DEVICE_NAMES: Record<string, string> = { stripe_s700: "Stripe Reader S700", stripe_s710: "Stripe Reader S710", bbpos_wisepos_e: "BBPOS WisePOS E", bbpos_wisepad3: "BBPOS WisePad 3", simulated_wisepos_e: "Simulated reader", simulated_stripe_s700: "Simulated S700" };
+
+function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { open: boolean; onClose: () => void; registerId: number; registerName: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [code, setCode] = useState("");
+  const info = useQuery<{ reader: ReaderInfo | null; account: string; missing?: string; message?: string }>({
+    queryKey: ["/api/admin/pos/registers", registerId, "reader"],
+    queryFn: () => json("GET", `/api/admin/pos/registers/${registerId}/reader`),
+    enabled: open, refetchInterval: open ? 10_000 : false,
+  });
+  const pair = useMutation({
+    mutationFn: () => json<{ reader: ReaderInfo }>("POST", `/api/admin/pos/registers/${registerId}/reader`, { registrationCode: code }),
+    onSuccess: (r) => { setCode(""); info.refetch(); onChanged(); toast({ title: "Reader paired", description: `${DEVICE_NAMES[r.reader?.deviceType ?? ""] ?? "The reader"} now takes card payments on ${registerName}.` }); },
+    onError: (e) => toast({ title: "Couldn't pair the reader", description: errMessage(e), variant: "destructive" }),
+  });
+  const unpair = useMutation({
+    mutationFn: () => json("DELETE", `/api/admin/pos/registers/${registerId}/reader`),
+    onSuccess: () => { info.refetch(); onChanged(); toast({ title: "Reader unpaired" }); },
+    onError: (e) => toast({ title: "Couldn't unpair", description: errMessage(e), variant: "destructive" }),
+  });
+  const r = info.data?.reader ?? null;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md bg-white text-neutral-900 min-w-0 overflow-hidden" data-testid="pos-reader-dialog">
+        <DialogTitle className="text-[16px] font-semibold">Card reader · {registerName}</DialogTitle>
+        {info.isLoading ? (
+          <div className="py-6 text-neutral-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Checking…</div>
+        ) : r ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-neutral-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[15px] font-semibold truncate">{r.label || DEVICE_NAMES[r.deviceType ?? ""] || "Card reader"}</div>
+                  <div className="text-[12px] text-neutral-500 truncate">{DEVICE_NAMES[r.deviceType ?? ""] ?? r.deviceType}{r.serial ? ` · ${r.serial}` : ""}</div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-medium ${r.online ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`} data-testid="pos-reader-status">{r.online ? "Online" : "Offline"}</span>
+              </div>
+              {!r.online && <p className="text-[13px] text-neutral-600 mt-2">Check it's switched on and on the WiFi (or 4G). It comes back on its own.</p>}
+              {!r.livemode && <p className="text-[13px] text-amber-800 mt-2">Test mode — this reader cannot take real money.</p>}
+            </div>
+            <p className="text-[13px] text-neutral-600">Card sales on this register go to this reader. The customer sees what they're paying for on its screen, then taps.</p>
+            <button className={`${btnGhost} w-full`} disabled={unpair.isPending} onClick={() => unpair.mutate()} data-testid="pos-reader-unpair">{unpair.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Unpair from this register</button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {info.data?.missing && <p className="text-[13px] text-amber-800">The reader that was paired here isn't on the Stripe account any more. Pair it again.</p>}
+            <ol className="text-[14px] text-neutral-700 space-y-1.5 list-decimal pl-5">
+              <li>Switch the reader on and connect it to WiFi.</li>
+              <li>A pairing code shows on its screen (three words). If not: Settings → Pair.</li>
+              <li>Type the code below.</li>
+            </ol>
+            <input className="w-full h-12 rounded-xl border border-neutral-300 px-3 text-[16px] bg-white" placeholder="e.g. apple-grape-orange" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="none" autoCorrect="off" data-testid="pos-reader-code" />
+            <button className={`${btnPrimary} w-full`} disabled={pair.isPending || code.trim().length < 3} onClick={() => pair.mutate()} data-testid="pos-reader-pair">{pair.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Pair reader</button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
