@@ -156,6 +156,8 @@ const CANARIES: Canary[] = [
   { feature: "sales email tracking", path: "/api/admin/sales/outreach",                 expect: [401] },
   { feature: "camp history",         path: "/api/admin/camps/1/history",                expect: [401] },
   { feature: "energy",               path: "/api/admin/energy",                         expect: [401] },
+  // Parent accounts v2 (2026-09-28): password sign-in + saved cards. 401 = live.
+  { feature: "parent saved cards",   path: "/api/public/parent/payment-methods",        expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree
@@ -167,6 +169,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/public/equipment/me":             { file: "server/equipment-routes.ts",    needle: "/api/public/equipment/me" },
   "/api/public/parent/prefill":           { file: "server/parent-routes.ts",       needle: "/prefill" },
   "/api/public/parent/me":                { file: "server/parent-routes.ts",       needle: "/me" },
+  "/api/public/parent/payment-methods":   { file: "server/parent-routes.ts",       needle: "/payment-methods" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },
   "/api/admin/chat/bootstrap":            { file: "server/staff-chat-routes.ts",   needle: "/api/admin/chat/bootstrap" },
