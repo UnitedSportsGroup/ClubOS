@@ -164,9 +164,6 @@ interface ParentPrefill {
   }[];
 }
 
-/** Where a returning family signs in. It sends them straight back here. */
-const ACCOUNT_SIGN_IN = "https://cufc.co.nz/account";
-
 interface RegisterResponse {
   registrationId: number;
   clientSecret: string;
@@ -427,6 +424,185 @@ function PaymentForm({
   );
 }
 
+// ── "New to the club, or been with us before?" ──────────────────────────────
+// Everyone who arrives from an ad or the website lands here as if new. A
+// returning family who simply starts typing retypes everything we already
+// hold and, worse, can fork their child into a second record. So the first
+// thing the checkout asks is which one they are — and a returning family signs
+// in RIGHT HERE (the same parent account as cufc.co.nz/account; its session
+// covers both sites), without leaving the checkout they came to.
+//
+// 🔴 Nothing here reveals whether an email is on file: the code request always
+// answers the same way, and the "been with us before?" prompt is shown to
+// everyone who is not signed in, whatever they type.
+
+type SignInStage = "ask" | "email" | "code" | "password";
+
+function ReturningFamilyPanel({
+  startAt, onSignedIn, onNew, onClose,
+}: {
+  /** "ask" = the two-button question; "email" = straight to signing in. */
+  startAt: "ask" | "email";
+  onSignedIn: () => void;
+  onNew?: () => void;
+  onClose?: () => void;
+}) {
+  const [stage, setStage] = useState<SignInStage>(startAt);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+
+  const post = async (path: string, body: unknown) => {
+    const r = await fetch(path, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.message || "Something went wrong — please try again.");
+    return d;
+  };
+  const clean = () => email.trim().toLowerCase();
+
+  const requestCode = async () => {
+    setError(null);
+    if (!isEmail(email.trim())) return setError("Please enter a valid email address.");
+    setBusy(true);
+    try {
+      await post("/api/public/parent/request-code", { email: clean() });
+      setSentTo(clean()); setStage("code");
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  const verify = async () => {
+    setError(null);
+    if (!/^\d{6}$/.test(code.trim())) return setError("Enter the 6-digit code from your email.");
+    setBusy(true);
+    try {
+      await post("/api/public/parent/verify", { email: clean(), code: code.trim() });
+      onSignedIn();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  const signInWithPassword = async () => {
+    setError(null);
+    if (!isEmail(email.trim()) || !password) return setError("Enter your email and password.");
+    setBusy(true);
+    try {
+      await post("/api/public/parent/login-password", { email: clean(), password });
+      onSignedIn();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const linkBtn = "min-h-[44px] text-[13px] font-semibold underline";
+  const primary = "w-full flex items-center justify-center gap-2 rounded-full min-h-[48px] text-[15px] font-bold disabled:opacity-60";
+
+  return (
+    <div className="rounded-2xl p-5 sm:p-6" style={{ background: BRAND.ink, border: `1px solid ${BRAND.gold}55` }} data-testid="returning-panel">
+      {stage === "ask" ? (
+        <>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] mb-2" style={{ color: BRAND.gold }}>Before you start</p>
+          <h2 className="text-xl sm:text-2xl font-bold mb-1" style={{ fontFamily: FONT_DISPLAY, textTransform: "uppercase" }}>
+            Registered a child with us before?
+          </h2>
+          <p className="text-sm mb-5" style={{ color: BRAND.mute }}>
+            Sign in and we'll fill in your family's details for you — no retyping, and your child's
+            history stays in one place.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button type="button" onClick={() => setStage("email")} className={primary}
+                    style={{ background: BRAND.gold, color: BRAND.navy }} data-testid="button-returning">
+              Yes — sign me in
+            </button>
+            <button type="button" onClick={onNew} className={primary}
+                    style={{ background: "transparent", color: BRAND.white, border: `1px solid ${BRAND.line}` }} data-testid="button-new-family">
+              No — I'm new to the club
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold" style={{ fontFamily: FONT_DISPLAY, textTransform: "uppercase" }}>
+                {stage === "code" ? "Check your email" : "Welcome back"}
+              </h2>
+              <p className="text-sm mt-1" style={{ color: BRAND.mute }}>
+                {stage === "code"
+                  ? `If ${sentTo} is on our records, a 6-digit code is on its way. It can take a minute — check spam too.`
+                  : "Use the email the club already has for you."}
+              </p>
+            </div>
+            {onClose && (
+              <button type="button" onClick={onClose} aria-label="Close" className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full" style={{ color: BRAND.mute }}>
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {error && <div className="mb-3"><ErrorBanner>{error}</ErrorBanner></div>}
+
+          {stage === "email" && (
+            <form onSubmit={(e) => { e.preventDefault(); requestCode(); }} className="space-y-3">
+              <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email}
+                         onChange={(e) => setEmail(e.target.value)} data-testid="input-signin-email" />
+              <button type="submit" disabled={busy} className={primary} style={{ background: BRAND.gold, color: BRAND.navy }}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Email me a code
+              </button>
+              <div className="flex flex-wrap items-center justify-between gap-x-4">
+                <button type="button" onClick={() => { setStage("password"); setError(null); }} className={linkBtn} style={{ color: BRAND.goldBright }}>
+                  I have a password
+                </button>
+                {onNew && (
+                  <button type="button" onClick={onNew} className={linkBtn} style={{ color: BRAND.mute }}>
+                    Actually, I'm new — carry on
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+
+          {stage === "password" && (
+            <form onSubmit={(e) => { e.preventDefault(); signInWithPassword(); }} className="space-y-3">
+              <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email}
+                         onChange={(e) => setEmail(e.target.value)} />
+              <TextInput type="password" autoComplete="current-password" placeholder="Password" value={password}
+                         onChange={(e) => setPassword(e.target.value)} data-testid="input-signin-password" />
+              <button type="submit" disabled={busy} className={primary} style={{ background: BRAND.gold, color: BRAND.navy }}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Sign in
+              </button>
+              <button type="button" onClick={() => { setStage("email"); setError(null); }} className={linkBtn} style={{ color: BRAND.mute }}>
+                Forgot it, or never set one? Email me a code instead
+              </button>
+            </form>
+          )}
+
+          {stage === "code" && (
+            <form onSubmit={(e) => { e.preventDefault(); verify(); }} className="space-y-3">
+              <TextInput inputMode="numeric" autoComplete="one-time-code" placeholder="000000" value={code}
+                         onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} data-testid="input-signin-code" />
+              <button type="submit" disabled={busy} className={primary} style={{ background: BRAND.gold, color: BRAND.navy }}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Sign in and fill it in
+              </button>
+              <div className="flex flex-wrap items-center justify-between gap-x-4">
+                <button type="button" onClick={() => { setStage("email"); setCode(""); setError(null); }} className={linkBtn} style={{ color: BRAND.mute }}>
+                  Use a different email
+                </button>
+                {onNew && (
+                  <button type="button" onClick={onNew} className={linkBtn} style={{ color: BRAND.mute }}>
+                    No code? Carry on as new
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Waitlist form — used for both "not open yet" and "programme full" ──────
 
 function WaitlistForm({
@@ -621,19 +797,35 @@ export default function AcademyRegisterPage() {
     setConsents((c) => ({ ...c, photo: c.photo || kid.photoConsent, medical: c.medical || kid.medicalConsent }));
   };
 
-  useEffect(() => {
-    let live = true;
+  // "Registered with us before?" — asked once at the top of the checkout so a
+  // returning family who arrived from an ad or the website (which all land as
+  // if new) is steered to sign in, instead of retyping everything and forking
+  // their child into a second record. 'new' remembers the answer for this tab;
+  // `signInOpen` shows the inline sign-in on whichever step they are on.
+  const [returning, setReturning] = useState<"unknown" | "new">(() => {
+    try { return sessionStorage.getItem("cufc_rego_new") === "1" ? "new" : "unknown"; } catch { return "unknown"; }
+  });
+  const [signInOpen, setSignInOpen] = useState(false);
+  const chooseNew = () => {
+    setReturning("new"); setSignInOpen(false);
+    try { sessionStorage.setItem("cufc_rego_new", "1"); } catch { /* private mode */ }
+  };
+
+  /** Load the signed-in family, if any, and fill what we hold. `justSignedIn`
+   *  also picks the child when there is no doubt which one this is for. */
+  const loadPrefill = (justSignedIn: boolean, isLive: () => boolean = () => true) =>
     fetch("/api/public/parent/prefill", { credentials: "include" })
       .then((r) => r.json())
       .then((d: ParentPrefill | { signedIn: false }) => {
-        if (!live || !d?.signedIn) return;
+        if (!isLive() || !d?.signedIn) return;
         setPrefill(d);
+        setSignInOpen(false);
         const p = d.parent;
         setGuardian((g) => ({
           ...g,
           firstName: g.firstName || p.firstName || "",
           lastName: g.lastName || p.lastName || "",
-          email: g.email || p.email || "",
+          email: justSignedIn ? p.email || g.email : g.email || p.email || "",
           phone: g.phone || p.phone || "",
           alternatePhone: g.alternatePhone || p.alternatePhone || "",
           relationship: g.relationship || "Parent",
@@ -643,18 +835,41 @@ export default function AcademyRegisterPage() {
         }
         // Arrived from "Register Alex" on the account page.
         const wanted = new URLSearchParams(window.location.search).get("child");
-        const kid = wanted ? d.children.find((c) => c.key === wanted) : null;
+        let kid = wanted ? d.children.find((c) => c.key === wanted) ?? null : null;
+        // Signed in mid-checkout: if they had already typed a child we hold,
+        // that is the one; otherwise, if exactly one of their children fits
+        // this programme, it is almost certainly them.
+        if (!kid && justSignedIn) {
+          const typed = (c: ParentPrefill["children"][number]) =>
+            c.firstName.trim().toLowerCase() === child.firstName.trim().toLowerCase() &&
+            c.lastName.trim().toLowerCase() === child.lastName.trim().toLowerCase();
+          kid = child.firstName ? d.children.find(typed) ?? null : null;
+          if (!kid && !child.firstName && programme) {
+            const fits = d.children.filter((c) =>
+              c.dateOfBirth && checkEligibility(c.dateOfBirth.slice(0, 10), programme.seasonYear, programme.ageMin, programme.ageMax).eligible);
+            if (fits.length === 1) kid = fits[0];
+          }
+        }
         if (kid) applyChild(kid);
       })
       .catch(() => {})
-      .finally(() => { if (live) setPrefillChecked(true); });
+      .finally(() => { if (isLive()) setPrefillChecked(true); });
+
+  useEffect(() => {
+    let live = true;
+    loadPrefill(false, () => live);
     return () => { live = false; };
-    // applyChild only calls state setters; running once on mount is the intent.
+    // loadPrefill only calls state setters; running once on mount is the intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Sign in and come straight back to this exact checkout. */
-  const signInHref = `${ACCOUNT_SIGN_IN}?next=${encodeURIComponent(typeof window !== "undefined" ? window.location.href.split("#")[0] : "")}`;
+  const signOutFamily = async () => {
+    await fetch("/api/public/parent/logout", { method: "POST", credentials: "include" }).catch(() => {});
+    setPrefill(null); setChildKey(null);
+    setChild(EMPTY_CHILD); setIdentity(EMPTY_NZF_IDENTITY);
+    setGuardian(EMPTY_GUARDIAN); setAddress(EMPTY_NZF_ADDRESS); setEmergency(EMPTY_EMERGENCY);
+    setConsents(EMPTY_CONSENTS);
+  };
 
   useEffect(() => {
     if (!slug) return;
@@ -1024,6 +1239,27 @@ export default function AcademyRegisterPage() {
           />
         ) : (
           <>
+            {/* New or returning — asked before anything else. A signed-in family
+                sees who they're signed in as instead. */}
+            {step === "choose" && prefillChecked && (
+              prefill ? (
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-2xl px-4 py-3 text-sm"
+                     style={{ background: BRAND.ink, border: `1px solid ${BRAND.line}` }} data-testid="signed-in-bar">
+                  <span style={{ color: BRAND.mute }}>
+                    <CheckCircle2 className="w-4 h-4 inline -mt-0.5 mr-1.5" style={{ color: BRAND.goldBright }} />
+                    Signed in as <span style={{ color: BRAND.white }}>{prefill.parent.email}</span> — we'll fill in what we hold.
+                  </span>
+                  <button type="button" onClick={signOutFamily} className="min-h-[44px] text-[13px] font-semibold underline" style={{ color: BRAND.mute }}>
+                    Not you? Sign out
+                  </button>
+                </div>
+              ) : returning === "unknown" ? (
+                <div className="mb-6">
+                  <ReturningFamilyPanel startAt="ask" onSignedIn={() => loadPrefill(true)} onNew={chooseNew} />
+                </div>
+              ) : null
+            )}
+
             {step === "choose" && (
               <ChooseStep
                 programme={programme}
@@ -1109,13 +1345,23 @@ export default function AcademyRegisterPage() {
                           We've filled in what we hold. Check it, add anything missing, and it's saved for next time.
                         </p>
                       )}
+                      <button type="button" onClick={signOutFamily} className="mt-1 min-h-[44px] text-[12px] font-semibold underline" style={{ color: BRAND.mute }}>
+                        Not you? Sign out
+                      </button>
                     </div>
                   ) : prefillChecked && !prefill ? (
-                    <p className="text-sm" style={{ color: BRAND.mute }} data-testid="prefill-sign-in">
-                      Registered with us before?{" "}
-                      <a href={signInHref} className="font-semibold underline" style={{ color: BRAND.goldBright }}>Sign in</a>
-                      {" "}and we'll fill this in for you.
-                    </p>
+                    signInOpen ? (
+                      <ReturningFamilyPanel startAt="email" onSignedIn={() => loadPrefill(true)}
+                                            onClose={() => setSignInOpen(false)} onNew={chooseNew} />
+                    ) : (
+                      <p className="text-sm" style={{ color: BRAND.mute }} data-testid="prefill-sign-in">
+                        Registered with us before?{" "}
+                        <button type="button" onClick={() => setSignInOpen(true)} className="font-semibold underline min-h-[44px]" style={{ color: BRAND.goldBright }}>
+                          Sign in
+                        </button>
+                        {" "}and we'll fill this in for you.
+                      </p>
+                    )
                   ) : null}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1192,6 +1438,15 @@ export default function AcademyRegisterPage() {
                     <p className="text-sm" style={{ color: BRAND.mute }}>Your receipt and confirmation go here.</p>
                   </div>
 
+                  {/* The last safety net for a returning family who chose "new":
+                      the moment they reach their own email address. Shown to
+                      EVERYONE not signed in — never only when the typed email
+                      is on file, which would tell a stranger it is. */}
+                  {prefillChecked && !prefill && signInOpen && (
+                    <ReturningFamilyPanel startAt="email" onSignedIn={() => loadPrefill(true)}
+                                          onClose={() => setSignInOpen(false)} />
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label required>First name</Label>
@@ -1206,6 +1461,16 @@ export default function AcademyRegisterPage() {
                   <div>
                     <Label required>Email</Label>
                     <TextInput type="email" value={guardian.email} onChange={(e) => setGuardian((g) => ({ ...g, email: e.target.value }))} data-testid="input-guardian-email" />
+                    {prefillChecked && !prefill && !signInOpen && (
+                      <p className="mt-1.5 text-[12.5px]" style={{ color: BRAND.mute }} data-testid="guardian-sign-in-nudge">
+                        Registered a child with us before?{" "}
+                        <button type="button" onClick={() => { setSignInOpen(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                                className="font-semibold underline min-h-[44px]" style={{ color: BRAND.goldBright }}>
+                          Sign in instead
+                        </button>
+                        {" "}— we'll fill in the rest and keep your child's history in one place.
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
