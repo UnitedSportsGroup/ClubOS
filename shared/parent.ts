@@ -85,6 +85,78 @@ export type ParentChild = {
   /** True when the club's record is missing something NZ Football requires.
    *  Surfaced as a gentle prompt, never a block. */
   needsIdentity: boolean;
+  /** Programmes open right now that this child's age grade fits, each with the
+   *  price the checkout will charge TODAY (same pricing function). */
+  offers: ParentOffer[];
+  /** Everything this child has done and paid, ClubOS and ten years of Friendly
+   *  Manager alike — the resolver the office's own person page reads. */
+  history: ParentHistory;
+};
+
+/** One "Register for Term N" button. */
+export type ParentOffer = {
+  programmeSlug: string;
+  programmeName: string;
+  section: "core" | "additional";
+  termLabel: string | null;
+  optionId: number;
+  optionName: string;
+  scheduleText: string | null;
+  /** What the card is charged today — pro-rated mid-term by the checkout's own
+   *  function. Never computed on the client. */
+  priceCents: number;
+  /** The full term fee, shown only when today's price is a pro-rated part. */
+  fullPriceCents: number;
+  sessionsRemaining: number | null;
+  totalSessions: number | null;
+  /** Already enrolled in this programme for this term — show a tick, not a button. */
+  registered: boolean;
+  /** The checkout, with this child and option already chosen. */
+  registerUrl: string;
+};
+
+/** A programme or a payment, as a parent sees it. No paid/unpaid badge — the
+ *  absence of a payment row is not evidence of non-payment (see
+ *  server/person-history.ts: FM payments and terms agree only 58% of the time). */
+export type ParentHistoryProgramme = {
+  key: string;
+  programme: string;
+  termLabel: string | null;
+  seasonYear: number | null;
+  status: string | null;
+  registeredAt: string | null;
+  source: string;
+};
+export type ParentHistoryPayment = {
+  key: string;
+  paidOn: string | null;
+  amountCents: number;
+  method: string | null;
+  description: string | null;
+  termLabel: string | null;
+  source: string;
+};
+export type ParentHistory = {
+  programmes: ParentHistoryProgramme[];
+  payments: ParentHistoryPayment[];
+  termCount: number;
+  firstSeason: number | null;
+};
+
+/** A card the parent ticked "save" on at checkout. */
+export type ParentSavedCard = {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+};
+
+export type ParentSecurity = {
+  hasPassword: boolean;
+  passwordSetAt: string | null;
+  /** How THIS session was opened. */
+  signedInWith: "code" | "password";
 };
 
 export type ParentChildDetails = {
@@ -118,7 +190,40 @@ export type ParentMe = {
   /** Every guardian contact row this login speaks for. Diagnostic only — a
    *  parent never sees it, but it explains a family that looks merged. */
   guardianIds: number[];
+  security: ParentSecurity;
+  /** False when the saved-cards kill switch is thrown (PARENT_SAVED_CARDS=0). */
+  savedCardsEnabled: boolean;
 };
+
+/** 12 characters. Length is the only composition rule that matters, and it is
+ *  the house rule (United Prints, Team Pay captains). */
+export const PARENT_MIN_PASSWORD = 12;
+
+/** Failed password sign-ins before the door shuts for 15 minutes. Per address
+ *  is the tight one; per IP is loose because a school or a club is one router. */
+export const PARENT_PASSWORD_MAX_FAILS_PER_EMAIL = 8;
+export const PARENT_PASSWORD_MAX_FAILS_PER_IP = 40;
+export const PARENT_PASSWORD_WINDOW_MIN = 15;
+
+/**
+ * The age grades an option is for, read from its name: "U9" → [9,9],
+ * "U9–U10" → [9,10], "U4-U8 All-Access Pass" → [4,8]. Null when the name
+ * names no grade, in which case the option is offered to every child the
+ * programme itself fits and the checkout's own eligibility check still applies.
+ *
+ * Why the name: the Pre-Academy sells U9/U10/U11/U12 as four options of one
+ * programme, and a U10 parent shown a U9 button would pay the U9 price
+ * ($405 vs $540 at U11). The server re-checks eligibility on the programme's
+ * bounds at purchase, so a misread name can never sell outside those.
+ */
+export function gradesForOptionName(name: string | null | undefined): [number, number] | null {
+  const m = String(name ?? "").match(/\bU\s?(\d{1,2})(?:\s*[–—-]\s*U?\s?(\d{1,2}))?\b/i);
+  if (!m) return null;
+  const lo = parseInt(m[1], 10);
+  const hi = m[2] ? parseInt(m[2], 10) : lo;
+  if (!lo || !hi || hi < lo) return null;
+  return [lo, hi];
+}
 
 // ── Rules both sides apply ───────────────────────────────────────────────────
 

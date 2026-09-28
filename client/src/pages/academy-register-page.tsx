@@ -140,9 +140,39 @@ interface ProgrammeResponse {
   ethnicities?: string[];
 }
 
+/** GET /api/public/parent/prefill — present only when a family is signed in
+ *  at cufc.co.nz/account (the session cookie spans .cufc.co.nz). */
+interface ParentPrefill {
+  signedIn: true;
+  parent: {
+    firstName: string; lastName: string; email: string;
+    phone: string | null; alternatePhone: string | null;
+    addressParts: NzfAddressValue | null;
+  };
+  children: {
+    key: string; firstName: string; lastName: string;
+    dateOfBirth: string | null; ageGrade: number | null;
+    gender: string | null; school: string | null;
+    medicalNotes: string | null; allergies: string | null;
+    emergencyContact: string | null; emergencyPhone: string | null;
+    photoConsent: boolean; medicalConsent: boolean;
+    identity: {
+      countryOfBirthCode: string | null; nationalityCode: string | null;
+      ethnicityGroupId: number | null; ethnicitySelectionIds: number[];
+      ethnicity2GroupId: number | null; ethnicity2SelectionIds: number[];
+    };
+  }[];
+}
+
+/** Where a returning family signs in. It sends them straight back here. */
+const ACCOUNT_SIGN_IN = "https://cufc.co.nz/account";
+
 interface RegisterResponse {
   registrationId: number;
   clientSecret: string;
+  /** Lets the Payment Element show saved cards and offer "save this card".
+   *  Only ever set for a signed-in family registering under their own email. */
+  customerSessionClientSecret?: string | null;
   quote: Quote;
   programme: { name: string; slug: string; section: string };
   option: { id: number; name: string; scheduleText: string | null };
@@ -550,6 +580,82 @@ export default function AcademyRegisterPage() {
   // so this renders from the retrieved Stripe PaymentIntent alone.
   const [redirectSuccess, setRedirectSuccess] = useState<{ amountCents: number; registrationId: number | null } | null>(null);
 
+  // ── Signed-in family pre-fill ──────────────────────────────────────────────
+  // A returning family types nothing we already hold. The endpoint answers 200
+  // `signedIn:false` for a visitor, so the call is unconditional and a failure
+  // never blocks the sale. `childKey` is a CLAIM: the server re-proves the child
+  // belongs to the signed-in family before reusing their record.
+  const [prefill, setPrefill] = useState<ParentPrefill | null>(null);
+  const [prefillChecked, setPrefillChecked] = useState(false);
+  const [childKey, setChildKey] = useState<string | null>(null);
+
+  /** Fill the player step from a child we hold. Only fields the record actually
+   *  has are filled; anything missing stays blank for the parent to add, and
+   *  whatever they add is saved to the child for next time. */
+  const applyChild = (kid: ParentPrefill["children"][number] | null) => {
+    setChildKey(kid?.key ?? null);
+    if (!kid) { setChild(EMPTY_CHILD); setIdentity(EMPTY_NZF_IDENTITY); return; }
+    setChild({
+      firstName: kid.firstName || "",
+      lastName: kid.lastName || "",
+      dateOfBirth: kid.dateOfBirth ? kid.dateOfBirth.slice(0, 10) : "",
+      gender: (GENDERS as readonly string[]).includes(kid.gender ?? "") ? (kid.gender as Gender) : "",
+      school: kid.school || "",
+      medicalNotes: kid.medicalNotes || "",
+      allergies: kid.allergies || "",
+    });
+    const id = kid.identity;
+    setIdentity({
+      countryOfBirthCode: id?.countryOfBirthCode || "",
+      nationalityCode: id?.nationalityCode || "",
+      ethnicityGroupId: id?.ethnicityGroupId ?? null,
+      ethnicitySelectionIds: id?.ethnicitySelectionIds ?? [],
+      ethnicity2GroupId: id?.ethnicity2GroupId ?? null,
+      ethnicity2SelectionIds: id?.ethnicity2SelectionIds ?? [],
+    });
+    if (kid.emergencyContact || kid.emergencyPhone) {
+      setEmergency({ name: kid.emergencyContact || "", phone: kid.emergencyPhone || "" });
+    }
+    // Consents the family already gave carry over, visibly ticked. The policy
+    // is never pre-ticked — it is accepted fresh for every registration.
+    setConsents((c) => ({ ...c, photo: c.photo || kid.photoConsent, medical: c.medical || kid.medicalConsent }));
+  };
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/public/parent/prefill", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d: ParentPrefill | { signedIn: false }) => {
+        if (!live || !d?.signedIn) return;
+        setPrefill(d);
+        const p = d.parent;
+        setGuardian((g) => ({
+          ...g,
+          firstName: g.firstName || p.firstName || "",
+          lastName: g.lastName || p.lastName || "",
+          email: g.email || p.email || "",
+          phone: g.phone || p.phone || "",
+          alternatePhone: g.alternatePhone || p.alternatePhone || "",
+          relationship: g.relationship || "Parent",
+        }));
+        if (p.addressParts) {
+          setAddress((a) => (a.street || a.city ? a : { ...EMPTY_NZF_ADDRESS, ...p.addressParts! }));
+        }
+        // Arrived from "Register Alex" on the account page.
+        const wanted = new URLSearchParams(window.location.search).get("child");
+        const kid = wanted ? d.children.find((c) => c.key === wanted) : null;
+        if (kid) applyChild(kid);
+      })
+      .catch(() => {})
+      .finally(() => { if (live) setPrefillChecked(true); });
+    return () => { live = false; };
+    // applyChild only calls state setters; running once on mount is the intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Sign in and come straight back to this exact checkout. */
+  const signInHref = `${ACCOUNT_SIGN_IN}?next=${encodeURIComponent(typeof window !== "undefined" ? window.location.href.split("#")[0] : "")}`;
+
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
@@ -730,6 +836,10 @@ export default function AcademyRegisterPage() {
           programOptionId: selectedOption.id,
           paymentPlan: plan,
           discountCode: promo ? promo.code : undefined,
+          // A child we already hold, picked by a signed-in family. A claim only —
+          // the server re-proves ownership and ignores it if the form no longer
+          // describes that child.
+          childKey: childKey || undefined,
           utm,
           source: sp.get("source") || undefined,
           sourceUrl: window.location.href.split("#")[0],
@@ -955,14 +1065,67 @@ export default function AcademyRegisterPage() {
                     <p className="text-sm" style={{ color: BRAND.mute }}>The starred fields are required for New Zealand Football's registration audit.</p>
                   </div>
 
+                  {/* A returning family picks a child we already hold instead of
+                      retyping them into a second record — registering the same
+                      child twice by hand is why 207 children are duplicated. */}
+                  {prefill && prefill.children.length > 0 ? (
+                    <div className="rounded-2xl p-4 sm:p-5" style={{ background: BRAND.ink, border: `1px solid ${BRAND.line}` }} data-testid="prefill-children">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] mb-3" style={{ color: BRAND.mute }}>
+                        Signed in as {prefill.parent.email} — who are you registering?
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {prefill.children.map((c) => {
+                          const on = childKey === c.key;
+                          return (
+                            <button
+                              key={c.key}
+                              type="button"
+                              onClick={() => applyChild(on ? null : c)}
+                              className="rounded-full px-4 min-h-[44px] text-sm font-semibold transition-colors"
+                              style={on
+                                ? { background: BRAND.gold, color: BRAND.navy, border: `1px solid ${BRAND.gold}` }
+                                : { background: "transparent", color: BRAND.white, border: `1px solid ${BRAND.line}` }}
+                              data-testid={`chip-child-${c.key}`}
+                            >
+                              {c.firstName} {c.lastName}
+                              {c.ageGrade ? <span className="ml-1.5 font-normal" style={{ opacity: 0.7 }}>U{c.ageGrade}</span> : null}
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => applyChild(null)}
+                          className="rounded-full px-4 min-h-[44px] text-sm font-semibold"
+                          style={childKey === null
+                            ? { background: "rgba(212,175,55,0.14)", color: BRAND.goldBright, border: `1px solid ${BRAND.gold}` }
+                            : { background: "transparent", color: BRAND.mute, border: `1px solid ${BRAND.line}` }}
+                          data-testid="chip-child-new"
+                        >
+                          + Someone else
+                        </button>
+                      </div>
+                      {childKey && (
+                        <p className="mt-3 text-[12px]" style={{ color: BRAND.mute }}>
+                          We've filled in what we hold. Check it, add anything missing, and it's saved for next time.
+                        </p>
+                      )}
+                    </div>
+                  ) : prefillChecked && !prefill ? (
+                    <p className="text-sm" style={{ color: BRAND.mute }} data-testid="prefill-sign-in">
+                      Registered with us before?{" "}
+                      <a href={signInHref} className="font-semibold underline" style={{ color: BRAND.goldBright }}>Sign in</a>
+                      {" "}and we'll fill this in for you.
+                    </p>
+                  ) : null}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label required>First name</Label>
-                      <TextInput value={child.firstName} onChange={(e) => setChild((c) => ({ ...c, firstName: e.target.value }))} data-testid="input-child-first-name" />
+                      <TextInput value={child.firstName} onChange={(e) => { setChild((c) => ({ ...c, firstName: e.target.value })); setChildKey(null); }} data-testid="input-child-first-name" />
                     </div>
                     <div>
                       <Label required>Last name</Label>
-                      <TextInput value={child.lastName} onChange={(e) => setChild((c) => ({ ...c, lastName: e.target.value }))} data-testid="input-child-last-name" />
+                      <TextInput value={child.lastName} onChange={(e) => { setChild((c) => ({ ...c, lastName: e.target.value })); setChildKey(null); }} data-testid="input-child-last-name" />
                     </div>
                   </div>
 
@@ -972,7 +1135,7 @@ export default function AcademyRegisterPage() {
                       <TextInput
                         type="date"
                         value={child.dateOfBirth}
-                        onChange={(e) => setChild((c) => ({ ...c, dateOfBirth: e.target.value }))}
+                        onChange={(e) => { setChild((c) => ({ ...c, dateOfBirth: e.target.value })); setChildKey(null); }}
                         style={{ colorScheme: "dark" }}
                         max={new Date().toISOString().slice(0, 10)}
                         data-testid="input-child-dob"
@@ -1231,6 +1394,10 @@ export default function AcademyRegisterPage() {
                     stripe={stripePromise}
                     options={{
                       clientSecret: registerResponse.clientSecret,
+                      // Saved cards + "save this card" — signed-in families only.
+                      ...(registerResponse.customerSessionClientSecret
+                        ? { customerSessionClientSecret: registerResponse.customerSessionClientSecret }
+                        : {}),
                       appearance: {
                         theme: "night",
                         variables: {

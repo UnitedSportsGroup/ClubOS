@@ -645,6 +645,33 @@ export async function sendCufcParentLoginCode(params: {
 }
 
 /**
+ * "A password was set on your account." Sent every time one is set or changed,
+ * because the inbox is the one place a family would notice somebody else doing
+ * it. It carries no link — the fix is to sign in with a code, which only the
+ * inbox owner can do, and a link in a security email is what phishing copies.
+ */
+export async function sendCufcParentPasswordSet(params: {
+  to: string; firstName: string | null; changed: boolean;
+}): Promise<boolean> {
+  const greeting = params.firstName ? `Kia ora ${esc(params.firstName)},` : "Kia ora,";
+  const what = params.changed ? "The password on your Christchurch United account was just changed."
+    : "A password was just set on your Christchurch United account.";
+  const html = cufcShellWrap(params.changed ? "Your password was changed" : "Your password is set", `
+    <p style="margin:0 0 14px;">${greeting}</p>
+    <p style="margin:0 0 14px;">${what} You can now sign in at cufc.co.nz/account with your email and password, or keep using an emailed code — both work.</p>
+    <p style="margin:0 0 14px;">Any other device that was signed in has been signed out.</p>
+    <p style="margin:0;color:#7d8ba8;">If this wasn't you, sign in with an emailed code at cufc.co.nz/account and set a new password, then let us know at academy@cufc.co.nz.</p>
+  `);
+  return sendEmail({
+    to: params.to,
+    from: CUFC_FROM,
+    replyTo: "academy@cufc.co.nz",
+    subject: params.changed ? "Your Christchurch United password was changed" : "Your Christchurch United password is set",
+    html,
+  });
+}
+
+/**
  * "Your refund has been processed."
  *
  * Sent to the payer the moment Stripe accepts the refund. The point is the
