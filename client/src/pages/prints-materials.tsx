@@ -12,6 +12,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { normaliseSizeTiers, sizeTierId, sizeTierLabel, type SizeTier } from "@shared/print-size-tiers";
+import { normaliseQtyTiers, qtyTierRanges, UNIT_PRICE_METHODS, type QtyTier } from "@shared/print-qty-tiers";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, X, Search, Globe, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,8 @@ type FormState = {
   quoteOnWebsite: boolean;
   /** Stock sizes Dima sells off the shelf, priced per piece. */
   sizeTiers: SizeTier[];
+  /** Quantity pricing — bulk discounts or a price each, by quantity. */
+  qtyTiers: QtyTier[];
   /** Merch only: the swatches the website offers. [] = use its built-in list. */
   colourOptions: { name: string; hex: string }[];
 };
@@ -98,6 +101,7 @@ function blankForm(): FormState {
     // checked before the public can be quoted from it.
     quoteOnWebsite: false,
     sizeTiers: [],
+    qtyTiers: [],
     colourOptions: [],
   };
 }
@@ -118,6 +122,7 @@ function formFrom(material: PrintMaterial): FormState {
     humanQuoteRequired: material.humanQuoteRequired,
     quoteOnWebsite: (material as any).quoteOnWebsite ?? false,
     sizeTiers: Array.isArray((material as any).sizeTiersJson) ? ((material as any).sizeTiersJson as SizeTier[]) : [],
+    qtyTiers: Array.isArray((material as any).qtyTiersJson) ? ((material as any).qtyTiersJson as QtyTier[]) : [],
     colourOptions: Array.isArray((material as any).colourOptionsJson) ? ((material as any).colourOptionsJson as any[]) : [],
   };
 }
@@ -132,7 +137,7 @@ function EditModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, sizeTiers, colourOptions, ...rest } = form;
+      const { baseRate, substrateCostPerM2, minCharge, maxRollWidthMm, sizeTiers, qtyTiers, colourOptions, ...rest } = form;
       const rollWidth = parseInt(maxRollWidthMm, 10);
       const payload = {
         ...rest,
@@ -145,6 +150,8 @@ function EditModal({
         // The server re-validates these (@shared/print-size-tiers) — this is a
         // courtesy so Dima sees the problem before he presses Save, never the gate.
         sizeTiersJson: sizeTiers,
+        // Re-validated by the server (@shared/print-qty-tiers) — the one gate.
+        qtyTiersJson: qtyTiers,
         colourOptionsJson: colourOptions.filter((c) => c.name.trim() && /^#[0-9a-f]{3,8}$/i.test(c.hex)),
       };
       const res = isNew
@@ -406,6 +413,17 @@ function EditModal({
           </div>
           )}
 
+          {/* ── Quantity pricing ───────────────────────────────────────────
+              Daniel, 2026-09-30: "set any bulk discounts from clubos … 1-10
+              shirts = x price, 10-100 = this price". These steps are what the
+              website's Instant Quote charges. Each is a % off OR a price each;
+              a price each only exists for things priced per item. */}
+          <QtyTierEditor
+            tiers={form.qtyTiers}
+            pricingMethod={form.pricingMethod}
+            onChange={(qtyTiers) => setForm({ ...form, qtyTiers })}
+          />
+
           {/* ── Colours (merch) ────────────────────────────────────────────
               Daniel, 2026-09-16: "allow us in backend to be able to edit colour
               options that get displayed on front end customer facing site."
@@ -505,9 +523,7 @@ function EditModal({
 
           {!isNew && (
             <div className="text-xs text-white/40 pt-2 border-t border-white/5">
-              For add-ons, quantity discounts, or stock-size tables, edit the <code>addons_json</code>,{" "}
-              <code>qty_tiers_json</code>, and <code>size_tiers_json</code> fields directly via the database for now.
-              v2 will give you a richer editor.
+              Add-ons (eyelets, hemming…) are still edited in the database for now (<code>addons_json</code>).
             </div>
           )}
         </div>
@@ -722,6 +738,90 @@ export default function PrintsMaterials() {
         isNew={creating}
         key={creating ? "new" : (editing?.id ?? "none")}
       />
+    </div>
+  );
+}
+
+
+/** Quantity pricing rows: "From [qty] → [% off | $ each] [value]". */
+function QtyTierEditor({ tiers, pricingMethod, onChange }: { tiers: QtyTier[]; pricingMethod: string; onChange: (t: QtyTier[]) => void }) {
+  const eachAllowed = UNIT_PRICE_METHODS.has(pricingMethod);
+  const ranges = qtyTierRanges(tiers);
+  const check = normaliseQtyTiers(tiers, pricingMethod);
+  const set = (i: number, patch: Partial<QtyTier> & { mode?: "pct" | "each" }) => {
+    const next = [...tiers];
+    const cur = { ...next[i] } as QtyTier;
+    if (patch.mode === "pct") { delete cur.unitPriceCents; cur.discountPct = cur.discountPct ?? 0; }
+    else if (patch.mode === "each") { delete cur.discountPct; cur.unitPriceCents = cur.unitPriceCents ?? 0; }
+    const { mode: _m, ...rest } = patch;
+    next[i] = { ...cur, ...rest };
+    onChange(next);
+  };
+  const sortedIdx = tiers.map((t, i) => i).sort((a, b) => (tiers[a].minQty || 0) - (tiers[b].minQty || 0));
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="qty-pricing">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-white/40">Quantity pricing</div>
+          <div className="text-[10px] text-white/30 mt-0.5">
+            What the website charges as orders get bigger. Each step applies from its quantity up to the next step.
+            {eachAllowed ? " Use a price each (e.g. 1–9 shirts $35 each) or a % off." : " This product is priced by size, so steps are a % off."}
+          </div>
+        </div>
+        <Button size="sm" variant="outline" type="button" data-testid="button-add-qty-step"
+          onClick={() => {
+            const last = Math.max(0, ...tiers.map((t) => t.minQty || 0));
+            onChange([...tiers, eachAllowed && tiers.every((t) => t.unitPriceCents !== undefined)
+              ? { minQty: tiers.length ? last + 10 : 1, unitPriceCents: 0 }
+              : { minQty: tiers.length ? last + 10 : 10, discountPct: 0 }]);
+          }}>
+          Add a step
+        </Button>
+      </div>
+      {tiers.length === 0 ? (
+        <div className="text-[11px] text-white/25 mt-3">No quantity pricing — every quantity pays the normal price.</div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {sortedIdx.map((i) => {
+            const t = tiers[i];
+            const mode = t.unitPriceCents !== undefined ? "each" : "pct";
+            const rangeIdx = [...tiers].sort((a, b) => a.minQty - b.minQty).indexOf(t);
+            return (
+              <div key={i} className="grid grid-cols-[4.5rem_5rem_7rem_1fr_2rem] items-center gap-1.5" data-testid={`row-qty-step-${i}`}>
+                <span className="text-[11px] text-white/45">From qty</span>
+                <Input type="number" inputMode="numeric" min={1} value={t.minQty || ""}
+                  onChange={(e) => set(i, { minQty: parseInt(e.target.value, 10) || 0 })}
+                  className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-from-${i}`} />
+                <SelectInput value={mode} onChange={(e) => set(i, { mode: e.target.value as "pct" | "each" })}
+                  className="bg-white/[0.02] border border-white/10 rounded-md px-2 py-2 text-sm text-white" data-testid={`select-qty-mode-${i}`}>
+                  <option value="pct">% off</option>
+                  {(eachAllowed || mode === "each") && <option value="each">$ each</option>}
+                </SelectInput>
+                {mode === "each" ? (
+                  <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
+                    className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} />
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Input type="number" inputMode="decimal" min={0} max={90} value={t.discountPct ?? ""}
+                      onChange={(e) => set(i, { discountPct: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-pct-${i}`} />
+                    <span className="text-white/40 text-sm">% off</span>
+                  </div>
+                )}
+                <button type="button" aria-label="Remove this step" onClick={() => onChange(tiers.filter((_, j) => j !== i))}
+                  className="text-white/25 hover:text-red-300 justify-self-center" data-testid={`button-remove-qty-${i}`}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+                <div className="col-span-5 -mt-1 text-[10px] text-white/30">
+                  {ranges[rangeIdx] ? `Covers ${ranges[rangeIdx]} ${ranges[rangeIdx] === "1" ? "item" : "items"}` : ""}
+                  {mode === "each" ? " · replaces the calculated price (blank + print + setup), ex GST" : ""}
+                </div>
+              </div>
+            );
+          })}
+          {!check.ok && <p className="text-[11.5px] text-red-300 pt-1" data-testid="text-qty-problem">{check.error}</p>}
+        </div>
+      )}
     </div>
   );
 }

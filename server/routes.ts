@@ -91,6 +91,7 @@ import {
 import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
 import { CIC7S_CURRENT_EDITION } from "@shared/cic7s";
 import { normaliseSizeTiers } from "@shared/print-size-tiers";
+import { normaliseQtyTiers } from "@shared/print-qty-tiers";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -21862,10 +21863,14 @@ export async function registerRoutes(
       // Same gate as the PATCH — a new product can arrive with stock sizes too.
       const newTiers = normaliseSizeTiers(req.body?.sizeTiersJson);
       if (!newTiers.ok) return res.status(400).json({ message: newTiers.error });
+      // Quantity pricing carries money too — same gate as the PATCH.
+      const newQty = normaliseQtyTiers(req.body?.qtyTiersJson, req.body?.pricingMethod);
+      if (!newQty.ok) return res.status(400).json({ message: newQty.error });
 
       const m = await storage.createPrintMaterial({
         ...req.body,
         sizeTiersJson: newTiers.tiers,
+        qtyTiersJson: newQty.tiers,
         slug: materialSlug,
         name,
         organizationId: org.id,
@@ -21894,6 +21899,13 @@ export async function registerRoutes(
         const tiers = normaliseSizeTiers(patch.sizeTiersJson);
         if (!tiers.ok) return res.status(400).json({ message: tiers.error });
         patch.sizeTiersJson = tiers.tiers;
+      }
+      // Quantity pricing (bulk discounts / price each) — Dima's money, validated
+      // here, never in the form: @shared/print-qty-tiers is the one decider.
+      if ("qtyTiersJson" in patch) {
+        const qty = normaliseQtyTiers(patch.qtyTiersJson, patch.pricingMethod ?? existing.pricingMethod);
+        if (!qty.ok) return res.status(400).json({ message: qty.error });
+        patch.qtyTiersJson = qty.tiers;
       }
       const m = await storage.updatePrintMaterial(existing.id, patch);
       if (!m) return res.status(404).json({ message: "Not found" });
