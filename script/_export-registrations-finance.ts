@@ -11,7 +11,7 @@ async function main() {
   if (!dateCol) throw new Error(`no date column on registrations: ${cols.join(",")}`);
   const r = await db.execute(sql.raw(`
     SELECT r.id, r.status, r.${dateCol} AS at, r.total_cents, r.amount_paid, r.refunded_amount_cents, r.refunded_at,
-           r.stripe_payment_intent_id, r.source, r.registration_location, r.payment_mode, r.term_id,
+           r.stripe_payment_intent_id, r.source, r.registration_location, r.payment_mode, r.term_id, r.team_name,
            p.id AS program_id, p.name AS program, p.type AS program_type, p.organization_id AS org,
            o.name AS org_name, po.name AS option_name, t.year AS term_year, t.term_number AS term_no, t.name AS term_name,
            c.first_name AS child_first, c.last_name AS child_last, c.date_of_birth AS dob,
