@@ -808,11 +808,11 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
             const mode = t.unitPriceCents !== undefined ? "each" : "pct";
             const rangeIdx = [...tiers].sort((a, b) => a.minQty - b.minQty).indexOf(t);
             return (
-              <div key={i} className="grid grid-cols-[4.5rem_5rem_7rem_1fr_2rem] items-center gap-1.5" data-testid={`row-qty-step-${i}`}>
-                <span className="text-[11px] text-white/45">From qty</span>
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_1.75rem] sm:grid-cols-[4.5rem_5rem_7rem_1fr_2rem] items-center gap-1.5" data-testid={`row-qty-step-${i}`}>
+                <span className="hidden sm:block text-[11px] text-white/45">From qty</span>
                 <Input type="number" inputMode="numeric" min={1} value={t.minQty || ""}
                   onChange={(e) => set(i, { minQty: parseInt(e.target.value, 10) || 0 })}
-                  className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-from-${i}`} />
+                  className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-from-${i}`} aria-label="From quantity" placeholder="From qty" />
                 <SelectInput value={mode} onChange={(e) => set(i, { mode: e.target.value as "pct" | "each" })}
                   className="bg-white/[0.02] border border-white/10 rounded-md px-2 py-2 text-sm text-white" data-testid={`select-qty-mode-${i}`}>
                   <option value="pct">% off</option>
@@ -833,7 +833,7 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
                   className="text-white/25 hover:text-red-300 justify-self-center" data-testid={`button-remove-qty-${i}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
-                <div className="col-span-5 -mt-1 text-[10px] text-white/30">
+                <div className="col-span-full -mt-1 text-[10px] text-white/30">
                   {ranges[rangeIdx] ? `Covers ${ranges[rangeIdx]} ${ranges[rangeIdx] === "1" ? "item" : "items"}` : ""}
                   {mode === "each" ? " · replaces the calculated price (blank + print + setup), ex GST" : ""}
                 </div>
@@ -863,12 +863,12 @@ const money2 = (c: number) => `$${(c / 100).toLocaleString("en-NZ", { minimumFra
 
 /** "At 20: usually $31.60 each → $30.02 each (save $1.58) · 20 for $600.40 ex GST ($690.46 incl)". */
 function PreviewLine({ row, gstRate }: { row?: PreviewRow; gstRate: number }) {
-  if (!row) return <div className="col-span-5 text-[11px] text-white/25" data-testid="qty-preview-row">Working out the price…</div>;
-  if (row.withSteps.message) return <div className="col-span-5 text-[11px] text-amber-300/80" data-testid="qty-preview-row">At {row.qty}: {row.withSteps.message}</div>;
+  if (!row) return <div className="col-span-full text-[11px] text-white/25" data-testid="qty-preview-row">Working out the price…</div>;
+  if (row.withSteps.message) return <div className="col-span-full text-[11px] text-amber-300/80" data-testid="qty-preview-row">At {row.qty}: {row.withSteps.message}</div>;
   const each = row.withSteps.eachCents ?? 0, usual = row.usual.eachCents ?? each, total = row.withSteps.totalCents ?? 0;
   const save = usual - each;
   return (
-    <div className="col-span-5 text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1" data-testid="qty-preview-row">
+    <div className="col-span-full text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1" data-testid="qty-preview-row">
       At {row.qty}: {save > 0 && <><span className="line-through text-white/30">{money2(usual)}</span> → </>}
       <b className="text-white/85">{money2(each)} each</b>
       {save > 0 && <span className="text-emerald-400"> (save {money2(save)} each, {Math.round((save / usual) * 100)}%)</span>}

@@ -35,6 +35,37 @@ try {
   ok("banner offers % off only (priced by size)", !/\$ each/.test(txt) && /priced by size/.test(txt), txt.slice(0, 120));
   ok("shows the ranges (e.g. 3–4)", /Covers 3–4/.test(txt), txt.slice(0, 200));
   await p.keyboard.press("Escape"); await new Promise((r) => setTimeout(r, 500));
+  // The live preview on the real T-shirt (read only): "At 20: $29.25 → $27.79 each".
+  for (const [label, w, h] of [["desktop", 1440, 900], ["mobile", 390, 844]] as const) {
+    await p.setViewport({ width: w, height: h, deviceScaleFactor: 2 });
+    await p.goto(`${BASE}/admin/print-materials`, { waitUntil: "networkidle2" }); await new Promise((r) => setTimeout(r, 1200));
+    await p.evaluate(() => { const el = Array.from(document.querySelectorAll("*")).find((e) => (e as HTMLElement).innerText?.trim() === "Printed T-shirt (left chest logo)") as HTMLElement | undefined; el?.click(); });
+    await p.waitForSelector('[data-testid="qty-preview-row"]', { timeout: 15000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 1500));
+    const prev = await p.$$eval('[data-testid="qty-preview-row"]', (els: any[]) => els.map((e) => e.innerText));
+    ok(`${label}: a preview under every step`, prev.length >= 4, String(prev.length));
+    ok(`${label}: 20 tees read $29.25 → $27.79 each`, prev.some((t: string) => /At 20:.*\$29\.25.*\$27\.79 each/.test(t)), prev[0]);
+    ok(`${label}: over-cap steps say manual quote`, prev.some((t: string) => /over \$2,500/.test(t)));
+    const wrap = await p.evaluate(() => { const s = Array.from(document.querySelectorAll("span")).find((e) => e.textContent === "% off") as HTMLElement | undefined; return s ? s.getBoundingClientRect().height : 0; });
+    ok(`${label}: "% off" sits on one line`, wrap > 0 && wrap < 26, String(wrap));
+    // The whole step row — every input, label and the remove button — must sit inside the dialog.
+    const spill = await p.evaluate(() => {
+      const d = document.querySelector('[data-testid="qty-pricing"]') as HTMLElement | null;
+      if (!d) return "no quantity pricing card";
+      const edge = d.getBoundingClientRect().right;
+      const bad: string[] = [];
+      document.querySelectorAll('[data-testid^="row-qty-step-"] *').forEach((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        if (r.width > 0 && r.right > edge + 0.5) bad.push(((el as HTMLElement).dataset.testid || el.tagName) + "@" + Math.round(r.right - edge));
+      });
+      return bad.slice(0, 5).join(", ");
+    });
+    ok(`${label}: every step row fits inside the Quantity pricing card`, spill === "", spill);
+    await p.evaluate(() => document.querySelector('[data-testid="qty-pricing"]')?.scrollIntoView({ block: "start" }));
+    await new Promise((r) => setTimeout(r, 400));
+    await p.screenshot({ path: `/private/tmp/claude-501/qty-preview-${label}.png` });
+    await p.keyboard.press("Escape"); await new Promise((r) => setTimeout(r, 400));
+  }
   // Save a $ each step on test tee through the real API the tab uses.
   const res = await p.evaluate(async (id: number) => {
     const r = await fetch(`/api/admin/print-materials/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-Workspace-Slug": "united-prints" },
