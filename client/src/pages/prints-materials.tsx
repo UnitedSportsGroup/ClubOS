@@ -7,7 +7,7 @@
 // and nothing to ask Daniel for. That is the whole point of the change, so
 // the page says so out loud rather than hiding it behind a checkbox label.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
@@ -421,6 +421,9 @@ function EditModal({
           <QtyTierEditor
             tiers={form.qtyTiers}
             pricingMethod={form.pricingMethod}
+            materialId={isNew ? null : material?.id ?? null}
+            baseRateCents={dollarInputToCents(form.baseRate)}
+            minChargeCents={dollarInputToCents(form.minCharge)}
             onChange={(qtyTiers) => setForm({ ...form, qtyTiers })}
           />
 
@@ -744,8 +747,26 @@ export default function PrintsMaterials() {
 
 
 /** Quantity pricing rows: "From [qty] → [% off | $ each] [value]". */
-function QtyTierEditor({ tiers, pricingMethod, onChange }: { tiers: QtyTier[]; pricingMethod: string; onChange: (t: QtyTier[]) => void }) {
+function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minChargeCents, onChange }: {
+  tiers: QtyTier[]; pricingMethod: string; materialId: number | null; baseRateCents: number; minChargeCents: number; onChange: (t: QtyTier[]) => void;
+}) {
   const eachAllowed = UNIT_PRICE_METHODS.has(pricingMethod);
+  // Live preview from the SAME engine the website uses, on the unsaved values —
+  // debounced so typing "12" doesn't price "1" first.
+  const previewKey = JSON.stringify({ tiers, baseRateCents, minChargeCents });
+  const [debouncedKey, setDebouncedKey] = useState(previewKey);
+  useEffect(() => { const t = setTimeout(() => setDebouncedKey(previewKey), 350); return () => clearTimeout(t); }, [previewKey]);
+  const preview = useQuery<{ reference: string | null; gstRate: number; rows: PreviewRow[] }>({
+    queryKey: ["/api/admin/print-materials", materialId, "qty-preview", debouncedKey],
+    enabled: materialId !== null,
+    queryFn: async () => {
+      const v = JSON.parse(debouncedKey);
+      const res = await apiRequest("POST", `/api/admin/print-materials/${materialId}/qty-preview`, { qtyTiersJson: v.tiers, baseRateCents: v.baseRateCents, minChargeCents: v.minChargeCents });
+      return res.json();
+    },
+    placeholderData: (prev) => prev,
+  });
+  const rowFor = (qty: number) => preview.data?.rows.find((r) => r.qty === qty);
   const ranges = qtyTierRanges(tiers);
   const check = normaliseQtyTiers(tiers, pricingMethod);
   const set = (i: number, patch: Partial<QtyTier> & { mode?: "pct" | "each" }) => {
@@ -801,11 +822,11 @@ function QtyTierEditor({ tiers, pricingMethod, onChange }: { tiers: QtyTier[]; p
                   <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
                     className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} />
                 ) : (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <Input type="number" inputMode="decimal" min={0} max={90} value={t.discountPct ?? ""}
                       onChange={(e) => set(i, { discountPct: e.target.value === "" ? 0 : Number(e.target.value) })}
                       className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-pct-${i}`} />
-                    <span className="text-white/40 text-sm">% off</span>
+                    <span className="text-white/40 text-sm whitespace-nowrap">% off</span>
                   </div>
                 )}
                 <button type="button" aria-label="Remove this step" onClick={() => onChange(tiers.filter((_, j) => j !== i))}
@@ -816,12 +837,43 @@ function QtyTierEditor({ tiers, pricingMethod, onChange }: { tiers: QtyTier[]; p
                   {ranges[rangeIdx] ? `Covers ${ranges[rangeIdx]} ${ranges[rangeIdx] === "1" ? "item" : "items"}` : ""}
                   {mode === "each" ? " · replaces the calculated price (blank + print + setup), ex GST" : ""}
                 </div>
+                <PreviewLine row={rowFor(t.minQty)} gstRate={preview.data?.gstRate ?? 0.15} />
               </div>
             );
           })}
           {!check.ok && <p className="text-[11.5px] text-red-300 pt-1" data-testid="text-qty-problem">{check.error}</p>}
+          {materialId === null ? (
+            <p className="text-[10.5px] text-white/35 pt-1">Save the product once to see price previews here.</p>
+          ) : preview.data && (
+            <div className="text-[10.5px] text-white/40 pt-1 border-t border-white/5" data-testid="qty-preview-base">
+              {(() => { const one = rowFor(1); return one?.usual.eachCents != null ? <>Normal price for 1: <b className="text-white/70">{money2(one.usual.eachCents)}</b> ex GST. </> : null; })()}
+              {preview.data.reference ? `Priced for ${preview.data.reference}.` : ""} Previews use the same engine as the website quote, and don't need saving.
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+interface PreviewSide { eachCents?: number; totalCents?: number; message?: string }
+interface PreviewRow { qty: number; usual: PreviewSide; withSteps: PreviewSide }
+const money2 = (c: number) => `$${(c / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** "At 20: usually $31.60 each → $30.02 each (save $1.58) · 20 for $600.40 ex GST ($690.46 incl)". */
+function PreviewLine({ row, gstRate }: { row?: PreviewRow; gstRate: number }) {
+  if (!row) return <div className="col-span-5 text-[11px] text-white/25" data-testid="qty-preview-row">Working out the price…</div>;
+  if (row.withSteps.message) return <div className="col-span-5 text-[11px] text-amber-300/80" data-testid="qty-preview-row">At {row.qty}: {row.withSteps.message}</div>;
+  const each = row.withSteps.eachCents ?? 0, usual = row.usual.eachCents ?? each, total = row.withSteps.totalCents ?? 0;
+  const save = usual - each;
+  return (
+    <div className="col-span-5 text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1" data-testid="qty-preview-row">
+      At {row.qty}: {save > 0 && <><span className="line-through text-white/30">{money2(usual)}</span> → </>}
+      <b className="text-white/85">{money2(each)} each</b>
+      {save > 0 && <span className="text-emerald-400"> (save {money2(save)} each, {Math.round((save / usual) * 100)}%)</span>}
+      {save < 0 && <span className="text-amber-300"> (dearer than the normal {money2(usual)})</span>}
+      <span className="text-white/35"> · {row.qty} for {money2(total)} ex GST ({money2(Math.round(total * (1 + gstRate)))} incl)</span>
     </div>
   );
 }
