@@ -76,7 +76,7 @@ import {
   PARENT_PASSWORD_WINDOW_MIN,
   normalizeParentEmail, looksLikeEmail, owingFor, feeStateFor, ageGradeFor, gradesForOptionName,
   type ParentMe, type ParentChild, type ParentRegistration, type ParentOffer,
-  type ParentHistory, type ParentSavedCard, type ParentSecurity,
+  type ParentHistory, type ParentSavedCard, type ParentSecurity, type ParentOpenProgramme,
 } from "@shared/parent";
 
 const s = (v: any, max = 300): string | null => {
@@ -1014,6 +1014,29 @@ export function registerParentRoutes(app: Express, deps: ParentRouteDeps = {}) {
     }
   });
 
+  // ── Who is signed in — for the site's nav, on every page ─────────────────
+  // One cheap query, never the family: the nav only needs a name to show
+  // "Daniel" instead of "Login". 200 `signedIn:false` for a visitor.
+  app.get(`${BASE}/session`, async (req, res) => {
+    try {
+      const sess = await sessionFromRequest(req);
+      if (!sess) return res.json({ signedIn: false });
+      const guardianIds = await guardianIdsForEmail(sess.email);
+      if (guardianIds.length === 0) return res.json({ signedIn: false });
+      const rows = await guardianRowsFor({ guardianIds });
+      const best = rows[0] ?? {};
+      res.json({
+        signedIn: true,
+        email: sess.email,
+        firstName: best.first_name ?? "",
+        lastName: best.last_name ?? "",
+      });
+    } catch (e) {
+      console.error("[parent] session", e);
+      res.json({ signedIn: false });
+    }
+  });
+
   // ── The dashboard ─────────────────────────────────────────────────────────
   app.get(`${BASE}/me`, requireParent, async (req, res) => {
     try {
@@ -1081,6 +1104,20 @@ export function registerParentRoutes(app: Express, deps: ParentRouteDeps = {}) {
         passwordSetAt: cred[0]?.password_set_at ? new Date(cred[0].password_set_at).toISOString() : null,
         signedInWith: session.session.method,
       };
+      // Every programme open now, for "Register another child" (a child we
+      // do not hold yet, so no age to match — the checkout checks eligibility).
+      const openProgrammes: ParentOpenProgramme[] = programmes.map((p) => {
+        const url = new URL(`/academy/${encodeURIComponent(p.slug)}`, JOIN_BASE);
+        url.searchParams.set("child", "new");
+        url.searchParams.set("source", "account");
+        return {
+          slug: p.slug, name: p.name, section: p.section, ageMin: p.ageMin, ageMax: p.ageMax,
+          termLabel: p.termLabel,
+          options: p.options.map((o) => ({ id: o.id, name: o.name, scheduleText: o.scheduleText, priceCents: o.priceCents, fullPriceCents: o.fullPriceCents })),
+          registerUrl: url.toString(),
+        };
+      });
+
       const payload: ParentMe = {
         profile,
         children: out,
@@ -1089,6 +1126,7 @@ export function registerParentRoutes(app: Express, deps: ParentRouteDeps = {}) {
         guardianIds: session.guardianIds,
         security,
         savedCardsEnabled: savedCardsEnabled(),
+        openProgrammes,
       };
       res.json(payload);
     } catch (e: any) {

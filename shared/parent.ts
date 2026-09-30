@@ -152,6 +152,19 @@ export type ParentSavedCard = {
   expYear: number;
 };
 
+/** A programme open now, offered to a child we don't hold yet. */
+export type ParentOpenProgramme = {
+  slug: string;
+  name: string;
+  section: "core" | "additional";
+  ageMin: number | null;
+  ageMax: number | null;
+  termLabel: string | null;
+  options: { id: number; name: string; scheduleText: string | null; priceCents: number; fullPriceCents: number }[];
+  /** The checkout, signed in, with "someone else" chosen. */
+  registerUrl: string;
+};
+
 export type ParentSecurity = {
   hasPassword: boolean;
   passwordSetAt: string | null;
@@ -193,6 +206,8 @@ export type ParentMe = {
   security: ParentSecurity;
   /** False when the saved-cards kill switch is thrown (PARENT_SAVED_CARDS=0). */
   savedCardsEnabled: boolean;
+  /** Every programme open right now — "Register another child". */
+  openProgrammes: ParentOpenProgramme[];
 };
 
 /** 12 characters. Length is the only composition rule that matters, and it is
