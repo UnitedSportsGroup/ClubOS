@@ -15,6 +15,7 @@
 // of items, not per-item — this keeps rounding consistent with how Stripe
 // handles totals.
 
+import { qtyTierFor, UNIT_PRICE_METHODS, type QtyTier } from "@shared/print-qty-tiers";
 import type { PrintMaterial } from "@shared/schema";
 
 export interface ItemConfig {
@@ -79,11 +80,6 @@ interface AddonDef {
   default?: boolean;
 }
 
-interface QtyTier {
-  minQty: number;
-  discountPct: number;
-}
-
 interface SizeTier {
   id: string;
   label: string;
@@ -96,13 +92,6 @@ function moneyLabel(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function findQtyDiscountPct(tiers: QtyTier[], qty: number): number {
-  const sorted = [...tiers].sort((a, b) => b.minQty - a.minQty);
-  for (const t of sorted) {
-    if (qty >= t.minQty) return t.discountPct;
-  }
-  return 0;
-}
 
 function computeAddon(addon: AddonDef, config: ItemConfig, areaM2: number, perimeterM: number): { cents: number; label: string } {
   switch (addon.formula) {
@@ -245,9 +234,20 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
     }
   }
 
-  // Quantity discount ──────────────────────────────────────────────────────
-  const qtyTiers = (material.qtyTiersJson as QtyTier[]) ?? [];
-  const qtyDiscountPct = findQtyDiscountPct(qtyTiers, config.quantity);
+  // Quantity pricing ───────────────────────────────────────────────────────
+  // Set by Dima in the Materials tab (@shared/print-qty-tiers). A step is a
+  // "% off" OR a "$ each"; "$ each" replaces the calculated per-item price
+  // (blank + print + setup) with his all-in figure, only on products priced
+  // per item — a per-m² product has no single "each" price.
+  const band = qtyTierFor((material.qtyTiersJson as QtyTier[]) ?? [], config.quantity);
+  let qtyDiscountPct = 0;
+  if (band?.unitPriceCents && UNIT_PRICE_METHODS.has(String(material.pricingMethod))) {
+    unitPriceCents = band.unitPriceCents * config.quantity;
+    breakdown.length = 0;
+    breakdown.push({ label: `${config.quantity} × ${moneyLabel(band.unitPriceCents)} each`, cents: unitPriceCents });
+  } else if (band?.discountPct) {
+    qtyDiscountPct = band.discountPct;
+  }
   const qtyDiscountCents = Math.round((unitPriceCents * qtyDiscountPct) / 100);
   if (qtyDiscountCents > 0) {
     breakdown.push({ label: `Quantity discount (−${qtyDiscountPct}%)`, cents: -qtyDiscountCents });

@@ -1,0 +1,33 @@
+import { normaliseQtyTiers, qtyTierFor, qtyTierRanges } from "../shared/print-qty-tiers";
+const ok = (l: string, c: boolean) => console.log(`${c ? "✓" : "✗"} ${l}`);
+const g = normaliseQtyTiers([{ minQty: 10, unitPriceCents: 2900 }, { minQty: 1, unitPriceCents: 3500 }, { minQty: 100, discountPct: 20 }], "garment_decoration");
+ok("garment: $ each + % steps accepted, sorted", g.ok && g.tiers.map((t) => t.minQty).join() === "1,10,100");
+ok("ranges read 1–9, 10–99, 100+", g.ok && qtyTierRanges(g.tiers).join("|") === "1–9|10–99|100+");
+ok("qty 9 → $35 step", g.ok && qtyTierFor(g.tiers, 9)?.unitPriceCents === 3500);
+ok("qty 10 → $29 step", g.ok && qtyTierFor(g.tiers, 10)?.unitPriceCents === 2900);
+ok("qty 150 → 20% off", g.ok && qtyTierFor(g.tiers, 150)?.discountPct === 20);
+ok("banner refuses $ each", !normaliseQtyTiers([{ minQty: 5, unitPriceCents: 100 }], "per_m2").ok);
+ok("banner takes % off", normaliseQtyTiers([{ minQty: 5, discountPct: 10 }], "per_m2").ok);
+ok("both % and $ refused", !normaliseQtyTiers([{ minQty: 5, discountPct: 10, unitPriceCents: 100 }], "per_piece").ok);
+ok("duplicate start refused", !normaliseQtyTiers([{ minQty: 5, discountPct: 10 }, { minQty: 5, discountPct: 12 }], "per_m2").ok);
+ok("over 90% refused", !normaliseQtyTiers([{ minQty: 5, discountPct: 95 }], "per_m2").ok);
+ok("$0 each refused", !normaliseQtyTiers([{ minQty: 1, unitPriceCents: 0 }], "garment_decoration").ok);
+ok("empty list = no pricing", (() => { const r = normaliseQtyTiers([], "per_m2"); return r.ok && r.tiers.length === 0; })());
+ok("below first step → none", qtyTierFor([{ minQty: 10, discountPct: 5 }], 3) === null);
+import { quotePrintItem } from "../server/print-pricing";
+const tee: any = { name: "Tee", category: "garment", pricingMethod: "garment_decoration", baseRateCents: 1900, minChargeCents: 6000, markupMultiplier: "1", addonsJson: [], sizeTiersJson: [], turnaroundDays: 5, rushAvailable: false,
+  qtyTiersJson: [{ minQty: 1, unitPriceCents: 3500 }, { minQty: 10, unitPriceCents: 2900 }, { minQty: 100, discountPct: 20 }] };
+const q = (m: any, qty: number, extra: any = {}) => (quotePrintItem as any)(m, { quantity: qty, ...extra });
+const r5: any = q(tee, 5), r10: any = q(tee, 10), r150: any = q(tee, 150);
+console.log("5 tees", r5.subtotalCents ?? r5.totalCents, r5.breakdown?.map((b: any) => b.label).join(" | "));
+console.log("10 tees", r10.subtotalCents ?? r10.totalCents, r10.breakdown?.map((b: any) => b.label).join(" | "));
+console.log("150 tees", r150.subtotalCents ?? r150.totalCents, r150.breakdown?.map((b: any) => b.label).join(" | "));
+ok("5 tees = 5 × $35 = $175", (r5.subtotalCents ?? r5.totalCents) === 17500);
+ok("10 tees = 10 × $29 = $290", (r10.subtotalCents ?? r10.totalCents) === 29000);
+const banner: any = { name: "PVC", category: "banner", pricingMethod: "per_m2", baseRateCents: 5890, minChargeCents: 5890, markupMultiplier: "1", addonsJson: [], sizeTiersJson: [], turnaroundDays: 3, rushAvailable: false, maxRollWidthMm: 1600,
+  qtyTiersJson: [{ minQty: 10, discountPct: 15 }] };
+const b1: any = q(banner, 1, { widthMm: 1000, heightMm: 1000 }), b10: any = q(banner, 10, { widthMm: 1000, heightMm: 1000 });
+console.log("banner 1", b1.subtotalCents, "banner 10", b10.subtotalCents, b10.breakdown?.map((b: any) => b.label).join(" | "));
+ok("10 banners get 15% off", b10.subtotalCents === Math.round(58900 * 0.85));
+const none: any = q({ ...banner, qtyTiersJson: [] }, 10, { widthMm: 1000, heightMm: 1000 });
+ok("no steps = no discount", none.subtotalCents === 58900);

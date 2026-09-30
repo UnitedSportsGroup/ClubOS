@@ -91,6 +91,7 @@ import {
 import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
 import { CIC7S_CURRENT_EDITION } from "@shared/cic7s";
 import { normaliseSizeTiers } from "@shared/print-size-tiers";
+import { normaliseQtyTiers } from "@shared/print-qty-tiers";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -21862,10 +21863,14 @@ export async function registerRoutes(
       // Same gate as the PATCH — a new product can arrive with stock sizes too.
       const newTiers = normaliseSizeTiers(req.body?.sizeTiersJson);
       if (!newTiers.ok) return res.status(400).json({ message: newTiers.error });
+      // Quantity pricing carries money too — same gate as the PATCH.
+      const newQty = normaliseQtyTiers(req.body?.qtyTiersJson, req.body?.pricingMethod);
+      if (!newQty.ok) return res.status(400).json({ message: newQty.error });
 
       const m = await storage.createPrintMaterial({
         ...req.body,
         sizeTiersJson: newTiers.tiers,
+        qtyTiersJson: newQty.tiers,
         slug: materialSlug,
         name,
         organizationId: org.id,
@@ -21877,6 +21882,48 @@ export async function registerRoutes(
       }
       res.status(400).json({ message: e.message });
     }
+  });
+
+  // Quantity pricing PREVIEW — what each step actually charges, from the SAME
+  // engine the website quotes with (Daniel, 2026-09-30: "as he's adjusting it …
+  // see what that price looks like — usually $50, at this quantity 20% off
+  // looks like $40"). Takes the form's UNSAVED values, writes nothing. A
+  // garment's own price moves with quantity (DTG under 20, screen print + setup
+  // from 20), so "usual" is the engine at the same quantity with no qty pricing,
+  // never base rate × qty. Size-priced products are shown at a reference size.
+  app.post("/api/admin/print-materials/:id/qty-preview", requireAuth, materialsTab, async (req, res) => {
+    try {
+      const existing = await materialInWorkspace(req, parseInt(String(req.params.id)));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const b = req.body ?? {};
+      const m: any = { ...existing, humanQuoteRequired: false };
+      for (const k of ["baseRateCents", "minChargeCents", "substrateCostPerM2Cents"] as const) {
+        if (Number.isInteger(b[k]) && b[k] >= 0) m[k] = b[k];
+      }
+      // Lenient on purpose: show what CAN be priced while Dima is mid-edit.
+      const steps = (Array.isArray(b.qtyTiersJson) ? b.qtyTiersJson : [])
+        .map((t: any) => ({ minQty: Number(t?.minQty), discountPct: t?.discountPct === undefined || t?.discountPct === "" ? undefined : Number(t.discountPct),
+          unitPriceCents: t?.unitPriceCents === undefined || t?.unitPriceCents === "" ? undefined : Number(t.unitPriceCents) }))
+        .filter((t: any) => Number.isInteger(t.minQty) && t.minQty >= 1);
+      m.qtyTiersJson = steps;
+      const { quotePrintItem } = await import("./print-pricing");
+      const sizeTiers = Array.isArray(m.sizeTiersJson) ? m.sizeTiersJson : [];
+      const config: any = {};
+      let reference: string | null = null;
+      if (m.pricingMethod === "per_m2") { config.widthMm = 1000; config.heightMm = 1000; reference = "a 1 m² piece (1000 × 1000 mm)"; }
+      else if ((m.pricingMethod === "per_piece_tiered" || m.pricingMethod === "bundle") && sizeTiers[0]) {
+        config.extra = { tierId: sizeTiers[0].id }; config.widthMm = sizeTiers[0].w; config.heightMm = sizeTiers[0].h;
+        reference = `the ${sizeTiers[0].label} size`;
+      }
+      const at = (qty: number) => {
+        const before: any = quotePrintItem({ ...m, qtyTiersJson: [] }, { quantity: qty, ...config });
+        const after: any = quotePrintItem(m, { quantity: qty, ...config });
+        const one = (r: any) => (r.ok ? { eachCents: Math.round(r.subtotalCents / qty), totalCents: r.subtotalCents } : { message: r.message });
+        return { qty, usual: one(before), withSteps: one(after) };
+      };
+      const qtys = Array.from(new Set([1, ...steps.map((t: any) => t.minQty)])).sort((a, c) => a - c);
+      res.json({ reference, gstRate: 0.15, rows: qtys.map(at) });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   app.patch("/api/admin/print-materials/:id", requireAuth, materialsTab, async (req, res) => {
@@ -21894,6 +21941,13 @@ export async function registerRoutes(
         const tiers = normaliseSizeTiers(patch.sizeTiersJson);
         if (!tiers.ok) return res.status(400).json({ message: tiers.error });
         patch.sizeTiersJson = tiers.tiers;
+      }
+      // Quantity pricing (bulk discounts / price each) — Dima's money, validated
+      // here, never in the form: @shared/print-qty-tiers is the one decider.
+      if ("qtyTiersJson" in patch) {
+        const qty = normaliseQtyTiers(patch.qtyTiersJson, patch.pricingMethod ?? existing.pricingMethod);
+        if (!qty.ok) return res.status(400).json({ message: qty.error });
+        patch.qtyTiersJson = qty.tiers;
       }
       const m = await storage.updatePrintMaterial(existing.id, patch);
       if (!m) return res.status(404).json({ message: "Not found" });
