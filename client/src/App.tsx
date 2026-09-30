@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, useRoute, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -5,253 +6,264 @@ import { Toaster } from "@/components/ui/toaster";
 import { ConfirmHost } from "@/components/confirm-dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
-import RsvpPage from "@/pages/rsvp";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import NotFound from "@/pages/not-found";
 import AdminLogin from "@/pages/admin-login";
-import ForgotPassword from "@/pages/forgot-password";
-import ResetPassword from "@/pages/reset-password";
-import AdminDashboard from "@/pages/admin-dashboard";
-import AdminCamps from "@/pages/admin-camps";
-import AdminCampDetail from "@/pages/admin-camp-detail";
-import AdminSessionRoll from "@/pages/admin-session-roll";
-import AdminRegistrations from "@/pages/admin-registrations";
-import AdminContacts from "@/pages/admin-contacts";
-import AdminPersonDetail from "@/pages/admin-person-detail";
-import AdminMailer from "@/pages/admin-mailer";
-import AdminMailerHistory from "@/pages/admin-mailer-history";
-import Predictor from "@/pages/predictor";
-import FootballInstitute from "@/pages/football-institute";
-import AdminSettings from "@/pages/admin-settings";
-import AdminEditPage from "@/pages/admin-edit-page";
-import CampPage from "@/pages/camp-page";
-import MembershipPage from "@/pages/membership-page";
-import TermsPage from "@/pages/terms";
-import PrivacyPage from "@/pages/privacy";
-import BookingPage from "@/pages/booking-page";
-import ClassBookingPage from "@/pages/class-booking-page";
-import AcademyRegisterPage from "@/pages/academy-register-page";
-import BookingSuccess from "@/pages/booking-success";
-import AttributionSurvey from "@/pages/attribution-survey";
-import BookingCancel from "@/pages/booking-cancel";
-import CheckoutPage from "@/pages/checkout-page";
-import MflLandingPage from "@/pages/mfl-landing-page";
-import MflRegisterPage from "@/pages/mfl-register-page";
-import MflWaitlistPage from "@/pages/mfl-waitlist-page";
-import MflCheckoutPage from "@/pages/mfl-checkout-page";
-import MflSuccessPage from "@/pages/mfl-success-page";
-import MflSplitPage from "@/pages/mfl-split-page";
-import MflLegalPage from "@/pages/mfl-legal-page";
-import VenueDashboard from "@/pages/venue-dashboard";
-import VenueCalendar from "@/pages/venue-calendar";
-import VenueBookings from "@/pages/venue-bookings";
-import VenueAnalytics from "@/pages/venue-analytics";
-import CampAnalytics from "@/pages/camp-analytics";
-import AdminDiscounts from "@/pages/admin-discounts";
-import AdminDiscountDetail from "@/pages/admin-discount-detail";
-import AdminDomainSettings from "@/pages/admin-domain-settings";
-import AdminTeam from "@/pages/admin-team";
-import GroupDashboard from "@/pages/group-dashboard";
-import GroupCalendar from "@/pages/group-calendar";
-import GroupSponsorship from "@/pages/group-sponsorship";
-import GroupProposals from "@/pages/group-proposals";
-import GroupGrants from "@/pages/group-grants";
-import GroupInvoices from "@/pages/invoices";
-import GroupXeroInvoices from "@/pages/xero-invoices";
-import GroupPayouts from "@/pages/payouts";
-import AdminLicensing from "@/pages/admin-licensing";
-import AdminEvents from "@/pages/admin-events";
-import AdminMembership from "@/pages/admin-membership";
-import AdminDeclarations from "@/pages/admin-declarations";
-import GroupProjects from "@/pages/group-projects";
-import GroupContent from "@/pages/group-content";
-import GroupHiring from "@/pages/group-hiring";
-import GroupVehicles from "@/pages/group-vehicles";
-import GroupEquipment from "@/pages/group-equipment";
-import GroupFines from "@/pages/group-fines";
-import PosRegister from "@/pages/pos-register";
-import PosReceipt from "@/pages/pos-receipt";
-import CodingBudget from "@/pages/coding-budget";
-import EquipmentHolder from "@/pages/equipment-holder";
-import GroupSponsors from "@/pages/group-sponsors";
-import MarketingHub from "@/pages/marketing-hub";
-import FinanceInsight from "@/pages/finance-insight";
-import GroupVideos from "@/pages/group-videos";
-import GroupVideoRecord from "@/pages/group-video-record";
-import GroupVideoDetail from "@/pages/group-video-detail";
-import VideoShare from "@/pages/video-share";
-import GroupBudget from "@/pages/group-budget";
-import GroupBudgetXero from "@/pages/group-budget-xero";
-import GroupBudgetCostCentre from "@/pages/group-budget-cost-centre";
-import GroupCashflow from "@/pages/group-cashflow";
-import AdminAcademy from "@/pages/admin-academy";
-import AdminSquads from "@/pages/admin-squads";
-import AdminFisPipeline from "@/pages/admin-fis-pipeline";
-import LinksPage from "@/pages/links";
-import AttributionPage from "@/pages/attribution";
-import BehaviorPage from "@/pages/behavior";
-import VenueFacilities from "@/pages/venue-facilities";
-import VenueAddons from "@/pages/venue-addons";
-import VenueHousing from "@/pages/venue-housing";
-import VenueMaintenance from "@/pages/venue-maintenance";
-import EnergyPage from "@/pages/energy";
-import VenuePeople from "@/pages/venue-people";
-import VenuePayments from "@/pages/venue-payments";
-import VenueSettings from "@/pages/venue-settings";
-import VenueWebsite from "@/pages/venue-website";
-import VenueBookPage from "@/pages/venue-book";
-import VenueSplitPage from "@/pages/venue-split-page";
-import VenuePaySharePage from "@/pages/venue-payshare-pay";
-import VenueBookSuccess from "@/pages/venue-book-success";
-import MemberBookingPage from "@/pages/member-booking";
-import VenueBookingRequests from "@/pages/venue-booking-requests";
-import LeagueDashboard from "@/pages/league-dashboard";
-import LeagueCompetitions from "@/pages/league-competitions";
-import LeagueCompetitionDetail, { LeagueDetail } from "@/pages/league-competition-detail";
-import LeagueTeams from "@/pages/league-teams";
-import LeaguePayments from "@/pages/league-payments";
-import LeagueMailer from "@/pages/league-mailer";
-import LeagueRewards from "@/pages/league-rewards";
-import LeagueLoyalty from "@/pages/league-loyalty";
-import FmHistory from "@/pages/fm-history";
-import FmCompetitions from "@/pages/fm-competitions";
-import CufcOpenTrainings from "@/pages/cufc-open-trainings";
-import ClubEventsAdmin from "@/pages/club-events";
-import ClubEventDetailAdmin from "@/pages/club-event-detail";
-import ClubEventPage from "@/pages/events/event-page";
-import ClubEventOrderPage from "@/pages/events/order-page";
-import SportySync from "@/pages/sporty-sync";
-import LeagueAnalytics from "@/pages/league-analytics";
-import LeagueInbox from "@/pages/league-inbox";
-import LeagueBusinessPlan from "@/pages/league-business-plan";
-import LeagueStore from "@/pages/league-store";
-import CicInbox from "@/pages/cic-inbox";
-import CicLiveChat from "@/pages/cic-livechat";
-import MflLiveChat from "@/pages/mfl-livechat";
-import TaskBoard from "@/pages/task-board";
-import CugcLiveChat from "@/pages/cugc-livechat";
-import PrintLiveChat from "@/pages/print-livechat";
-import PrintsRequests from "@/pages/prints-requests";
-import PrintsFaqs from "@/pages/prints-faqs";
-import PrintsExpenses from "@/pages/prints-expenses";
-import CicLogoConsents from "@/pages/cic-logo-consents";
-import MediaLibrary from "@/pages/media-library";
-import CicMailer from "@/pages/cic-mailer";
-import CicPush from "@/pages/cic-push";
-import CicWatch from "@/pages/cic-watch";
-import ContentMarketplace from "@/pages/content-marketplace";
-import CicReferees from "@/pages/cic-referees";
-import CicScoreGame from "@/pages/cic-score-game";
-import RefHome from "@/pages/ref/RefHome";
-import RefSignup from "@/pages/ref/RefSignup";
-import RefGameDetail from "@/pages/ref/RefGameDetail";
-import MflReferees from "@/pages/mfl-referees";
-import MflGameFeedPage from "@/pages/mfl-game-feed";
-import MflScoreGame from "@/pages/mfl-score-game";
-import MflMedia from "@/pages/mfl-media";
-import MflRefHome from "@/pages/mfl-ref/MflRefHome";
-import MflRefSignup from "@/pages/mfl-ref/MflRefSignup";
-import MflRefGameDetail from "@/pages/mfl-ref/MflRefGameDetail";
-import CugcInbox from "@/pages/cugc-inbox";
-import CugcRegistrations from "@/pages/cugc-registrations";
-import CugcFreeSessions from "@/pages/cugc-free-sessions";
-import CugcRoll from "@/pages/cugc-roll";
-import CugcAnalytics from "@/pages/cugc-analytics";
-import CugcMailer from "@/pages/cugc-mailer";
-import LeagueBuilderPage from "@/pages/league-builder-page";
-import LeagueSettings from "@/pages/league-settings";
-import GymnasticsDashboard from "@/pages/gymnastics-dashboard";
-import CugcPrograms from "@/pages/cugc-programs";
-import GymnasticsTerms from "@/pages/gymnastics-terms";
-import TournamentDashboard from "@/pages/tournament-dashboard";
-import TournamentList from "@/pages/tournament-list";
-import ClubsList from "@/pages/clubs-list";
-import ClubDetail from "@/pages/club-detail";
-import TournamentDetail from "@/pages/tournament-detail";
-import TournamentTeamDetail from "@/pages/tournament-team-detail";
-import TournamentSkillsChallenge from "@/pages/tournament-skills-challenge";
-import TournamentFoodTruck from "@/pages/tournament-food-truck";
-import TournamentVendors from "@/pages/tournament-vendors";
-import Volunteers from "@/pages/volunteers";
-import ESign from "@/pages/esign";
-import SignPage from "@/pages/sign";
-import SignDeclaration from "@/pages/sign-declaration";
-import StudioPublicPage from "@/pages/studio-public";
-import StudioPreviewPage from "@/pages/studio-preview";
-import StudioHome from "@/pages/studio/StudioHome";
-import StudioNew from "@/pages/studio/StudioNew";
-import StudioEditor from "@/pages/studio/StudioEditor";
-import StudioAnalytics from "@/pages/studio/StudioAnalytics";
-import Cic7sRegistrations from "@/pages/cic7s-registrations";
-import EthnicCupRegistrations from "@/pages/ethnic-cup-registrations";
-import FootballFest from "@/pages/football-fest";
-import TeamEntries from "@/pages/team-entries";
-import TeampayEnterPage from "@/pages/teampay/enter";
-import TeampayDashboard from "@/pages/teampay/dashboard";
-import TeampayPlayerPage from "@/pages/teampay/player";
-import TeampayFillinPage, { TeampayHoldPage } from "@/pages/teampay/fillin";
-import {
-  CaptainSignInPage, CaptainSetPasswordPage, CaptainTeamsPage, CaptainTeamPage,
-} from "@/pages/teampay/captain";
-import LeagueTeamPage from "@/pages/teampay/league-team";
-import CicSkillsLandingPage from "@/pages/cic-skills-landing";
-import PrintsDashboard from "@/pages/prints-dashboard";
-import PrintsCRM from "@/pages/prints-crm";
-import PrintsSales from "@/pages/prints-sales";
-import PrintsOrders from "@/pages/prints-orders";
-import PrintsProjects from "@/pages/prints-projects";
-import PrintsManagement from "@/pages/prints-management";
-import PrintsAnalytics from "@/pages/prints-analytics";
-import PrintsLanding from "@/pages/prints-landing";
-import PrintsEmail from "@/pages/prints-email";
-import PrintsJobs from "@/pages/prints-jobs";
-import PrintsQuotes from "@/pages/prints-quotes";
-import PrintsOrderDetail from "@/pages/prints-order-detail";
-import PrintsMaterials from "@/pages/prints-materials";
-import PrintsIntegrations from "@/pages/prints-integrations";
-import WarehouseDashboard from "@/pages/warehouse-dashboard";
-import WarehouseItems from "@/pages/warehouse-items";
-import WarehouseLocations from "@/pages/warehouse-locations";
-import WarehousePOs from "@/pages/warehouse-pos";
-import WarehouseRequisitions from "@/pages/warehouse-requisitions";
-import WarehouseLoans from "@/pages/warehouse-loans";
-import WarehouseCounts from "@/pages/warehouse-counts";
-import WarehouseSync from "@/pages/warehouse-sync";
-import WarehouseLedger from "@/pages/warehouse-ledger";
-import WarehouseScan from "@/pages/warehouse-scan";
-import WarehouseLabels from "@/pages/warehouse-labels";
-import WarehouseAssets from "@/pages/warehouse-assets";
-import WarehouseFieldTemplates from "@/pages/warehouse-field-templates";
-import WarehouseStockTake from "@/pages/warehouse-stock-take";
-import WarehouseUniformStocktake from "@/pages/warehouse-uniform-stocktake";
-import PrintHub from "@/pages/print-hub";
-import PrintAccountPage from "@/pages/print-account";
-import PrintDtfPage from "@/pages/print-dtf";
-import PrintStudioPage from "@/pages/print-studio";
-import PrintConfigure from "@/pages/print-configure";
-import PrintCheckout from "@/pages/print-checkout";
-import PrintOrderStatus from "@/pages/print-order-status";
-import PrintUpload from "@/pages/print-upload";
-import ClubDossier from "@/pages/club-dossier";
-import MarketResearch from "@/pages/market-research";
-import Feedback from "@/pages/feedback";
-import TaskTracker from "@/pages/task-tracker";
-import KnowledgeBase from "@/pages/knowledge-base";
-import Drive from "@/pages/drive";
-import StaffChat from "@/pages/staff-chat";
-import NotificationSettings from "@/pages/notification-settings";
-import ProfilePage from "@/pages/profile";
-import MarketingHome from "@/pages/marketing/Home";
-import MarketingCampaignWizard from "@/pages/marketing/CampaignWizard";
-import MarketingCampaignDetail from "@/pages/marketing/CampaignDetail";
-import MarketingFlowEditor from "@/pages/marketing/FlowEditor";
 import { Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-context";
 import { CommandPalette } from "@/components/command-palette";
 import { ViewAsBar } from "@/components/view-as-bar";
 import { AccountMenu } from "@/components/account-menu";
+
+/* ── Every page is its own download (2026-09-30). ClubOS shipped ONE 2.2 MB
+   (compressed) JavaScript file holding all 232 pages, so every staff member
+   downloaded and unpacked the whole app before seeing a single screen — and
+   again after every deploy. Now the shell loads first and a page loads when it
+   is opened. The sign-in screen and the 404 stay in the main file. A page
+   still loading shows the loading state INSIDE the layout (AdminLayout), so
+   the sidebar and header never blank. ── */
+const RsvpPage = lazy(() => import("@/pages/rsvp"));
+const ForgotPassword = lazy(() => import("@/pages/forgot-password"));
+const ResetPassword = lazy(() => import("@/pages/reset-password"));
+const AdminDashboard = lazy(() => import("@/pages/admin-dashboard"));
+const AdminCamps = lazy(() => import("@/pages/admin-camps"));
+const AdminCampDetail = lazy(() => import("@/pages/admin-camp-detail"));
+const AdminSessionRoll = lazy(() => import("@/pages/admin-session-roll"));
+const AdminRegistrations = lazy(() => import("@/pages/admin-registrations"));
+const AdminContacts = lazy(() => import("@/pages/admin-contacts"));
+const AdminPersonDetail = lazy(() => import("@/pages/admin-person-detail"));
+const AdminMailer = lazy(() => import("@/pages/admin-mailer"));
+const AdminMailerHistory = lazy(() => import("@/pages/admin-mailer-history"));
+const Predictor = lazy(() => import("@/pages/predictor"));
+const FootballInstitute = lazy(() => import("@/pages/football-institute"));
+const AdminSettings = lazy(() => import("@/pages/admin-settings"));
+const AdminEditPage = lazy(() => import("@/pages/admin-edit-page"));
+const CampPage = lazy(() => import("@/pages/camp-page"));
+const MembershipPage = lazy(() => import("@/pages/membership-page"));
+const TermsPage = lazy(() => import("@/pages/terms"));
+const PrivacyPage = lazy(() => import("@/pages/privacy"));
+const BookingPage = lazy(() => import("@/pages/booking-page"));
+const ClassBookingPage = lazy(() => import("@/pages/class-booking-page"));
+const AcademyRegisterPage = lazy(() => import("@/pages/academy-register-page"));
+const BookingSuccess = lazy(() => import("@/pages/booking-success"));
+const AttributionSurvey = lazy(() => import("@/pages/attribution-survey"));
+const BookingCancel = lazy(() => import("@/pages/booking-cancel"));
+const CheckoutPage = lazy(() => import("@/pages/checkout-page"));
+const MflLandingPage = lazy(() => import("@/pages/mfl-landing-page"));
+const MflRegisterPage = lazy(() => import("@/pages/mfl-register-page"));
+const MflWaitlistPage = lazy(() => import("@/pages/mfl-waitlist-page"));
+const MflCheckoutPage = lazy(() => import("@/pages/mfl-checkout-page"));
+const MflSuccessPage = lazy(() => import("@/pages/mfl-success-page"));
+const MflSplitPage = lazy(() => import("@/pages/mfl-split-page"));
+const MflLegalPage = lazy(() => import("@/pages/mfl-legal-page"));
+const VenueDashboard = lazy(() => import("@/pages/venue-dashboard"));
+const VenueCalendar = lazy(() => import("@/pages/venue-calendar"));
+const VenueBookings = lazy(() => import("@/pages/venue-bookings"));
+const VenueAnalytics = lazy(() => import("@/pages/venue-analytics"));
+const CampAnalytics = lazy(() => import("@/pages/camp-analytics"));
+const AdminDiscounts = lazy(() => import("@/pages/admin-discounts"));
+const AdminDiscountDetail = lazy(() => import("@/pages/admin-discount-detail"));
+const AdminDomainSettings = lazy(() => import("@/pages/admin-domain-settings"));
+const AdminTeam = lazy(() => import("@/pages/admin-team"));
+const GroupDashboard = lazy(() => import("@/pages/group-dashboard"));
+const GroupCalendar = lazy(() => import("@/pages/group-calendar"));
+const GroupSponsorship = lazy(() => import("@/pages/group-sponsorship"));
+const GroupProposals = lazy(() => import("@/pages/group-proposals"));
+const GroupGrants = lazy(() => import("@/pages/group-grants"));
+const GroupInvoices = lazy(() => import("@/pages/invoices"));
+const GroupXeroInvoices = lazy(() => import("@/pages/xero-invoices"));
+const GroupPayouts = lazy(() => import("@/pages/payouts"));
+const AdminLicensing = lazy(() => import("@/pages/admin-licensing"));
+const AdminEvents = lazy(() => import("@/pages/admin-events"));
+const AdminMembership = lazy(() => import("@/pages/admin-membership"));
+const AdminDeclarations = lazy(() => import("@/pages/admin-declarations"));
+const GroupProjects = lazy(() => import("@/pages/group-projects"));
+const GroupContent = lazy(() => import("@/pages/group-content"));
+const GroupHiring = lazy(() => import("@/pages/group-hiring"));
+const GroupVehicles = lazy(() => import("@/pages/group-vehicles"));
+const GroupEquipment = lazy(() => import("@/pages/group-equipment"));
+const GroupFines = lazy(() => import("@/pages/group-fines"));
+const PosRegister = lazy(() => import("@/pages/pos-register"));
+const PosReceipt = lazy(() => import("@/pages/pos-receipt"));
+const CodingBudget = lazy(() => import("@/pages/coding-budget"));
+const EquipmentHolder = lazy(() => import("@/pages/equipment-holder"));
+const GroupSponsors = lazy(() => import("@/pages/group-sponsors"));
+const MarketingHub = lazy(() => import("@/pages/marketing-hub"));
+const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
+const GroupVideos = lazy(() => import("@/pages/group-videos"));
+const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
+const GroupVideoDetail = lazy(() => import("@/pages/group-video-detail"));
+const VideoShare = lazy(() => import("@/pages/video-share"));
+const GroupBudget = lazy(() => import("@/pages/group-budget"));
+const GroupBudgetXero = lazy(() => import("@/pages/group-budget-xero"));
+const GroupBudgetCostCentre = lazy(() => import("@/pages/group-budget-cost-centre"));
+const GroupCashflow = lazy(() => import("@/pages/group-cashflow"));
+const AdminAcademy = lazy(() => import("@/pages/admin-academy"));
+const AdminSquads = lazy(() => import("@/pages/admin-squads"));
+const AdminFisPipeline = lazy(() => import("@/pages/admin-fis-pipeline"));
+const LinksPage = lazy(() => import("@/pages/links"));
+const AttributionPage = lazy(() => import("@/pages/attribution"));
+const BehaviorPage = lazy(() => import("@/pages/behavior"));
+const VenueFacilities = lazy(() => import("@/pages/venue-facilities"));
+const VenueAddons = lazy(() => import("@/pages/venue-addons"));
+const VenueHousing = lazy(() => import("@/pages/venue-housing"));
+const VenueMaintenance = lazy(() => import("@/pages/venue-maintenance"));
+const EnergyPage = lazy(() => import("@/pages/energy"));
+const VenuePeople = lazy(() => import("@/pages/venue-people"));
+const VenuePayments = lazy(() => import("@/pages/venue-payments"));
+const VenueSettings = lazy(() => import("@/pages/venue-settings"));
+const VenueWebsite = lazy(() => import("@/pages/venue-website"));
+const VenueBookPage = lazy(() => import("@/pages/venue-book"));
+const VenueSplitPage = lazy(() => import("@/pages/venue-split-page"));
+const VenuePaySharePage = lazy(() => import("@/pages/venue-payshare-pay"));
+const VenueBookSuccess = lazy(() => import("@/pages/venue-book-success"));
+const MemberBookingPage = lazy(() => import("@/pages/member-booking"));
+const VenueBookingRequests = lazy(() => import("@/pages/venue-booking-requests"));
+const LeagueDashboard = lazy(() => import("@/pages/league-dashboard"));
+const LeagueCompetitions = lazy(() => import("@/pages/league-competitions"));
+const LeagueCompetitionDetail = lazy(() => import("@/pages/league-competition-detail"));
+const LeagueDetail = lazy(() => import("@/pages/league-competition-detail").then((m) => ({ default: m.LeagueDetail })));
+const LeagueTeams = lazy(() => import("@/pages/league-teams"));
+const LeaguePayments = lazy(() => import("@/pages/league-payments"));
+const LeagueMailer = lazy(() => import("@/pages/league-mailer"));
+const LeagueRewards = lazy(() => import("@/pages/league-rewards"));
+const LeagueLoyalty = lazy(() => import("@/pages/league-loyalty"));
+const FmHistory = lazy(() => import("@/pages/fm-history"));
+const FmCompetitions = lazy(() => import("@/pages/fm-competitions"));
+const CufcOpenTrainings = lazy(() => import("@/pages/cufc-open-trainings"));
+const ClubEventsAdmin = lazy(() => import("@/pages/club-events"));
+const ClubEventDetailAdmin = lazy(() => import("@/pages/club-event-detail"));
+const ClubEventPage = lazy(() => import("@/pages/events/event-page"));
+const ClubEventOrderPage = lazy(() => import("@/pages/events/order-page"));
+const SportySync = lazy(() => import("@/pages/sporty-sync"));
+const LeagueAnalytics = lazy(() => import("@/pages/league-analytics"));
+const LeagueInbox = lazy(() => import("@/pages/league-inbox"));
+const LeagueBusinessPlan = lazy(() => import("@/pages/league-business-plan"));
+const LeagueStore = lazy(() => import("@/pages/league-store"));
+const CicInbox = lazy(() => import("@/pages/cic-inbox"));
+const CicLiveChat = lazy(() => import("@/pages/cic-livechat"));
+const MflLiveChat = lazy(() => import("@/pages/mfl-livechat"));
+const TaskBoard = lazy(() => import("@/pages/task-board"));
+const CugcLiveChat = lazy(() => import("@/pages/cugc-livechat"));
+const PrintLiveChat = lazy(() => import("@/pages/print-livechat"));
+const PrintsRequests = lazy(() => import("@/pages/prints-requests"));
+const PrintsFaqs = lazy(() => import("@/pages/prints-faqs"));
+const PrintsExpenses = lazy(() => import("@/pages/prints-expenses"));
+const CicLogoConsents = lazy(() => import("@/pages/cic-logo-consents"));
+const MediaLibrary = lazy(() => import("@/pages/media-library"));
+const CicMailer = lazy(() => import("@/pages/cic-mailer"));
+const CicPush = lazy(() => import("@/pages/cic-push"));
+const CicWatch = lazy(() => import("@/pages/cic-watch"));
+const ContentMarketplace = lazy(() => import("@/pages/content-marketplace"));
+const CicReferees = lazy(() => import("@/pages/cic-referees"));
+const CicScoreGame = lazy(() => import("@/pages/cic-score-game"));
+const RefHome = lazy(() => import("@/pages/ref/RefHome"));
+const RefSignup = lazy(() => import("@/pages/ref/RefSignup"));
+const RefGameDetail = lazy(() => import("@/pages/ref/RefGameDetail"));
+const MflReferees = lazy(() => import("@/pages/mfl-referees"));
+const MflGameFeedPage = lazy(() => import("@/pages/mfl-game-feed"));
+const MflScoreGame = lazy(() => import("@/pages/mfl-score-game"));
+const MflMedia = lazy(() => import("@/pages/mfl-media"));
+const MflRefHome = lazy(() => import("@/pages/mfl-ref/MflRefHome"));
+const MflRefSignup = lazy(() => import("@/pages/mfl-ref/MflRefSignup"));
+const MflRefGameDetail = lazy(() => import("@/pages/mfl-ref/MflRefGameDetail"));
+const CugcInbox = lazy(() => import("@/pages/cugc-inbox"));
+const CugcRegistrations = lazy(() => import("@/pages/cugc-registrations"));
+const CugcFreeSessions = lazy(() => import("@/pages/cugc-free-sessions"));
+const CugcRoll = lazy(() => import("@/pages/cugc-roll"));
+const CugcAnalytics = lazy(() => import("@/pages/cugc-analytics"));
+const CugcMailer = lazy(() => import("@/pages/cugc-mailer"));
+const LeagueBuilderPage = lazy(() => import("@/pages/league-builder-page"));
+const LeagueSettings = lazy(() => import("@/pages/league-settings"));
+const GymnasticsDashboard = lazy(() => import("@/pages/gymnastics-dashboard"));
+const CugcPrograms = lazy(() => import("@/pages/cugc-programs"));
+const GymnasticsTerms = lazy(() => import("@/pages/gymnastics-terms"));
+const TournamentDashboard = lazy(() => import("@/pages/tournament-dashboard"));
+const TournamentList = lazy(() => import("@/pages/tournament-list"));
+const ClubsList = lazy(() => import("@/pages/clubs-list"));
+const ClubDetail = lazy(() => import("@/pages/club-detail"));
+const TournamentDetail = lazy(() => import("@/pages/tournament-detail"));
+const TournamentTeamDetail = lazy(() => import("@/pages/tournament-team-detail"));
+const TournamentSkillsChallenge = lazy(() => import("@/pages/tournament-skills-challenge"));
+const TournamentFoodTruck = lazy(() => import("@/pages/tournament-food-truck"));
+const TournamentVendors = lazy(() => import("@/pages/tournament-vendors"));
+const Volunteers = lazy(() => import("@/pages/volunteers"));
+const ESign = lazy(() => import("@/pages/esign"));
+const SignPage = lazy(() => import("@/pages/sign"));
+const SignDeclaration = lazy(() => import("@/pages/sign-declaration"));
+const StudioPublicPage = lazy(() => import("@/pages/studio-public"));
+const StudioPreviewPage = lazy(() => import("@/pages/studio-preview"));
+const StudioHome = lazy(() => import("@/pages/studio/StudioHome"));
+const StudioNew = lazy(() => import("@/pages/studio/StudioNew"));
+const StudioEditor = lazy(() => import("@/pages/studio/StudioEditor"));
+const StudioAnalytics = lazy(() => import("@/pages/studio/StudioAnalytics"));
+const Cic7sRegistrations = lazy(() => import("@/pages/cic7s-registrations"));
+const EthnicCupRegistrations = lazy(() => import("@/pages/ethnic-cup-registrations"));
+const FootballFest = lazy(() => import("@/pages/football-fest"));
+const TeamEntries = lazy(() => import("@/pages/team-entries"));
+const TeampayEnterPage = lazy(() => import("@/pages/teampay/enter"));
+const TeampayDashboard = lazy(() => import("@/pages/teampay/dashboard"));
+const TeampayPlayerPage = lazy(() => import("@/pages/teampay/player"));
+const TeampayFillinPage = lazy(() => import("@/pages/teampay/fillin"));
+const TeampayHoldPage = lazy(() => import("@/pages/teampay/fillin").then((m) => ({ default: m.TeampayHoldPage })));
+const CaptainSignInPage = lazy(() => import("@/pages/teampay/captain").then((m) => ({ default: m.CaptainSignInPage })));
+const CaptainSetPasswordPage = lazy(() => import("@/pages/teampay/captain").then((m) => ({ default: m.CaptainSetPasswordPage })));
+const CaptainTeamsPage = lazy(() => import("@/pages/teampay/captain").then((m) => ({ default: m.CaptainTeamsPage })));
+const CaptainTeamPage = lazy(() => import("@/pages/teampay/captain").then((m) => ({ default: m.CaptainTeamPage })));
+const LeagueTeamPage = lazy(() => import("@/pages/teampay/league-team"));
+const CicSkillsLandingPage = lazy(() => import("@/pages/cic-skills-landing"));
+const PrintsDashboard = lazy(() => import("@/pages/prints-dashboard"));
+const PrintsCRM = lazy(() => import("@/pages/prints-crm"));
+const PrintsSales = lazy(() => import("@/pages/prints-sales"));
+const PrintsOrders = lazy(() => import("@/pages/prints-orders"));
+const PrintsProjects = lazy(() => import("@/pages/prints-projects"));
+const PrintsManagement = lazy(() => import("@/pages/prints-management"));
+const PrintsAnalytics = lazy(() => import("@/pages/prints-analytics"));
+const PrintsLanding = lazy(() => import("@/pages/prints-landing"));
+const PrintsEmail = lazy(() => import("@/pages/prints-email"));
+const PrintsJobs = lazy(() => import("@/pages/prints-jobs"));
+const PrintsQuotes = lazy(() => import("@/pages/prints-quotes"));
+const PrintsOrderDetail = lazy(() => import("@/pages/prints-order-detail"));
+const PrintsMaterials = lazy(() => import("@/pages/prints-materials"));
+const PrintsIntegrations = lazy(() => import("@/pages/prints-integrations"));
+const WarehouseDashboard = lazy(() => import("@/pages/warehouse-dashboard"));
+const WarehouseItems = lazy(() => import("@/pages/warehouse-items"));
+const WarehouseLocations = lazy(() => import("@/pages/warehouse-locations"));
+const WarehousePOs = lazy(() => import("@/pages/warehouse-pos"));
+const WarehouseRequisitions = lazy(() => import("@/pages/warehouse-requisitions"));
+const WarehouseLoans = lazy(() => import("@/pages/warehouse-loans"));
+const WarehouseCounts = lazy(() => import("@/pages/warehouse-counts"));
+const WarehouseSync = lazy(() => import("@/pages/warehouse-sync"));
+const WarehouseLedger = lazy(() => import("@/pages/warehouse-ledger"));
+const WarehouseScan = lazy(() => import("@/pages/warehouse-scan"));
+const WarehouseLabels = lazy(() => import("@/pages/warehouse-labels"));
+const WarehouseAssets = lazy(() => import("@/pages/warehouse-assets"));
+const WarehouseFieldTemplates = lazy(() => import("@/pages/warehouse-field-templates"));
+const WarehouseStockTake = lazy(() => import("@/pages/warehouse-stock-take"));
+const WarehouseUniformStocktake = lazy(() => import("@/pages/warehouse-uniform-stocktake"));
+const PrintHub = lazy(() => import("@/pages/print-hub"));
+const PrintAccountPage = lazy(() => import("@/pages/print-account"));
+const PrintDtfPage = lazy(() => import("@/pages/print-dtf"));
+const PrintStudioPage = lazy(() => import("@/pages/print-studio"));
+const PrintConfigure = lazy(() => import("@/pages/print-configure"));
+const PrintCheckout = lazy(() => import("@/pages/print-checkout"));
+const PrintOrderStatus = lazy(() => import("@/pages/print-order-status"));
+const PrintUpload = lazy(() => import("@/pages/print-upload"));
+const ClubDossier = lazy(() => import("@/pages/club-dossier"));
+const MarketResearch = lazy(() => import("@/pages/market-research"));
+const Feedback = lazy(() => import("@/pages/feedback"));
+const TaskTracker = lazy(() => import("@/pages/task-tracker"));
+const KnowledgeBase = lazy(() => import("@/pages/knowledge-base"));
+const Drive = lazy(() => import("@/pages/drive"));
+const StaffChat = lazy(() => import("@/pages/staff-chat"));
+const NotificationSettings = lazy(() => import("@/pages/notification-settings"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
+const MarketingHome = lazy(() => import("@/pages/marketing/Home"));
+const MarketingCampaignWizard = lazy(() => import("@/pages/marketing/CampaignWizard"));
+const MarketingCampaignDetail = lazy(() => import("@/pages/marketing/CampaignDetail"));
+const MarketingFlowEditor = lazy(() => import("@/pages/marketing/FlowEditor"));
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading, error } = useQuery({
@@ -731,6 +743,19 @@ function AdminRouter() {
   );
 }
 
+/** Shown inside the content area while a page's own download arrives —
+    usually a few hundred milliseconds, so it stays quiet for the first 300ms
+    and never replaces the sidebar or header. */
+function PageLoading() {
+  return (
+    <div className="p-6 animate-in fade-in duration-300 [animation-delay:300ms] [animation-fill-mode:both]" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-8 w-56 mb-6" />
+      <Skeleton className="h-32 w-full mb-4" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+}
+
 function AdminLayout() {
   const style = {
     "--sidebar-width": "15rem",
@@ -768,7 +793,9 @@ function AdminLayout() {
               </div>
             </header>
             <main className="flex-1 overflow-x-hidden overflow-y-auto gradient-mesh">
-              <AdminRouter />
+              <Suspense fallback={<PageLoading />}>
+                <AdminRouter />
+              </Suspense>
             </main>
           </div>
         </div>
@@ -795,6 +822,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
+        <Suspense fallback={<div className="min-h-screen bg-background" />}>
         {isAdminLogin ? (
           <AdminLogin />
         ) : isAdminEditPage ? (
@@ -981,6 +1009,7 @@ function App() {
             <Route component={NotFound} />
           </Switch>
         )}
+        </Suspense>
         <Toaster />
         {/* Spec §7 — askConfirm()'s host. Mounted once, next to the toaster,
             for the same reason: both are called imperatively from anywhere. */}
