@@ -320,6 +320,24 @@ async function ensureRegisterLocation(stripe: any, register: { id: number; name:
   return loc.id;
 }
 
+/** Take the cart off the reader's screen once the sale it was showing is over.
+ *  🔴 Only ever clears a CART DISPLAY — an in-progress payment is never
+ *  cancelled from here. Best effort: a reader that is offline must never stop
+ *  the till. Without this, a sale settled any way other than the reader
+ *  (EFTPOS, transfer, $0, void) left its cart on the reader indefinitely. */
+async function clearReaderDisplay(registerId: number): Promise<boolean> {
+  try {
+    const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, registerId));
+    if (!register?.stripeReaderId) return false;
+    const { stripe, ok } = stripeForAccount(await readerAccountFor(register));
+    if (!ok) return false;
+    const reader: any = await stripe.terminal.readers.retrieve(register.stripeReaderId);
+    if (reader?.action?.type !== "set_reader_display") return false;
+    await stripe.terminal.readers.cancelAction(register.stripeReaderId);
+    return true;
+  } catch (e) { console.error("[POS] clear reader display", e); return false; }
+}
+
 export function registerPosRoutes(app: Express) {
   const gate = [requireAuth, requireTabAnywhere("pos")] as const;
 
@@ -412,6 +430,17 @@ export function registerPosRoutes(app: Express) {
       await db.update(posRegisters).set({ stripeReaderId: null, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
       await storage.createAuditLog({ userId: uid(req), action: "update", entity: "pos_register", entityId: register.id, details: `Unpaired card reader ${register.stripeReaderId}` } as any);
       res.json({ reader: null });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // The rescue button: put the reader back on its home screen. Refuses to touch
+  // a payment in progress (that is Cancel on the sale).
+  app.post("/api/admin/pos/registers/:id/reader/clear", ...gate, async (req, res) => {
+    try {
+      const id = num(req.params.id);
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, id));
+      if (!register?.stripeReaderId) return res.status(404).json({ message: "No reader on this register." });
+      res.json({ cleared: await clearReaderDisplay(id) });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -761,7 +790,7 @@ export function registerPosRoutes(app: Express) {
       }
       await db.insert(posPayments).values({ saleId: sale.id, method, amountCents: amount, reference, status: "succeeded", succeededAt: new Date(), createdByUserId: uid(req) });
       const after = await loadSale(sale.id);
-      if (after?.status === "paid") await fulfilPaidSale(sale.id);
+      if (after?.status === "paid") { await fulfilPaidSale(sale.id); void clearReaderDisplay(sale.registerId); }
       res.status(201).json({ sale: await loadSale(sale.id), changeCents: change });
     } catch (e: any) { if (!posError(res, e)) { console.error("[POS] payment", e); res.status(500).json({ message: e.message }); } }
   });
@@ -776,6 +805,7 @@ export function registerPosRoutes(app: Express) {
       if (sale.totalCents !== 0) return res.status(409).json({ message: `${(sale.remainingCents / 100).toFixed(2)} is owing — take the payment.` });
       await db.update(posSales).set({ status: "paid", paidAt: new Date(), notes: [sale.notes, `Nothing to pay${str(req.body?.reason, 200) ? ` — ${str(req.body.reason, 200)}` : ""}`].filter(Boolean).join(" · ") }).where(and(eq(posSales.id, sale.id), eq(posSales.status, "open")));
       await fulfilPaidSale(sale.id);
+      void clearReaderDisplay(sale.registerId);
       res.json(await loadSale(sale.id));
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
@@ -870,6 +900,7 @@ export function registerPosRoutes(app: Express) {
       const reason = str(req.body?.reason, 200) || "Voided at the register";
       for (const l of sale.lines) if (l.registrationId) await db.update(registrations).set({ posSaleId: null } as any).where(eq(registrations.id, l.registrationId));
       await db.update(posSales).set({ status: "void", voidedAt: new Date(), voidReason: reason }).where(eq(posSales.id, sale.id));
+      void clearReaderDisplay(sale.registerId);
       res.json(await loadSale(sale.id));
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });

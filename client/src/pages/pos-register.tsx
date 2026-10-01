@@ -778,6 +778,7 @@ function RecentDialog({ open, onClose, sales, onOpen }: { open: boolean; onClose
 }
 
 interface ReaderInfo { id: string; label: string | null; deviceType: string | null; serial: string | null; online: boolean; lastSeenAt: string | null; livemode: boolean }
+const MONEY_ACCOUNT_NAMES: Record<string, string> = { club: "Christchurch United Football Club", cugc: "United Gymnastics", trust: "Cross Street Football Trust" };
 const DEVICE_NAMES: Record<string, string> = { stripe_s700: "Stripe Reader S700", stripe_s710: "Stripe Reader S710", bbpos_wisepos_e: "BBPOS WisePOS E", bbpos_wisepad3: "BBPOS WisePad 3", simulated_wisepos_e: "Simulated reader", simulated_stripe_s700: "Simulated S700" };
 
 function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { open: boolean; onClose: () => void; registerId: number; registerName: string; onChanged: () => void }) {
@@ -797,6 +798,11 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
     mutationFn: () => json("DELETE", `/api/admin/pos/registers/${registerId}/reader`),
     onSuccess: () => { info.refetch(); onChanged(); toast({ title: "Reader unpaired" }); },
     onError: (e) => toast({ title: "Couldn't unpair", description: errMessage(e), variant: "destructive" }),
+  });
+  const clear = useMutation({
+    mutationFn: () => json<{ cleared: boolean }>("POST", `/api/admin/pos/registers/${registerId}/reader/clear`, {}),
+    onSuccess: (x) => toast({ title: x.cleared ? "Reader screen cleared" : "Nothing to clear", description: x.cleared ? "It's back on its home screen." : "The reader isn't showing a cart. If a payment is waiting, cancel it on the sale." }),
+    onError: (e) => toast({ title: "Couldn't clear the reader", description: errMessage(e), variant: "destructive" }),
   });
   const r = info.data?.reader ?? null;
   return (
@@ -819,6 +825,8 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
               {!r.livemode && <p className="text-[13px] text-amber-800 mt-2">Test mode — this reader cannot take real money.</p>}
             </div>
             <p className="text-[13px] text-neutral-600">Card sales on this register go to this reader. The customer sees what they're paying for on its screen, then taps.</p>
+            <p className="text-[13px] text-neutral-700" data-testid="pos-reader-account">Pays into: <span className="font-semibold">{MONEY_ACCOUNT_NAMES[info.data?.account ?? ""] ?? info.data?.account}</span> (Stripe)</p>
+            <button className={`${btnGhost} w-full`} disabled={clear.isPending} onClick={() => clear.mutate()} data-testid="pos-reader-clear">{clear.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Clear the reader's screen</button>
             <button className={`${btnGhost} w-full`} disabled={unpair.isPending} onClick={() => unpair.mutate()} data-testid="pos-reader-unpair">{unpair.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Unpair from this register</button>
           </div>
         ) : (
