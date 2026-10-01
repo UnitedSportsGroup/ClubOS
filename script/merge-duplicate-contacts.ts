@@ -59,6 +59,14 @@ const AUTO = process.argv.includes("--auto");
  * refusals below apply exactly as before.
  */
 const FAMILY = (process.argv.find(a => a.startsWith("--family=")) ?? "--family=email").split("=")[1];
+/**
+ * `--split-by-dob`: inside a family, records that AGREE on the date of birth are
+ * merged with each other even when another record in the family disagrees.
+ * Charlie Salmond: eight empty import copies born 31 Jan 2017 and his real
+ * record born 2018 — the eight are one child by every rule above, so they become
+ * one; which date is right stays a human question between the two that remain.
+ */
+const SPLIT_BY_DOB = process.argv.includes("--split-by-dob");
 /** `--tier=safe` (default) merges only groups the records agree on. */
 const TIER = (process.argv.find(a => a.startsWith("--tier=")) ?? "--tier=safe").split("=")[1];
 
@@ -95,7 +103,8 @@ async function findGroups(client: pg.PoolClient) {
            array_agg(DISTINCT person ORDER BY person) AS ids
     FROM linked
     WHERE who <> ' '
-    GROUP BY who, family
+    ${SPLIT_BY_DOB ? "AND dob IS NOT NULL" : ""}
+    GROUP BY who, family${SPLIT_BY_DOB ? ", dob" : ""}
     HAVING count(DISTINCT person) > 1
     ORDER BY count(DISTINCT person) DESC`);
   return rows as { who: string; family: string; distinct_dobs: number; distinct_fms: number; ids: number[] }[];
