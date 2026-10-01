@@ -11,7 +11,8 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { re
 let pass = 0; const fails: string[] = []; const ok = (l: string, c: boolean, d = "") => { if (c) { pass++; console.log(`  ✓ ${l}`); } else { fails.push(l); console.log(`  ✗ ${l} ${d}`); } };
 const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
 const token = crypto.randomBytes(24).toString("hex"); let quoteId: number | null = null, userId: number | null = null;
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new" });
+// This Mac's resolver (10.3.1.1) sometimes fails the shop. CNAME; public DNS is fine — pin it for the test.
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", args: ["--host-resolver-rules=MAP shop.unitedprints.co.nz 66.241.124.3"] });
 try {
   quoteId = (await pool.query(`INSERT INTO print_quotes (organization_id, token, status, customer_name, customer_email, subtotal_cents, gst_cents, total_cents, indicative, note)
     VALUES (8,$1,'new','Probe Artwork','artpage-probe@example.com',0,0,0,true,'VERIFY PROBE') RETURNING id`, [token])).rows[0].id;
@@ -61,8 +62,7 @@ try {
   await a.evaluate((id: number) => document.querySelector(`[data-testid="quote-file-preview-${id}"]`)?.scrollIntoView({ block: "center" }), png?.id);
   await a.waitForFunction((id: number) => ((document.querySelector(`[data-testid="quote-file-preview-${id}"]`) as HTMLImageElement | null)?.naturalWidth ?? 0) > 0, { timeout: 15000 }, png?.id).catch(() => {});
   const w = await a.$eval(`[data-testid="quote-file-preview-${png?.id}"]`, (e: any) => e.naturalWidth).catch(() => 0);
-  const pv = await a.evaluate(async (u: string) => { const r = await fetch(u, { credentials: "include" }); return { s: r.status, t: r.headers.get("content-type"), url: r.url.slice(0, 90) }; }, `/api/admin/print-quotes/${quoteId}/files/${png?.id}`);
-  ok("the image PREVIEW renders in the Quotes tab", w > 0, `${w} ${JSON.stringify(pv)}`);
+  ok("the image PREVIEW renders in the Quotes tab", w > 0, String(w));
   ok("Ask for artwork + Copy upload link buttons on the card", !!(await a.$(`[data-testid="button-ask-artwork-${quoteId}"]`)) && !!(await a.$(`[data-testid="button-copy-artwork-link-${quoteId}"]`)));
   await a.evaluate((id: number) => document.querySelector(`[data-testid="card-quote-${id}"]`)?.scrollIntoView({ block: "start" }), quoteId);
   await new Promise((r) => setTimeout(r, 600));
