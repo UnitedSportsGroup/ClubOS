@@ -12,7 +12,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { normaliseSizeTiers, sizeTierId, sizeTierLabel, type SizeTier } from "@shared/print-size-tiers";
-import { normaliseQtyTiers, qtyTierRanges, UNIT_PRICE_METHODS, type QtyTier } from "@shared/print-qty-tiers";
+import { normaliseQtyTiers, qtyTierRanges, qtyPriceKind, type QtyTier } from "@shared/print-qty-tiers";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, X, Search, Globe, ExternalLink, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -421,6 +421,7 @@ function EditModal({
           <QtyTierEditor
             tiers={form.qtyTiers}
             pricingMethod={form.pricingMethod}
+            sizeTiers={form.sizeTiers}
             materialId={isNew ? null : material?.id ?? null}
             baseRateCents={dollarInputToCents(form.baseRate)}
             minChargeCents={dollarInputToCents(form.minCharge)}
@@ -746,11 +747,14 @@ export default function PrintsMaterials() {
 }
 
 
-/** Quantity pricing rows: "From [qty] → [% off | $ each] [value]". */
-function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minChargeCents, onChange }: {
-  tiers: QtyTier[]; pricingMethod: string; materialId: number | null; baseRateCents: number; minChargeCents: number; onChange: (t: QtyTier[]) => void;
+/** Quantity pricing rows: "From [qty] → [Set price | % off] [value]". */
+function QtyTierEditor({ tiers, pricingMethod, sizeTiers, materialId, baseRateCents, minChargeCents, onChange }: {
+  tiers: QtyTier[]; pricingMethod: string; sizeTiers: SizeTier[]; materialId: number | null; baseRateCents: number; minChargeCents: number; onChange: (t: QtyTier[]) => void;
 }) {
-  const eachAllowed = UNIT_PRICE_METHODS.has(pricingMethod);
+  // What a "set price" means for this product: $ each · $ per m² · $ per stock size.
+  const kind = qtyPriceKind(pricingMethod);
+  const sizes = sizeTiers.map((t) => ({ id: t.id || sizeTierId(t.w, t.h), label: t.label || sizeTierLabel(t.w, t.h) }));
+  const priceWord = kind === "m2" ? "$ per m²" : kind === "sizes" ? "$ per size" : "$ each";
   // Live preview from the SAME engine the website uses, on the unsaved values —
   // debounced so typing "12" doesn't price "1" first.
   const previewKey = JSON.stringify({ tiers, baseRateCents, minChargeCents });
@@ -766,35 +770,48 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
     },
     placeholderData: (prev) => prev,
   });
+  const gst = preview.data?.gstRate ?? 0.15;
   const rowFor = (qty: number) => preview.data?.rows.find((r) => r.qty === qty);
   const ranges = qtyTierRanges(tiers);
-  const check = normaliseQtyTiers(tiers, pricingMethod);
-  const set = (i: number, patch: Partial<QtyTier> & { mode?: "pct" | "each" }) => {
+  const check = normaliseQtyTiers(tiers, pricingMethod, sizes.map((z) => z.id));
+  const set = (i: number, patch: Partial<QtyTier> & { mode?: "pct" | "price" }) => {
     const next = [...tiers];
     const cur = { ...next[i] } as QtyTier;
-    if (patch.mode === "pct") { delete cur.unitPriceCents; cur.discountPct = cur.discountPct ?? 0; }
-    else if (patch.mode === "each") { delete cur.discountPct; cur.unitPriceCents = cur.unitPriceCents ?? 0; }
+    if (patch.mode === "pct") { delete cur.unitPriceCents; delete cur.sizePrices; cur.discountPct = cur.discountPct ?? 0; }
+    else if (patch.mode === "price") {
+      delete cur.discountPct;
+      if (kind === "sizes") cur.sizePrices = cur.sizePrices ?? {};
+      else cur.unitPriceCents = cur.unitPriceCents ?? 0;
+    }
     const { mode: _m, ...rest } = patch;
     next[i] = { ...cur, ...rest };
     onChange(next);
   };
+  const setSizePrice = (i: number, id: string, cents: number) => {
+    const cur = { ...(tiers[i].sizePrices ?? {}) };
+    if (cents > 0) cur[id] = cents; else delete cur[id];
+    set(i, { sizePrices: cur });
+  };
   const sortedIdx = tiers.map((t, i) => i).sort((a, b) => (tiers[a].minQty || 0) - (tiers[b].minQty || 0));
+  const help = kind === "sizes"
+    ? "Set a price per size for each range (e.g. 1–4 A3 $25, 5–9 A3 $20), or a % off. A size you leave blank keeps its normal price."
+    : kind === "m2"
+      ? "Set the price per m² for each range (e.g. 1–4 banners $65/m², 5+ $50/m²), or a % off. The size of the banner still counts."
+      : "Set the price each for each range (e.g. 1 shirt $45, 2–5 $40, 6–19 $35), or a % off. A set price replaces blank + print + setup.";
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="qty-pricing">
       <div className="flex items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-wider text-white/40">Quantity pricing</div>
           <div className="text-[10px] text-white/30 mt-0.5">
-            What the website charges as orders get bigger. Each step applies from its quantity up to the next step.
-            {eachAllowed ? " Use a price each (e.g. 1–9 shirts $35 each) or a % off." : " This product is priced by size, so steps are a % off."}
+            What the website charges as orders get bigger. Each step applies from its quantity up to the next step. {help}
           </div>
         </div>
         <Button size="sm" variant="outline" type="button" data-testid="button-add-qty-step"
           onClick={() => {
             const last = Math.max(0, ...tiers.map((t) => t.minQty || 0));
-            onChange([...tiers, eachAllowed && tiers.every((t) => t.unitPriceCents !== undefined)
-              ? { minQty: tiers.length ? last + 10 : 1, unitPriceCents: 0 }
-              : { minQty: tiers.length ? last + 10 : 10, discountPct: 0 }]);
+            const minQty = tiers.length ? last + (last < 5 ? 1 : 5) : 1;
+            onChange([...tiers, kind === "sizes" ? { minQty, sizePrices: {} } : { minQty, unitPriceCents: 0 }]);
           }}>
           Add a step
         </Button>
@@ -805,39 +822,55 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
         <div className="mt-3 space-y-2">
           {sortedIdx.map((i) => {
             const t = tiers[i];
-            const mode = t.unitPriceCents !== undefined ? "each" : "pct";
+            const mode = t.discountPct !== undefined ? "pct" : "price";
             const rangeIdx = [...tiers].sort((a, b) => a.minQty - b.minQty).indexOf(t);
             return (
-              <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_1.75rem] sm:grid-cols-[4.5rem_5rem_7rem_1fr_2rem] items-center gap-1.5" data-testid={`row-qty-step-${i}`}>
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_1.75rem] sm:grid-cols-[4.5rem_5rem_7.5rem_1fr_2rem] items-center gap-1.5 rounded-lg border border-white/5 p-2" data-testid={`row-qty-step-${i}`}>
                 <span className="hidden sm:block text-[11px] text-white/45">From qty</span>
                 <Input type="number" inputMode="numeric" min={1} value={t.minQty || ""}
                   onChange={(e) => set(i, { minQty: parseInt(e.target.value, 10) || 0 })}
                   className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-from-${i}`} aria-label="From quantity" placeholder="From qty" />
-                <SelectInput value={mode} onChange={(e) => set(i, { mode: e.target.value as "pct" | "each" })}
+                <SelectInput value={mode} onChange={(e) => set(i, { mode: e.target.value as "pct" | "price" })}
                   className="bg-white/[0.02] border border-white/10 rounded-md px-2 py-2 text-sm text-white" data-testid={`select-qty-mode-${i}`}>
+                  <option value="price">{priceWord}</option>
                   <option value="pct">% off</option>
-                  {(eachAllowed || mode === "each") && <option value="each">$ each</option>}
                 </SelectInput>
-                {mode === "each" ? (
-                  <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
-                    className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} />
-                ) : (
+                {mode === "pct" ? (
                   <div className="flex items-center gap-1.5 min-w-0">
                     <Input type="number" inputMode="decimal" min={0} max={90} value={t.discountPct ?? ""}
                       onChange={(e) => set(i, { discountPct: e.target.value === "" ? 0 : Number(e.target.value) })}
                       className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-pct-${i}`} />
                     <span className="text-white/40 text-sm whitespace-nowrap">% off</span>
                   </div>
+                ) : kind === "sizes" ? (
+                  <span className="text-[11px] text-white/40">Prices below ↓</span>
+                ) : (
+                  <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
+                    className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} aria-label={priceWord} />
                 )}
                 <button type="button" aria-label="Remove this step" onClick={() => onChange(tiers.filter((_, j) => j !== i))}
                   className="text-white/25 hover:text-red-300 justify-self-center" data-testid={`button-remove-qty-${i}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
-                <div className="col-span-full -mt-1 text-[10px] text-white/30">
+                {mode === "price" && kind === "sizes" && (
+                  <div className="col-span-full grid grid-cols-2 sm:grid-cols-3 gap-1.5" data-testid={`qty-size-prices-${i}`}>
+                    {sizes.length === 0 ? (
+                      <span className="text-[11px] text-amber-300/80 col-span-full">Add stock sizes above first — each gets its own price here.</span>
+                    ) : sizes.map((z) => (
+                      <label key={z.id} className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[11px] text-white/50 truncate min-w-0 flex-1" title={z.label}>{z.label}</span>
+                        <MoneyInput value={t.sizePrices?.[z.id] ? centsToDollarInput(t.sizePrices[z.id]) : ""}
+                          onChange={(v) => setSizePrice(i, z.id, dollarInputToCents(v))}
+                          className="bg-white/[0.02] border-white/10 text-white w-24 shrink-0" data-testid={`input-qty-size-${i}-${z.id}`} aria-label={`${z.label} price each`} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div className="col-span-full -mt-0.5 text-[10px] text-white/30">
                   {ranges[rangeIdx] ? `Covers ${ranges[rangeIdx]} ${ranges[rangeIdx] === "1" ? "item" : "items"}` : ""}
-                  {mode === "each" ? " · replaces the calculated price (blank + print + setup), ex GST" : ""}
+                  {mode === "price" ? ` · ${kind === "each" ? "replaces the calculated price (blank + print + setup)" : kind === "m2" ? "replaces the normal rate per m²" : "replaces the normal size price"}, ex GST` : ""}
                 </div>
-                <PreviewLine row={rowFor(t.minQty)} gstRate={preview.data?.gstRate ?? 0.15} />
+                <PreviewLine row={rowFor(t.minQty)} gstRate={gst} />
               </div>
             );
           })}
@@ -845,9 +878,14 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
           {materialId === null ? (
             <p className="text-[10.5px] text-white/35 pt-1">Save the product once to see price previews here.</p>
           ) : preview.data && (
-            <div className="text-[10.5px] text-white/40 pt-1 border-t border-white/5" data-testid="qty-preview-base">
-              {(() => { const one = rowFor(1); return one?.usual.eachCents != null ? <>Normal price for 1: <b className="text-white/70">{money2(one.usual.eachCents)}</b> ex GST. </> : null; })()}
-              {preview.data.reference ? `Priced for ${preview.data.reference}.` : ""} Previews use the same engine as the website quote, and don't need saving.
+            <div className="text-[10.5px] text-white/40 pt-1 border-t border-white/5 space-y-0.5" data-testid="qty-preview-base">
+              {(() => {
+                const one = rowFor(1);
+                if (!one) return null;
+                if (one.sizes?.length) return <div>Normal price for 1: {one.sizes.map((z) => `${z.label} ${z.usual.eachCents != null ? money2(z.usual.eachCents) : "—"}`).join(" · ")} ex GST.</div>;
+                return one.usual.eachCents != null ? <div>Normal price for 1: <b className="text-white/70">{money2(one.usual.eachCents)}</b> ex GST{one.usual.how ? <> — worked out as {one.usual.how}</> : null}.</div> : null;
+              })()}
+              <div>{preview.data.reference ? `Priced for ${preview.data.reference}. ` : ""}Previews use the same engine as the website quote, and don't need saving.</div>
             </div>
           )}
         </div>
@@ -857,23 +895,44 @@ function QtyTierEditor({ tiers, pricingMethod, materialId, baseRateCents, minCha
 }
 
 
-interface PreviewSide { eachCents?: number; totalCents?: number; message?: string }
-interface PreviewRow { qty: number; usual: PreviewSide; withSteps: PreviewSide }
+interface PreviewSide { eachCents?: number; totalCents?: number; message?: string; how?: string }
+interface PreviewSize { label: string | null; usual: PreviewSide; withSteps: PreviewSide }
+interface PreviewRow { qty: number; usual: PreviewSide; withSteps: PreviewSide; sizes?: PreviewSize[] }
 const money2 = (c: number) => `$${(c / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** "At 20: usually $31.60 each → $30.02 each (save $1.58) · 20 for $600.40 ex GST ($690.46 incl)". */
-function PreviewLine({ row, gstRate }: { row?: PreviewRow; gstRate: number }) {
-  if (!row) return <div className="col-span-full text-[11px] text-white/25" data-testid="qty-preview-row">Working out the price…</div>;
-  if (row.withSteps.message) return <div className="col-span-full text-[11px] text-amber-300/80" data-testid="qty-preview-row">At {row.qty}: {row.withSteps.message}</div>;
-  const each = row.withSteps.eachCents ?? 0, usual = row.usual.eachCents ?? each, total = row.withSteps.totalCents ?? 0;
+/** One price: "~~$31.60~~ → $30.02 each (save $1.58, 5%) · 20 for $600.40 ex GST ($690.46 incl)". */
+function PriceText({ qty, usualSide, side, gstRate }: { qty: number; usualSide: PreviewSide; side: PreviewSide; gstRate: number }) {
+  if (side.message) return <span className="text-amber-300/80">{side.message}</span>;
+  const each = side.eachCents ?? 0, usual = usualSide.eachCents ?? each, total = side.totalCents ?? 0;
   const save = usual - each;
   return (
-    <div className="col-span-full text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1" data-testid="qty-preview-row">
-      At {row.qty}: {save > 0 && <><span className="line-through text-white/30">{money2(usual)}</span> → </>}
+    <>
+      {save > 0 && <><span className="line-through text-white/30">{money2(usual)}</span> → </>}
       <b className="text-white/85">{money2(each)} each</b>
       {save > 0 && <span className="text-emerald-400"> (save {money2(save)} each, {Math.round((save / usual) * 100)}%)</span>}
       {save < 0 && <span className="text-amber-300"> (dearer than the normal {money2(usual)})</span>}
-      <span className="text-white/35"> · {row.qty} for {money2(total)} ex GST ({money2(Math.round(total * (1 + gstRate)))} incl)</span>
+      <span className="text-white/35"> · {qty} for {money2(total)} ex GST ({money2(Math.round(total * (1 + gstRate)))} incl)</span>
+    </>
+  );
+}
+
+/** What the website charges at this step — per stock size where the product has them. */
+function PreviewLine({ row, gstRate }: { row?: PreviewRow; gstRate: number }) {
+  if (!row) return <div className="col-span-full text-[11px] text-white/25" data-testid="qty-preview-row">Working out the price…</div>;
+  if (row.sizes?.length) {
+    return (
+      <div className="col-span-full text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1 space-y-0.5" data-testid="qty-preview-row">
+        {row.sizes.map((z, k) => (
+          <div key={k}>At {row.qty} × {z.label}: <PriceText qty={row.qty} usualSide={z.usual} side={z.withSteps} gstRate={gstRate} /></div>
+        ))}
+      </div>
+    );
+  }
+  if (row.withSteps.message) return <div className="col-span-full text-[11px] text-amber-300/80" data-testid="qty-preview-row">At {row.qty}: {row.withSteps.message}</div>;
+  return (
+    <div className="col-span-full text-[11px] text-white/55 rounded-md bg-white/[0.03] px-2 py-1" data-testid="qty-preview-row" title={row.withSteps.how}>
+      At {row.qty}: <PriceText qty={row.qty} usualSide={row.usual} side={row.withSteps} gstRate={gstRate} />
+      {row.withSteps.how && <div className="text-[10px] text-white/30 mt-0.5">How: {row.withSteps.how}</div>}
     </div>
   );
 }

@@ -3612,6 +3612,21 @@ export const printQuoteItems = pgTable("print_quote_items", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+// The customer's artwork, uploaded with an Instant Quote (2026-10-01). Bytes in
+// Club Drive's storage adapter, served only by short-lived signed URL.
+export const printQuoteFiles = pgTable("print_quote_files", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  quoteId: integer("quote_id").notNull().references(() => printQuotes.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").references(() => printQuoteItems.id, { onDelete: "set null" }),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  storageKey: text("storage_key").notNull(),
+  storageBackend: text("storage_backend").notNull(),
+  checksum: text("checksum").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type PrintQuoteFile = typeof printQuoteFiles.$inferSelect;
 export const insertPrintQuoteItemSchema = createInsertSchema(printQuoteItems).omit({ id: true, createdAt: true });
 export type InsertPrintQuoteItem = z.infer<typeof insertPrintQuoteItemSchema>;
 export type PrintQuoteItem = typeof printQuoteItems.$inferSelect;

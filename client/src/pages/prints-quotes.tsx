@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Receipt, Check, X, Clock, Mail, Phone, FileText, Paperclip } from "lucide-react";
+import { Receipt, Check, X, Clock, Mail, Phone, FileText, Paperclip, Download } from "lucide-react";
 
 // ── Types (mirror server/print-quote-routes.ts response shapes) ────────────
 interface PrintQuoteItem {
@@ -54,6 +54,8 @@ interface PrintQuote {
   promotedOrderId: number | null;
   createdAt: string;
   items: PrintQuoteItem[];
+  /** The customer's uploaded artwork (2026-10-01). Older quotes have none. */
+  files?: { id: number; itemId: number | null; filename: string; sizeBytes: number }[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -251,19 +253,36 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
                 <span className="font-medium text-white/80">{money(it.lineExGstCents)}</span>
               </span>
             </div>
-            {/* 🔴 The customer's artwork is NOT here. The quote form captures the
-                file NAME only — there is no upload transport yet — so saying
-                "attached" would send Dima looking for something that never
-                arrived. Name it, and say plainly that he has to ask for it. */}
-            {it.designFileName && (
-              <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-500/[0.07] border border-amber-500/20 px-2 py-1.5 text-[11px] text-amber-200/80">
-                <Paperclip className="w-3 h-3 shrink-0 mt-0.5" />
-                <span>
-                  They named a file — <span className="font-medium">{it.designFileName}</span> — but the form only
-                  records the name, it does not send the artwork. Reply and ask them for it.
-                </span>
-              </div>
-            )}
+            {/* The customer's artwork. Since 2026-10-01 the Instant Quote form
+                uploads the file itself; quotes from before that carry only the
+                NAME they picked, and say so — "attached" would send Dima looking
+                for something that never arrived. */}
+            {(() => {
+              const mine = (quote.files ?? []).filter((f) => f.itemId === it.id);
+              if (mine.length) return (
+                <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid={`quote-files-${it.id}`}>
+                  {mine.map((f) => (
+                    <a key={f.id} href={`/api/admin/print-quotes/${quote.id}/files/${f.id}?download=1`} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/[0.08] border border-emerald-500/25 px-2 py-1 text-[11.5px] text-emerald-300 hover:bg-emerald-500/[0.14]">
+                      <Paperclip className="w-3 h-3 shrink-0" />
+                      <span className="truncate max-w-[14rem]">{f.filename}</span>
+                      <span className="text-emerald-300/60">{f.sizeBytes >= 1048576 ? `${(f.sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.sizeBytes / 1024))} KB`}</span>
+                      <Download className="w-3 h-3 shrink-0" />
+                    </a>
+                  ))}
+                </div>
+              );
+              if (!it.designFileName) return null;
+              return (
+                <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-500/[0.07] border border-amber-500/20 px-2 py-1.5 text-[11px] text-amber-200/80">
+                  <Paperclip className="w-3 h-3 shrink-0 mt-0.5" />
+                  <span>
+                    They named a file — <span className="font-medium">{it.designFileName}</span> — but it didn't come through
+                    (too big, or sent before uploads worked). Reply and ask them for it.
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>

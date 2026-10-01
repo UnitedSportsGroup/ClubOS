@@ -81,6 +81,52 @@ export function registerSalesEmailPublicRoutes(app: Express) {
     res.end(GIF);
   });
 
+  // ── Unsubscribe ───────────────────────────────────────────────────────────
+  // 🔴 GET only SHOWS a confirm button; the POST does it. Mail scanners and
+  // link-preview bots fetch every URL in an email, and a GET that unsubscribed
+  // would silently opt people out who never asked. Gmail/Apple's own button
+  // uses RFC 8058 one-click, which is a POST, so it lands on the same handler.
+  // Registered BEFORE "/t/se/:token/:i", which would otherwise swallow it.
+  const page = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>${title} · United Prints</title></head><body style="margin:0;background:#f4f6fa;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#0b1b33">
+<div style="max-width:440px;margin:12vh auto 0;padding:32px 24px;background:#fff;border-radius:16px;box-shadow:0 8px 30px rgba(11,27,51,.08);text-align:center">
+<div style="font-weight:800;letter-spacing:.06em;font-size:13px;color:#1f4fd8">UNITED PRINTS</div>${body}</div></body></html>`;
+  async function unsubTarget(token: string): Promise<{ id: number; orgId: number; email: string } | null> {
+    if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) return null;
+    const r: any = await db.execute(sql`SELECT id, organization_id, to_email FROM sales_emails WHERE token = ${token} LIMIT 1`);
+    const row = (r.rows ?? r)[0];
+    return row ? { id: Number(row.id), orgId: Number(row.organization_id), email: String(row.to_email) } : null;
+  }
+  const escHtml = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+  app.get("/t/se/:token/unsubscribe", async (req: Request, res: Response) => {
+    res.set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
+    const t = await unsubTarget(String(req.params.token)).catch(() => null);
+    if (!t) return res.status(404).send(page("Link not found", `<h1 style="font-size:20px;margin:16px 0 8px">That link doesn't work any more</h1><p style="color:#52607a;font-size:14px">Email <a href="mailto:orders@unitedprints.co.nz">orders@unitedprints.co.nz</a> and we'll take you off our list.</p>`));
+    res.send(page("Unsubscribe", `<h1 style="font-size:20px;margin:16px 0 8px">Stop emails from United Prints?</h1>
+<p style="color:#52607a;font-size:14px;margin:0 0 20px">We won't email <b>${escHtml(t.email)}</b> again.</p>
+<form method="post"><button type="submit" style="background:#1f4fd8;color:#fff;border:0;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;min-height:44px">Unsubscribe</button></form>`));
+  });
+
+  app.post("/t/se/:token/unsubscribe", async (req: Request, res: Response) => {
+    res.set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
+    try {
+      const t = await unsubTarget(String(req.params.token));
+      if (!t) return res.status(404).send(page("Link not found", `<h1 style="font-size:20px;margin:16px 0 8px">That link doesn't work any more</h1><p style="color:#52607a;font-size:14px">Email <a href="mailto:orders@unitedprints.co.nz">orders@unitedprints.co.nz</a> and we'll take you off our list.</p>`));
+      const oneClick = /List-Unsubscribe=One-Click/i.test(JSON.stringify(req.body ?? {}));
+      const ins: any = await db.execute(sql`
+        INSERT INTO sales_email_optouts (organization_id, email, sales_email_id, source)
+        VALUES (${t.orgId}, ${t.email.toLowerCase()}, ${t.id}, ${oneClick ? "one-click" : "link"})
+        ON CONFLICT (organization_id, lower(email)) DO NOTHING RETURNING id`);
+      // One event, the first time — a second click is not a second unsubscribe.
+      if ((ins.rows ?? ins).length) await record(t.id, "unsubscribed", { ua: req.headers["user-agent"] ?? null });
+      res.send(page("Unsubscribed", `<h1 style="font-size:20px;margin:16px 0 8px">You're unsubscribed</h1><p style="color:#52607a;font-size:14px;margin:0">We won't email <b>${escHtml(t.email)}</b> again. If you ever need printing, we're at <a href="https://unitedprints.co.nz">unitedprints.co.nz</a>.</p>`));
+    } catch (err) {
+      console.error("[sales-email] unsubscribe", err);
+      res.status(500).send(page("Something went wrong", `<h1 style="font-size:20px;margin:16px 0 8px">That didn't go through</h1><p style="color:#52607a;font-size:14px">Please email <a href="mailto:orders@unitedprints.co.nz">orders@unitedprints.co.nz</a> and we'll take you off our list.</p>`));
+    }
+  });
+
   app.get("/t/se/:token/:i", async (req: Request, res: Response) => {
     let to = FALLBACK;
     try {

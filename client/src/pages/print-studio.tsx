@@ -82,6 +82,10 @@ export default function PrintStudioPage() {
 
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [imgName, setImgName] = useState<string | null>(null);
+  // The actual file, so it reaches Dima with the order (2026-10-01) — before,
+  // only its NAME did, and every studio order meant asking for the artwork.
+  const imgFileRef = useRef<File | null>(null);
+  const [artworkNote, setArtworkNote] = useState<string | null>(null);
   const [imgAspect, setImgAspect] = useState(1);
   const [imgError, setImgError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -176,7 +180,7 @@ export default function PrintStudioPage() {
       const img = new Image();
       img.onload = () => {
         setImgAspect(img.height && img.width ? img.height / img.width : 1);
-        setImgUrl(url); setImgName(file.name); setTab("image");
+        setImgUrl(url); setImgName(file.name); imgFileRef.current = file; setTab("image");
       };
       // A file that will not decode must not become a broken preview the
       // customer reads as accepted.
@@ -237,6 +241,19 @@ export default function PrintStudioPage() {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { setOrderError(data?.message ?? "We couldn't send that. Give us a call on 0800 800 199."); return; }
+      // Then the image itself, against the quote ClubOS just created.
+      const up = Array.isArray(data?.uploads) ? data.uploads[0] : null;
+      const file = artwork.kind === "image" ? imgFileRef.current : null;
+      if (up?.path && file) {
+        try {
+          const u = new URL(up.path, window.location.origin);
+          u.searchParams.set("name", file.name);
+          const res = await fetch(u.toString(), { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+          setArtworkNote(res.ok ? "Your image came through with the order." : "Your order is in, but the image didn't upload — email it to orders@unitedprints.co.nz.");
+        } catch {
+          setArtworkNote("Your order is in, but the image didn't upload — email it to orders@unitedprints.co.nz.");
+        }
+      }
       setSent(true);
     } catch {
       setOrderError("Couldn't reach us just now. Check your connection and try again.");
@@ -543,6 +560,7 @@ export default function PrintStudioPage() {
                   Your design is with our team. We'll check it, confirm your sizes and send you a payment
                   link — usually the same day. Keep an eye on <span className="font-semibold text-[#012583]">{who.email}</span>.
                 </p>
+                {artworkNote && <p className="mt-3 text-[13px] text-[#012583]/80" data-testid="studio-artwork-note">{artworkNote}</p>}
                 <button onClick={() => { setOrderOpen(false); setSent(false); }} className={`${upBtn.royal} mt-6 w-full`}>
                   Done
                 </button>

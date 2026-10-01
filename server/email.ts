@@ -12,6 +12,8 @@ export interface EmailAttachment {
 }
 
 interface EmailParams {
+  /** Extra mail headers, e.g. List-Unsubscribe (RFC 8058). */
+  headers?: Record<string, string>;
   to: string;
   from: string;
   replyTo?: string;
@@ -81,6 +83,7 @@ export async function sendEmailDetailed(params: EmailParams): Promise<{ ok: bool
         to: [params.to],
         reply_to: params.replyTo || undefined,
         subject: params.subject,
+        headers: params.headers && Object.keys(params.headers).length ? params.headers : undefined,
         html,
         text: params.text ?? htmlToText(html),
         attachments: params.attachments?.map(a => ({

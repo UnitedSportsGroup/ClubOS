@@ -183,7 +183,10 @@ export function outreachEmailDraft(p: OutreachDraftInput, sender: { firstName: s
  *  both on a commercial message (s10 sender info, s11 unsubscribe). */
 export const OUTREACH_FOOTER =
   "United Prints · Christchurch United Football Club Inc. · Christchurch, New Zealand\n" +
-  "If you'd rather not hear from us, reply \"unsubscribe\" and we won't email again.";
+  "Don't want emails from us? Unsubscribe here and we won't email you again.";
+/** The word in OUTREACH_FOOTER that becomes the unsubscribe link (Dima, 2026-10-01:
+ *  "reply unsubscribe" is not a link). The server swaps it for a real one. */
+export const OUTREACH_UNSUB_WORD = "Unsubscribe";
 
 // ── Turning the typed message into the email ─────────────────────────────────
 // ONE renderer for the dialog's preview and for the email that is sent, so
@@ -299,6 +302,10 @@ export const OUTREACH_STEPS = [
   { key: "ordered", label: "Order confirmed" },
   { key: "paid", label: "Paid" },
 ] as const;
+/** Events that END the journey rather than advance it. */
+export const OUTREACH_STOP_LABELS: Record<string, string> = {
+  bounced: "Bounced", complained: "Marked as spam", delivery_delayed: "Delivery delayed", unsubscribed: "Unsubscribed",
+};
 export type OutreachStep = (typeof OUTREACH_STEPS)[number]["key"];
 
 /** Free mailbox domains — a quote from one proves nothing about a company, so

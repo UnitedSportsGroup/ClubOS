@@ -21864,7 +21864,7 @@ export async function registerRoutes(
       const newTiers = normaliseSizeTiers(req.body?.sizeTiersJson);
       if (!newTiers.ok) return res.status(400).json({ message: newTiers.error });
       // Quantity pricing carries money too — same gate as the PATCH.
-      const newQty = normaliseQtyTiers(req.body?.qtyTiersJson, req.body?.pricingMethod);
+      const newQty = normaliseQtyTiers(req.body?.qtyTiersJson, req.body?.pricingMethod, newTiers.tiers.map((t: any) => t.id));
       if (!newQty.ok) return res.status(400).json({ message: newQty.error });
 
       const m = await storage.createPrintMaterial({
@@ -21901,28 +21901,40 @@ export async function registerRoutes(
         if (Number.isInteger(b[k]) && b[k] >= 0) m[k] = b[k];
       }
       // Lenient on purpose: show what CAN be priced while Dima is mid-edit.
+      const num = (v: any) => (v === undefined || v === null || v === "" ? undefined : Number(v));
       const steps = (Array.isArray(b.qtyTiersJson) ? b.qtyTiersJson : [])
-        .map((t: any) => ({ minQty: Number(t?.minQty), discountPct: t?.discountPct === undefined || t?.discountPct === "" ? undefined : Number(t.discountPct),
-          unitPriceCents: t?.unitPriceCents === undefined || t?.unitPriceCents === "" ? undefined : Number(t.unitPriceCents) }))
+        .map((t: any) => {
+          const sizePrices: Record<string, number> = {};
+          if (t?.sizePrices && typeof t.sizePrices === "object") {
+            for (const [k, v] of Object.entries(t.sizePrices)) { const n = num(v); if (n && n > 0) sizePrices[k] = n; }
+          }
+          return { minQty: Number(t?.minQty), discountPct: num(t?.discountPct), unitPriceCents: num(t?.unitPriceCents), sizePrices };
+        })
         .filter((t: any) => Number.isInteger(t.minQty) && t.minQty >= 1);
       m.qtyTiersJson = steps;
       const { quotePrintItem } = await import("./print-pricing");
       const sizeTiers = Array.isArray(m.sizeTiersJson) ? m.sizeTiersJson : [];
-      const config: any = {};
+      const sized = (m.pricingMethod === "per_piece_tiered" || m.pricingMethod === "bundle") && sizeTiers.length > 0;
       let reference: string | null = null;
-      if (m.pricingMethod === "per_m2") { config.widthMm = 1000; config.heightMm = 1000; reference = "a 1 m² piece (1000 × 1000 mm)"; }
-      else if ((m.pricingMethod === "per_piece_tiered" || m.pricingMethod === "bundle") && sizeTiers[0]) {
-        config.extra = { tierId: sizeTiers[0].id }; config.widthMm = sizeTiers[0].w; config.heightMm = sizeTiers[0].h;
-        reference = `the ${sizeTiers[0].label} size`;
-      }
-      const at = (qty: number) => {
-        const before: any = quotePrintItem({ ...m, qtyTiersJson: [] }, { quantity: qty, ...config });
-        const after: any = quotePrintItem(m, { quantity: qty, ...config });
-        const one = (r: any) => (r.ok ? { eachCents: Math.round(r.subtotalCents / qty), totalCents: r.subtotalCents } : { message: r.message });
-        return { qty, usual: one(before), withSteps: one(after) };
-      };
+      // The configs a preview row is priced at: one per stock size, or one reference piece.
+      const configs: { label: string | null; config: any }[] = [];
+      if (m.pricingMethod === "per_m2") { configs.push({ label: null, config: { widthMm: 1000, heightMm: 1000 } }); reference = "a 1 m² piece (1000 × 1000 mm)"; }
+      else if (sized) {
+        for (const t of sizeTiers) configs.push({ label: t.label, config: { extra: { tierId: t.id }, widthMm: t.w, heightMm: t.h } });
+        reference = "each stock size";
+      } else configs.push({ label: null, config: {} });
+      const one = (r: any, qty: number) => (r.ok
+        ? { eachCents: Math.round(r.subtotalCents / qty), totalCents: r.subtotalCents, how: (r.breakdown ?? []).map((l: any) => l.label).join(" + ") }
+        : { message: r.message });
+      const priceAt = (qty: number, config: any) => ({
+        usual: one(quotePrintItem({ ...m, qtyTiersJson: [] }, { quantity: qty, ...config }), qty),
+        withSteps: one(quotePrintItem(m, { quantity: qty, ...config }), qty),
+      });
+      const at = (qty: number) => sized
+        ? { qty, ...priceAt(qty, configs[0].config), sizes: configs.map((c) => ({ label: c.label, ...priceAt(qty, c.config) })) }
+        : { qty, ...priceAt(qty, configs[0].config) };
       const qtys = Array.from(new Set([1, ...steps.map((t: any) => t.minQty)])).sort((a, c) => a - c);
-      res.json({ reference, gstRate: 0.15, rows: qtys.map(at) });
+      res.json({ reference, gstRate: 0.15, sizes: sized ? sizeTiers.map((t: any) => ({ id: t.id, label: t.label })) : [], rows: qtys.map(at) });
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
@@ -21945,7 +21957,8 @@ export async function registerRoutes(
       // Quantity pricing (bulk discounts / price each) — Dima's money, validated
       // here, never in the form: @shared/print-qty-tiers is the one decider.
       if ("qtyTiersJson" in patch) {
-        const qty = normaliseQtyTiers(patch.qtyTiersJson, patch.pricingMethod ?? existing.pricingMethod);
+        const sizesNow = Array.isArray(patch.sizeTiersJson) ? patch.sizeTiersJson : (Array.isArray(existing.sizeTiersJson) ? existing.sizeTiersJson : []);
+        const qty = normaliseQtyTiers(patch.qtyTiersJson, patch.pricingMethod ?? existing.pricingMethod, (sizesNow as any[]).map((t) => t.id));
         if (!qty.ok) return res.status(400).json({ message: qty.error });
         patch.qtyTiersJson = qty.tiers;
       }

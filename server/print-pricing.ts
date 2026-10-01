@@ -15,7 +15,7 @@
 // of items, not per-item — this keeps rounding consistent with how Stripe
 // handles totals.
 
-import { qtyTierFor, UNIT_PRICE_METHODS, type QtyTier } from "@shared/print-qty-tiers";
+import { qtyTierFor, qtyPriceKind, type QtyTier } from "@shared/print-qty-tiers";
 import type { PrintMaterial } from "@shared/schema";
 
 export interface ItemConfig {
@@ -129,6 +129,10 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
   let estimatedCostCents = 0;
   let areaM2 = 0;
   let perimeterM = 0;
+  // Remembered for quantity pricing, which may re-price the same piece.
+  let sidesMultiplier = 1;
+  let chosenTierId: string | null = null;
+  let chosenTierLabel = "";
 
   switch (material.pricingMethod) {
     case "per_m2": {
@@ -151,7 +155,7 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
 
       const baseTotalCents = Math.round(areaM2 * material.baseRateCents * config.quantity);
       const sides = config.sides ?? 1;
-      const sidesMultiplier = sides === 2 ? 1.7 : 1;  // double-sided is 1.7×, not 2×
+      sidesMultiplier = sides === 2 ? 1.7 : 1;  // double-sided is 1.7×, not 2×
       unitPriceCents = Math.round(baseTotalCents * sidesMultiplier);
 
       breakdown.push({
@@ -190,6 +194,7 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
           return { ok: false, reason: "no_matching_tier", message: "This size needs a custom quote — pop your details in and we'll come back to you." };
         }
       } else {
+        chosenTierId = tier.id; chosenTierLabel = tier.label;
         unitPriceCents = tier.priceCents * config.quantity;
         breakdown.push({ label: `${tier.label} × ${config.quantity}`, cents: unitPriceCents });
         estimatedCostCents = Math.round(unitPriceCents * 0.4);
@@ -227,6 +232,7 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
       if (!tier) {
         return { ok: false, reason: "no_matching_tier", message: "Pick a size to see pricing." };
       }
+      chosenTierId = tier.id; chosenTierLabel = tier.label;
       unitPriceCents = tier.priceCents * config.quantity;
       breakdown.push({ label: `${tier.label} × ${config.quantity}`, cents: unitPriceCents });
       estimatedCostCents = Math.round(unitPriceCents * 0.45);
@@ -236,17 +242,33 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
 
   // Quantity pricing ───────────────────────────────────────────────────────
   // Set by Dima in the Materials tab (@shared/print-qty-tiers). A step is a
-  // "% off" OR a "$ each"; "$ each" replaces the calculated per-item price
-  // (blank + print + setup) with his all-in figure, only on products priced
-  // per item — a per-m² product has no single "each" price.
+  // "% off" OR a SET PRICE, and what a set price means follows the product:
+  //   each  → $ per item, all-in (replaces blank + print + setup)
+  //   m2    → $ per m² (size still counts; double-sided still ×1.7)
+  //   sizes → $ per piece for the stock size chosen; a size the step leaves
+  //           blank — or a custom size — keeps its normal price.
   const band = qtyTierFor((material.qtyTiersJson as QtyTier[]) ?? [], config.quantity);
+  const kind = qtyPriceKind(material.pricingMethod);
+  const rangeNote = band ? ` (price for ${band.minQty}+)` : "";
   let qtyDiscountPct = 0;
-  if (band?.unitPriceCents && UNIT_PRICE_METHODS.has(String(material.pricingMethod))) {
+  if (band?.discountPct) {
+    qtyDiscountPct = band.discountPct;
+  } else if (band && kind === "each" && band.unitPriceCents) {
     unitPriceCents = band.unitPriceCents * config.quantity;
     breakdown.length = 0;
-    breakdown.push({ label: `${config.quantity} × ${moneyLabel(band.unitPriceCents)} each`, cents: unitPriceCents });
-  } else if (band?.discountPct) {
-    qtyDiscountPct = band.discountPct;
+    breakdown.push({ label: `${config.quantity} × ${moneyLabel(band.unitPriceCents)} each${rangeNote}`, cents: unitPriceCents });
+  } else if (band && kind === "m2" && band.unitPriceCents && areaM2 > 0) {
+    unitPriceCents = Math.round(areaM2 * band.unitPriceCents * config.quantity * sidesMultiplier);
+    breakdown.length = 0;
+    breakdown.push({
+      label: `${areaM2.toFixed(2)} m² × ${moneyLabel(band.unitPriceCents)}/m² × ${config.quantity}${sidesMultiplier !== 1 ? " (×1.7 double-sided)" : ""}${rangeNote}`,
+      cents: unitPriceCents,
+    });
+  } else if (band && kind === "sizes" && chosenTierId && band.sizePrices?.[chosenTierId]) {
+    const each = band.sizePrices[chosenTierId];
+    unitPriceCents = each * config.quantity;
+    breakdown.length = 0;
+    breakdown.push({ label: `${chosenTierLabel} × ${config.quantity} @ ${moneyLabel(each)}${rangeNote}`, cents: unitPriceCents });
   }
   const qtyDiscountCents = Math.round((unitPriceCents * qtyDiscountPct) / 100);
   if (qtyDiscountCents > 0) {

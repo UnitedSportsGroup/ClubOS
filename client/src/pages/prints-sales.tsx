@@ -40,8 +40,8 @@ import {
 import {
   SALES_STAGES, SALES_OUTCOMES, SALES_TIERS, SALES_REGIONS,
   followUpStatus, addDaysIso, stageLabel,
-  outreachEmailDraft, isSharedInbox, firstNameOf, OUTREACH_FOOTER,
-  renderOutreachBody, normaliseUrl, OUTREACH_ATTACHMENT_TYPES, OUTREACH_ATTACHMENT_MAX_BYTES, OUTREACH_ATTACHMENT_MAX_FILES, OUTREACH_STEPS,
+  outreachEmailDraft, isSharedInbox, firstNameOf, OUTREACH_FOOTER, OUTREACH_UNSUB_WORD,
+  renderOutreachBody, normaliseUrl, OUTREACH_ATTACHMENT_TYPES, OUTREACH_ATTACHMENT_MAX_BYTES, OUTREACH_ATTACHMENT_MAX_FILES, OUTREACH_STEPS, OUTREACH_STOP_LABELS,
   type SalesStage, type SalesOutcome, type FollowUpStatus,
 } from "@shared/sales";
 
@@ -1175,7 +1175,9 @@ function EmailDialog({ prospect: p, today, onClose }: { prospect: Prospect; toda
           )}
 
           <div className="text-[11px] text-white/35 whitespace-pre-line rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
-            <span className="text-white/50 font-semibold">Added to the bottom automatically</span>{"\n"}{OUTREACH_FOOTER}
+            <span className="text-white/50 font-semibold">Added to the bottom automatically</span>{"\n"}
+            {/* "Unsubscribe" is a real link in the sent email (one tap → confirm page), shown underlined here. */}
+            {OUTREACH_FOOTER.split(OUTREACH_UNSUB_WORD)[0]}<span className="underline text-blue-300/80" data-testid="footer-unsubscribe">{OUTREACH_UNSUB_WORD}</span>{OUTREACH_FOOTER.split(OUTREACH_UNSUB_WORD).slice(1).join(OUTREACH_UNSUB_WORD)}
           </div>
 
           <div className="flex items-end justify-between gap-3 flex-wrap">
@@ -1227,9 +1229,10 @@ const STEP_TONE: Record<string, string> = {
   bounced: "bg-red-500/15 text-red-300 border-red-500/30",
   complained: "bg-red-500/15 text-red-300 border-red-500/30",
   delivery_delayed: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  unsubscribed: "bg-slate-500/20 text-slate-300 border-slate-500/30",
 };
 const stepLabel = (k: string) =>
-  OUTREACH_STEPS.find((s) => s.key === k)?.label ?? ({ bounced: "Bounced", complained: "Marked as spam", delivery_delayed: "Delivery delayed" } as Record<string, string>)[k] ?? k;
+  OUTREACH_STEPS.find((s) => s.key === k)?.label ?? OUTREACH_STOP_LABELS[k] ?? k;
 
 /** "23 Sep, 7:05pm" in NZ time, whatever the viewer's clock says. */
 function nzStamp(iso: string | null): string {

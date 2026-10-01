@@ -27,7 +27,7 @@
 // Reject just closes the quote out.
 // ─────────────────────────────────────────────────────────────────────────────
 import crypto from "crypto";
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { currentPrintCustomer } from "./print-account-routes";
 import { accountDiscountPct } from "@shared/print-account";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
@@ -38,6 +38,7 @@ import {
   organizations,
   printQuotes,
   printQuoteItems,
+  printQuoteFiles,
   printMaterials,
   printOrders,
   printOrderItems,
@@ -46,6 +47,7 @@ import {
 } from "@shared/schema";
 import { quotePrintItem, quoteOrderTotals } from "./print-pricing";
 import { emailQuoteReceivedCustomer, emailQuoteRequestDima } from "./print-email";
+import { driveStorage } from "./drive-storage";
 
 // United Prints is org 8 — same default used by the existing public print
 // materials/order routes in routes.ts.
@@ -366,6 +368,40 @@ async function priceQuoteLines(
   return { lines, ...totals, needsHumanQuote: lines.some((l) => !l.ok) };
 }
 
+
+// ── Artwork uploads ─────────────────────────────────────────────────────────
+// Dima, 28 Sep: "people upload a file when they ask for a quote, but in ClubOS
+// we can't see it… either remove it, or the file has to be inside ClubOS."
+// The quote is created first (JSON); each line then gets a signed upload URL,
+// valid for two hours and only for THAT quote line. So the upload endpoint is
+// unreachable without a quote the form guard already saw, and a stranger can't
+// attach files to somebody else's quote.
+const ARTWORK_MAX_BYTES = 50 * 1024 * 1024;           // Supabase's per-object ceiling
+const ARTWORK_MAX_PER_ITEM = 5;
+const ARTWORK_TTL_MS = 2 * 60 * 60 * 1000;
+// What a print customer genuinely sends. Anything else is refused by name.
+const ARTWORK_EXTS = new Set(["pdf", "ai", "eps", "ps", "psd", "svg", "png", "jpg", "jpeg", "tif", "tiff", "webp", "heic", "gif", "zip", "cdr", "indd", "idml", "afdesign", "pptx", "docx"]);
+const uploadSecret = () => process.env.SESSION_SECRET || "cufc-dev-secret";
+
+function artworkSig(quoteId: number, itemId: number, exp: number): string {
+  return crypto.createHmac("sha256", uploadSecret()).update(`pqf:${quoteId}:${itemId}:${exp}`).digest("hex");
+}
+function artworkUploadPath(quoteId: number, itemId: number): string {
+  const exp = Date.now() + ARTWORK_TTL_MS;
+  return `/api/public/unitedprints/quote-request/${quoteId}/items/${itemId}/artwork?exp=${exp}&sig=${artworkSig(quoteId, itemId, exp)}`;
+}
+function artworkSigOk(quoteId: number, itemId: number, exp: number, sig: string): boolean {
+  if (!Number.isFinite(exp) || exp < Date.now()) return false;
+  const want = Buffer.from(artworkSig(quoteId, itemId, exp));
+  const got = Buffer.from(String(sig || ""));
+  return want.length === got.length && crypto.timingSafeEqual(want, got);
+}
+/** A filename safe to store and to offer back as a download name. */
+function cleanFilename(raw: string): string {
+  const base = String(raw || "").split(/[\\/]/).pop() || "artwork";
+  return base.replace(/[\u0000-\u001f"<>|*?:]/g, "").trim().slice(0, 180) || "artwork";
+}
+
 // ── Org scoping (mirrors workspaceOrg in hiring-routes.ts) ─────────────────
 async function workspaceOrg(req: Request): Promise<{ id: number; slug: string } | null> {
   const slug = String(req.headers["x-workspace-slug"] || "").trim();
@@ -586,11 +622,60 @@ export function registerPrintQuoteRoutes(app: Express) {
         gstCents,
         totalCents,
         needsHumanQuote: unpriceable.length > 0,
+        // One signed upload path per line, in the order the lines were sent.
+        uploads: insertedItems.map((it, index) => ({ index, itemId: it.id, path: artworkUploadPath(quote.id, it.id) })),
       });
     } catch (e: any) {
       console.error("[print-quotes] quote request failed:", e);
       res.status(500).json({ message: "Something went wrong sending your quote request." });
     }
+  });
+
+  // The artwork itself — one file per request, raw bytes, name in the query.
+  const ARTWORK_PATH = "/api/public/unitedprints/quote-request/:quoteId/items/:itemId/artwork";
+  app.options(ARTWORK_PATH, (req, res) => { quoteCors(req, res); res.sendStatus(204); });
+  app.post(ARTWORK_PATH, express.raw({ type: () => true, limit: ARTWORK_MAX_BYTES }), async (req: Request, res: Response) => {
+    quoteCors(req, res);
+    try {
+      const quoteId = parseInt(String(req.params.quoteId), 10);
+      const itemId = parseInt(String(req.params.itemId), 10);
+      if (!Number.isFinite(quoteId) || !Number.isFinite(itemId)
+          || !artworkSigOk(quoteId, itemId, Number(req.query.exp), String(req.query.sig ?? ""))) {
+        return res.status(403).json({ message: "That upload link has expired — email the file to orders@unitedprints.co.nz instead." });
+      }
+      const [item] = await db.select({ id: printQuoteItems.id }).from(printQuoteItems)
+        .where(and(eq(printQuoteItems.id, itemId), eq(printQuoteItems.quoteId, quoteId)));
+      if (!item) return res.status(404).json({ message: "Quote not found" });
+
+      const buf = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!buf || buf.length === 0) return res.status(400).json({ message: "That file was empty." });
+      const filename = cleanFilename(String(req.query.name ?? ""));
+      const ext = (filename.split(".").pop() ?? "").toLowerCase();
+      if (!ARTWORK_EXTS.has(ext)) {
+        return res.status(415).json({ message: `We can't take .${ext || "?"} files here — send a PDF, AI, EPS, PSD, SVG, PNG, JPG or TIFF.` });
+      }
+      const existing = await db.select({ id: printQuoteFiles.id }).from(printQuoteFiles).where(eq(printQuoteFiles.itemId, itemId));
+      if (existing.length >= ARTWORK_MAX_PER_ITEM) return res.status(429).json({ message: `That's ${ARTWORK_MAX_PER_ITEM} files on this item already.` });
+
+      const contentType = String(req.headers["content-type"] || "application/octet-stream").split(";")[0].trim().slice(0, 100) || "application/octet-stream";
+      const put = await driveStorage().put(buf, contentType, filename);
+      const [row] = await db.insert(printQuoteFiles).values({
+        quoteId, itemId, filename, contentType,
+        sizeBytes: put.sizeBytes, storageKey: put.storageKey, storageBackend: put.backend, checksum: put.checksum,
+      }).returning({ id: printQuoteFiles.id });
+      res.status(201).json({ ok: true, id: row.id, filename, sizeBytes: put.sizeBytes });
+    } catch (e: any) {
+      console.error("[print-quotes] artwork upload failed:", e);
+      res.status(500).json({ message: "The file didn't upload — email it to orders@unitedprints.co.nz and we'll attach it." });
+    }
+  });
+  // express.raw's own size refusal — say it in words the customer can act on.
+  app.use(ARTWORK_PATH, (err: any, req: Request, res: Response, next: any) => {
+    if (err?.type === "entity.too.large") {
+      quoteCors(req, res);
+      return res.status(413).json({ message: "That file is over 50MB — email it to orders@unitedprints.co.nz (or a WeTransfer link) instead." });
+    }
+    next(err);
   });
 
   // ═══════════════════════════ ADMIN ════════════════════════════════════════
@@ -612,11 +697,20 @@ export function registerPrintQuoteRoutes(app: Express) {
       const items = ids.length
         ? await db.select().from(printQuoteItems).where(inArray(printQuoteItems.quoteId, ids))
         : [];
+      // The customer's artwork per quote — names and sizes only; the bytes are
+      // fetched one file at a time through the signed-URL route below.
+      const files = ids.length
+        ? await db.select({
+            id: printQuoteFiles.id, quoteId: printQuoteFiles.quoteId, itemId: printQuoteFiles.itemId,
+            filename: printQuoteFiles.filename, sizeBytes: printQuoteFiles.sizeBytes,
+          }).from(printQuoteFiles).where(inArray(printQuoteFiles.quoteId, ids)).orderBy(asc(printQuoteFiles.id))
+        : [];
 
       res.json({
         quotes: quotes.map((q) => ({
           ...q,
           items: items.filter((it) => it.quoteId === q.id),
+          files: files.filter((f) => f.quoteId === q.id),
         })),
       });
     } catch (e: any) {
@@ -636,9 +730,33 @@ export function registerPrintQuoteRoutes(app: Express) {
       if (!quote) return res.status(404).json({ message: "Quote not found" });
 
       const items = await db.select().from(printQuoteItems).where(eq(printQuoteItems.quoteId, id));
-      res.json({ ...quote, items });
+      const files = await db.select({
+        id: printQuoteFiles.id, itemId: printQuoteFiles.itemId, filename: printQuoteFiles.filename,
+        contentType: printQuoteFiles.contentType, sizeBytes: printQuoteFiles.sizeBytes, createdAt: printQuoteFiles.createdAt,
+      }).from(printQuoteFiles).where(eq(printQuoteFiles.quoteId, id)).orderBy(asc(printQuoteFiles.id));
+      res.json({ ...quote, items, files });
     } catch (e: any) {
       console.error("[print-quotes] admin get failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // The customer's artwork — a 5-minute signed URL, never a public link.
+  app.get("/api/admin/print-quotes/:id/files/:fileId", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await workspaceOrg(req);
+      const id = parseInt(String(req.params.id), 10);
+      const fileId = parseInt(String(req.params.fileId), 10);
+      if (!org || !Number.isFinite(id) || !Number.isFinite(fileId)) return res.status(400).json({ message: "Bad request" });
+      const [f] = await db.select({ key: printQuoteFiles.storageKey, filename: printQuoteFiles.filename })
+        .from(printQuoteFiles)
+        .innerJoin(printQuotes, eq(printQuotes.id, printQuoteFiles.quoteId))
+        .where(and(eq(printQuoteFiles.id, fileId), eq(printQuoteFiles.quoteId, id), eq(printQuotes.organizationId, org.id)));
+      if (!f) return res.status(404).json({ message: "Not found" });
+      const url = await driveStorage().signedUrl(f.key, { download: req.query.download ? f.filename : undefined, expiresIn: 300 });
+      res.redirect(url);
+    } catch (e: any) {
+      console.error("[print-quotes] artwork download failed:", e);
       res.status(500).json({ message: e.message });
     }
   });
