@@ -53,7 +53,19 @@ export interface EmailBuilderProps {
   onSave: (result: EmailBuilderResult) => void | Promise<void>;
   /** optional: notify parent of unsaved changes */
   onDirty?: () => void;
+  /** The parent gives the builder a fixed-height box: fill it exactly, and never
+   *  let anything inside scroll the box itself (the Mailer). Off by default so a
+   *  builder in an auto-height parent keeps its own height. */
+  fillParent?: boolean;
+  /** Save on its own a moment after every change, so no work depends on
+   *  pressing Save. Off by default; the Mailer turns it on. */
+  autoSave?: boolean;
 }
+
+/** How long after the last change an automatic save runs. Long enough not to
+ *  compile MJML on every keystroke, short enough that a tab closed mid-thought
+ *  loses almost nothing. */
+const AUTOSAVE_MS = 1500;
 
 // Gmail clips emails whose raw HTML crosses ~102KB. Warn early, block before it.
 const WARN_BYTES = 80 * 1024;
@@ -171,6 +183,8 @@ export default function EmailBuilder({
   initialHtml,
   onSave,
   onDirty,
+  fillParent = false,
+  autoSave = false,
 }: EmailBuilderProps) {
   const surfaceRef = useRef<EmailEditorSurfaceHandle | null>(null);
   const [saving, setSaving] = useState(false);
@@ -270,6 +284,31 @@ export default function EmailBuilder({
     }
   }, [commit]);
 
+  // ── Automatic save ────────────────────────────────────────────────────────
+  // Every change schedules one save; another change pushes it back. Errors are
+  // shown exactly as a manual save would show them (the Gmail size guard).
+  const [autoSavedAt, setAutoSavedAt] = useState<Date | null>(null);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
+  const handleDirty = useCallback(() => {
+    onDirty?.();
+    setAutoSavedAt(null);
+    if (!autoSave) return;
+    if (autoTimer.current) clearTimeout(autoTimer.current);
+    autoTimer.current = setTimeout(async () => {
+      const surface = surfaceRef.current;
+      if (!surface?.isReady()) return;
+      try {
+        const result = await surface.getResult();
+        await commit(result);
+        setAutoSavedAt(new Date());
+      } catch (e) {
+        // A failed background save says so; the manual Save stays available.
+        console.error("[EmailBuilder] auto-save failed", e);
+      }
+    }, AUTOSAVE_MS);
+  }, [autoSave, commit, onDirty]);
+
   const handleSaveMobile = useCallback(async () => {
     // Saving an empty box over a design someone spent an hour on is the one
     // thing this path must never do. Clearing on purpose is still possible —
@@ -294,10 +333,15 @@ export default function EmailBuilder({
   }, [commit, mobileHtml, hadContentOnOpen]);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      className={`flex flex-col gap-3 ${fillParent && !isNarrow ? "mkt-builder--fill" : ""}`}
+      // Belt and braces where `overflow: clip` is unsupported (Safari < 16): a
+      // box that scrolled itself is put straight back.
+      onScroll={fillParent ? (e) => { const el = e.currentTarget; if (el.scrollTop) el.scrollTop = 0; } : undefined}
+    >
       {/* Action bar — hidden on the desktop template-gallery start screen */}
       {(isNarrow || chosen) && (
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2" data-testid="mkt-builder-actions">
         {!isNarrow && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 text-xs text-muted-foreground">Personalise:</span>
@@ -337,10 +381,18 @@ export default function EmailBuilder({
             />
             {brand.name}
           </span>
+          {autoSave && !isNarrow && (
+            <span className="hidden text-xs text-muted-foreground md:inline" data-testid="mkt-autosave-status">
+              {autoSavedAt
+                ? `Saved automatically ${autoSavedAt.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}`
+                : "Saves as you go"}
+            </span>
+          )}
           <button
             type="button"
             onClick={isNarrow ? handleSaveMobile : handleSaveDesktop}
             disabled={saving}
+            data-testid="mkt-builder-save"
             // h-11 on a phone: 44px is the smallest thing a thumb hits reliably.
             className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 md:h-auto md:py-1.5"
           >
@@ -400,12 +452,14 @@ export default function EmailBuilder({
         </div>
       ) : !chosen ? (
         /* ── Template gallery start screen (fresh campaign, desktop) ────────── */
+        <div className={fillParent ? "min-h-0 flex-1 overflow-y-auto" : ""}>
         <TemplateGallery
           variant="screen"
           brandKey={brandKey}
           onUse={applyTemplate}
           onBlank={startBlank}
         />
+        </div>
       ) : (
         /* ── Desktop 3-pane builder ────────────────────────────────────────── */
         <>
@@ -416,7 +470,7 @@ export default function EmailBuilder({
                 ref={surfaceRef}
                 brandKey={brandKey}
                 initialDoc={activeDoc}
-                onDirty={onDirty}
+                onDirty={handleDirty}
               />
             </Suspense>
           </SurfaceErrorBoundary>

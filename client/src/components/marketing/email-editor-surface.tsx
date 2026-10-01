@@ -53,6 +53,18 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
       });
       editorRef.current = editor;
       editor.on("update", () => onDirtyRef.current?.());
+      // GrapesJS only reports "update" when a text edit ENDS (on blur), so a
+      // long letter typed into one block never counted as a change and was not
+      // auto-saved until you clicked away. Typing and pasting count now too.
+      const watchTyping = () => {
+        const c: any = (editor as any).Canvas;
+        const doc: Document | undefined = c?.getFrameEl?.()?.contentDocument ?? c?.getDocument?.();
+        if (!doc || (doc as any).__clubosTyping) return;
+        (doc as any).__clubosTyping = true;
+        doc.addEventListener("input", () => onDirtyRef.current?.(), true);
+      };
+      editor.on("load", watchTyping);
+      editor.on("rte:enable", watchTyping);
 
       return () => {
         try {

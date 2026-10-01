@@ -24,6 +24,7 @@ import "./premium.css";
 import { registerBlocks } from "./blocks";
 import { registerClubBlocks } from "./club-blocks";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
+import { installCleanPaste } from "./clean-paste";
 
 // ── doc + result shapes ───────────────────────────────────────────────────────
 
@@ -289,6 +290,17 @@ export function createEmailEditor({ container, brandKey, initialDoc }: CreateEma
   wireToolbar(editor, shell);
   wireInspector(editor, shell);
 
+  // Clean paste — see clean-paste.ts. Installed on the canvas document when it
+  // loads and again whenever text editing starts (the frame can be rebuilt by a
+  // device switch); installing twice is a no-op.
+  const canvasDoc = (): Document | undefined => {
+    const c: any = (editor as any).Canvas;
+    return c?.getFrameEl?.()?.contentDocument ?? c?.getDocument?.();
+  };
+  editor.on("load", () => installCleanPaste(canvasDoc()));
+  editor.on("rte:enable", () => installCleanPaste(canvasDoc()));
+  editor.on("canvas:frame:load", () => installCleanPaste(canvasDoc()));
+
   editor.on("load", () => {
     // Outlines on by default so blocks are easy to see/select while editing.
     try {
@@ -327,13 +339,26 @@ export function createEmailEditor({ container, brandKey, initialDoc }: CreateEma
 
 // ── public: load ────────────────────────────────────────────────────────────────
 
-function detectEngine(doc: unknown): "grapesjs" | "tiptap" | "empty" {
+function detectEngine(doc: unknown): "grapesjs" | "tiptap" | "html" | "empty" {
   if (!doc) return "empty";
   if (typeof doc === "string") return doc.trimStart().startsWith("<mjml") ? "grapesjs" : "empty";
   const d = doc as Record<string, unknown>;
   if (d.engine === "grapesjs-mjml") return "grapesjs";
   if (d.type === "doc" && Array.isArray(d.content)) return "tiptap";
+  if (d.engine === "html" && typeof d.html === "string" && d.html.trim()) return "html";
   return "empty";
+}
+
+/** An email written as plain HTML (the phone editor, or the Mailer before the
+ *  builder existed) opened in the builder: its body becomes ONE editable text
+ *  block, so reusing an old email starts from its words — never from a blank
+ *  starter that silently threw them away. */
+function htmlToMjml(html: string): string {
+  const body = (html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html)
+    .replace(/<(script|style|head|title|meta)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .trim();
+  return `<mjml><mj-body><mj-section><mj-column><mj-text font-size="15px" line-height="1.6">${body}</mj-text></mj-column></mj-section></mj-body></mjml>`;
 }
 
 export function loadDoc(editor: Editor, initialDoc: unknown, brandKey: string): void {
@@ -356,6 +381,11 @@ export function loadDoc(editor: Editor, initialDoc: unknown, brandKey: string): 
       editor.setComponents(mjml);
       return;
     }
+  }
+
+  if (engine === "html") {
+    editor.setComponents(htmlToMjml((initialDoc as { html: string }).html));
+    return;
   }
 
   if (engine === "tiptap") {

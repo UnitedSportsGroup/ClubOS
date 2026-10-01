@@ -150,6 +150,7 @@ import { registerBreweryOfferRoutes } from "./brewery-offers";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
+import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
@@ -26741,6 +26742,7 @@ export async function registerRoutes(
   // two pages can never disagree about whose child someone is.
   registerFamilyRoutes(app);
   registerMailerPeopleSearch(app, requireAuth);
+  registerMailerTemplateRoutes(app);
 
   // View As — see ClubOS exactly as a staff member sees it (super admin only,
   // read-only, audited). Born from Olga's and Travis's blank tabs: a super admin

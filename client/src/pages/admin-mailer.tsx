@@ -58,11 +58,31 @@ type Campaign = {
 // HTML that actually went out.
 type CampaignDetail = Campaign & {
   body: string;
+  /** The editable design, when the email was built in the builder. */
+  bodyDoc?: unknown | null;
   replyTo: string | null;
   segmentConfig: string | null;
 };
 
 const STEPS = ["Setup", "Content", "Send"];
+
+type SavedTemplate = { id: number; name: string; subject: string | null; updatedAt: string; createdBy: string | null };
+
+/** An email that has not been sent yet, kept in THIS browser so a reload, a
+ *  closed tab or a builder hiccup never costs someone their work. */
+type LocalDraft = { subject: string; bodyDoc: unknown; bodyHtml: string; savedAt: string };
+const draftKey = (slug: string) => `clubos-mailer-draft:${slug || "default"}`;
+const readDraft = (slug: string): LocalDraft | null => {
+  try {
+    const raw = localStorage.getItem(draftKey(slug));
+    const d = raw ? JSON.parse(raw) : null;
+    return d && typeof d.bodyHtml === "string" && d.bodyHtml.trim() ? d : null;
+  } catch { return null; }
+};
+const writeDraft = (slug: string, d: LocalDraft | null) => {
+  try { d ? localStorage.setItem(draftKey(slug), JSON.stringify(d)) : localStorage.removeItem(draftKey(slug)); } catch { /* private mode / full */ }
+};
+const niceTime = (iso: string) => new Date(iso).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const HISTORY_PAGE = 10;
 
 // "cic_youth_custom" → "CIC youth custom". Segment types are namespaced by the
@@ -101,6 +121,12 @@ export default function AdminMailer() {
   // fails to load can never stop an email going out.
   const [bodyDoc, setBodyDoc] = useState<unknown | null>(null);
   const [designSavedAt, setDesignSavedAt] = useState<Date | null>(null);
+  // Bumped to remount the builder with a different design (a template, a past
+  // email, a recovered draft) — the builder reads its starting design once.
+  const [builderKey, setBuilderKey] = useState(0);
+  const orgSlug = currentOrg?.slug ?? "";
+  const [recoverable, setRecoverable] = useState<LocalDraft | null>(null);
+  useEffect(() => { setRecoverable(readDraft(orgSlug)); }, [orgSlug]);
   const [textColor, setTextColor] = useState("#333333");
   const [bgColor, setBgColor] = useState("#ffffff");
   const textColorRef = useRef<HTMLInputElement>(null);
@@ -174,6 +200,66 @@ export default function AdminMailer() {
     setDesignSavedAt(new Date());
   }, []);
 
+  // ── Loading a design: a template, a past email, a recovered draft ─────────
+  const loadDesign = useCallback((d: { bodyDoc: unknown; bodyHtml: string; subject?: string | null }) => {
+    setBodyDoc(d.bodyDoc ?? null);
+    setBodyHtml(d.bodyHtml || "");
+    setHasEditorContent((d.bodyHtml || "").replace(/<[^>]+>/g, " ").trim().length > 0);
+    if (d.subject) setSubject((cur) => cur.trim() ? cur : d.subject!);
+    setDesignSavedAt(new Date());
+    setBuilderKey((k) => k + 1);
+  }, []);
+  const hasDesign = bodyHtml.trim().length > 0;
+  const confirmReplace = () =>
+    !hasDesign || window.confirm("Replace the email you're working on? It can't be brought back.");
+
+  // Keep the unsent email in this browser — every design save and subject edit.
+  useEffect(() => {
+    if (!bodyHtml.trim() && !subject.trim()) return;
+    const t = setTimeout(() => {
+      writeDraft(orgSlug, { subject, bodyDoc, bodyHtml, savedAt: new Date().toISOString() });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [orgSlug, subject, bodyDoc, bodyHtml]);
+
+  // ── Saved templates (this workspace) ──────────────────────────────────────
+  const { data: templateList } = useQuery<{ templates: SavedTemplate[] }>({
+    queryKey: ["/api/admin/mailer/templates"],
+  });
+  const templates = templateList?.templates ?? [];
+  const [templateName, setTemplateName] = useState("");
+  const [namingTemplate, setNamingTemplate] = useState(false);
+  const saveTemplate = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/mailer/templates", {
+        name: templateName.trim(), subject, bodyDoc, bodyHtml,
+      });
+      return res.json();
+    },
+    onSuccess: (r: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mailer/templates"] });
+      toast({ title: r.updated ? "Template updated" : "Template saved", description: `"${templateName.trim()}" is ready to reuse.` });
+      setNamingTemplate(false);
+    },
+    onError: (e: any) => toast({ title: "Couldn't save the template", description: e?.message, variant: "destructive" }),
+  });
+  const openTemplate = async (id: number) => {
+    if (!confirmReplace()) return;
+    try {
+      const res = await apiRequest("GET", `/api/admin/mailer/templates/${id}`);
+      const t = await res.json();
+      loadDesign({ bodyDoc: t.bodyDoc, bodyHtml: t.bodyHtml, subject: t.subject });
+      setTemplateName(t.name);
+      toast({ title: `Started from "${t.name}"`, description: "Edit away — the template itself is unchanged." });
+    } catch (e: any) {
+      toast({ title: "Couldn't open that template", description: e?.message, variant: "destructive" });
+    }
+  };
+  const removeTemplate = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/mailer/templates/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/mailer/templates"] }),
+  });
+
   // 🔴 Nothing in this page had ever called /test-send, so there was no way to
   // see your own email before 3,800 people did. It posts the real subject and
   // design through the same renderer as the live send, so what arrives is what
@@ -225,6 +311,10 @@ export default function AdminMailer() {
       setBodyHtml("");
       setBodyDoc(null);
       setDesignSavedAt(null);
+      // Sent — the local copy has done its job.
+      writeDraft(orgSlug, null);
+      setRecoverable(null);
+      setBuilderKey((k) => k + 1);
       setHasEditorContent(false);
       setManualEmails([]);
       setSegmentType("all");
@@ -287,6 +377,36 @@ export default function AdminMailer() {
           </Fragment>
         ))}
       </div>
+
+      {/* An email that was never sent, kept in this browser. Offered back rather
+          than silently restored — it may be a week old and no longer wanted. */}
+      {recoverable && !hasDesign && (
+        <div className="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-amber-500/25" data-testid="mailer-draft-recover">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white/85">You have an email you didn't send</p>
+            <p className="text-xs text-white/45 mt-0.5 truncate">
+              {recoverable.subject ? `"${recoverable.subject}" · ` : ""}last changed {niceTime(recoverable.savedAt)}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => { loadDesign(recoverable); setSubject(recoverable.subject || ""); setRecoverable(null); }}
+              data-testid="button-draft-continue"
+            >
+              Carry on with it
+            </Button>
+            <Button
+              variant="outline"
+              className="h-11 md:h-9 border-white/10 text-white/60 hover:bg-white/5"
+              onClick={() => { writeDraft(orgSlug, null); setRecoverable(null); }}
+              data-testid="button-draft-discard"
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      )}
 
       {step === 0 && (
         <div className="space-y-6">
@@ -541,8 +661,7 @@ export default function AdminMailer() {
                     not told to use one. */}
                 <p className="text-xs text-white/35 mt-1 max-w-xl hidden md:block">
                   Drag a section in from the left, click any text to edit it, and style it on the right.
-                  Hit <span className="text-white/60 font-medium">Save design</span> when it looks right —
-                  that is what gets sent.
+                  It saves as you go — what you see is what gets sent.
                 </p>
                 <p className="text-xs text-white/35 mt-1 max-w-xl md:hidden">
                   Edit the email below and hit <span className="text-white/60 font-medium">Save</span> —
@@ -570,9 +689,79 @@ export default function AdminMailer() {
                 entirely and could not be scrolled to. Height and clipping are
                 therefore desktop-only, and `md` here MUST stay in step with
                 useIsNarrow(767) in EmailBuilder — they are the same boundary. */}
+            {/* Your templates — start from one, or keep this email as one. */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5" data-testid="mailer-templates-bar">
+              <span className="text-xs text-white/45 px-1">Your templates</span>
+              {templates.length === 0 ? (
+                <span className="text-xs text-white/30">None yet — build an email, then save it as one.</span>
+              ) : (
+                templates.slice(0, 8).map((t) => (
+                  <span key={t.id} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03]">
+                    <button
+                      type="button"
+                      onClick={() => openTemplate(t.id)}
+                      className="px-3 min-h-9 text-xs font-medium text-white/80 hover:text-white"
+                      title={`Start from "${t.name}"${t.createdBy ? ` — saved by ${t.createdBy}` : ""}`}
+                      data-testid={`button-template-${t.id}`}
+                    >
+                      {t.name}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove template ${t.name}`}
+                      onClick={() => { if (window.confirm(`Remove the template "${t.name}"? Emails already sent are not affected.`)) removeTemplate.mutate(t.id); }}
+                      className="pr-2.5 pl-0.5 min-h-9 text-white/30 hover:text-red-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                {namingTemplate ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => { e.preventDefault(); if (templateName.trim()) saveTemplate.mutate(); }}
+                  >
+                    <Input
+                      autoFocus
+                      value={templateName}
+                      onChange={(e) => setTemplateName(e.target.value)}
+                      placeholder="e.g. Term 4 welcome"
+                      maxLength={120}
+                      className="premium-input h-9 w-48 text-sm"
+                      data-testid="input-template-name"
+                    />
+                    <Button type="submit" disabled={!templateName.trim() || saveTemplate.isPending}
+                            className="h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-template-save">
+                      {saveTemplate.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+                    </Button>
+                    <Button type="button" variant="ghost" className="h-9 text-white/50" onClick={() => setNamingTemplate(false)}>Cancel</Button>
+                  </form>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!hasDesign}
+                    onClick={() => setNamingTemplate(true)}
+                    className="h-9 border-white/10 text-white/70 hover:bg-white/5"
+                    title={hasDesign ? "Keep this email to reuse" : "Build an email first"}
+                    data-testid="button-save-as-template"
+                  >
+                    Save as template
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* 🔴 A fixed box the builder FILLS (fillParent), clipped so the
+                browser can never scroll it to chase the caret — the Save bar
+                sliding off the top on paste (Zach, 2026-09-30) was this box
+                scrolling itself. The builder's canvas scrolls; this does not. */}
             <div
-              className="rounded-xl border border-white/10 bg-white md:overflow-hidden md:h-[74vh] md:min-h-[560px]"
+              className="rounded-xl border border-white/10 bg-white md:overflow-hidden md:[overflow:clip] md:h-[78vh] md:min-h-[600px]"
               data-testid="email-builder"
+              onScroll={(e) => { const el = e.currentTarget; if (el.scrollTop) el.scrollTop = 0; }}
             >
               <Suspense
                 fallback={
@@ -583,6 +772,9 @@ export default function AdminMailer() {
                 }
               >
                 <EmailBuilder
+                  key={builderKey}
+                  fillParent
+                  autoSave
                   workspaceId={currentOrg?.id ?? 1}
                   brandKey={brandKey}
                   initialDoc={bodyDoc}
@@ -596,7 +788,7 @@ export default function AdminMailer() {
             {!designSavedAt && bodyHtml.trim().length > 0 && (
               <p className="text-xs text-amber-400/70 flex items-center gap-1.5" data-testid="text-design-unsaved">
                 <AlertCircle className="w-3.5 h-3.5" />
-                You have changes that are not saved yet — press Save design in the builder.
+                Saving your changes…
               </p>
             )}
           </div>
@@ -774,6 +966,32 @@ export default function AdminMailer() {
                   </div>
                 </div>
               )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => {
+                    if (!confirmReplace()) return;
+                    const designed = openCampaign.bodyDoc && typeof openCampaign.bodyDoc === "object";
+                    loadDesign({
+                      bodyDoc: designed ? openCampaign.bodyDoc : { engine: "html", html: openCampaign.body },
+                      bodyHtml: openCampaign.body,
+                      subject: openCampaign.subject,
+                    });
+                    setOpenCampaignId(null);
+                    setStep(1);
+                    toast({
+                      title: "Copied into a new email",
+                      description: designed
+                        ? "Edit it and choose who it goes to. The one that was sent is unchanged."
+                        : "This one was written before the builder, so it opens as plain HTML.",
+                    });
+                  }}
+                  className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white"
+                  data-testid="button-reuse-campaign"
+                >
+                  Use as a starting point
+                </Button>
+              </div>
 
               <div className="min-w-0">
                 <div className="text-xs text-white/40 mb-2">What was sent</div>
