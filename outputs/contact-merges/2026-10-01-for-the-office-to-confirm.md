@@ -1,0 +1,356 @@
+# Children who may be stored twice — for the office to confirm (2026-10-01)
+
+Every clear-cut duplicate has already been merged (same name, same date of birth, same parent phone or email). What's left needs a person: open both, decide, and tell Daniel which to merge — and **which date of birth is right**, because it decides the age group.
+
+## A. Same child, same family — but the date of birth (or Friendly Manager id) disagrees (52)
+
+- **Abdullah Imam**
+  - #32825 — born 2014-05-10 · FM 43110 · Doreen Bi (0223992976) · 2 registration(s), latest 2026-07-19 · app.usg.co.nz/admin/people/contact-32825
+  - #37920 — born 2014-10-05 · Doreen Bi (0223992976) · 1 registration(s), latest 2026-09-17 · app.usg.co.nz/admin/people/contact-37920
+- **Arlo Bourdot**
+  - #36254 — born 2020-03-10 · D BOURDOT (+64276431703) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36254
+  - #36339 — born 2020-03-20 · D BOURDOT (+64276431703) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36339
+- **Bailey Gordon-Bhebe**
+  - #31478 — born 2016-04-27 · FM 41731 · nicola gordon (0274867222) · 3 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-31478
+  - #36490 — born 2016-04-28 · nicola gordon (0274867222) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36490
+- **Benjamin Huertas Porto**
+  - #32451 — born 2021-01-02 · FM 42724 · Maria Carolina Porto (02904318840), Maria Porto (02904318840) · 1 registration(s), latest 2026-02-03 · app.usg.co.nz/admin/people/contact-32451
+  - #35853 — born 2021-01-19 · Maria Porto (02904318840) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35853
+- **Benji Taylor**
+  - #32239 — born 2020-04-20 · FM 42507 · Lucy Taylor (0220488400) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32239
+  - #36419 — born 2020-10-04 · Lucy Taylor (0220488400) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36419
+- **Chace Gooding**
+  - #623 — born 2017-09-20 · Ryan Gooding (0211986026) · 0 registration(s), latest 2026-07-12 · app.usg.co.nz/admin/people/contact-623
+  - #624 — born 2017-09-18 · Ryan Gooding (0211986026) · 1 registration(s), latest 2026-07-12 · app.usg.co.nz/admin/people/contact-624
+- **Charlie Munro**
+  - #31715 — born 2018-11-30 · FM 41970 · Bianca Munro (0273061822) · 1 registration(s), latest 2026-07-27 · app.usg.co.nz/admin/people/contact-31715
+  - #36403 — born 2017-11-30 · Bianca Munro (0273061822) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36403
+- **Charlie Salmond**
+  - #32689 — born 2018-01-31 · FM 42970 · Charlotte Salmond (0211320495) · 3 registration(s), latest 2026-07-28 · app.usg.co.nz/admin/people/contact-32689
+  - #36154 — born 2017-01-31 · Charlotte Salmond (0211320495) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36154
+- **Colin Green**
+  - #36331 — born 2025-07-21 · Joseph Green (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36331
+  - #36332 — born 2019-07-21 · Joseph Green (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36332
+- **Cooper Caldwell**
+  - #30482 — born 2013-08-23 · FM 40692 · Dallin Caldwell (+64272644350) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30482
+  - #30829 — born 2013-08-28 · FM 41054 · Dallin Caldwell (+64272644350) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30829
+- **Daniel Munns**
+  - #27585 — born 2012-08-03 · FM 18158 · Ana Pueyo (0226895794) · 0 registration(s) · app.usg.co.nz/admin/people/contact-27585
+  - #30386 — born 2013-08-03 · FM 40590 · Ana Pueyo (0226895794) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30386
+- **Eli McNaughton**
+  - #33020 — born 2001-05-05 · FM 43479 · Corbin McNaughton (0220651948) · 0 registration(s) · app.usg.co.nz/admin/people/contact-33020
+  - #37231 — born 2021-05-05 · Corbin McNaughton (0220651948) · 2 registration(s), latest 2026-07-20 · app.usg.co.nz/admin/people/contact-37231
+- **Elian Gallardo**
+  - #27608 — born 2015-04-13 · FM 18234 · Isabel Andrade (0211472933) · 2 registration(s), latest 2026-04-13 · app.usg.co.nz/admin/people/contact-27608
+  - #30512 — born 2015-04-13 · FM 40724 · Maria Andrade (0211472933) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30512
+- **Eliezer Siu**
+  - #32469 — born 2020-07-23 · FM 42743 · Ada Ada (0223876953) · 1 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-32469
+  - #37251 — born 2022-07-23 · Ada Ada (0223876953) · 2 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-37251
+- **Fergus Carrie**
+  - #35874 — born 2018-05-07 · Ross Carrie (0278018242) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35874
+  - #37329 — born 2017-05-07 · Ross Carrie (0278018242) · 0 registration(s), latest 2026-07-27 · app.usg.co.nz/admin/people/contact-37329
+- **George Meates**
+  - #35930 — born 2017-12-02 · Steven Meates (021997072) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35930
+  - #36484 — born 2015-09-12 · Steven Meates (021997072) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36484
+- **Harnoor Bhullar**
+  - #37952 — born 2015-04-20 · Nitika Bhullar (0212532686) · 0 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37952
+  - #37953 — born 2015-04-19 · Nitika Bhullar (0212532686) · 1 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37953
+- **Harry Zheng**
+  - #31413 — born 2017-07-27 · FM 41666 · Yong Zheng (0211625174) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31413
+  - #36435 — born 2025-09-22 · Yong Zheng (0211625174) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36435
+- **Hendrix Cantwell**
+  - #36145 — born 2017-11-03 · Soo Cantwell (0211678977) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36145
+  - #36236 — born 2017-11-19 · Soo Cantwell (0211678977) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36236
+- **Henry Cresswell**
+  - #36243 — born 2025-05-03 · David Cresswell (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36243
+  - #36244 — born 2019-05-03 · David Cresswell (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36244
+- **Hugo Wishnowsky**
+  - #32964 — born 2019-09-24 · FM 43421 · Luke Wishnowsky (021370181) · 1 registration(s), latest 2026-05-25 · app.usg.co.nz/admin/people/contact-32964
+  - #36013 — born 2019-09-10 · Steven Wishnowsky (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36013
+- **Isaac Abbott**
+  - #31128 — born 2018-07-18 · FM 41364 · Karen Abbott (0221077189) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31128
+  - #37218 — born 2018-07-20 · Karen Abbott (0221077189) · 2 registration(s), latest 2026-07-19 · app.usg.co.nz/admin/people/contact-37218
+- **Jake Mair**
+  - #32970 — born 2018-07-18 · FM 43428 · Cameron Mair (021803654) · 1 registration(s), latest 2026-04-28 · app.usg.co.nz/admin/people/contact-32970
+  - #36192 — born 2025-12-22 · Cameron Mair (021803654) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36192
+- **Jasper Wu**
+  - #31591 — born 2012-05-12 · FM 41844 · Jared Wu (02108957686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31591
+  - #36393 — born 2012-05-10 · Yujia wu (+642108957686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36393
+  - #36394 — born not recorded · Yujia wu (+642108957686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36394
+  - #36395 — born not recorded · Yujia wu (+642108957686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36395
+- **Jeremiah Williams**
+  - #633 — born 2019-11-13 · Melissa Sloan (02108610525) · 0 registration(s), latest 2026-07-13 · app.usg.co.nz/admin/people/contact-633
+  - #36633 — born 2019-11-19 · Melissa Sloan (02108610525) · 1 registration(s), latest 2026-07-16 · app.usg.co.nz/admin/people/contact-36633
+- **Joel Thirkell**
+  - #27038 — born 2008-11-26 · FM 3814 · Jeremy Thirkell (0272706297) · 1 registration(s), latest 2026-05-22 · app.usg.co.nz/admin/people/contact-27038
+  - #28429 — born 2008-11-21 · FM 38533 · Jeremy Thirkell (0272706297) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28429
+- **Jordan Cook**
+  - #37960 — born 2016-08-30 · Jo Cook (0210567798) · 0 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37960
+  - #37962 — born 2016-08-08 · Jo Cook (0210567798) · 1 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37962
+- **Kyle Ahllers**
+  - #28798 — born 2012-03-09 · FM 38909 · Shane Naumann (02041397959) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28798
+  - #29028 — born 2012-03-09 · FM 39170 · Shane Naumann (02041397959) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29028
+- **Lucas Wang**
+  - #30075 — born 2018-07-20 · FM 40270 · Jie Yan (0210408182) · 4 registration(s), latest 2026-07-28 · app.usg.co.nz/admin/people/contact-30075
+  - #38021 — born 2026-07-20 · Jie Yan (0210408182) · 1 registration(s), latest 2026-09-23 · app.usg.co.nz/admin/people/contact-38021
+- **Max Havill**
+  - #30583 — born 2016-01-18 · FM 40799 · Emma McCleary (0277330296) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30583
+  - #37232 — born 2016-01-21 · Emma McCleary (0277330296) · 3 registration(s), latest 2026-07-20 · app.usg.co.nz/admin/people/contact-37232
+- **Mia Tippen**
+  - #31842 — born 2016-07-11 · FM 42099 · Ben Tippen (0277859686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31842
+  - #32014 — born 2016-03-11 · FM 42273 · Ben Tippen (0277859686) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32014
+- **Mitch Mardon**
+  - #33012 — born 2018-10-13 · FM 43470 · Khai Mardon (0212606317) · 2 registration(s), latest 2026-09-08 · app.usg.co.nz/admin/people/contact-33012
+  - #37841 — born 2017-10-13 · Khai Mardon (0212606317) · 0 registration(s), latest 2026-09-14 · app.usg.co.nz/admin/people/contact-37841
+- **Nikolai Hudson**
+  - #32398 — born 2018-08-30 · FM 42667 · Lisa Lee (027 310 9911) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32398
+  - #37282 — born 2018-03-01 · Lisa Lee (027 310 9911) · 1 registration(s), latest 2026-07-24 · app.usg.co.nz/admin/people/contact-37282
+- **Noah Barr**
+  - #32287 — born 2014-12-02 · FM 42556 · Renee Barr (0220356247) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32287
+  - #37989 — born 2026-12-02 · Renee Barr (0220356247) · 1 registration(s), latest 2026-09-22 · app.usg.co.nz/admin/people/contact-37989
+- **Noah Duncan**
+  - #30944 — born 2016-04-12 · FM 41177 · Emma Duncan (0274695223) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30944
+  - #30963 — born 2016-04-12 · FM 41196 · Emma Duncan (0274695223) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30963
+- **Noah Pearson**
+  - #35834 — born 2014-01-22 · Jeremy M Pearson (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35834
+  - #35864 — born 2014-04-04 · Jeremy M Pearson (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35864
+- **Oscar Oughton**
+  - #36170 — born 2017-05-30 · Amy Eastwood (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36170
+  - #36172 — born 2017-05-23 · Amy Eastwood (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36172
+- **Parum Shridhar**
+  - #35883 — born 2019-10-10 · Vibhuti Patel (0210590940) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35883
+  - #36442 — born 2019-10-08 · Vibhuti Patel (0210590940) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36442
+- **Patrick Finn**
+  - #35915 — born not recorded · Kieran Finn (0220301165) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35915
+  - #35992 — born 2017-05-11 · Kieran Finn (0220301165) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35992
+  - #37244 — born 2017-05-21 · Kieran Finn (0220301165) · 1 registration(s), latest 2026-07-21 · app.usg.co.nz/admin/people/contact-37244
+- **Paulo Echiverri**
+  - #28688 — born 2009-01-15 · FM 38794 · Harry Echiverri (0274817763) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28688
+  - #29076 — born 2009-01-15 · FM 39219 · Harry Echiverri (0274817763) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29076
+- **Reilly Welsh**
+  - #35938 — born 2017-03-17 · Jeremy Welsh (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35938
+  - #36081 — born 2017-03-27 · Jeremy Welsh (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36081
+- **River Borsje-Clark**
+  - #35847 — born 2017-11-19 · Jessica Borsje-Clark (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35847
+  - #35935 — born 2017-11-13 · Jessica Borsje-Clark (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35935
+- **Rocco Cantwell**
+  - #36144 — born 2020-10-03 · Soo Cantwell (0211678977) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36144
+  - #36235 — born 2020-10-19 · Soo Cantwell (0211678977) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36235
+- **Rudraksh Rawat**
+  - #26418 — born 2012-10-12 · FM 3155 · Archana Bist (0220462969) · 0 registration(s) · app.usg.co.nz/admin/people/contact-26418
+  - #29436 — born 2012-10-12 · FM 39596 · Archana Bist (0220462969) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29436
+- **Sam Boodee**
+  - #28885 — born 2011-01-01 · FM 38997 · Marc Boodee (0212039978) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28885
+  - #28887 — born 2011-08-24 · FM 38999 · Marc Boodee (0212039978) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28887
+- **Teyhan Samaranayaka**
+  - #36404 — born 2017-11-25 · D Lugoda (+642102489784) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36404
+  - #36434 — born 2017-11-26 · D Lugoda (+642102489784) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36434
+- **Theodore Irwin**
+  - #30486 — born 2018-04-15 · FM 40696 · Jasmine Irwin (0212668092) · 1 registration(s), latest 2026-02-02 · app.usg.co.nz/admin/people/contact-30486
+  - #38125 — born 2017-04-15 · Jasmine Irwin (0212668092) · 1 registration(s), latest 2026-09-29 · app.usg.co.nz/admin/people/contact-38125
+- **Tuari Kingi-hazel**
+  - #30563 — born 2016-04-19 · FM 40778 · courtney hayde (0224649178) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30563
+  - #36545 — born 2016-04-29 · courtney hayde (0224649178) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36545
+- **Victoria Hudson**
+  - #32399 — born 2020-01-09 · FM 42668 · Lisa Lee (027 310 9911) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32399
+  - #37283 — born 2020-09-01 · Lisa Lee (027 310 9911) · 1 registration(s), latest 2026-07-24 · app.usg.co.nz/admin/people/contact-37283
+- **Wallace Gerring**
+  - #36295 — born 2020-07-25 · Madison Chilton (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36295
+  - #36453 — born 2020-07-20 · Madison Chilton (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36453
+- **william le heron**
+  - #29953 — born 2018-07-26 · FM 40139 · lucinda le heron (0272880037) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29953
+  - #31154 — born 2018-06-26 · FM 41390 · Lucinda Le heron (0272880037) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31154
+- **Woolf Wright**
+  - #32918 — born 2021-06-29 · FM 43374 · Natalie-Rose Rutherford (0221333265) · 1 registration(s), latest 2026-04-20 · app.usg.co.nz/admin/people/contact-32918
+  - #37250 — born 2021-06-22 · Natalie-Rose Rutherford (0221333265) · 1 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-37250
+
+## B. Same name and date of birth, but different parents and phones (60)
+
+Often separated parents each registering the same child — or genuinely two different children. Ask before merging.
+
+- **Alex Mullaney**
+  - #35925 — born 2017-07-05 · Tamara Glyn (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35925
+  - #36618 — born 2017-07-05 · FM 38987 · Mark Mullaney  (0225237139), Mark Mullaney (0225237139) · 5 registration(s), latest 2026-09-30 · app.usg.co.nz/admin/people/contact-36618
+- **Angus Shaw**
+  - #36204 — born 2018-08-15 · Jaana Joseph (0273230863) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36204
+  - #37564 — born 2018-08-15 · FM 43609 · Phil Shaw (021636141) · 2 registration(s), latest 2026-08-27 · app.usg.co.nz/admin/people/contact-37564
+- **Anran Wangcao**
+  - #31047 — born 2015-06-19 · FM 41281 · Rachel Cao (0212330434) · 2 registration(s), latest 2026-02-09 · app.usg.co.nz/admin/people/contact-31047
+  - #31995 — born 2015-06-19 · FM 42254 · Howard wang (021686977) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31995
+- **Arlo Davie**
+  - #32823 — born 2019-09-14 · FM 43108 · Charlotte Davie (0274777229) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32823
+  - #36111 — born 2019-09-14 · Kathleen Harrington (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36111
+- **Arthur Bates**
+  - #31703 — born 2019-02-13 · FM 41958 · Aaron Bates (021989966) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31703
+  - #35918 — born 2019-02-13 · Aaron Bates (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35918
+  - #37299 — born 2019-02-13 · Fay Bates (0278292143) · 1 registration(s), latest 2026-07-27 · app.usg.co.nz/admin/people/contact-37299
+- **Arthur Meates**
+  - #29746 — born 2015-09-12 · FM 39915 · Rachael Meates (0274512444) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29746
+  - #35928 — born 2015-09-12 · Steven Meates (021997072) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35928
+- **Asher O’Regan**
+  - #32830 — born 2019-08-22 · FM 43115 · Esther Aartsen (+64 22 691 0129) · 3 registration(s), latest 2026-08-11 · app.usg.co.nz/admin/people/contact-32830
+  - #36180 — born 2019-08-22 · Esther Aartsen (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36180
+- **Bastien Collier-Bickley**
+  - #32104 — born 2017-08-04 · FM 42367 · Lisa Collier (0274667625) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32104
+  - #35959 — born 2017-08-04 · LISA COLLIER (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35959
+- **Beckett Sumner**
+  - #28207 — born 2014-05-02 · FM 38276 · Carl Sumner (0212424152) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28207
+  - #28408 — born 2014-05-02 · FM 38512 · Hannah Sumner (0211266374) · 3 registration(s), latest 2026-05-08 · app.usg.co.nz/admin/people/contact-28408
+- **Benjamin Huertas Porto**
+  - #32451 — born 2021-01-02 · FM 42724 · Maria Carolina Porto (02904318840), Maria Porto (02904318840) · 1 registration(s), latest 2026-02-03 · app.usg.co.nz/admin/people/contact-32451
+  - #35994 — born 2021-01-02 · Fabiana Porto (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35994
+- **Billy Everson**
+  - #32222 — born 2018-03-01 · FM 42487 · Joel E (+64221990300), Joel Everson (0221990300) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32222
+  - #36386 — born 2018-03-01 · Sophie Everson (+642102546007) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36386
+- **Bodhi Naik**
+  - #31753 — born 2020-01-17 · FM 42008 · Dinesh and Laura Naik (0275329692) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31753
+  - #36524 — born 2020-01-17 · Laura Naik (02108292377) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36524
+- **Caleb Orme**
+  - #32517 — born 2015-02-23 · FM 42793 · David Orme (0273161648) · 4 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-32517
+  - #36189 — born 2015-02-23 · EMMA KAIN (0276569722) · 1 registration(s), latest 2026-09-27 · app.usg.co.nz/admin/people/contact-36189
+- **Cameron Pearce**
+  - #26912 — born 2002-06-04 · FM 3679 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-26912
+  - #29974 — born 2002-06-04 · FM 40160 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-29974
+- **Cedric Hornabrook**
+  - #31770 — born 2017-12-15 · FM 42027 · Sam Hornabrook (no phone), Samantha Nicholson (02041093761) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31770
+  - #37190 — born 2017-12-15 · Samuel Hornabrook (021341713) · 3 registration(s), latest 2026-07-17 · app.usg.co.nz/admin/people/contact-37190
+- **Daisy Fitchett**
+  - #28244 — born 2010-10-12 · FM 38337 · Robyn Fitchett (0211295240) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28244
+  - #28946 — born 2010-10-12 · FM 39084 · Dominic Fitchett (021301755) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28946
+- **Edwin Dong**
+  - #27285 — born 2016-09-15 · FM 4096 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-27285
+  - #36073 — born 2016-09-15 · Lu Wang (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36073
+- **Elizabeth Cussianovich**
+  - #35965 — born 2020-07-28 · Kristin Penzel (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35965
+  - #36108 — born 2020-07-28 · Jorge Cussianovich (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36108
+- **Erick Moya Barrera**
+  - #29600 — born 1970-04-28 · FM 39762 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-29600
+  - #29602 — born 1970-04-28 · FM 39764 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-29602
+- **Finn Gilmore**
+  - #32800 — born 2020-01-15 · FM 43084 · Danica Gilmore (0274285502) · 2 registration(s), latest 2026-04-28 · app.usg.co.nz/admin/people/contact-32800
+  - #37226 — born 2020-01-15 · Elliot Gilmore (0212443695) · 1 registration(s), latest 2026-07-20 · app.usg.co.nz/admin/people/contact-37226
+- **Finn Jane**
+  - #35881 — born 2019-09-07 · Samantha Samantha (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35881
+  - #36454 — born 2019-09-07 · SIMON P JANE (+6421967680) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36454
+- **Finn Koska**
+  - #32879 — born 2017-11-22 · FM 43334 · Onur Koska (02108351180) · 1 registration(s), latest 2026-03-30 · app.usg.co.nz/admin/people/contact-32879
+  - #36308 — born 2017-11-22 · Nadine Kreitmeyr-Koska (0210658944) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36308
+- **George Meates**
+  - #29747 — born 2017-12-02 · FM 39916 · Rachael Meates (0274512444) · 0 registration(s) · app.usg.co.nz/admin/people/contact-29747
+  - #35930 — born 2017-12-02 · Steven Meates (021997072) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35930
+- **Harrison Cowdell**
+  - #30052 — born 2015-08-21 · FM 40246 · Sonia Rawson (033181908) · 1 registration(s), latest 2026-09-14 · app.usg.co.nz/admin/people/contact-30052
+  - #35885 — born 2015-08-21 · Sonia Rawson (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35885
+- **Hugo Jenkins**
+  - #35895 — born 2019-10-04 · Katie Jenkins (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35895
+  - #36149 — born 2019-10-04 · Katie Jenkins (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36149
+- **Isla Griffin**
+  - #35989 — born 2016-08-04 · Bridget OConnor (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35989
+  - #36210 — born 2016-08-04 · Bridget OConnor (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36210
+- **Ivan Yao**
+  - #31696 — born 2014-08-31 · FM 41951 · Xiaoli Ren (021618368) · 1 registration(s), latest 2026-02-02 · app.usg.co.nz/admin/people/contact-31696
+  - #35860 — born 2014-08-31 · Yingxian Yao (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35860
+- **Jake Mair**
+  - #32970 — born 2018-07-18 · FM 43428 · Cameron Mair (021803654) · 1 registration(s), latest 2026-04-28 · app.usg.co.nz/admin/people/contact-32970
+  - #36389 — born 2018-07-18 · Susannah Blatchford (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36389
+  - #36417 — born 2018-07-18 · S M Blatchford (+642108394940) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36417
+- **Joaquim Huertas Porto**
+  - #32452 — born 2017-04-26 · FM 42725 · Maria Carolina Porto (02904318840), Maria Porto (02904318840) · 3 registration(s), latest 2026-04-09 · app.usg.co.nz/admin/people/contact-32452
+  - #35993 — born 2017-04-26 · Fabiana Porto (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35993
+- **Kento Lee**
+  - #32206 — born 2017-11-23 · FM 42469 · Marina Lee (0273580995) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32206
+  - #36632 — born 2017-11-23 · Sang Lee (0272410751) · 1 registration(s), latest 2026-07-15 · app.usg.co.nz/admin/people/contact-36632
+- **Kirill Fedyushkin**
+  - #32628 — born 2019-04-23 · FM 42909 · Alexander Fedyushkin (0211935951) · 2 registration(s), latest 2026-04-28 · app.usg.co.nz/admin/people/contact-32628
+  - #35862 — born 2019-04-23 · Alexander Fedyushkin (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35862
+- **Leigh O’Regan**
+  - #32829 — born 2020-10-06 · FM 43114 · Esther Aartsen (+64 22 691 0129) · 3 registration(s), latest 2026-08-11 · app.usg.co.nz/admin/people/contact-32829
+  - #36179 — born 2020-10-06 · Esther Aartsen (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36179
+- **Leo Cuffe**
+  - #36200 — born 2019-12-27 · Fran Cooper (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36200
+  - #36531 — born 2019-12-27 · F Cooper (+64275067697) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36531
+- **Leo Pelter**
+  - #35877 — born 2021-03-23 · Leo Pelter (02040250863) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35877
+  - #35984 — born 2021-03-23 · Sarah Walker (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35984
+- **Lewis Carswell**
+  - #25683 — born 2006-02-23 · FM 2323 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-25683
+  - #29788 — born 2006-02-23 · FM 39957 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-29788
+- **Livio Schnyder**
+  - #30915 — born 2016-10-11 · FM 41145 · Mat Schnyder (021 486 554) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30915
+  - #36164 — born 2016-10-11 · Nadja Schnyder (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36164
+- **Lucas Feng**
+  - #32560 — born 2018-04-06 · FM 42840 · Ryan Feng (02102895914) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32560
+  - #36005 — born 2018-04-06 · Tara Ye (02102408980) · 4 registration(s), latest 2026-07-28 · app.usg.co.nz/admin/people/contact-36005
+- **Luuk van den Bergh**
+  - #25119 — born 1989-08-06 · FM 1671 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-25119
+  - #28770 — born 1989-08-06 · FM 38880 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-28770
+- **Marti Koska**
+  - #32878 — born 2021-01-26 · FM 43333 · Onur Koska (02108351180) · 1 registration(s), latest 2026-03-30 · app.usg.co.nz/admin/people/contact-32878
+  - #36305 — born 2021-01-26 · Nadine Kreitmeyr-Koska (0210658944) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36305
+- **Max Morreau**
+  - #30756 — born 2018-08-17 · FM 40976 · luke morreau (02102890386) · 3 registration(s), latest 2026-07-23 · app.usg.co.nz/admin/people/contact-30756
+  - #36374 — born 2018-08-17 · Luke Morreau (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36374
+- **Nico Johnson**
+  - #30747 — born 2013-10-24 · FM 40966 · Ali Johnson (0279688999) · 1 registration(s), latest 2026-02-16 · app.usg.co.nz/admin/people/contact-30747
+  - #36495 — born 2013-10-24 · Scott Johnson (02108383516) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36495
+- **Noah Jani**
+  - #33105 — born 2017-11-12 · FM 43565 · Nawal Nafil (0274 640 782) · 0 registration(s) · app.usg.co.nz/admin/people/contact-33105
+  - #37353 — born 2017-11-12 · Salvadore Jani (0273297572) · 1 registration(s), latest 2026-08-09 · app.usg.co.nz/admin/people/contact-37353
+- **Noah Pearson**
+  - #31755 — born 2014-04-04 · FM 42011 · Jeremy Pearson (0277801000) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31755
+  - #35864 — born 2014-04-04 · Jeremy M Pearson (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35864
+- **Oscar O'Byrne**
+  - #28330 — born 2017-05-28 · FM 38432 · Anna Johnstone (0272608282) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28330
+  - #36297 — born 2017-05-28 · Anna Johnstone (0211767473) · 2 registration(s), latest 2026-07-28 · app.usg.co.nz/admin/people/contact-36297
+- **Oscar Oughton**
+  - #31097 — born 2017-05-23 · FM 41333 · Amy Oughton (0211511393) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31097
+  - #36172 — born 2017-05-23 · Amy Eastwood (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36172
+- **Parker Petheram**
+  - #32544 — born 2020-01-02 · FM 42823 · Matt Petheram (0273403660) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32544
+  - #35963 — born 2020-01-02 · H PETHERAM (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35963
+- **Peter Carey**
+  - #31743 — born 2015-02-02 · FM 41998 · Hannah Carey (0276232385) · 3 registration(s), latest 2026-07-22 · app.usg.co.nz/admin/people/contact-31743
+  - #36344 — born 2015-02-02 · Hannah Carey (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36344
+- **Rayyan Burney**
+  - #37965 — born 2018-07-03 · Junaid Burney (02108383146) · 0 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37965
+  - #37966 — born 2018-07-03 · Hufsa Junaid (0211060859) · 1 registration(s), latest 2026-09-20 · app.usg.co.nz/admin/people/contact-37966
+- **Remy Logan**
+  - #32975 — born 2018-06-30 · FM 43433 · Jarvis Logan (021931311) · 1 registration(s), latest 2026-04-28 · app.usg.co.nz/admin/people/contact-32975
+  - #36191 — born 2018-06-30 · Terri Logan (021630907) · 1 registration(s), latest 2026-08-07 · app.usg.co.nz/admin/people/contact-36191
+- **Roux Bryant**
+  - #31676 — born 2016-02-06 · FM 41931 · Victoria Bryant (021793334) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31676
+  - #31767 — born 2016-02-06 · FM 42023 · Jeremy Pearson (0277801000) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31767
+- **Ryan Augustine**
+  - #31409 — born 2019-03-22 · FM 41662 · Akhil Mathew (0221910577) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31409
+  - #36407 — born 2019-03-22 · Minchu Baby (0224014004) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36407
+- **Stella Sumner**
+  - #28214 — born 2016-02-10 · FM 38283 · Carl Sumner (0212424152) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28214
+  - #28409 — born 2016-02-10 · FM 38513 · Hannah Sumner (0211266374) · 0 registration(s) · app.usg.co.nz/admin/people/contact-28409
+- **Tamatea Gilbert**
+  - #32742 — born 2017-11-12 · FM 43024 · Heemi Gilbert (0224519924) · 1 registration(s), latest 2026-02-02 · app.usg.co.nz/admin/people/contact-32742
+  - #35849 — born 2017-11-12 · Cindy Hollamby (0223977653) · 0 registration(s) · app.usg.co.nz/admin/people/contact-35849
+- **Ted Flynn**
+  - #32759 — born 2021-07-07 · FM 43042 · Aaron Flynn (021837882) · 0 registration(s) · app.usg.co.nz/admin/people/contact-32759
+  - #37513 — born 2021-07-07 · Emma Flynn (0273662609) · 1 registration(s), latest 2026-09-08 · app.usg.co.nz/admin/people/contact-37513
+- **Teyhan Samaranayaka**
+  - #30359 — born 2017-11-26 · FM 40563 · Chamil Samaranayaka (0212524419) · 1 registration(s), latest 2026-03-19 · app.usg.co.nz/admin/people/contact-30359
+  - #36434 — born 2017-11-26 · D Lugoda (+642102489784) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36434
+- **Toby Winter**
+  - #31278 — born 2020-11-30 · FM 41520 · Daniel Winter (0220625591) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31278
+  - #36153 — born 2020-11-30 · Michelle Winter (no phone) · 0 registration(s) · app.usg.co.nz/admin/people/contact-36153
+- **Vule Savanovic**
+  - #33079 — born 2014-12-18 · FM 43538 · Sinisha Savanovic (02041208578) · 0 registration(s) · app.usg.co.nz/admin/people/contact-33079
+  - #37287 — born 2014-12-18 · Maya Savanovic (02041147795) · 1 registration(s), latest 2026-07-26 · app.usg.co.nz/admin/people/contact-37287
+- **william heron**
+  - #32834 — born 2019-09-14 · FM 43124 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-32834
+  - #32837 — born 2019-09-14 · FM 43129 · no parent linked · 0 registration(s) · app.usg.co.nz/admin/people/contact-32837
+- **Zac Schroder**
+  - #30805 — born 2017-07-05 · FM 41029 · Danny Schroder (0275055637) · 0 registration(s) · app.usg.co.nz/admin/people/contact-30805
+  - #37194 — born 2017-07-05 · Amy Nixon (0211126607) · 1 registration(s), latest 2026-07-18 · app.usg.co.nz/admin/people/contact-37194
+- **Zayn Bian**
+  - #31368 — born 2017-03-02 · FM 41621 · Lisi Ma (022465902) · 0 registration(s) · app.usg.co.nz/admin/people/contact-31368
+  - #38027 — born 2017-03-02 · Chao  Bian (0224065902) · 1 registration(s), latest 2026-09-24 · app.usg.co.nz/admin/people/contact-38027
+
+## C. Holiday-camp bookings
+
+Camp bookings are kept in their own list and often have no date of birth, so they are never linked automatically — e.g. Miles Wogan's camp booking under Jaime Duggan shows as a second Miles on the Contacts page. Not counted above.
