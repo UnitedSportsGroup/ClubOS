@@ -704,7 +704,7 @@ export default function AdminMailer() {
                     <button
                       type="button"
                       onClick={() => openTemplate(t.id)}
-                      className="px-3 min-h-9 text-xs font-medium text-white/80 hover:text-white"
+                      className="px-3 min-h-11 md:min-h-9 text-xs font-medium text-white/80 hover:text-white"
                       title={`Start from "${t.name}"${t.createdBy ? ` — saved by ${t.createdBy}` : ""}`}
                       data-testid={`button-template-${t.id}`}
                     >
@@ -714,7 +714,7 @@ export default function AdminMailer() {
                       type="button"
                       aria-label={`Remove template ${t.name}`}
                       onClick={() => { if (window.confirm(`Remove the template "${t.name}"? Emails already sent are not affected.`)) removeTemplate.mutate(t.id); }}
-                      className="pr-2.5 pl-0.5 min-h-9 text-white/30 hover:text-red-400"
+                      className="pr-3 pl-1 min-h-11 md:min-h-9 min-w-9 text-white/30 hover:text-red-400"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -733,14 +733,14 @@ export default function AdminMailer() {
                       onChange={(e) => setTemplateName(e.target.value)}
                       placeholder="e.g. Term 4 welcome"
                       maxLength={120}
-                      className="premium-input h-9 w-48 text-sm"
+                      className="premium-input h-11 md:h-9 w-48 text-sm"
                       data-testid="input-template-name"
                     />
                     <Button type="submit" disabled={!templateName.trim() || saveTemplate.isPending || !designSettled}
-                            className="h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-template-save">
+                            className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-template-save">
                       {saveTemplate.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
                     </Button>
-                    <Button type="button" variant="ghost" className="h-9 text-white/50" onClick={() => setNamingTemplate(false)}>Cancel</Button>
+                    <Button type="button" variant="ghost" className="h-11 md:h-9 text-white/50" onClick={() => setNamingTemplate(false)}>Cancel</Button>
                   </form>
                 ) : (
                   <Button
@@ -748,7 +748,7 @@ export default function AdminMailer() {
                     variant="outline"
                     disabled={!hasDesign || !designSettled}
                     onClick={() => setNamingTemplate(true)}
-                    className="h-9 border-white/10 text-white/70 hover:bg-white/5"
+                    className="h-11 md:h-9 border-white/10 text-white/70 hover:bg-white/5"
                     title={!hasDesign ? "Build an email first" : !designSettled ? "Saving your changes…" : "Keep this email to reuse"}
                     data-testid="button-save-as-template"
                   >
