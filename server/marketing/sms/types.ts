@@ -33,6 +33,11 @@ export interface SmsSendInput {
    * provider's own message id.
    */
   clientRef: string;
+  /**
+   * Which kind of traffic this is. Providers that route the two differently (websms puts them on
+   * separate shared short codes) need it; others ignore it. Undefined = treat as marketing.
+   */
+  messageClass?: "transactional" | "marketing";
 }
 
 /** Result of a successful (accepted-for-delivery) send. */

@@ -1,21 +1,36 @@
-// Marketing Suite — WebSMS (NZ) provider adapter (Phase F part 1).
+// Marketing Suite — WebSMS (NZ) provider adapter, on the CONNEXUS API.
 //
-// WebSMS (websms.co.nz) — the other NZ-native aggregator recommended in
-// outputs/deep-research/2026-07-09-clubos-marketing-suite/04-sms-marketing-nz.md
-// (~10c NZD/segment, free shared zero-rated short code). No WebSMS account is
-// open yet — see ../README.md "Provider setup" for what Daniel needs to do
-// before SMS_PROVIDER=websms can be used.
+// websms.co.nz is the club's chosen SMS provider (decision 30 Sep 2026,
+// outputs/sms/2026-09-30-sms-provider-decision.md): ~10c NZD a segment, no monthly fee,
+// a free shared short code, STOP handled at their end.
 //
-// Sourced from WebSMS's own docs (fetched 2026-07-09):
-//   https://websms.co.nz/web2sms.php        (legacy send.php GET API — implemented below)
-//   https://websms.co.nz/api/openapi/       (newer "Connexus" JSON/bearer-token API)
-// WebSMS's site explicitly recommends the Connexus API for NEW integrations, but
-// its exact request/response field names could only be extracted via an
-// AI-summarized OpenAPI read (lower confidence than the legacy API, which has
-// concrete worked examples in the docs). This adapter targets the legacy
-// send.php API for that reason — it's the best-corroborated shape. See the
-// TODO(verify-live) notes below for the Connexus migration path once a real
-// account exists and the OpenAPI spec can be checked directly.
+// 🔴 This replaced an adapter written in July against websms's LEGACY send.php API
+// (username + password in a GET query string), which was never run against a live account
+// and could not even read the sender's number off an inbound reply. Connexus is what websms
+// recommends for new integrations and what this workspace has PROVEN live: the Katerina's
+// Beauty adapter (apps/katerinas-beauty/api/_lib/sms.ts) has sent real texts through it since
+// 17 Sep 2026. Everything that adapter learned the hard way is kept here:
+//
+//   • OAUTH2, NOT A STATIC KEY. client id + secret → POST /auth/token → a bearer good for 24h.
+//     Cached per process, refreshed a minute early; a 401 drops it and retries ONCE.
+//   • THE VERDICT IS PER MESSAGE, AT HTTP 200. An account with no credit answers
+//     {"success":false,"message":"Insufficient funds"} with a 200. Only `success !== false`
+//     on the response (and on messages[0] when present) counts as accepted.
+//   • websms HOLDS any message containing a URL for manual approval unless the domain is
+//     whitelisted in the members area. Whitelist the club domains before a campaign links out.
+//   • NZ has NO alphanumeric sender IDs on this route: texts arrive from a shared short code,
+//     so the body must name the club.
+//
+// Connexus reference (fetched 1 Oct 2026): https://api.websms.co.nz/api/connexus/
+//   POST /sms/out  { to, body, messageClass: "transactional"|"marketing", from?, messageId? (≤36),
+//                    sandbox? }  →  { success, status, message_id, parts, ... }
+//   DLR webhook    POST JSON { type:"dlr", messageId, status, statusCode, timestamp, customerMessageId }
+//                  statusCode 1 DELIVRD · 2/16 UNDELIV · 4 QUEUED · 8 ACCEPTD · -1 BLOCKED
+//   Inbound        POST JSON { type:"SMS", messageId, from:"+64…", body, timestamp, replyTo… }
+//   Webhooks are configured in the members area (not per send), no signature scheme.
+//
+// Env: WEBSMS_CLIENT_ID · WEBSMS_CLIENT_SECRET · optional WEBSMS_FROM (a dedicated code, later)
+//      · optional WEBSMS_SANDBOX=1 (websms accepts and bills nothing) · WEBSMS_API_BASE_URL.
 
 import type {
   ProviderRequest,
@@ -28,7 +43,7 @@ import type {
 } from "../types";
 import { analyzeSms, estimateCost } from "../encoding";
 
-const DEFAULT_BASE_URL = "https://websms.co.nz/api";
+const DEFAULT_BASE_URL = "https://api.websms.co.nz/api/connexus";
 
 function readCentsPerSegment(): number {
   const raw = process.env.SMS_COST_CENTS_PER_SEGMENT;
@@ -36,174 +51,170 @@ function readCentsPerSegment(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
 }
 
-/** WebSMS examples use dialling format without a leading '+' (e.g. "64271234567") — strip it. */
+/** Connexus examples use dialling format without the '+' ("6421234567"). */
 function toNzDiallingFormat(e164: string): string {
   return e164.startsWith("+") ? e164.slice(1) : e164;
 }
 
+/** Inbound `from` arrives as "+64…"; make sure it is E.164 either way so STOP joins the right profile. */
+function toE164(raw: string): string {
+  const s = raw.trim();
+  return s.startsWith("+") ? s : `+${s.replace(/^0+/, "")}`;
+}
+
 /**
- * Documented DLR status codes (websms.co.nz/web2sms.php):
- *   1=Delivered  2=Failed  4=Buffered  8=Queued  16=Rejected
- * Buffered/Queued are in-flight, not terminal — map to null so the caller waits
- * for a later terminal callback rather than recording a fake status.
+ * Connexus DLR status codes → our terminal statuses. ACCEPTD (8) is in-flight, so null:
+ * the caller waits for the terminal receipt rather than recording a fake one. QUEUED (4) is
+ * documented as "expired/queued"; it is only terminal when the carrier gave up, so it maps
+ * to expired. BLOCKED (-1) is websms refusing an unsubscribed or invalid number itself.
  */
-function mapWebSmsDlrCode(code: number): SmsDeliveryStatus | null {
+export function mapConnexusStatus(code: number): SmsDeliveryStatus | null {
   switch (code) {
-    case 1:
-      return "delivered";
+    case 1: return "delivered";
     case 2:
-      return "failed";
     case 16:
-      return "failed"; // rejected
-    default:
-      return null; // 4=buffered, 8=queued
+    case -1: return "failed";
+    case 4: return "expired";
+    default: return null; // 8 = ACCEPTD, anything new = not terminal
   }
 }
 
-/** Reads params from either a parsed query object or a query-decoded body — GET callbacks land in one or the other depending on how the wiring layer shapes ProviderRequest. */
 function readParams(req: ProviderRequest): Record<string, any> | null {
-  if (req.query) return req.query;
-  if (typeof req.body === "object" && req.body !== null) return req.body as Record<string, any>;
+  if (typeof req.body === "object" && req.body !== null && Object.keys(req.body as object).length) {
+    return req.body as Record<string, any>;
+  }
+  if (req.query && Object.keys(req.query).length) return req.query;
   return null;
 }
+
+/** Unix seconds (Connexus) or ms → Date; falls back to now. */
+function toDate(ts: unknown): Date {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return new Date();
+  return new Date(n < 1e12 ? n * 1000 : n);
+}
+
+// One token per process. Prod runs two Fly machines; each fetches its own, which is fine.
+let cachedToken: { value: string; expiresAt: number; key: string } | null = null;
 
 export class WebSmsProvider implements SmsProvider {
   readonly name = "websms";
   private warnedNoSignature = false;
 
-  private get username(): string {
-    const u = process.env.WEBSMS_USERNAME;
-    if (!u) throw new Error("[sms/websms] WEBSMS_USERNAME is not set — cannot send via WebSMS (see sms/README.md).");
-    return u;
+  private get clientId(): string {
+    const v = process.env.WEBSMS_CLIENT_ID;
+    if (!v) throw new Error("[sms/websms] WEBSMS_CLIENT_ID is not set — create an API key in the websms members area (see sms/README.md).");
+    return v;
   }
 
-  private get password(): string {
-    const p = process.env.WEBSMS_PASSWORD;
-    if (!p) throw new Error("[sms/websms] WEBSMS_PASSWORD is not set — cannot send via WebSMS (see sms/README.md).");
-    return p;
+  private get clientSecret(): string {
+    const v = process.env.WEBSMS_CLIENT_SECRET;
+    if (!v) throw new Error("[sms/websms] WEBSMS_CLIENT_SECRET is not set (shown once when the API key is created; rotate it if lost).");
+    return v;
   }
 
   private get baseUrl(): string {
-    return process.env.WEBSMS_API_BASE_URL || DEFAULT_BASE_URL;
+    return (process.env.WEBSMS_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
   }
 
-  /**
-   * Registered per-send via the `dlrurl` query param (the only callback-registration
-   * mechanism the legacy API documents — there's no separate "register webhook" call like
-   * Connexus has). Per the docs, BOTH delivery receipts (?id=&dlr=) and inbound replies
-   * (?id=+<id>&reply=) land on this same URL, so one env var covers both.
-   */
-  private get callbackUrl(): string | undefined {
-    return process.env.WEBSMS_CALLBACK_URL;
+  private async token(force = false): Promise<string> {
+    const key = this.clientId; // a rotated id invalidates the cache
+    if (!force && cachedToken && cachedToken.key === key && Date.now() < cachedToken.expiresAt) return cachedToken.value;
+    const res = await fetch(`${this.baseUrl}/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: key, client_secret: this.clientSecret }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number };
+    if (!res.ok || !j.access_token) throw new Error(`[sms/websms] auth failed (HTTP ${res.status})`);
+    cachedToken = { value: j.access_token, key, expiresAt: Date.now() + ((j.expires_in ?? 86400) - 60) * 1000 };
+    return cachedToken.value;
+  }
+
+  private post(token: string, payload: Record<string, unknown>) {
+    return fetch(`${this.baseUrl}/sms/out`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   }
 
   async send(msg: SmsSendInput): Promise<SmsSendResult> {
     const analysis = analyzeSms(msg.body);
-    const centsPerSegment = readCentsPerSegment();
+    const from = msg.senderId || process.env.WEBSMS_FROM;
+    const payload: Record<string, unknown> = {
+      to: toNzDiallingFormat(msg.to),
+      body: msg.body,
+      // Routes the text onto the right shared short code. Default MARKETING: a promotional
+      // text sent as "transactional" is a misclassification websms can act on; the reverse
+      // only costs a STOP line the caller already adds for marketing.
+      messageClass: msg.messageClass ?? "marketing",
+      ...(from ? { from } : {}),
+      // Our own reference comes back on the DLR as customerMessageId. Connexus caps it at 36
+      // characters, so a longer ref is left off rather than truncated into a collision.
+      ...(msg.clientRef && msg.clientRef.length <= 36 ? { messageId: msg.clientRef } : {}),
+      ...(process.env.WEBSMS_SANDBOX === "1" ? { sandbox: true } : {}),
+    };
 
-    // NOTE on sender ID: as with TNZ, NZ marketing SMS runs on a shared, zero-rated short
-    // code — the legacy send.php API documents no per-message sender-ID override field, so
-    // `msg.senderId` / SMS_SENDER_ID is NOT wired into this request. There is nothing
-    // confirmed to put it in on the legacy API (Connexus's `from` field is the migration
-    // path if/when a dedicated code is provisioned — see the file header).
-    void msg.senderId;
-
-    const params = new URLSearchParams({
-      username: this.username,
-      password: this.password,
-      premium: "1", // request a delivery report — without this there's nothing to join a DLR webhook against
-      cellnum: toNzDiallingFormat(msg.to),
-      message: msg.body,
-    });
-    if (this.callbackUrl) params.set("dlrurl", this.callbackUrl);
-    // TODO(verify-live): the legacy API has no documented client-reference field, so
-    // msg.clientRef can't be passed through to WebSMS itself — it's only usable locally
-    // (e.g. to correlate the returned providerMessageId back to the caller's own record)
-    // until/unless this migrates to Connexus, which documents a `messageId` field for this.
-    void msg.clientRef;
-
-    const url = `${this.baseUrl}/send.php?${params.toString()}`;
-    const res = await fetch(url, { method: "GET" });
-    const text = (await res.text()).trim();
-
-    // Documented response format: "OK:Queued:109720" success / "NOK:<reason>:<message>" error.
-    const parts = text.split(":");
-    const status = parts[0];
-    if (status !== "OK" || !res.ok) {
-      throw new Error(`[sms/websms] send failed: ${text || `HTTP ${res.status}`}`);
+    let token = await this.token();
+    let res = await this.post(token, payload);
+    if (res.status === 401) {
+      token = await this.token(true);
+      res = await this.post(token, payload);
     }
-    const providerMessageId = parts[parts.length - 1]?.trim();
-    if (!providerMessageId) {
-      throw new Error(`[sms/websms] send returned OK but no message id could be parsed from response: "${text}"`);
+    const j = (await res.json().catch(() => ({}))) as {
+      success?: boolean; status?: string; message?: string; error?: string;
+      message_id?: string | number; parts?: number;
+      messages?: { success?: boolean; message?: string; error?: string; message_id?: string | number; parts?: number }[];
+    };
+    const m = j.messages?.[0] ?? j;
+    if (!res.ok || j.success === false || m.success === false) {
+      throw new Error(`[sms/websms] send refused: ${m.message ?? m.error ?? j.message ?? `HTTP ${res.status}`}`);
     }
+    const providerMessageId = m.message_id != null ? String(m.message_id) : "";
+    if (!providerMessageId) throw new Error(`[sms/websms] accepted but no message_id in response: ${JSON.stringify(j).slice(0, 200)}`);
 
+    // Bill on what websms says it split the message into, falling back to our own count.
+    const segments = typeof m.parts === "number" && m.parts > 0 ? m.parts : analysis.segments;
     return {
       providerMessageId,
-      segments: analysis.segments,
-      costCentsEstimate: estimateCost(analysis.segments, 1, centsPerSegment),
+      segments,
+      costCentsEstimate: estimateCost(segments, 1, readCentsPerSegment()),
     };
   }
 
   parseDeliveryReceipt(req: ProviderRequest): SmsDeliveryReceipt | null {
-    const q = readParams(req);
-    if (!q) return null;
-    // Inbound replies also land on this same callback URL (see parseInbound) — a `+`-prefixed
-    // id or a `reply` param means it's NOT a delivery receipt, so bail out and let
-    // parseInbound handle it instead.
-    if (q.reply !== undefined || String(q.id ?? "").startsWith("+")) return null;
-
-    const id = q.id;
-    const dlrRaw = q.dlr;
-    if (id === undefined || dlrRaw === undefined) return null;
-
-    const code = Number(dlrRaw);
-    const status = mapWebSmsDlrCode(code);
+    const p = readParams(req);
+    if (!p) return null;
+    if (String(p.type ?? "").toLowerCase() !== "dlr") return null;
+    const id = p.messageId ?? p.message_id;
+    const code = Number(p.statusCode);
+    if (id == null || !Number.isFinite(code)) return null;
+    const status = mapConnexusStatus(code);
     if (!status) return null;
-
-    return {
-      providerMessageId: String(id),
-      status,
-      at: new Date(),
-    };
+    return { providerMessageId: String(id), status, at: toDate(p.timestamp) };
   }
 
   parseInbound(req: ProviderRequest): SmsInboundMessage | null {
-    const q = readParams(req);
-    if (!q) return null;
-
-    const idRaw = q.id;
-    const reply = q.reply;
-    if (idRaw === undefined || reply === undefined) return null;
-    if (!String(idRaw).startsWith("+")) return null; // '+' prefix marks an inbound reply per the docs
-
-    // TODO(verify-live): the docs' worked example for inbound replies
-    // ("id=+109720&reply=Reply Text") doesn't show the replying phone number's field name at
-    // all — only the original outbound message id + reply text. Trying the common aliases
-    // below; confirm the real field name against a live inbound test before relying on this
-    // (STOP/HELP matching in index.ts needs a real `from` to record consent state against).
-    const from = q.from ?? q.cellnum ?? q.msisdn ?? q.mobile ?? q.sender;
-    if (!from) return null;
-
+    const p = readParams(req);
+    if (!p) return null;
+    if (String(p.type ?? "").toUpperCase() !== "SMS") return null;
+    if (!p.from || p.body == null) return null;
     return {
-      from: String(from),
-      body: String(reply),
-      providerMessageId: String(idRaw).slice(1),
-      at: new Date(),
+      from: toE164(String(p.from)),
+      body: String(p.body),
+      providerMessageId: p.messageId != null ? String(p.messageId) : undefined,
+      at: toDate(p.timestamp),
     };
   }
 
   verifyWebhook(_req: ProviderRequest): boolean {
-    // TODO(verify-live): the legacy dlrurl callback has no documented signature/HMAC scheme.
-    // Per types.ts's SmsProvider contract, log once (loudly) and let it through rather than
-    // block delivery/inbound processing. A poor-man's mitigation: bake an unguessable path
-    // segment/token into WEBSMS_CALLBACK_URL itself so the URL doubles as a shared secret.
+    // Connexus documents no signature scheme. Per the SmsProvider contract: accept, but say so
+    // once, loudly. Mitigation: configure the webhook URLs in the members area with an
+    // unguessable path token (see sms/README.md) so the URL itself is the shared secret.
     if (!this.warnedNoSignature) {
       this.warnedNoSignature = true;
-      console.warn(
-        "[sms/websms] verifyWebhook: no documented signature scheme found for WebSMS's dlrurl " +
-          "callback — accepting all requests UNVERIFIED. Consider an unguessable token in " +
-          "WEBSMS_CALLBACK_URL as a lightweight mitigation.",
-      );
+      console.warn("[sms/websms] verifyWebhook: Connexus webhooks are unsigned — accepting UNVERIFIED.");
     }
     return true;
   }
