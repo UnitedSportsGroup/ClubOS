@@ -339,7 +339,11 @@ export default function AdminMailer() {
     (segmentType === "session" && selectedCampId && selectedDateId && selectedSession) ||
     (segmentType === "custom" && manualEmails.length > 0);
 
-  const canSend = subject.trim() && (hasEditorContent || bodyHtml.trim().length > 0);
+  // 🔴 Never move on with an older copy of the design: while a change is still
+  // being saved (designSavedAt is cleared on every edit and set by the save),
+  // Next waits — otherwise the email that goes out is missing the last edits.
+  const designSettled = !!designSavedAt || bodyHtml.trim().length === 0;
+  const canSend = subject.trim() && (hasEditorContent || bodyHtml.trim().length > 0) && designSettled;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -732,7 +736,7 @@ export default function AdminMailer() {
                       className="premium-input h-9 w-48 text-sm"
                       data-testid="input-template-name"
                     />
-                    <Button type="submit" disabled={!templateName.trim() || saveTemplate.isPending}
+                    <Button type="submit" disabled={!templateName.trim() || saveTemplate.isPending || !designSettled}
                             className="h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-template-save">
                       {saveTemplate.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
                     </Button>
@@ -742,10 +746,10 @@ export default function AdminMailer() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={!hasDesign}
+                    disabled={!hasDesign || !designSettled}
                     onClick={() => setNamingTemplate(true)}
                     className="h-9 border-white/10 text-white/70 hover:bg-white/5"
-                    title={hasDesign ? "Keep this email to reuse" : "Build an email first"}
+                    title={!hasDesign ? "Build an email first" : !designSettled ? "Saving your changes…" : "Keep this email to reuse"}
                     data-testid="button-save-as-template"
                   >
                     Save as template
@@ -788,7 +792,7 @@ export default function AdminMailer() {
             {!designSavedAt && bodyHtml.trim().length > 0 && (
               <p className="text-xs text-amber-400/70 flex items-center gap-1.5" data-testid="text-design-unsaved">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Saving your changes…
+                Saving your changes… (finish the text you're editing — click anywhere outside it)
               </p>
             )}
           </div>

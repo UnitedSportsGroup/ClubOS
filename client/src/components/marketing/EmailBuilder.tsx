@@ -295,9 +295,14 @@ export default function EmailBuilder({
     setAutoSavedAt(null);
     if (!autoSave) return;
     if (autoTimer.current) clearTimeout(autoTimer.current);
-    autoTimer.current = setTimeout(async () => {
+    const run = async () => {
       const surface = surfaceRef.current;
       if (!surface?.isReady()) return;
+      // 🔴 Mid-edit, the block's newest words are not in the design yet —
+      // saving now records the email as it was BEFORE them and labels it
+      // "saved". Wait for the edit to end (GrapesJS then fires "update",
+      // which lands back here) and check again.
+      if (surface.isEditing()) { autoTimer.current = setTimeout(run, AUTOSAVE_MS); return; }
       try {
         const result = await surface.getResult();
         await commit(result);
@@ -306,7 +311,8 @@ export default function EmailBuilder({
         // A failed background save says so; the manual Save stays available.
         console.error("[EmailBuilder] auto-save failed", e);
       }
-    }, AUTOSAVE_MS);
+    };
+    autoTimer.current = setTimeout(run, AUTOSAVE_MS);
   }, [autoSave, commit, onDirty]);
 
   const handleSaveMobile = useCallback(async () => {
@@ -385,7 +391,7 @@ export default function EmailBuilder({
             <span className="hidden text-xs text-muted-foreground md:inline" data-testid="mkt-autosave-status">
               {autoSavedAt
                 ? `Saved automatically ${autoSavedAt.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}`
-                : "Saves as you go"}
+                : "Saves when you finish a block"}
             </span>
           )}
           <button

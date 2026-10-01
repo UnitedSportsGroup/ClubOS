@@ -25,6 +25,9 @@ export interface EmailEditorSurfaceHandle {
   insertText: (text: string) => void;
   /** True once the underlying editor instance is live. */
   isReady: () => boolean;
+  /** True while a text block is being typed in. Its words reach the design
+   *  only when that edit ends, so a background save waits for it. */
+  isEditing: () => boolean;
 }
 
 interface SurfaceProps {
@@ -85,6 +88,9 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
       ref,
       (): EmailEditorSurfaceHandle => ({
         isReady: () => !!editorRef.current,
+        isEditing: () => {
+          try { return !!(editorRef.current as any)?.getEditing?.(); } catch { return false; }
+        },
         insertText: (text: string) => {
           const editor = editorRef.current;
           if (editor) insertMergeTag(editor, text);
