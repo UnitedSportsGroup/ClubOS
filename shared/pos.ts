@@ -126,3 +126,20 @@ export const POS_SELLER = {
 export function shiftExpectedCashCents(p: { openingFloatCents: number; cashPaymentsCents: number; cashRefundsCents: number }): number {
   return p.openingFloatCents + p.cashPaymentsCents - p.cashRefundsCents;
 }
+
+// ── Card reader (Stripe Terminal) ────────────────────────────────────────────
+/** Where a new Stripe Terminal Location is filed when a register has none. */
+export const POS_DEFAULT_READER_ADDRESS = { line1: "466 Yaldhurst Road", city: "Christchurch", postal_code: "8042", country: "NZ" } as const;
+
+/** What the reader's customer-facing screen shows while the sale is built.
+ *  Display only — the amount CHARGED is always the PaymentIntent's. Prices are
+ *  GST-inclusive, so no tax line (a "Tax" row would read as an extra charge). */
+export function readerCart(sale: { lines: { title: string; detail?: string | null; qty: number; unitCents: number }[]; discountCents: number; totalCents: number }) {
+  const items = sale.lines.slice(0, 20).map((l) => ({
+    description: [l.title, l.detail].filter(Boolean).join(" · ").slice(0, 100) || "Item",
+    amount: Math.max(0, l.unitCents), quantity: Math.max(1, l.qty),
+  }));
+  if (sale.lines.length > 20) items.push({ description: `+ ${sale.lines.length - 20} more`, amount: 0, quantity: 1 });
+  if (sale.discountCents > 0) items.push({ description: `Discount −$${(sale.discountCents / 100).toFixed(2)}`, amount: 0, quantity: 1 });
+  return { currency: "nzd", line_items: items, total: Math.max(0, sale.totalCents) };
+}

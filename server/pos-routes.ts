@@ -21,6 +21,10 @@
 //   POST  /api/admin/pos/sales/:id/refunds           { amountCents, reason, paymentId? }   requireRefundPermission
 //   POST  /api/admin/pos/sales/:id/receipt           { email? }
 //   POST  /api/admin/pos/declines                    { registerId, reason, amountCents?, note? }
+//   GET   /api/admin/pos/registers/:id/reader       the paired reader, live from Stripe
+//   POST  /api/admin/pos/registers/:id/reader       { registrationCode, label?, address? }  pair
+//   DELETE /api/admin/pos/registers/:id/reader      unpair (unlink only)
+//   POST  /api/admin/pos/sales/:id/display           show the cart on the reader's screen
 //   POST  /api/admin/pos/terminal/connection-token   { registerId }   (the app SDK, phase 4)
 //   GET   /api/public/pos/receipt/:token             the customer's receipt, by 128-bit token
 //
@@ -53,7 +57,7 @@ import {
 import {
   POS_TENDERS, POS_MANUAL_TENDERS, POS_DECLINE_REASONS, POS_SELLER, POS_MONEY_ACCOUNTS,
   isPosTender, isPosDeclineReason, isPosMoneyAccount, roundCashToTenCents, receiptTier,
-  shiftExpectedCashCents, posTenderLabel,
+  shiftExpectedCashCents, posTenderLabel, readerCart, POS_DEFAULT_READER_ADDRESS,
 } from "@shared/pos";
 import { stripe as clubStripe } from "./stripe";
 import { cugcStripe } from "./cugc-stripe";
@@ -129,6 +133,26 @@ async function staffName(userId: number | null | undefined): Promise<string | nu
 async function moneyAccountForOrg(orgId: number): Promise<string | null> {
   const [m] = await db.select().from(posOrgMoneyAccounts).where(eq(posOrgMoneyAccounts.organizationId, orgId));
   return m?.account ?? null;
+}
+
+
+// ── Card readers ─────────────────────────────────────────────────────────────
+// A reader is registered to ONE Stripe account. Which one is decided by the
+// register's default brand (club unless that brand banks with the gym), and a
+// sale on another account is refused at the till with a plain reason rather
+// than a Stripe "no such reader".
+async function readerAccountFor(register: { defaultOrgId: number | null }): Promise<string> {
+  const a = register.defaultOrgId ? await moneyAccountForOrg(register.defaultOrgId) : null;
+  return a === "cugc" ? "cugc" : "club";
+}
+
+function readerView(r: any) {
+  if (!r || r.deleted) return null;
+  return {
+    id: r.id as string, label: (r.label as string) ?? null, deviceType: (r.device_type as string) ?? null,
+    serial: (r.serial_number as string) ?? null, online: r.status === "online",
+    lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null, livemode: !!r.livemode,
+  };
 }
 
 async function loadSale(id: number) {
@@ -280,6 +304,22 @@ async function shiftSummary(shiftId: number) {
   };
 }
 
+/** A register's Stripe Terminal Location — created once, then reused. A
+ *  Bluetooth reader (WisePad 3) can only connect to a location, and a smart
+ *  reader is registered to one, so both paths go through here. */
+async function ensureRegisterLocation(stripe: any, register: { id: number; name: string; stripeLocationId: string | null }, a: any = {}): Promise<string> {
+  if (register.stripeLocationId) return register.stripeLocationId;
+  const address = {
+    line1: str(a?.line1, 120) || POS_DEFAULT_READER_ADDRESS.line1,
+    city: str(a?.city, 60) || POS_DEFAULT_READER_ADDRESS.city,
+    postal_code: str(a?.postalCode, 12) || POS_DEFAULT_READER_ADDRESS.postal_code,
+    country: "NZ",
+  };
+  const loc = await stripe.terminal.locations.create({ display_name: register.name.slice(0, 100), address }, { idempotencyKey: `pos_register_${register.id}_location` });
+  await db.update(posRegisters).set({ stripeLocationId: loc.id, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
+  return loc.id;
+}
+
 export function registerPosRoutes(app: Express) {
   const gate = [requireAuth, requireTabAnywhere("pos")] as const;
 
@@ -316,6 +356,83 @@ export function registerPosRoutes(app: Express) {
       }).returning();
       res.status(201).json(r);
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Card reader: pair, check, unpair ──────────────────────────────────────
+  // Pairing uses the code the reader shows on its own screen (Stripe's
+  // "registration code"), which is also the ONLY method that can move a reader
+  // off another Stripe account. The Location is created once per register.
+  app.get("/api/admin/pos/registers/:id/reader", ...gate, async (req, res) => {
+    try {
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, num(req.params.id)));
+      if (!register) return res.status(404).json({ message: "Register not found." });
+      const account = await readerAccountFor(register);
+      if (!register.stripeReaderId) return res.json({ reader: null, account });
+      const { stripe, ok, reason } = stripeForAccount(account);
+      if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
+      try {
+        res.json({ reader: readerView(await stripe.terminal.readers.retrieve(register.stripeReaderId)), account });
+      } catch (e: any) {
+        // The id is stored but Stripe no longer knows it — say so, don't pretend it's paired.
+        res.json({ reader: null, account, missing: register.stripeReaderId, message: e?.message ?? "Stripe does not know this reader." });
+      }
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/pos/registers/:id/reader", ...gate, async (req, res) => {
+    try {
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, num(req.params.id)));
+      if (!register) return res.status(404).json({ message: "Register not found." });
+      const code = str(req.body?.registrationCode, 60).toLowerCase().replace(/\s+/g, "-");
+      if (code.length < 3) return res.status(400).json({ message: "Enter the pairing code shown on the reader's screen." });
+      const account = await readerAccountFor(register);
+      const { stripe, ok, reason } = stripeForAccount(account);
+      if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
+      const locationId = await ensureRegisterLocation(stripe, register, req.body?.address);
+      let reader: any;
+      try {
+        reader = await stripe.terminal.readers.create({ registration_code: code, label: (str(req.body?.label, 60) || register.name).slice(0, 60), location: locationId });
+      } catch (e: any) {
+        return res.status(409).json({ code: "POS_READER_PAIR", message: /registration code/i.test(e?.message ?? "") ? "That pairing code didn't work. Codes expire — make a new one on the reader and try again." : `Stripe refused the pairing: ${e?.message ?? "unknown error"}` });
+      }
+      await db.update(posRegisters).set({ stripeReaderId: reader.id, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
+      await storage.createAuditLog({ userId: uid(req), action: "update", entity: "pos_register", entityId: register.id, details: `Paired card reader ${reader.id} (${reader.device_type ?? "reader"}${reader.serial_number ? `, ${reader.serial_number}` : ""}) on the ${account} Stripe account` } as any);
+      res.status(201).json({ reader: readerView(reader), account });
+    } catch (e: any) { if (!posError(res, e)) { console.error("[POS] pair reader", e); res.status(500).json({ message: e.message }); } }
+  });
+
+  // Unpairing only unlinks the reader from this register. It stays registered
+  // to the Stripe account (so it can be paired to another register straight
+  // away); moving it to a different account is done by pairing it there.
+  app.delete("/api/admin/pos/registers/:id/reader", ...gate, async (req, res) => {
+    try {
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, num(req.params.id)));
+      if (!register) return res.status(404).json({ message: "Register not found." });
+      if (!register.stripeReaderId) return res.json({ reader: null });
+      await db.update(posRegisters).set({ stripeReaderId: null, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
+      await storage.createAuditLog({ userId: uid(req), action: "update", entity: "pos_register", entityId: register.id, details: `Unpaired card reader ${register.stripeReaderId}` } as any);
+      res.json({ reader: null });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // What the customer sees on the reader while the sale is built. Best effort:
+  // a reader that is offline or busy must never stop the till selling.
+  app.post("/api/admin/pos/sales/:id/display", ...gate, async (req, res) => {
+    try {
+      const sale = await loadSale(num(req.params.id));
+      if (!sale) return res.status(404).json({ message: "Sale not found." });
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
+      if (!register?.stripeReaderId) return res.json({ shown: false, reason: "no_reader" });
+      if (sale.status !== "open" || sale.payments.some((p) => p.status === "pending")) return res.json({ shown: false, reason: "busy" });
+      const account = await readerAccountFor(register);
+      const { stripe, ok } = stripeForAccount(account);
+      if (!ok) return res.json({ shown: false, reason: "no_stripe" });
+      try {
+        if (!sale.lines.length) await stripe.terminal.readers.cancelAction(register.stripeReaderId);
+        else await stripe.terminal.readers.setReaderDisplay(register.stripeReaderId, { type: "cart", cart: readerCart(sale) } as any);
+        res.json({ shown: sale.lines.length > 0 });
+      } catch (e: any) { res.json({ shown: false, reason: "reader", message: e?.message ?? null }); }
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // Turn cash on or off for a register — a tick, never a migration, because a
@@ -674,6 +791,15 @@ export function registerPosRoutes(app: Express) {
       if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
       const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
       const useReader = req.body?.viaReader !== false && !!register?.stripeReaderId;
+      if (useReader && (await readerAccountFor(register!)) !== sale.moneyAccount) {
+        return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This reader takes payments for a different Stripe account than this sale banks with. Use that account's reader, or the EFTPOS terminal and record it." });
+      }
+      // The app's own reader (WisePad 3 over Bluetooth) is connected with a
+      // token for the REGISTER's account; a sale banking elsewhere could never
+      // be collected on it, so say so before a PaymentIntent exists.
+      if (!useReader && req.body?.sdk === true && register && (await readerAccountFor(register)) !== sale.moneyAccount) {
+        return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This register's readers take payments for a different Stripe account than this sale banks with. Use the EFTPOS terminal and record it." });
+      }
       const pi = await stripe.paymentIntents.create({
         amount: sale.remainingCents, currency: "nzd",
         payment_method_types: ["card_present"], capture_method: "automatic",
@@ -825,12 +951,28 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
 
+  // ── Where a Bluetooth reader connects (the app's WisePad 3) ──────────────
+  // The app asks once per register; the location is created on first use.
+  app.post("/api/admin/pos/registers/:id/terminal", ...gate, async (req, res) => {
+    try {
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, num(req.params.id)));
+      if (!register) return res.status(404).json({ message: "Register not found." });
+      const account = await readerAccountFor(register);
+      const { stripe, ok, reason } = stripeForAccount(account);
+      if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
+      const locationId = await ensureRegisterLocation(stripe, register);
+      res.json({ locationId, account, smartReaderId: register.stripeReaderId ?? null });
+    } catch (e: any) { if (!posError(res, e)) { console.error("[POS] terminal location", e); res.status(500).json({ message: e.message }); } }
+  });
+
   // ── Terminal connection token for the app SDK (Tap to Pay / WisePad) ─────
   app.post("/api/admin/pos/terminal/connection-token", ...gate, async (req, res) => {
     try {
       const registerId = num(req.body?.registerId);
       const [register] = Number.isFinite(registerId) ? await db.select().from(posRegisters).where(eq(posRegisters.id, registerId)) : [];
-      const account = isPosMoneyAccount(req.body?.moneyAccount) ? req.body.moneyAccount : "club";
+      // The register decides the account, so a phone can never mint a token for a
+      // different bucket than the sale it is about to charge.
+      const account = register ? await readerAccountFor(register) : isPosMoneyAccount(req.body?.moneyAccount) ? req.body.moneyAccount : "club";
       const { stripe, ok, reason } = stripeForAccount(account);
       if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
       const token = await stripe.terminal.connectionTokens.create(register?.stripeLocationId ? { location: register.stripeLocationId } : {});
