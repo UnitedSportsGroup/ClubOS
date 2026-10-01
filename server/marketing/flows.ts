@@ -333,7 +333,7 @@ async function sendSmsStep(enr: typeof mktFlowEnrollments.$inferSelect, flow: Mk
   }).returning({ id: mktSmsMessages.id });
 
   try {
-    const result = await provider.send({ to: profile.phoneE164, body, clientRef: idemKey });
+    const result = await provider.send({ to: profile.phoneE164, body, clientRef: idemKey, messageClass: isMkt ? "marketing" : "transactional" });
     await db.update(mktSmsMessages).set({
       status: "sent", sentAt: new Date(), providerMessageId: result.providerMessageId,
       segments: result.segments, costCents: result.costCentsEstimate ?? null,

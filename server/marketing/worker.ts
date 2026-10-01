@@ -375,7 +375,7 @@ async function taskCampaignSendSmsBatch(payload: unknown, helpers: JobHelpers): 
     }).returning({ id: mktSmsMessages.id });
 
     try {
-      const result = await provider.send({ to: profile.phoneE164, body: finalBody, clientRef: `${campaignId}:${pid}` });
+      const result = await provider.send({ to: profile.phoneE164, body: finalBody, clientRef: `${campaignId}:${pid}`, messageClass: isMkt ? "marketing" : "transactional" });
       await db.update(mktSmsMessages).set({
         status: "sent", sentAt: new Date(), providerMessageId: result.providerMessageId,
         segments: result.segments, costCents: result.costCentsEstimate ?? estimateCost(analysis.segments, 1, centsPerSegment),

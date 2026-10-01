@@ -49,11 +49,23 @@ Neither account is open yet. To go live with either provider:
 3. **Before trusting this adapter for anything but a sandbox `Mode=Test` send:** TNZ's own docs gave inconsistent detail across pages for the JSON REST API (host, request nesting, response envelope, webhook payload shape — none of it corroborated by a real example we could fetch). Every uncertain spot is marked `TODO(verify-live)` in `providers/tnz.ts` — grep that file for the tag and confirm each one against a real test send + a real webhook payload once the account exists.
 4. Register a webhook callback URL in the dashboard for delivery receipts + inbound SMS once the parallel agent's webhook route exists.
 
-**WebSMS** (websms.co.nz)
-1. Sign up for a WebSMS account (~10c/segment, no monthly fee, no setup fee, per the research doc's pricing table).
-2. Note the account `username`/`password` — these become `WEBSMS_USERNAME` / `WEBSMS_PASSWORD`.
-3. This adapter targets WebSMS's **legacy `send.php` API** (concrete, worked examples in their docs) rather than their newer "Connexus" API (which WebSMS's site says to prefer for new integrations, but whose exact field names we could only extract via an AI-summarized OpenAPI read — lower confidence). See the `TODO(verify-live)` notes in `providers/websms.ts` for the Connexus migration path once the account exists and the OpenAPI spec can be checked directly (e.g. for a `messageId`/client-reference field the legacy API lacks).
-4. Once the parallel agent's webhook route has a public URL, set `WEBSMS_CALLBACK_URL` to it — WebSMS's legacy API registers the delivery-receipt/inbound-reply callback **per send** via a `dlrurl` query param (there's no separate "register a webhook" step like Connexus has).
+**WebSMS** (websms.co.nz) — 🟢 **THE CHOSEN PROVIDER (30 Sep 2026)**, adapter on the **Connexus** API (1 Oct 2026)
+1. Sign up as the club (daniel@cufc.co.nz), verify phone/ID, add a card, top up (min $10). **Turn AUTO TOP-UP ON** —
+   with it off, campaigns stop silently the day the balance hits zero.
+2. Members area → API → create a key. The **client id** and **secret** become `WEBSMS_CLIENT_ID` / `WEBSMS_CLIENT_SECRET`
+   (Fly secrets). The secret is shown ONCE; if lost, rotate it.
+3. Members area → **whitelist the club domains** (cufc.co.nz, join.cufc.co.nz, minifootball.co.nz, cicyouth.com,
+   southislandunited.com, app.usg.co.nz) — websms HOLDS any message containing a URL for approval otherwise.
+4. Members area → webhooks: point **Delivery Reports** at `https://app.usg.co.nz/api/webhooks/sms/dlr` and **Incoming SMS**
+   at `https://app.usg.co.nz/api/webhooks/sms/inbound`. Connexus webhooks are unsigned; the route accepts them (see
+   `verifyWebhook`).
+5. Prove it with `WEBSMS_SANDBOX=1` first (websms accepts the message and bills nothing), then one real text to a staff
+   phone, then check the DLR flips `mkt_sms_messages.status` to `delivered`. ⚠️ Confirm on that first real send that the
+   DLR's `messageId` equals the `message_id` the send returned — that is the join key, and the docs show it but nothing
+   here has observed it live yet.
+6. `SMS_PROVIDER=websms` on Fly. Until then everything runs on `dryrun` and nothing leaves the building.
+
+Proof (offline, stubs fetch, never sends): `npx tsx script/test-sms-websms.ts` (28).
 
 ## Environment variables
 
@@ -65,9 +77,10 @@ Neither account is open yet. To go live with either provider:
 | `TNZ_API_KEY` | `providers/tnz.ts` | The API token generated in TNZ's dashboard. |
 | `TNZ_ACCOUNT_EMAIL` | `providers/tnz.ts` | The TNZ account login email — TNZ's JSON body calls this field `Sender`, which is confusing (it's account auth, not the SMS sender ID). |
 | `TNZ_API_BASE_URL` | `providers/tnz.ts` | Override for the JSON REST API host. Default is a best guess (`api.tnz.net.nz`) — TNZ's own docs disagree with themselves on this, see the `TODO(verify-live)` at the top of the file. |
-| `WEBSMS_USERNAME` / `WEBSMS_PASSWORD` | `providers/websms.ts` | WebSMS account credentials (sent as query params on every send — that's how their legacy API authenticates). |
-| `WEBSMS_API_BASE_URL` | `providers/websms.ts` | Override for the API host. Default `https://websms.co.nz/api`. |
-| `WEBSMS_CALLBACK_URL` | `providers/websms.ts` | The `dlrurl` registered on every send — handles BOTH delivery receipts and inbound replies (same endpoint, per WebSMS's docs). |
+| `WEBSMS_CLIENT_ID` / `WEBSMS_CLIENT_SECRET` | `providers/websms.ts` | Connexus API key (OAuth2 client credentials → a 24h bearer, cached, refreshed on 401). |
+| `WEBSMS_FROM` | `providers/websms.ts` | Optional. Only for a dedicated short code later; unset = the shared code. |
+| `WEBSMS_SANDBOX` | `providers/websms.ts` | `1` = websms accepts and bills nothing. For first-run proof. |
+| `WEBSMS_API_BASE_URL` | `providers/websms.ts` | Override. Default `https://api.websms.co.nz/api/connexus`. |
 
 ## Cost math (worked example)
 
