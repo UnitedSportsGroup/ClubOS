@@ -15,7 +15,7 @@ interface Line {
   id: number; designName: string | null; material: string | null; sizeLabel: string | null; quantity: number;
   files: { filename: string; sizeBytes: number }[]; uploadPath: string;
 }
-type Job = { name: string; size: number; pct: number; state: "sending" | "done" | "failed"; message?: string };
+type Job = { id: string; name: string; size: number; pct: number; state: "sending" | "done" | "failed"; message?: string };
 
 export default function PrintArtworkPage() {
   const { token } = useParams<{ token: string }>();
@@ -31,11 +31,14 @@ export default function PrintArtworkPage() {
 
   const send = async (line: Line, files: FileList | null) => {
     if (!files?.length) return;
-    for (const file of Array.from(files)) {
-      const key = line.id;
-      const idx = (jobs[key]?.length ?? 0);
-      setJobs((j) => ({ ...j, [key]: [...(j[key] ?? []), { name: file.name, size: file.size, pct: 0, state: "sending" }] }));
-      const set = (patch: Partial<Job>) => setJobs((j) => ({ ...j, [key]: (j[key] ?? []).map((x, i) => (i === idx ? { ...x, ...patch } : x)) }));
+    // 🔴 Each file is tracked by its own id — an index read from state inside this
+    // async loop is stale, and two files picked together overwrote one row.
+    const list = Array.from(files);
+    const key = line.id;
+    const queued = list.map((file) => ({ file, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` }));
+    setJobs((j) => ({ ...j, [key]: [...(j[key] ?? []), ...queued.map(({ file, id }) => ({ id, name: file.name, size: file.size, pct: 0, state: "sending" as const }))] }));
+    for (const { file, id } of queued) {
+      const set = (patch: Partial<Job>) => setJobs((j) => ({ ...j, [key]: (j[key] ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
       const r = await uploadArtwork(window.location.origin, line.uploadPath, file, (pct) => set({ pct }));
       set(r.ok ? { state: "done", pct: 100 } : { state: "failed", message: r.message });
     }
@@ -71,8 +74,8 @@ export default function PrintArtworkPage() {
                   <div className="text-[13px] text-[#4a5265]">{[line.material, line.sizeLabel, `×${line.quantity}`].filter(Boolean).join(" · ")}</div>
                 </div>
               </div>
-              {[...line.files.map((f) => ({ name: f.filename, size: f.sizeBytes, pct: 100, state: "done" as const })), ...(jobs[line.id] ?? [])].map((j, i) => (
-                <div key={i} className="mt-3 rounded-xl bg-[#f7faff] px-3 py-2 text-[13px]">
+              {[...line.files.map((f, i) => ({ id: `saved-${i}`, name: f.filename, size: f.sizeBytes, pct: 100, state: "done" as const })), ...(jobs[line.id] ?? [])].map((j) => (
+                <div key={j.id} data-testid="artwork-job" data-state={j.state} className="mt-3 rounded-xl bg-[#f7faff] px-3 py-2 text-[13px]">
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-[#012583]">{j.name}</span>
                     <span className={j.state === "failed" ? "text-red-600" : j.state === "done" ? "text-[#2a9d00] font-semibold" : "text-[#4a5265]"}>
