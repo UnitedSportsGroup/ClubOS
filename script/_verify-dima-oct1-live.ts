@@ -65,7 +65,8 @@ try {
   ok("Quotes tab detail lists the file on its line", detail.status === 200 && f?.filename === "Probe Artwork.pdf" && f?.itemId === dj.items?.[0]?.id, detail.body.slice(0, 200));
   const list = JSON.parse(admin(`/api/admin/print-quotes`).body || "{}");
   ok("Quotes tab list carries the file", !!list.quotes?.find((x: any) => x.id === quoteId)?.files?.length);
-  const dl = admin(`/api/admin/print-quotes/${quoteId}/files/${f?.id}?download=1`, ["-o", "/dev/null"]);
+  // A plain link sends the cookie only — no X-Workspace-Slug.
+  const dl = curl(["-o", "/dev/null", "-H", `Cookie: ${cookie}`, `${BASE}/api/admin/print-quotes/${quoteId}/files/${f?.id}?download=1`]);
   const loc = dl.headers.match(/^location:\s*(\S+)/im)?.[1] ?? "";
   ok("download redirects to a short-lived signed URL", dl.status === 302 && /token=/.test(loc), `${dl.status} ${loc.slice(0, 80)}`);
   const bytes = loc ? execFileSync("curl", ["-s", loc]) : Buffer.alloc(0);

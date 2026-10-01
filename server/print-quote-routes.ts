@@ -33,7 +33,8 @@ import { accountDiscountPct } from "@shared/print-account";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { guardPublicForm } from "./form-guard";
-import { requireAuth, requireTab } from "./auth";
+import { requireAuth, requireTab, requireTabAnywhere } from "./auth";
+import { storage } from "./storage";
 import {
   organizations,
   printQuotes,
@@ -47,7 +48,10 @@ import {
 } from "@shared/schema";
 import { quotePrintItem, quoteOrderTotals } from "./print-pricing";
 import { emailQuoteReceivedCustomer, emailQuoteRequestDima } from "./print-email";
+import { sql } from "drizzle-orm";
 import { driveStorage } from "./drive-storage";
+import { ART_MAX_BYTES, ART_PART_BYTES, newArtPrefix, signArtParts, listArtParts, signedArtUrl, streamArtParts, partKey } from "./print-artwork-storage";
+import { emailQuoteArtworkRequest } from "./print-email";
 
 // United Prints is org 8 — same default used by the existing public print
 // materials/order routes in routes.ts.
@@ -624,6 +628,8 @@ export function registerPrintQuoteRoutes(app: Express) {
         needsHumanQuote: unpriceable.length > 0,
         // One signed upload path per line, in the order the lines were sent.
         uploads: insertedItems.map((it, index) => ({ index, itemId: it.id, path: artworkUploadPath(quote.id, it.id) })),
+        // Their private page to (re)send artwork later — offered if an upload fails.
+        artworkPageUrl: `https://shop.unitedprints.co.nz/print/artwork/${quote.token}`,
       });
     } catch (e: any) {
       console.error("[print-quotes] quote request failed:", e);
@@ -678,6 +684,111 @@ export function registerPrintQuoteRoutes(app: Express) {
     next(err);
   });
 
+  // ── Artwork of ANY size: split in the browser, parts go straight to storage ──
+  // POST …/artwork/start  {name, size, contentType} → {fileId, partBytes, urls[]}
+  // (browser PUTs part i to urls[i])  then  POST …/artwork/:fileId/finish
+  // Same signed link as the single upload, so it is just as unreachable without
+  // a real quote line. A file stays 'uploading' — invisible to Dima — until every
+  // part is confirmed in storage.
+  app.options(ARTWORK_PATH + "/start", (req, res) => { quoteCors(req, res); res.sendStatus(204); });
+  app.post(ARTWORK_PATH + "/start", async (req: Request, res: Response) => {
+    quoteCors(req, res);
+    try {
+      const quoteId = parseInt(String(req.params.quoteId), 10);
+      const itemId = parseInt(String(req.params.itemId), 10);
+      if (!Number.isFinite(quoteId) || !Number.isFinite(itemId)
+          || !artworkSigOk(quoteId, itemId, Number(req.query.exp), String(req.query.sig ?? ""))) {
+        return res.status(403).json({ message: "That upload link has expired — refresh the page and try again." });
+      }
+      const [item] = await db.select({ id: printQuoteItems.id }).from(printQuoteItems)
+        .where(and(eq(printQuoteItems.id, itemId), eq(printQuoteItems.quoteId, quoteId)));
+      if (!item) return res.status(404).json({ message: "Quote not found" });
+      const filename = cleanFilename(String(req.body?.name ?? ""));
+      const ext = (filename.split(".").pop() ?? "").toLowerCase();
+      if (!ARTWORK_EXTS.has(ext)) return res.status(415).json({ message: `We can't take .${ext || "?"} files here — send a PDF, AI, EPS, PSD, SVG, PNG, JPG or TIFF.` });
+      const size = Number(req.body?.size);
+      if (!Number.isInteger(size) || size <= 0) return res.status(400).json({ message: "That file was empty." });
+      if (size > ART_MAX_BYTES) return res.status(413).json({ message: "That file is over 2GB — send a WeTransfer link to orders@unitedprints.co.nz instead." });
+      const ready: any = await db.execute(sql`SELECT count(*)::int n FROM print_quote_files WHERE item_id = ${itemId} AND status = 'ready'`);
+      if (Number((ready.rows ?? ready)[0]?.n ?? 0) >= ARTWORK_MAX_PER_ITEM) return res.status(429).json({ message: `That's ${ARTWORK_MAX_PER_ITEM} files on this item already.` });
+      const contentType = String(req.body?.contentType || "application/octet-stream").slice(0, 100);
+      const parts = Math.max(1, Math.ceil(size / ART_PART_BYTES));
+      const prefix = newArtPrefix();
+      const urls = await signArtParts(prefix, parts);
+      const [row] = await db.insert(printQuoteFiles).values({
+        quoteId, itemId, filename, contentType, sizeBytes: size,
+        storageKey: prefix, storageBackend: "supabase", checksum: "parts-unverified",
+        parts, status: "uploading", chunked: true,
+      } as any).returning({ id: printQuoteFiles.id });
+      res.json({ fileId: row.id, partBytes: ART_PART_BYTES, urls });
+    } catch (e: any) {
+      console.error("[print-quotes] artwork start failed:", e);
+      res.status(500).json({ message: "We couldn't start that upload — email it to orders@unitedprints.co.nz and we'll attach it." });
+    }
+  });
+
+  const FINISH_PATH = ARTWORK_PATH + "/:fileId/finish";
+  app.options(FINISH_PATH, (req, res) => { quoteCors(req, res); res.sendStatus(204); });
+  app.post(FINISH_PATH, async (req: Request, res: Response) => {
+    quoteCors(req, res);
+    try {
+      const quoteId = parseInt(String(req.params.quoteId), 10);
+      const itemId = parseInt(String(req.params.itemId), 10);
+      const fileId = parseInt(String(req.params.fileId), 10);
+      if (!Number.isFinite(quoteId) || !Number.isFinite(itemId) || !Number.isFinite(fileId)
+          || !artworkSigOk(quoteId, itemId, Number(req.query.exp), String(req.query.sig ?? ""))) {
+        return res.status(403).json({ message: "That upload link has expired — refresh the page and try again." });
+      }
+      const [f] = await db.select().from(printQuoteFiles)
+        .where(and(eq(printQuoteFiles.id, fileId), eq(printQuoteFiles.quoteId, quoteId), eq(printQuoteFiles.itemId, itemId)));
+      if (!f) return res.status(404).json({ message: "Upload not found" });
+      if ((f as any).status === "ready") return res.json({ ok: true, filename: f.filename });
+      // 🔴 Every part must be there, and the sizes must add up — or it stays
+      // invisible rather than handing Dima a truncated print file.
+      const landed = await listArtParts(f.storageKey);
+      const parts = Number((f as any).parts ?? 1);
+      let total = 0;
+      for (let i = 0; i < parts; i++) {
+        if (!landed.has(i)) return res.status(409).json({ message: `Part ${i + 1} of ${parts} didn't arrive — try again.` });
+        total += landed.get(i)!;
+      }
+      if (total !== f.sizeBytes) return res.status(409).json({ message: "The file didn't arrive complete — try again." });
+      await db.update(printQuoteFiles).set({ status: "ready" } as any).where(eq(printQuoteFiles.id, fileId));
+      res.json({ ok: true, filename: f.filename, sizeBytes: f.sizeBytes });
+    } catch (e: any) {
+      console.error("[print-quotes] artwork finish failed:", e);
+      res.status(500).json({ message: "We couldn't confirm that upload — email it to orders@unitedprints.co.nz." });
+    }
+  });
+
+  // The customer's private artwork page (shop.unitedprints.co.nz/print/artwork/<token>):
+  // what they asked for, the files already in, and a fresh upload link per line.
+  // The token is the quote's random 48-hex id — it shows nothing but their first
+  // name and the lines of their own quote.
+  app.get("/api/public/unitedprints/quote-artwork/:token", async (req: Request, res: Response) => {
+    try {
+      const token = String(req.params.token);
+      if (!/^[0-9a-f]{48}$/.test(token)) return res.status(404).json({ message: "Not found" });
+      const [quote] = await db.select().from(printQuotes).where(eq(printQuotes.token, token));
+      if (!quote || quote.status === "rejected") return res.status(404).json({ message: "Not found" });
+      const items = await db.select().from(printQuoteItems).where(eq(printQuoteItems.quoteId, quote.id)).orderBy(asc(printQuoteItems.id));
+      const files: any = await db.execute(sql`SELECT item_id, filename, size_bytes FROM print_quote_files WHERE quote_id = ${quote.id} AND status = 'ready' ORDER BY id`);
+      const fileRows = (files.rows ?? files) as any[];
+      res.set("Cache-Control", "no-store");
+      res.json({
+        firstName: String(quote.customerName ?? "").trim().split(/\s+/)[0] || null,
+        items: items.map((it) => ({
+          id: it.id, designName: it.designName, material: it.material, sizeLabel: it.sizeLabel, quantity: it.quantity,
+          files: fileRows.filter((f) => Number(f.item_id) === it.id).map((f) => ({ filename: f.filename, sizeBytes: Number(f.size_bytes) })),
+          uploadPath: artworkUploadPath(quote.id, it.id),
+        })),
+      });
+    } catch (e: any) {
+      console.error("[print-quotes] artwork page failed:", e);
+      res.status(500).json({ message: "Something went wrong — email your artwork to orders@unitedprints.co.nz." });
+    }
+  });
+
   // ═══════════════════════════ ADMIN ════════════════════════════════════════
   const tab = requireTab("quotes");
 
@@ -703,7 +814,8 @@ export function registerPrintQuoteRoutes(app: Express) {
         ? await db.select({
             id: printQuoteFiles.id, quoteId: printQuoteFiles.quoteId, itemId: printQuoteFiles.itemId,
             filename: printQuoteFiles.filename, sizeBytes: printQuoteFiles.sizeBytes,
-          }).from(printQuoteFiles).where(inArray(printQuoteFiles.quoteId, ids)).orderBy(asc(printQuoteFiles.id))
+            contentType: printQuoteFiles.contentType,
+          }).from(printQuoteFiles).where(and(inArray(printQuoteFiles.quoteId, ids), eq(printQuoteFiles.status, "ready"))).orderBy(asc(printQuoteFiles.id))
         : [];
 
       res.json({
@@ -733,7 +845,7 @@ export function registerPrintQuoteRoutes(app: Express) {
       const files = await db.select({
         id: printQuoteFiles.id, itemId: printQuoteFiles.itemId, filename: printQuoteFiles.filename,
         contentType: printQuoteFiles.contentType, sizeBytes: printQuoteFiles.sizeBytes, createdAt: printQuoteFiles.createdAt,
-      }).from(printQuoteFiles).where(eq(printQuoteFiles.quoteId, id)).orderBy(asc(printQuoteFiles.id));
+      }).from(printQuoteFiles).where(and(eq(printQuoteFiles.quoteId, id), eq(printQuoteFiles.status, "ready"))).orderBy(asc(printQuoteFiles.id));
       res.json({ ...quote, items, files });
     } catch (e: any) {
       console.error("[print-quotes] admin get failed:", e);
@@ -742,21 +854,62 @@ export function registerPrintQuoteRoutes(app: Express) {
   });
 
   // The customer's artwork — a 5-minute signed URL, never a public link.
-  app.get("/api/admin/print-quotes/:id/files/:fileId", requireAuth, tab, async (req, res) => {
+  // 🔴 NOT behind requireTab: an <img> preview and a plain Download link can't
+  // send X-Workspace-Slug, so requireTab answered 400 to both (the API check
+  // passed only because it sent the header by hand). The workspace is the
+  // QUOTE's own, and the caller must be a member of it holding the Quotes tab.
+  app.get("/api/admin/print-quotes/:id/files/:fileId", requireAuth, requireTabAnywhere("quotes"), async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
       const id = parseInt(String(req.params.id), 10);
       const fileId = parseInt(String(req.params.fileId), 10);
-      if (!org || !Number.isFinite(id) || !Number.isFinite(fileId)) return res.status(400).json({ message: "Bad request" });
-      const [f] = await db.select({ key: printQuoteFiles.storageKey, filename: printQuoteFiles.filename })
+      if (!Number.isFinite(id) || !Number.isFinite(fileId)) return res.status(400).json({ message: "Bad request" });
+      const [owner] = await db.select({ orgId: printQuotes.organizationId }).from(printQuotes).where(eq(printQuotes.id, id));
+      if (!owner) return res.status(404).json({ message: "Not found" });
+      const me = await storage.getUser(req.session.userId!);
+      if (me?.role !== "super_admin") {
+        const mine = await storage.getUserOrganizations(req.session.userId!);
+        if (!mine.some((m) => m.id === owner.orgId)) return res.status(404).json({ message: "Not found" });
+      }
+      const org = { id: owner.orgId };
+      const [f] = await db.select({ key: printQuoteFiles.storageKey, filename: printQuoteFiles.filename, chunked: printQuoteFiles.chunked,
+          parts: printQuoteFiles.parts, sizeBytes: printQuoteFiles.sizeBytes, contentType: printQuoteFiles.contentType })
         .from(printQuoteFiles)
         .innerJoin(printQuotes, eq(printQuotes.id, printQuoteFiles.quoteId))
-        .where(and(eq(printQuoteFiles.id, fileId), eq(printQuoteFiles.quoteId, id), eq(printQuotes.organizationId, org.id)));
+        .where(and(eq(printQuoteFiles.id, fileId), eq(printQuoteFiles.quoteId, id), eq(printQuotes.organizationId, org.id), eq(printQuoteFiles.status, "ready")));
       if (!f) return res.status(404).json({ message: "Not found" });
-      const url = await driveStorage().signedUrl(f.key, { download: req.query.download ? f.filename : undefined, expiresIn: 300 });
+      const download = !!req.query.download;
+      // A split file is streamed back as one; a single part is a signed redirect.
+      if (f.chunked && f.parts > 1) return await streamArtParts(res, { storageKey: f.key, parts: f.parts, sizeBytes: f.sizeBytes, filename: f.filename, contentType: f.contentType }, download);
+      const key = f.chunked ? partKey(f.key, 0) : f.key;
+      const url = f.chunked
+        ? await signedArtUrl(key, { download: download ? f.filename : undefined, expiresIn: 300 })
+        : await driveStorage().signedUrl(key, { download: download ? f.filename : undefined, expiresIn: 300 });
       res.redirect(url);
     } catch (e: any) {
       console.error("[print-quotes] artwork download failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // "Ask for artwork": the customer's private upload link — copied, or emailed to
+  // the address on the quote (never anyone else).
+  app.post("/api/admin/print-quotes/:id/request-artwork", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await workspaceOrg(req);
+      const id = parseInt(String(req.params.id), 10);
+      if (!org || !Number.isFinite(id)) return res.status(400).json({ message: "Bad request" });
+      const [quote] = await db.select().from(printQuotes).where(and(eq(printQuotes.id, id), eq(printQuotes.organizationId, org.id)));
+      if (!quote) return res.status(404).json({ message: "Quote not found" });
+      const url = `https://shop.unitedprints.co.nz/print/artwork/${quote.token}`;
+      let emailed = false;
+      if (req.body?.send) {
+        emailed = await emailQuoteArtworkRequest(quote, url);
+        if (!emailed) return res.status(502).json({ message: "The email didn't send — copy the link and send it yourself.", url });
+        await db.update(printQuotes).set({ artworkRequestedAt: new Date() } as any).where(eq(printQuotes.id, id));
+      }
+      res.json({ url, emailed });
+    } catch (e: any) {
+      console.error("[print-quotes] request artwork failed:", e);
       res.status(500).json({ message: e.message });
     }
   });

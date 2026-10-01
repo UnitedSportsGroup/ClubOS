@@ -247,6 +247,7 @@ const PrintHub = lazy(() => import("@/pages/print-hub"));
 const PrintAccountPage = lazy(() => import("@/pages/print-account"));
 const PrintDtfPage = lazy(() => import("@/pages/print-dtf"));
 const PrintStudioPage = lazy(() => import("@/pages/print-studio"));
+const PrintArtworkPage = lazy(() => import("@/pages/print-artwork"));
 const PrintConfigure = lazy(() => import("@/pages/print-configure"));
 const PrintCheckout = lazy(() => import("@/pages/print-checkout"));
 const PrintOrderStatus = lazy(() => import("@/pages/print-order-status"));
@@ -942,6 +943,7 @@ function App() {
             {/* The custom tee studio — design with your own image or words,
                 see it on the shirt, send the order. */}
             <Route path="/print/studio" component={PrintStudioPage} />
+            <Route path="/print/artwork/:token" component={PrintArtworkPage} />
             <Route path="/print/dtf" component={PrintDtfPage} />
             <Route path="/print" component={PrintHub} />
             <Route path="/print/configure/:slug" component={PrintConfigure} />

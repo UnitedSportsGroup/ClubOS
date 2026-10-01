@@ -246,3 +246,20 @@ export async function sendPrintAccountLoginCode(params: {
     html: shell("Your sign-in code", body),
   });
 }
+
+// "Can you send us your artwork?" — Dima's button on a quote (2026-10-01). The
+// quote form used to drop the file, so customers who picked one get a private
+// link to upload it. Staff-triggered, to the address on THAT quote only — so
+// it can never be used to mail a stranger. Returns whether Resend accepted it.
+export async function emailQuoteArtworkRequest(quote: PrintQuote, url: string): Promise<boolean> {
+  if (!quote.customerEmail) return false;
+  const first = String(quote.customerName ?? "").trim().split(/\s+/)[0]?.replace(/[<>&"]/g, "") || "there";
+  const body = `
+    <p style="font-size:14px;line-height:1.6">Hi ${first},</p>
+    <p style="font-size:14px;line-height:1.6">Thanks for your quote request. Your design file didn't come through with it — sorry about that, it was on our end.</p>
+    <p style="font-size:14px;line-height:1.6">Could you upload it here? Any size is fine, and a PNG, JPG, PDF, SVG or AI file all work.</p>
+    ${ctaButton(url, "Upload your artwork")}
+    <p style="font-size:13px;color:#666">Or just reply to this email with the file attached.</p>
+  `;
+  return sendEmail({ to: quote.customerEmail, from: FROM, replyTo: "orders@unitedprints.co.nz", subject: "Your artwork for your United Prints quote", html: shell("Send us your artwork", body) });
+}

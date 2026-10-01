@@ -12,7 +12,8 @@
 import type { Express, Request, Response } from "express";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "./db";
-import { requireAuth, requireTab } from "./auth";
+import { requireAuth, requireTab, requireTabAnywhere } from "./auth";
+import { storage } from "./storage";
 import { organizations, users, printExpenses } from "@shared/schema";
 import { TT_BRANDS, TT_BRAND_KEYS } from "@shared/task-tracker";
 
@@ -490,14 +491,23 @@ export function registerPrintExpenseRoutes(app: Express) {
 
   // The stored invoice, one at a time. Session-gated like everything else here —
   // a supplier invoice carries pricing nobody outside the shop should read.
-  app.get("/api/admin/print-expenses/:id/invoice", requireAuth, tab, async (req, res) => {
+  // 🔴 NOT behind requireTab: the paperclip is a plain link, which can't send
+  // X-Workspace-Slug, so requireTab answered 400 to every click (since the
+  // header rule of 2026-09-10). The workspace is the EXPENSE's own, and the
+  // caller must be a member of it holding the Expenses tab.
+  app.get("/api/admin/print-expenses/:id/invoice", requireAuth, requireTabAnywhere("expenses"), async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
       const id = parseInt(String(req.params.id), 10);
-      if (!org || !Number.isFinite(id)) return res.status(400).json({ message: "Bad request" });
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Bad request" });
       const [row] = await db.select({
-        data: printExpenses.invoiceData, mime: printExpenses.invoiceMime, name: printExpenses.invoiceFileName,
-      }).from(printExpenses).where(and(eq(printExpenses.id, id), eq(printExpenses.organizationId, org.id)));
+        data: printExpenses.invoiceData, mime: printExpenses.invoiceMime, name: printExpenses.invoiceFileName, orgId: printExpenses.organizationId,
+      }).from(printExpenses).where(eq(printExpenses.id, id));
+      if (row) {
+        const me = await storage.getUser(req.session.userId!);
+        if (me?.role !== "super_admin" && !(await storage.getUserOrganizations(req.session.userId!)).some((m) => m.id === row.orgId)) {
+          return res.status(404).json({ message: "No invoice attached" });
+        }
+      }
       if (!row?.data) return res.status(404).json({ message: "No invoice attached" });
 
       const b64 = row.data.slice(row.data.indexOf(",") + 1);
