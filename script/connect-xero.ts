@@ -54,7 +54,7 @@ const SCOPES = [
   "accounting.settings.read",                 // chart of accounts, tracking, tax rates
   "accounting.contacts",                      // the "Stripe" contact on the document
   "accounting.reports.profitandloss.read",    // keeps the P&L readable
-  "accounting.invoices.read",
+  "accounting.invoices",                     // WRITE — raise a sales invoice (Barça camp, 1 Oct 2026)
   "accounting.payments.read",
   "accounting.manualjournals",                // term-fee deferrals, later
 ].join(" ");
@@ -135,7 +135,7 @@ const basic = () => Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base6
     ON CONFLICT (organization_id, provider) DO UPDATE SET
       is_active=true, access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token,
       token_expires_at=EXCLUDED.token_expires_at, external_id=EXCLUDED.external_id,
-      external_name=EXCLUDED.external_name, connected_at=now(), updated_at=now()`,
+      external_name=EXCLUDED.external_name, config_json=EXCLUDED.config_json, connected_at=now(), updated_at=now()`,
     [org.id, tok.access_token, tok.refresh_token, expires, tenant.tenantId, tenant.tenantName, JSON.stringify({ tenantType: tenant.tenantType, scope: tok.scope })]);
   await c.end();
 
