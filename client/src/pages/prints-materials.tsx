@@ -825,7 +825,7 @@ function QtyTierEditor({ tiers, pricingMethod, sizeTiers, materialId, baseRateCe
             const mode = t.discountPct !== undefined ? "pct" : "price";
             const rangeIdx = [...tiers].sort((a, b) => a.minQty - b.minQty).indexOf(t);
             return (
-              <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)_1.75rem] sm:grid-cols-[4.5rem_5rem_7.5rem_1fr_2rem] items-center gap-1.5 rounded-lg border border-white/5 p-2" data-testid={`row-qty-step-${i}`}>
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_2.25rem] sm:grid-cols-[4.5rem_5rem_7.5rem_1fr_2rem] items-center gap-1.5 rounded-lg border border-white/5 p-2" data-testid={`row-qty-step-${i}`}>
                 <span className="hidden sm:block text-[11px] text-white/45">From qty</span>
                 <Input type="number" inputMode="numeric" min={1} value={t.minQty || ""}
                   onChange={(e) => set(i, { minQty: parseInt(e.target.value, 10) || 0 })}
@@ -835,21 +835,25 @@ function QtyTierEditor({ tiers, pricingMethod, sizeTiers, materialId, baseRateCe
                   <option value="price">{priceWord}</option>
                   <option value="pct">% off</option>
                 </SelectInput>
+                {/* On a phone the value takes its own line (row 2) — three inputs in
+                    one 290px row clipped the number to a single glyph. */}
                 {mode === "pct" ? (
-                  <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0 col-start-1 col-span-2 row-start-2 sm:col-auto sm:col-span-1 sm:row-auto">
                     <Input type="number" inputMode="decimal" min={0} max={90} value={t.discountPct ?? ""}
                       onChange={(e) => set(i, { discountPct: e.target.value === "" ? 0 : Number(e.target.value) })}
                       className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-pct-${i}`} />
                     <span className="text-white/40 text-sm whitespace-nowrap">% off</span>
                   </div>
                 ) : kind === "sizes" ? (
-                  <span className="text-[11px] text-white/40">Prices below ↓</span>
+                  <span className="text-[11px] text-white/40 col-start-1 col-span-2 row-start-2 sm:col-auto sm:col-span-1 sm:row-auto">Prices below ↓</span>
                 ) : (
-                  <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
-                    className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} aria-label={priceWord} />
+                  <div className="min-w-0 col-start-1 col-span-2 row-start-2 sm:col-auto sm:col-span-1 sm:row-auto">
+                    <MoneyInput value={centsToDollarInput(t.unitPriceCents ?? 0)} onChange={(v) => set(i, { unitPriceCents: dollarInputToCents(v) })}
+                      className="bg-white/[0.02] border-white/10 text-white" data-testid={`input-qty-each-${i}`} aria-label={priceWord} />
+                  </div>
                 )}
                 <button type="button" aria-label="Remove this step" onClick={() => onChange(tiers.filter((_, j) => j !== i))}
-                  className="text-white/25 hover:text-red-300 justify-self-center" data-testid={`button-remove-qty-${i}`}>
+                  className="text-white/25 hover:text-red-300 justify-self-center col-start-3 row-start-1 sm:col-auto sm:row-auto min-h-[36px] min-w-[36px] flex items-center justify-center" data-testid={`button-remove-qty-${i}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
                 {mode === "price" && kind === "sizes" && (

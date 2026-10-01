@@ -119,7 +119,13 @@ export function registerSalesEmailPublicRoutes(app: Express) {
         VALUES (${t.orgId}, ${t.email.toLowerCase()}, ${t.id}, ${oneClick ? "one-click" : "link"})
         ON CONFLICT (organization_id, lower(email)) DO NOTHING RETURNING id`);
       // One event, the first time — a second click is not a second unsubscribe.
-      if ((ins.rows ?? ins).length) await record(t.id, "unsubscribed", { ua: req.headers["user-agent"] ?? null });
+      // 🔴 Best-effort: the opt-out above IS the unsubscribe. A failure to log the
+      // journey event must never show the person an error page for something
+      // that worked (it did, once — the type CHECK didn't know 'unsubscribed').
+      if ((ins.rows ?? ins).length) {
+        await record(t.id, "unsubscribed", { ua: req.headers["user-agent"] ?? null })
+          .catch((e) => console.error("[sales-email] unsubscribe event not logged", e));
+      }
       res.send(page("Unsubscribed", `<h1 style="font-size:20px;margin:16px 0 8px">You're unsubscribed</h1><p style="color:#52607a;font-size:14px;margin:0">We won't email <b>${escHtml(t.email)}</b> again. If you ever need printing, we're at <a href="https://unitedprints.co.nz">unitedprints.co.nz</a>.</p>`));
     } catch (err) {
       console.error("[sales-email] unsubscribe", err);

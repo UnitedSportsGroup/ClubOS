@@ -32,7 +32,11 @@ try {
   ok("PVC Banner dialog opens", opened);
   ok("its 4 existing quantity steps are shown", rows.length === 4, String(rows.length));
   const txt = await p.$eval('[data-testid="qty-pricing"]', (e: any) => e.innerText).catch(() => "");
-  ok("banner offers % off only (priced by size)", !/\$ each/.test(txt) && /priced by size/.test(txt), txt.slice(0, 120));
+  // SelectInput is OUR control (not a native <select>) — its options exist only once opened.
+  await p.click('[data-testid="select-qty-mode-0"]'); await new Promise((r) => setTimeout(r, 400));
+  const modes = await p.$$eval('[role="option"]', (els: any[]) => els.map((e) => (e.textContent || "").trim()));
+  await p.keyboard.press("Escape"); await new Promise((r) => setTimeout(r, 300));
+  ok("banner offers a set price per m² or a % off", modes.join("|") === "$ per m²|% off", modes.join("|"));
   ok("shows the ranges (e.g. 3–4)", /Covers 3–4/.test(txt), txt.slice(0, 200));
   await p.keyboard.press("Escape"); await new Promise((r) => setTimeout(r, 500));
   // The live preview on the real T-shirt (read only): "At 20: $29.25 → $27.79 each".
@@ -44,7 +48,8 @@ try {
     await new Promise((r) => setTimeout(r, 1500));
     const prev = await p.$$eval('[data-testid="qty-preview-row"]', (els: any[]) => els.map((e) => e.innerText));
     ok(`${label}: a preview under every step`, prev.length >= 4, String(prev.length));
-    ok(`${label}: 20 tees read $29.25 → $27.79 each`, prev.some((t: string) => /At 20:.*\$29\.25.*\$27\.79 each/.test(t)), prev[0]);
+    // Shape, not this week's numbers — Dima edits these steps himself (5% → 3% on 30 Sep).
+    ok(`${label}: 20 tees show usual → new price each, and how it's worked out`, prev.some((t: string) => /At 20: \$[\d.]+ → \$[\d.]+ each/.test(t) && /How: 20 × blank/.test(t)), prev[0]);
     ok(`${label}: over-cap steps say manual quote`, prev.some((t: string) => /over \$2,500/.test(t)));
     const wrap = await p.evaluate(() => { const s = Array.from(document.querySelectorAll("span")).find((e) => e.textContent === "% off") as HTMLElement | undefined; return s ? s.getBoundingClientRect().height : 0; });
     ok(`${label}: "% off" sits on one line`, wrap > 0 && wrap < 26, String(wrap));
@@ -75,10 +80,23 @@ try {
   ok("saving $ each steps on a shirt works", res.s === 200 && res.j.qtyTiersJson?.[0]?.minQty === 1, JSON.stringify(res).slice(0, 200));
   const bad = await p.evaluate(async () => {
     const r = await fetch(`/api/admin/print-materials/1`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-Workspace-Slug": "united-prints" },
-      body: JSON.stringify({ qtyTiersJson: [{ minQty: 5, unitPriceCents: 100 }] }) });
+      body: JSON.stringify({ qtyTiersJson: [{ minQty: 5, sizePrices: { a3: 100 } }] }) });
     return { s: r.status, j: await r.json() };
   });
-  ok("a banner refuses a $ each step (server-side)", bad.s === 400 && /priced by size/.test(bad.j.message), JSON.stringify(bad));
+  ok("a banner refuses per-size prices (server-side)", bad.s === 400 && /isn't sold in set sizes/.test(bad.j.message), JSON.stringify(bad));
+  // Corflute (sold in stock sizes): a set price per size, previewed for EVERY size. Read-only — the preview writes nothing.
+  const cf = await p.evaluate(async () => {
+    const m = await (await fetch(`/api/admin/print-materials?orgId=8`, { credentials: "include", headers: { "X-Workspace-Slug": "united-prints" } })).json();
+    const corf = (Array.isArray(m) ? m : m.materials ?? []).find((x: any) => x.slug === "corflute-3mm");
+    const size = corf?.sizeTiersJson?.[0];
+    const r = await fetch(`/api/admin/print-materials/${corf.id}/qty-preview`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-Workspace-Slug": "united-prints" },
+      body: JSON.stringify({ qtyTiersJson: [{ minQty: 5, sizePrices: { [size.id]: 2000 } }] }) });
+    return { s: r.status, j: await r.json(), sizes: corf.sizeTiersJson.length, sizeId: size.id };
+  });
+  const at5 = cf.j?.rows?.find((r: any) => r.qty === 5);
+  ok("corflute preview prices every stock size", cf.s === 200 && at5?.sizes?.length === cf.sizes, JSON.stringify(cf).slice(0, 300));
+  // $20 × 5 = $100, clear of the corflute's $68 shop minimum (which still applies on a set price).
+  ok("corflute: 5 of the first size at a set $20 each", at5?.sizes?.[0]?.withSteps?.eachCents === 2000 && at5?.sizes?.[0]?.withSteps?.totalCents === 10000, JSON.stringify(at5?.sizes?.[0]));
   ok("no page errors", errs.length === 0, errs.join(" | "));
 } catch (e: any) { fails.push(`threw ${e?.message}`); console.log(e); }
 finally {
