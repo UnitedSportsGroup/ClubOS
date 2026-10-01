@@ -3332,6 +3332,35 @@ export async function registerRoutes(
               p.dateOfBirth === childDob,
           ) ?? null;
 
+      // Same child, same PHONE, different email (2026-10-02 — Olga: Ruben
+      // Kruger twice). Dad typed "terencekruger@" for a record held under
+      // "terrencekruger@"; the email match above cannot see that, so a second
+      // father and a second Ruben were created. A child with the SAME full
+      // name AND date of birth whose parent has the SAME phone (last 8 digits)
+      // is the same child — three independent signals, the rule the merge used
+      // — so they are reused and linked to this parent record too. Anything
+      // less certain still creates a new child, exactly as before.
+      let linkedByPhone = false;
+      const phoneTail = String(guardianIn.phone ?? "").replace(/\D/g, "").slice(-8);
+      if (!player && phoneTail.length === 8) {
+        const r = await db.execute(sql`
+          SELECT DISTINCT p.id FROM contact_relationships cr
+          JOIN contacts p ON p.id = cr.player_id
+          JOIN contacts g ON g.id = cr.guardian_id
+          WHERE p.type = 'player' AND p.merged_into_contact_id IS NULL
+            AND lower(btrim(p.first_name)) = lower(${childFirst})
+            AND lower(btrim(p.last_name)) = lower(${childLast})
+            AND p.date_of_birth = ${childDob}
+            AND right(regexp_replace(coalesce(g.phone, ''), '[^0-9]', '', 'g'), 8) = ${phoneTail}
+          LIMIT 2`);
+        const ids = ((r as any).rows ?? r ?? []) as any[];
+        // Exactly one — two would mean the data already disagrees with itself.
+        if (ids.length === 1) {
+          player = await storage.getContact(Number(ids[0].id));
+          linkedByPhone = !!player;
+        }
+      }
+
       const childFields = {
         gender: child.gender ?? null,
         school: child.school ? String(child.school).trim() : null,
@@ -3377,6 +3406,17 @@ export async function registerRoutes(
           ...childFields,
           ...(player.dateOfBirth ? {} : { dateOfBirth: childDob }),
         } as any);
+        if (linkedByPhone) {
+          const already = await storage.getRelationships(guardian.id);
+          if (!already.some((r: any) => r.player?.id === player.id || r.playerId === player.id)) {
+            await storage.createRelationship({
+              guardianId: guardian.id,
+              playerId: player.id,
+              relationship: String(guardianIn.relationship).trim() || "parent",
+              isPrimaryContact: false,
+            } as any);
+          }
+        }
       } else {
         player = await storage.createContact({
           type: "player",
@@ -7290,13 +7330,21 @@ export async function registerRoutes(
   ];
 
   const runEntitySearch = async (e: SearchEntity, q: string, like: string, orgIds: number[], isSuperAdmin: boolean, perLimit: number) => {
-    const ilike = sql.join(e.cols.map(c => sql`${sql.raw(c)}::text ILIKE ${like}`), sql` OR `);
+    // 🔴 The LABEL is scored too (2026-10-02). Columns were scored one at a time,
+    // so "Joel Cook" was compared with "Joel" and with "Cook" but never with
+    // "Joel Cook": every Joel and every Cook tied at 0.5, and with six results a
+    // group the exact child could fall off the list entirely (Olga searching a
+    // child by full name and not finding them). The full label is now matched
+    // and scored, and an exact name always sorts first.
+    const label = sql.raw(`(${e.labelSql})::text`);
+    const ilike = sql.join([...e.cols.map(c => sql`${sql.raw(c)}::text ILIKE ${like}`), sql`${label} ILIKE ${like}`], sql` OR `);
     // Fuzzy score = best per-column trigram similarity (case-folded). Reused in
     // the WHERE (>= 0.2 → typo-tolerant) and the SELECT (ranking). 0.2 is looser
     // than pg_trgm's default 0.3 so single-letter typos still match, and it's an
     // explicit predicate (not the `%` GUC, which is a per-connection setting that
     // wouldn't hold across the pooled connections the parallel queries run on).
-    const sim = sql`GREATEST(${sql.join(e.cols.map(c => sql`similarity(lower(COALESCE(${sql.raw(c)}::text,'')), lower(${q}))`), sql`, `)})`;
+    const sim = sql`GREATEST(${sql.join([...e.cols.map(c => sql`similarity(lower(COALESCE(${sql.raw(c)}::text,'')), lower(${q}))`), sql`similarity(lower(COALESCE(${label},'')), lower(${q}))`], sql`, `)})`;
+    const exact = sql`(lower(btrim(COALESCE(${label},''))) = lower(btrim(${q})))`;
     let where = sql`((${ilike}) OR (${sim} >= 0.2))`;
     if (e.extraWhere) where = sql`${where} AND ${sql.raw(e.extraWhere)}`;
     if (e.orgCol && !isSuperAdmin) where = sql`${where} AND ${sql.raw(e.orgCol)} IN (${sql.join(orgIds.map(i => sql`${i}`), sql`, `)})`;
@@ -7307,10 +7355,10 @@ export async function registerRoutes(
              (${sql.raw(e.labelSql)})::text AS label,
              (${sql.raw(e.sublabelSql)})::text AS sublabel,
              ${metaSel} AS meta, ${orgSel} AS org_id,
-             ${sim} AS score
+             (CASE WHEN ${exact} THEN 1.0 ELSE ${sim} END) AS score
       FROM ${sql.raw(e.table)}
       WHERE ${where}
-      ORDER BY score DESC NULLS LAST
+      ORDER BY ${exact} DESC, score DESC NULLS LAST
       LIMIT ${perLimit}`;
     const result = await db.execute(query);
     return result.rows as any[];

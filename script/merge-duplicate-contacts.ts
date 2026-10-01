@@ -50,6 +50,15 @@ const HAND_PICKED: { who: string; keep: number; absorb: number }[] = [
 ];
 
 const AUTO = process.argv.includes("--auto");
+/**
+ * `--family=phone` (2026-10-02, Olga: Ruben Kruger twice): a family is the
+ * guardian's PHONE (last 8 digits), not their email. A parent who types their
+ * email differently at the next checkout ("terencekruger" vs "terrencekruger"),
+ * or the other parent registering under their own address, is the same family —
+ * and the email key cannot see it. The date-of-birth and Friendly-Manager-id
+ * refusals below apply exactly as before.
+ */
+const FAMILY = (process.argv.find(a => a.startsWith("--family=")) ?? "--family=email").split("=")[1];
 /** `--tier=safe` (default) merges only groups the records agree on. */
 const TIER = (process.argv.find(a => a.startsWith("--tier=")) ?? "--tier=safe").split("=")[1];
 
@@ -72,10 +81,13 @@ async function findGroups(client: pg.PoolClient) {
       SELECT p.id AS person,
              lower(trim(p.first_name))||' '||lower(trim(p.last_name)) AS who,
              p.date_of_birth AS dob, p.friendly_manager_id AS fm,
-             coalesce(lower(nullif(trim(g.email),'')), 'gid:'||g.id::text) AS family
+             ${FAMILY === "phone"
+               ? `'ph:'||right(regexp_replace(coalesce(g.phone,''),'\\D','','g'), 8)`
+               : `coalesce(lower(nullif(trim(g.email),'')), 'gid:'||g.id::text)`} AS family
       FROM contact_relationships cr
       JOIN contacts p ON p.id = cr.player_id AND p.merged_into_contact_id IS NULL
       JOIN contacts g ON g.id = cr.guardian_id
+      ${FAMILY === "phone" ? `WHERE length(regexp_replace(coalesce(g.phone,''),'\\D','','g')) >= 8` : ""}
     )
     SELECT who, family,
            count(DISTINCT dob) FILTER (WHERE dob IS NOT NULL)::int AS distinct_dobs,
@@ -205,7 +217,7 @@ async function main() {
     const { rows: people } = await client.query(`SELECT * FROM contacts WHERE id = ANY($1::int[])`, [everyId]);
     snapshot.tables["contacts"] = people;
     mkdirSync("outputs/contact-merges", { recursive: true });
-    const snapPath = `outputs/contact-merges/before${AUTO ? "-auto" : "-handpicked"}.json`;
+    const snapPath = `outputs/contact-merges/before${AUTO ? `-auto-${FAMILY}-${Date.now()}` : "-handpicked"}.json`;
     writeFileSync(snapPath, JSON.stringify(snapshot, null, 1));
     console.log(`  snapshot of ${Object.values(snapshot.tables).reduce((a: number, v: any) => a + v.length, 0)} affected rows → ${snapPath}`);
     console.log(`  ${fks.length} foreign keys point at contacts; every one is repointed.\n`);
@@ -235,11 +247,32 @@ async function main() {
     const BOOKKEEPING = new Set(["tags", "notes", "first_name", "last_name"]);
     const fills = new Map<number, Record<string, any>>();
     let conflicts = 0, bookkeeping = 0;
+    // 🔴 Two kinds of field where "the survivor's value wins" gets it wrong
+    // (2026-10-02, the phone-family run):
+    //  · A CONSENT given on either record was given. The FM import wrote a
+    //    default `false`, so the older record "wins" against a parent who ticked
+    //    yes at a checkout last week — merging must never revoke that. Same rule
+    //    as the parent account ("a consent is true only if some record says so").
+    //  · NZ FOOTBALL IDENTITY is one set, captured at one moment. The record
+    //    whose identity was captured LATER holds the family's current answer;
+    //    taking half of each would file a child under an ethnicity nobody gave.
+    const CONSENTS = ["photo_consent", "medical_consent", "newsletter_consent"];
+    const IDENTITY = ["country_of_birth", "country_of_birth_code", "nationality", "nationality_code",
+      "ethnicity", "ethnicity_group_id", "ethnicity_selection_ids", "sub_ethnicity",
+      "ethnicity2", "ethnicity2_group_id", "ethnicity2_selection_ids", "sub_ethnicity2",
+      "identity_captured_at", "identity_captured_source"];
+    const ts = (v: any) => (v ? new Date(v).getTime() : 0);
     for (const { who, keep, absorb } of PAIRS) {
       const S = byId.get(keep), L = byId.get(absorb);
       const target = fills.get(keep) ?? {};
+      const cur = (k: string) => (k in target ? target[k] : S[k]);
+      for (const k of CONSENTS) if (k in S && cur(k) !== true && L[k] === true) target[k] = true;
+      if (ts(L.identity_captured_at) > ts(cur("identity_captured_at"))) {
+        for (const k of IDENTITY) if (k in S) target[k] = L[k];
+        notes.push(`${who}: NZF identity taken from ${absorb} (captured ${new Date(L.identity_captured_at).toISOString().slice(0, 10)}, the more recent)`);
+      }
       for (const k of Object.keys(S)) {
-        if (NEVER_COPY.has(k)) continue;
+        if (NEVER_COPY.has(k) || CONSENTS.includes(k) || IDENTITY.includes(k)) continue;
         const cur = blank(target[k]) ? S[k] : target[k];
         if (blank(cur) && !blank(L[k])) target[k] = L[k];
         else if (!blank(cur) && !blank(L[k]) && String(cur) !== String(L[k])) {

@@ -64,7 +64,7 @@ async function main() {
     // a 404 would otherwise "prove" a retired record is hidden.
     const s1 = await get(`/api/search?q=${encodeURIComponent("Joel Cook")}`);
     ok(s1.status === 200, "global search answers", `HTTP ${s1.status}`);
-    const hits = JSON.stringify(s1.body ?? {});
+    const hits = JSON.stringify(s1.body ?? {}); if (process.env.DEBUG_SEARCH) console.log(hits);
     ok(hits.includes(`"617"`), "global search still finds the surviving record");
     ok(!hits.includes(`"32764"`), "global search does not surface the retired record");
 
