@@ -67,6 +67,10 @@ const FAMILY = (process.argv.find(a => a.startsWith("--family=")) ?? "--family=e
  * one; which date is right stays a human question between the two that remain.
  */
 const SPLIT_BY_DOB = process.argv.includes("--split-by-dob");
+/** `--pairs-file=path.json`: merge exactly these groups ([{who, ids, setDob?}]). */
+const PAIRS_FILE = process.argv.find(a => a.startsWith("--pairs-file="))?.split("=")[1] ?? null;
+/** Survivor id → the date of birth confirmed by Xero's age group. */
+const DOB_FIX = new Map<number, string>();
 /** `--tier=safe` (default) merges only groups the records agree on. */
 const TIER = (process.argv.find(a => a.startsWith("--tier=")) ?? "--tier=safe").split("=")[1];
 
@@ -201,6 +205,19 @@ async function main() {
       const keeps = await pickSurvivors(client, eligible.map(g => g.ids));
       eligible.forEach((g, i) => { for (const id of g.ids) if (id !== keeps[i]) PAIRS.push({ who: g.who, keep: keeps[i], absorb: id }); });
       console.log(`  ${groups.length} duplicate groups · ${eligible.length} to merge · ${PAIRS.length} records absorbed · ${held.length} held back\n`);
+    } else if (PAIRS_FILE) {
+      // Groups a human or Olga's Xero records have confirmed (see
+      // script/_resolve-duplicates-with-xero.ts). The survivor is still chosen by
+      // substance; FM-id and DOB refusals do not apply — the evidence is external.
+      const groups = JSON.parse(readFileSync(PAIRS_FILE, "utf8")) as { who: string; ids: number[]; setDob?: string | null }[];
+      const live = (await client.query(`SELECT id FROM contacts WHERE id = ANY($1::int[]) AND merged_into_contact_id IS NULL`, [groups.flatMap(g => g.ids)])).rows.map((r: any) => r.id);
+      const usable = groups.map(g => ({ ...g, ids: g.ids.filter(i => live.includes(i)) })).filter(g => g.ids.length > 1);
+      const keeps = await pickSurvivors(client, usable.map(g => g.ids));
+      usable.forEach((g, i) => {
+        for (const id of g.ids) if (id !== keeps[i]) PAIRS.push({ who: g.who, keep: keeps[i], absorb: id });
+        if (g.setDob) DOB_FIX.set(keeps[i], g.setDob);
+      });
+      console.log(`  ${groups.length} confirmed groups · ${usable.length} still to merge · ${PAIRS.length} records absorbed · ${DOB_FIX.size} date(s) of birth set from Xero\n`);
     } else {
       PAIRS.push(...HAND_PICKED);
     }
@@ -226,7 +243,7 @@ async function main() {
     const { rows: people } = await client.query(`SELECT * FROM contacts WHERE id = ANY($1::int[])`, [everyId]);
     snapshot.tables["contacts"] = people;
     mkdirSync("outputs/contact-merges", { recursive: true });
-    const snapPath = `outputs/contact-merges/before${AUTO ? `-auto-${FAMILY}-${Date.now()}` : "-handpicked"}.json`;
+    const snapPath = `outputs/contact-merges/before${AUTO ? `-auto-${FAMILY}-${Date.now()}` : PAIRS_FILE ? `-confirmed-${Date.now()}` : "-handpicked"}.json`;
     writeFileSync(snapPath, JSON.stringify(snapshot, null, 1));
     console.log(`  snapshot of ${Object.values(snapshot.tables).reduce((a: number, v: any) => a + v.length, 0)} affected rows → ${snapPath}`);
     console.log(`  ${fks.length} foreign keys point at contacts; every one is repointed.\n`);
@@ -289,6 +306,11 @@ async function main() {
           conflicts++;
           notes.push(`${who}: ${k} — keeping "${String(cur).slice(0, 40)}" (${keep}), NOT taking "${String(L[k]).slice(0, 40)}" (${absorb})`);
         }
+      }
+      // A date of birth confirmed by Olga's Xero age group wins over either record.
+      if (DOB_FIX.has(keep) && String(S.date_of_birth ?? "") !== DOB_FIX.get(keep)) {
+        target["date_of_birth"] = DOB_FIX.get(keep);
+        notes.push(`${who}: date of birth set to ${DOB_FIX.get(keep)} (Xero age group)`);
       }
       if (Object.keys(target).length) fills.set(keep, target);
     }

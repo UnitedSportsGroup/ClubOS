@@ -54,6 +54,8 @@ export interface ResolvedPayment {
   isPlayerShare?: boolean;
   /** The programme that was sold, when there is one — the level they code at. */
   programId?: number | null;
+  /** Team Pay only: which competition (CIC 7's Open / Social, Ethnic Cup). */
+  competitionId?: number | null;
   /** Set when the charge was found through a subscription rather than directly. */
   viaSubscription?: string | null;
 }

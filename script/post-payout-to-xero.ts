@@ -21,7 +21,7 @@ const BY = process.env.USER || "daniel";
   else {
     // Default: whatever has not been posted yet, oldest first, so a catch-up run
     // lands in the order the bank statement shows them.
-    const recent = await listRecentPayouts(12);
+    const recent = await listRecentPayouts(Number(process.env.PAYOUTS ?? 12));
     const done = await db.execute(sql`SELECT stripe_payout_id FROM xero_payout_posts WHERE status='posted' AND stripe_account='club'`);
     const seen = new Set((done.rows as any[]).map(r => r.stripe_payout_id));
     ids = recent.filter(p => !seen.has(p.id)).map(p => p.id).reverse();
@@ -33,11 +33,15 @@ const BY = process.env.USER || "daniel";
     console.log(`${plan.arrivalDate}   ${plan.currency} ${money(plan.payoutCents)}   ${plan.payoutId}`);
     if (plan.alreadyPosted) { console.log(`  already posted as ${plan.alreadyPosted.xeroBankTxnId} — skipping`); continue; }
     console.log(`${"─".repeat(72)}`);
-    console.log(`  Receive Money · contact "Stripe Payments" · bank 147 · GST inclusive`);
+    console.log(`  Receive Money · contact "Stripe Payments" · bank 600 ANZ Business Premium (by account number) · GST inclusive`);
     for (const l of plan.lines)
       console.log(`    ${l.accountCode.padEnd(9)} ${l.taxType.padEnd(8)} ${money(l.amountCents).padStart(11)}   ${l.description}`);
     console.log(`    ${"".padEnd(9)} ${"".padEnd(8)} ${"".padStart(11, "─")}`);
     console.log(`    ${"TOTAL".padEnd(9)} ${"".padEnd(8)} ${money(plan.lines.reduce((s, l) => s + l.amountCents, 0)).padStart(11)}`);
+    for (const v of plan.toInvoice ?? [])
+      console.log(`    + NEW invoice to raise: (A U${v.grade}) ${v.child} ${money(v.amountCents)} · "Training fee" 101 · ${v.termLabel}`);
+    for (const v of plan.invoiced)
+      console.log(`    + invoice ${v.invoiceNumber} ${v.child} ${money(v.amountCents)}${v.alreadyPaid ? " (already paid by hand)" : " — to pay"}`);
 
     if (plan.blockers.length) { console.log(`\n  ⛔ will not post:`); plan.blockers.forEach(b => console.log(`     - ${b}`)); continue; }
     if (!COMMIT) { console.log(`\n  ✅ ready — re-run with --commit to post`); continue; }

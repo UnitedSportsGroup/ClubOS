@@ -11,7 +11,7 @@
 // club's ledger just because it was deployed.
 
 import { listRecentPayouts, PayoutNotSplittable } from "./xero-payout";
-import { planPayout, postPayout, isAlreadyPosted } from "./xero-payout-post";
+import { planPayout, postPayout, isAlreadyPosted, markHandledByHand } from "./xero-payout-post";
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;   // hourly
 const BOOT_DELAY_MS = 3 * 60 * 1000;        // let the app settle after a deploy
@@ -50,7 +50,13 @@ async function sweep() {
         // reasons to leave it alone, and only the second is worth reporting.
         if (plan.blockers.length) {
           const human = plan.blockers.some(b => b.includes("already has an entry"));
-          if (!human) blocked.push(`${plan.arrivalDate} $${(plan.payoutCents / 100).toFixed(2)} — ${plan.blockers[0]}`);
+          if (human) {
+            // Done by a person — remember it, so it is never re-planned hourly
+            // (each plan costs several Xero calls against a shared daily limit).
+            await markHandledByHand(p.id, plan.arrivalDate, plan.payoutCents, plan.currency);
+            continue;
+          }
+          blocked.push(`${plan.arrivalDate} $${(plan.payoutCents / 100).toFixed(2)} — ${plan.blockers[0]}`);
           continue;
         }
         const r = await postPayout(p.id, { by: "auto" });
