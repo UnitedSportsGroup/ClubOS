@@ -101,6 +101,7 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
   const [removeInvoice, setRemoveInvoice] = useState(false);
 
   const allocTotal = alloc.reduce((a, b) => a + b.amountCents, 0);
+  // One brand is the whole invoice — its amount is pinned to the total at save.
   // Live preview of exactly what will be stored — he sees the GST before saving.
   const preview = useMemo(() => {
     const entered = dollarInputToCents(f.amount);
@@ -131,7 +132,7 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
         notes: f.notes.trim() || null,
         // The server re-checks that this sums to the total — this is a
         // courtesy so Dima sees the remainder while he types, never the gate.
-        allocations: alloc,
+        allocations: alloc.length === 1 ? [{ ...alloc[0], amountCents: preview.total }] : alloc.filter((a) => a.amountCents > 0),
         currency: f.currency,
         // 🔴 The foreign amount is the FACT. The server fetches the rate for the
         // invoice's own date and computes the NZD from it; the amount above is
@@ -193,6 +194,75 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
             <label className="text-[10px] uppercase tracking-wider text-white/40">What was it for</label>
             <Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })}
               placeholder="e.g. 50 rolls of 440gsm banner vinyl" className="bg-white/[0.02] border-white/10 text-white" />
+          </div>
+
+          {/* ── Which brand is this for? ─────────────────────────────────
+              Daniel, 2026-09-16 + Dima, 2026-10-01: "add an option for which
+              brand the expense belongs to — trophies, cable ties, everything."
+              One tap for the usual case (one brand = the whole invoice); a
+              split for an invoice that covered more than one brand.
+              🔴 A single brand is pinned to the stored total by the server, so
+              a foreign invoice converted at today's rate can't be refused for
+              being a few cents out. A split must still add up exactly. */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="expense-brand">
+            <div className="text-[10px] uppercase tracking-wider text-white/40">Which brand is this for?</div>
+            <div className="text-[10px] text-white/30 mt-0.5 mb-2">Tap the brand it belongs to — it shows on the Expenses list and in spend-by-brand.</div>
+            {alloc.length <= 1 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {(vocab.brands ?? []).map((b) => {
+                  const on = alloc[0]?.brand === b.key;
+                  return (
+                    <button key={b.key} type="button" data-testid={`chip-brand-${b.key}`}
+                      onClick={() => setAlloc(on ? [] : [{ brand: b.key, amountCents: preview.total }])}
+                      className={`px-2.5 py-1.5 rounded-full text-[12px] border transition-colors ${on ? "bg-blue-600 border-blue-600 text-white" : "border-white/15 text-white/70 hover:border-white/30"}`}>
+                      {b.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {alloc.map((a, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_8rem_2rem] items-center gap-2" data-testid={`row-alloc-${i}`}>
+                    <SelectInput
+                      value={a.brand}
+                      onChange={(e) => setAlloc(alloc.map((x, j) => j === i ? { ...x, brand: e.target.value } : x))}
+                      className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
+                      data-testid={`select-alloc-brand-${i}`}
+                    >
+                      {(vocab.brands ?? []).map((b) => <option key={b.key} value={b.key} className="bg-[#02060E]">{b.label}</option>)}
+                    </SelectInput>
+                    <MoneyInput
+                      value={centsToDollarInput(a.amountCents)}
+                      onChange={(v) => setAlloc(alloc.map((x, j) => j === i ? { ...x, amountCents: dollarInputToCents(v) } : x))}
+                      className="bg-white/[0.02] border-white/10 text-white"
+                      data-testid={`input-alloc-amount-${i}`}
+                    />
+                    <button type="button" aria-label="Remove" onClick={() => setAlloc(alloc.filter((_, j) => j !== i))}
+                      className="text-white/25 hover:text-red-300 justify-self-center">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {/* 🔴 Say the remainder out loud — the server refuses a split
+                    that does not add up, and a silent refusal at Save is worse. */}
+                <span className={`block text-[11.5px] ${allocTotal === preview.total ? "text-white/35" : "text-amber-300"}`} data-testid="text-alloc-remainder">
+                  {allocTotal === preview.total
+                    ? `${money(allocTotal)} allocated`
+                    : `${money(allocTotal)} of ${money(preview.total)} — ${money(preview.total - allocTotal)} left`}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between pt-2">
+              <button type="button" data-testid="button-add-alloc"
+                onClick={() => setAlloc(alloc.length === 0
+                  ? [{ brand: "prints", amountCents: preview.total }, { brand: "cufc", amountCents: 0 }]
+                  : [...alloc, { brand: "cufc", amountCents: Math.max(0, preview.total - allocTotal) }])}
+                className="text-[11.5px] text-blue-300 hover:underline">
+                + Split across {alloc.length > 1 ? "another brand" : "more than one brand"}
+              </button>
+              {alloc.length === 0 && <span className="text-[11px] text-amber-300/80">Not set yet</span>}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -318,74 +388,6 @@ function ExpenseModal({ existing, vocab, onClose }: { existing: Expense | null; 
             </div>
           </div>
 
-          {/* ── What was this for? ────────────────────────────────────────
-              Daniel, 2026-09-16: "allow him to breakdown and select what it's
-              for like cic, cufc, siu, united prints, mfl etc... then we'll be
-              able to have a view how much was spent on what for reporting."
-
-              🔴 A SPLIT, not one brand. The first row on Dima's screen is
-              "CEC 2026 and CIC S7s trophies" — one $1,320 invoice covering two
-              brands. Forcing it onto one would make every report wrong. Most
-              purchases are one brand, which is just a split of one line. */}
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-white/40">What was it for?</div>
-                <div className="text-[10px] text-white/30 mt-0.5">Which brand this spend belongs to. Split it if one invoice covered more than one.</div>
-              </div>
-              {alloc.length === 0 && preview.total > 0 && (
-                <Button
-                  size="sm" variant="outline" type="button" data-testid="button-allocate-all"
-                  onClick={() => setAlloc([{ brand: "prints", amountCents: preview.total }])}
-                >
-                  Allocate
-                </Button>
-              )}
-            </div>
-
-            {alloc.length === 0 ? (
-              <div className="text-[11px] text-white/25">Not allocated — it won't appear in the spend-by-brand view.</div>
-            ) : (
-              <div className="space-y-2">
-                {alloc.map((a, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_8rem_2rem] items-center gap-2" data-testid={`row-alloc-${i}`}>
-                    <SelectInput
-                      value={a.brand}
-                      onChange={(e) => setAlloc(alloc.map((x, j) => j === i ? { ...x, brand: e.target.value } : x))}
-                      className="w-full px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm"
-                      data-testid={`select-alloc-brand-${i}`}
-                    >
-                      {(vocab.brands ?? []).map((b) => <option key={b.key} value={b.key} className="bg-[#02060E]">{b.label}</option>)}
-                    </SelectInput>
-                    <MoneyInput
-                      value={centsToDollarInput(a.amountCents)}
-                      onChange={(v) => setAlloc(alloc.map((x, j) => j === i ? { ...x, amountCents: dollarInputToCents(v) } : x))}
-                      className="bg-white/[0.02] border-white/10 text-white"
-                      data-testid={`input-alloc-amount-${i}`}
-                    />
-                    <button type="button" aria-label="Remove" onClick={() => setAlloc(alloc.filter((_, j) => j !== i))}
-                      className="text-white/25 hover:text-red-300 justify-self-center">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between pt-1">
-                  <button type="button" onClick={() => setAlloc([...alloc, { brand: "cufc", amountCents: Math.max(0, preview.total - allocTotal) }])}
-                    className="text-[11.5px] text-blue-300 hover:underline" data-testid="button-add-alloc">
-                    + Split across another brand
-                  </button>
-                  {/* 🔴 Say the remainder out loud. The server refuses a split
-                      that does not sum to the invoice, and a silent refusal at
-                      Save is a worse way to learn that. */}
-                  <span className={`text-[11.5px] ${allocTotal === preview.total ? "text-white/35" : "text-amber-300"}`} data-testid="text-alloc-remainder">
-                    {allocTotal === preview.total
-                      ? `${money(allocTotal)} allocated`
-                      : `${money(allocTotal)} of ${money(preview.total)} — ${money(preview.total - allocTotal)} left`}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
 
           <div>
             <label className="text-[10px] uppercase tracking-wider text-white/40">Notes</label>
@@ -414,6 +416,9 @@ export default function PrintsExpenses() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [category, setCategory] = useState("all");
+  // Brand is filtered here, on the rows: a split invoice belongs to two brands
+  // and shows under each, carrying only that brand's share.
+  const [brand, setBrand] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -441,8 +446,25 @@ export default function PrintsExpenses() {
     onError: (e: Error) => toast({ title: "Couldn't delete", description: e.message, variant: "destructive" }),
   });
 
-  const expenses = data?.expenses ?? [];
+  const allExpenses = data?.expenses ?? [];
+  const expenses = brand === "all" ? allExpenses
+    : brand === "none" ? allExpenses.filter((e) => e.allocations.length === 0)
+    : allExpenses.filter((e) => e.allocations.some((a) => a.brand === brand));
   const totals = data?.totals;
+
+  // Spend by brand — the report the brand exists for. Same date window as the list.
+  const byBrandQs = new URLSearchParams();
+  if (from) byBrandQs.set("from", from);
+  if (to) byBrandQs.set("to", to);
+  const byBrand = useQuery<{ brands: { brand: string; cents: number; purchases: number }[]; unallocated: { cents: number; purchases: number } }>({
+    queryKey: ["/api/admin/print-expenses", "by-brand", { orgId, from, to }],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/print-expenses/by-brand${byBrandQs.toString() ? `?${byBrandQs}` : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    enabled: !!orgId,
+  });
     // Falls back to the labels this file already knows, so the form still works
   // if the vocab call is in flight. `brands` has no local fallback on purpose —
   // it is the server's list (TT_BRANDS) and a second copy here would drift.
@@ -454,10 +476,15 @@ export default function PrintsExpenses() {
     currencies: data?.vocab?.currencies ?? ["NZD"],
   };
 
+  const brandLabel = (k: string) => vocab.brands.find((b) => b.key === k)?.label ?? k;
+  const brandText = (e: Expense) => e.allocations.length === 0 ? "Not set"
+    : e.allocations.length === 1 ? brandLabel(e.allocations[0].brand)
+    : e.allocations.map((a) => `${brandLabel(a.brand)} ${money(a.amountCents)}`).join(" + ");
+
   const csv = () => {
-    const head = ["Date", "Category", "Supplier", "Description", "Their invoice no.", "Net", "GST", "Total", "GST treatment", "Paid with", "Invoice attached", "Notes", "Added by"];
+    const head = ["Date", "Brand", "Category", "Supplier", "Description", "Their invoice no.", "Net", "GST", "Total", "GST treatment", "Paid with", "Invoice attached", "Notes", "Added by"];
     const rows = expenses.map((e) => [
-      e.spentOn, CAT_LABEL[e.category] ?? e.category, e.supplier ?? "", e.description, e.reference ?? "",
+      e.spentOn, brandText(e), CAT_LABEL[e.category] ?? e.category, e.supplier ?? "", e.description, e.reference ?? "",
       (e.netCents / 100).toFixed(2), (e.gstCents / 100).toFixed(2), (e.totalCents / 100).toFixed(2),
       TREAT_LABEL[e.gstTreatment] ?? e.gstTreatment, PAID_LABEL[e.paidWith ?? ""] ?? (e.paidWith ?? ""),
       e.hasInvoice ? "yes" : "no", e.notes ?? "", e.createdByName ?? "",
@@ -514,6 +541,15 @@ export default function PrintsExpenses() {
           </SelectInput>
         </div>
         <div>
+          <label className="text-[10px] uppercase tracking-wider text-white/40">Brand</label>
+          <SelectInput value={brand} onChange={(e) => setBrand(e.target.value)} data-testid="filter-brand"
+            className="px-3 py-2 rounded-md bg-white/[0.02] border border-white/10 text-white text-sm">
+            <option value="all" className="bg-[#02060E]">All brands</option>
+            {vocab.brands.map((b) => <option key={b.key} value={b.key} className="bg-[#02060E]">{b.label}</option>)}
+            <option value="none" className="bg-[#02060E]">Not set yet</option>
+          </SelectInput>
+        </div>
+        <div>
           <label className="text-[10px] uppercase tracking-wider text-white/40">From</label>
           <DatePickerInput value={from} onChange={(e) => setFrom(e.target.value)} className="bg-white/[0.02] border-white/10 text-white" />
         </div>
@@ -521,10 +557,36 @@ export default function PrintsExpenses() {
           <label className="text-[10px] uppercase tracking-wider text-white/40">To</label>
           <DatePickerInput value={to} onChange={(e) => setTo(e.target.value)} className="bg-white/[0.02] border-white/10 text-white" />
         </div>
-        {(from || to || category !== "all") && (
-          <Button variant="ghost" onClick={() => { setFrom(""); setTo(""); setCategory("all"); }} className="text-white/50">Clear</Button>
+        {(from || to || category !== "all" || brand !== "all") && (
+          <Button variant="ghost" onClick={() => { setFrom(""); setTo(""); setCategory("all"); setBrand("all"); }} className="text-white/50">Clear</Button>
         )}
       </div>
+
+      {/* ── By brand ── Dima, 2026-10-01: which brand the money was spent for.
+          🔴 "Not set" is shown, never hidden or spread across the brands. */}
+      {byBrand.data && (byBrand.data.brands.length > 0 || byBrand.data.unallocated.purchases > 0) && (() => {
+        const rows = [...byBrand.data.brands.map((b) => ({ key: b.brand, label: brandLabel(b.brand), cents: b.cents, n: b.purchases })),
+          ...(byBrand.data.unallocated.purchases > 0 ? [{ key: "none", label: "Not set yet", cents: byBrand.data.unallocated.cents, n: byBrand.data.unallocated.purchases }] : [])];
+        const sum = rows.reduce((a, r) => a + r.cents, 0) || 1;
+        return (
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4" data-testid="spend-by-brand">
+            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Spent by brand</div>
+            <div className="space-y-1.5">
+              {rows.map((r) => (
+                <button key={r.key} type="button" onClick={() => setBrand(brand === r.key ? "all" : r.key)}
+                  className={`w-full flex items-center gap-3 text-xs rounded-md px-1 -mx-1 py-0.5 ${brand === r.key ? "bg-blue-500/10" : "hover:bg-white/[0.03]"}`}>
+                  <span className={`w-28 sm:w-44 shrink-0 text-left truncate ${r.key === "none" ? "text-amber-300" : "text-white/70"}`}>{r.label}</span>
+                  <div className="h-2 flex-1 min-w-0 rounded-full bg-white/[0.06] overflow-hidden">
+                    <div className={`h-full rounded-full ${r.key === "none" ? "bg-amber-400/70" : "bg-emerald-500/70"}`} style={{ width: `${Math.round((r.cents / sum) * 100)}%` }} />
+                  </div>
+                  <span className="w-20 sm:w-24 shrink-0 text-right font-mono text-white">{money(r.cents)}</span>
+                  <span className="hidden sm:block w-16 shrink-0 text-right text-white/40">{r.n} {r.n === 1 ? "buy" : "buys"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── By category ── */}
       {data && Object.keys(data.byCategory).length > 1 && (
@@ -561,7 +623,7 @@ export default function PrintsExpenses() {
       ) : expenses.length === 0 ? (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">
           <Receipt className="w-8 h-8 text-white/20 mx-auto" />
-          <div className="mt-3 text-sm text-white/60">No expenses recorded{from || to || category !== "all" ? " for that filter" : " yet"}.</div>
+          <div className="mt-3 text-sm text-white/60">No expenses recorded{from || to || category !== "all" || brand !== "all" ? " for that filter" : " yet"}.</div>
           <div className="mt-1 text-xs text-white/35">Add the first purchase and attach its invoice.</div>
         </div>
       ) : (
@@ -586,6 +648,15 @@ export default function PrintsExpenses() {
                     <td className="px-3 py-2.5">
                       <button onClick={() => setEditing(e)} className="text-left">
                         <div className="text-white font-medium">{e.description}</div>
+                        <div className="flex flex-wrap gap-1 my-0.5" data-testid={`expense-brands-${e.id}`}>
+                          {e.allocations.length === 0 ? (
+                            <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300">Brand not set</span>
+                          ) : e.allocations.map((a) => (
+                            <span key={a.brand} className="text-[10.5px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300">
+                              {brandLabel(a.brand)}{e.allocations.length > 1 ? ` ${money(a.amountCents)}` : ""}
+                            </span>
+                          ))}
+                        </div>
                         <div className="text-[11px] text-white/40">
                           {CAT_LABEL[e.category] ?? e.category}
                           {e.reference ? ` · ${e.reference}` : ""}

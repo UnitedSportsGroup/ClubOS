@@ -91,6 +91,7 @@ import {
 import { agreedPriceError, agreedPriceColumns, agreedPriceNote } from "@shared/office-price";
 import { CIC7S_CURRENT_EDITION } from "@shared/cic7s";
 import { normaliseSizeTiers } from "@shared/print-size-tiers";
+import { normaliseQtyTiers } from "@shared/print-qty-tiers";
 import {
   applyPromo as applyAcademyPromo,
   quoteAcademy as quoteAcademyFees,
@@ -152,7 +153,10 @@ import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
-import { registerParentRoutes, resolveOwnedChildContactId } from "./parent-routes";
+import {
+  registerParentRoutes, resolveOwnedChildContactId, parentCheckoutCustomer, parentCustomerSessionSecret,
+  type OpenAcademyProgramme,
+} from "./parent-routes";
 import { registerPrintAccountRoutes, registerPrintAccountAdminRoutes } from "./print-account-routes";
 
 export async function registerRoutes(
@@ -2974,6 +2978,56 @@ export async function registerRoutes(
     return Math.max(0, program.capacity - taken);
   }
 
+  /**
+   * Every CUFC academy programme a family can buy RIGHT NOW, priced by
+   * academyQuoteFor — the same function that charges the card — for the parent
+   * account's "Register Alex for Pre-Academy U9" buttons. Closed, full and
+   * ended programmes are left out; so is any option the term plan cannot quote.
+   */
+  async function openAcademyProgrammes(): Promise<OpenAcademyProgramme[]> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.slug, "christchurch-united"));
+    if (!org) return [];
+    const all = await storage.getPrograms();
+    const out: OpenAcademyProgramme[] = [];
+    for (const p of all as any[]) {
+      if (p.type !== "academy" || !p.isActive || p.organizationId !== org.id) continue;
+      const options = await storage.getProgramOptions(p.id, { activeOnly: true });
+      const term = await academyTermFor(p);
+      const shaped = publicAcademyProgramme(p, options, await academySpotsRemaining(p), term);
+      if (!shaped.registrationOpen || shaped.isFull) continue;
+      const priced: OpenAcademyProgramme["options"] = [];
+      for (const o of shaped.options) {
+        try {
+          const q = academyQuoteFor(p, term, shaped.section, o.termPriceCents, "term");
+          if (!q || q.totalCents <= 0) continue;
+          priced.push({
+            id: o.id,
+            name: o.name,
+            scheduleText: o.scheduleText ?? null,
+            fullPriceCents: o.termPriceCents,
+            priceCents: q.totalCents,
+            sessionsRemaining: (q as any).sessionsRemaining ?? null,
+            totalSessions: (q as any).totalSessions ?? null,
+          });
+        } catch { /* an unsellable option simply isn't offered */ }
+      }
+      if (!priced.length) continue;
+      out.push({
+        id: p.id,
+        slug: p.slug,
+        name: p.name,
+        section: shaped.section,
+        ageMin: p.ageMin ?? null,
+        ageMax: p.ageMax ?? null,
+        seasonYear: p.seasonYear ?? Number(nzTodayIso().slice(0, 4)),
+        termId: term?.id ?? null,
+        termLabel: term ? (term.name || `Term ${term.termNumber} ${term.year}`) : null,
+        options: priced,
+      });
+    }
+    return out;
+  }
+
   // Public — every academy programme for a brand. Powers the cufc.co.nz
   // programme pages and the registration chooser.
   app.get("/api/public/academy/programmes", async (req, res) => {
@@ -3246,8 +3300,26 @@ export async function registerRoutes(
       const childLast = String(child.lastName).trim();
       const childDob = String(child.dateOfBirth).trim();
 
-      const existingKids = await storage.getRelationships(guardian.id);
-      let player: any =
+      // A signed-in family who picked a child we already hold (cufc.co.nz/account
+      // → "Register Alex"). `childKey` is a CLAIM: resolveOwnedChildContactId
+      // re-proves the child belongs to the signed-in family, and the claim only
+      // holds while the form still describes that child — a parent who picked
+      // Alex and then retyped the name is registering somebody else. Matching
+      // across EVERY guardian row of the family is what the name match below
+      // cannot do: it only sees this one guardian row's children.
+      let player: any = null;
+      const ownedChildId = body.childKey ? await resolveOwnedChildContactId(req, body.childKey) : null;
+      if (ownedChildId) {
+        const owned: any = await storage.getContact(ownedChildId);
+        const sameName =
+          owned?.firstName?.trim().toLowerCase() === childFirst.toLowerCase() &&
+          owned?.lastName?.trim().toLowerCase() === childLast.toLowerCase();
+        const sameDob = !owned?.dateOfBirth || String(owned.dateOfBirth).slice(0, 10) === childDob;
+        if (owned && owned.type === "player" && sameName && sameDob) player = owned;
+      }
+
+      const existingKids = player ? [] : await storage.getRelationships(guardian.id);
+      player = player ??
         existingKids
           .map((r: any) => r.player)
           .find(
@@ -3299,7 +3371,11 @@ export async function registerRoutes(
       if (player) {
         // Latest registration wins for medical/emergency/NZF data — a parent
         // correcting an allergy must not be ignored because the row exists.
-        await storage.updateContact(player.id, childFields as any);
+        // A record held with no date of birth takes the one just given.
+        await storage.updateContact(player.id, {
+          ...childFields,
+          ...(player.dateOfBirth ? {} : { dateOfBirth: childDob }),
+        } as any);
       } else {
         player = await storage.createContact({
           type: "player",
@@ -3377,11 +3453,19 @@ export async function registerRoutes(
       } as any);
 
       // ── 9. Our own checkout: a PaymentIntent, never a hosted Stripe page. ───
+      // A signed-in family registering under their OWN address gets their
+      // Stripe customer on the intent, which is what lets the Payment Element
+      // show saved cards and offer "save this card". Null for everyone else,
+      // and on any Stripe hiccup — the checkout is then exactly as before.
+      const parentCustomer = await parentCheckoutCustomer(
+        req, email, `${String(guardianIn.firstName).trim()} ${String(guardianIn.lastName).trim()}`.trim(),
+      );
       const { stripe } = await import("./stripe");
       const paymentIntent = await stripe.paymentIntents.create({
         amount: chargeCents,
         currency: "nzd",
         receipt_email: email,
+        ...(parentCustomer ? { customer: parentCustomer.customerId } : {}),
         description: `${program.name} — ${option.name} (${plan === "year" ? `${seasonYear} full year` : "one term"})`,
         automatic_payment_methods: { enabled: true },
         // Deliberately no child name here: this metadata rides into Stripe and,
@@ -3427,10 +3511,15 @@ export async function registerRoutes(
         contentIds: [program.slug],
       }).catch((e) => console.error("[Academy register] Meta Lead failed:", e));
 
+      const customerSessionClientSecret = parentCustomer
+        ? await parentCustomerSessionSecret(parentCustomer.customerId)
+        : null;
+
       res.json({
         registrationId: reg.id,
         leadEventId,
         clientSecret: paymentIntent.client_secret,
+        customerSessionClientSecret,
         // The quote the parent sees must be the amount the card is charged.
         quote: { ...quote, promoCents, discountCents: totalDiscountCents, totalCents: chargeCents, discountCode: promoCode },
         programme: { name: program.name, slug: program.slug, section },
@@ -21774,10 +21863,14 @@ export async function registerRoutes(
       // Same gate as the PATCH — a new product can arrive with stock sizes too.
       const newTiers = normaliseSizeTiers(req.body?.sizeTiersJson);
       if (!newTiers.ok) return res.status(400).json({ message: newTiers.error });
+      // Quantity pricing carries money too — same gate as the PATCH.
+      const newQty = normaliseQtyTiers(req.body?.qtyTiersJson, req.body?.pricingMethod, newTiers.tiers.map((t: any) => t.id));
+      if (!newQty.ok) return res.status(400).json({ message: newQty.error });
 
       const m = await storage.createPrintMaterial({
         ...req.body,
         sizeTiersJson: newTiers.tiers,
+        qtyTiersJson: newQty.tiers,
         slug: materialSlug,
         name,
         organizationId: org.id,
@@ -21789,6 +21882,60 @@ export async function registerRoutes(
       }
       res.status(400).json({ message: e.message });
     }
+  });
+
+  // Quantity pricing PREVIEW — what each step actually charges, from the SAME
+  // engine the website quotes with (Daniel, 2026-09-30: "as he's adjusting it …
+  // see what that price looks like — usually $50, at this quantity 20% off
+  // looks like $40"). Takes the form's UNSAVED values, writes nothing. A
+  // garment's own price moves with quantity (DTG under 20, screen print + setup
+  // from 20), so "usual" is the engine at the same quantity with no qty pricing,
+  // never base rate × qty. Size-priced products are shown at a reference size.
+  app.post("/api/admin/print-materials/:id/qty-preview", requireAuth, materialsTab, async (req, res) => {
+    try {
+      const existing = await materialInWorkspace(req, parseInt(String(req.params.id)));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const b = req.body ?? {};
+      const m: any = { ...existing, humanQuoteRequired: false };
+      for (const k of ["baseRateCents", "minChargeCents", "substrateCostPerM2Cents"] as const) {
+        if (Number.isInteger(b[k]) && b[k] >= 0) m[k] = b[k];
+      }
+      // Lenient on purpose: show what CAN be priced while Dima is mid-edit.
+      const num = (v: any) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+      const steps = (Array.isArray(b.qtyTiersJson) ? b.qtyTiersJson : [])
+        .map((t: any) => {
+          const sizePrices: Record<string, number> = {};
+          if (t?.sizePrices && typeof t.sizePrices === "object") {
+            for (const [k, v] of Object.entries(t.sizePrices)) { const n = num(v); if (n && n > 0) sizePrices[k] = n; }
+          }
+          return { minQty: Number(t?.minQty), discountPct: num(t?.discountPct), unitPriceCents: num(t?.unitPriceCents), sizePrices };
+        })
+        .filter((t: any) => Number.isInteger(t.minQty) && t.minQty >= 1);
+      m.qtyTiersJson = steps;
+      const { quotePrintItem } = await import("./print-pricing");
+      const sizeTiers = Array.isArray(m.sizeTiersJson) ? m.sizeTiersJson : [];
+      const sized = (m.pricingMethod === "per_piece_tiered" || m.pricingMethod === "bundle") && sizeTiers.length > 0;
+      let reference: string | null = null;
+      // The configs a preview row is priced at: one per stock size, or one reference piece.
+      const configs: { label: string | null; config: any }[] = [];
+      if (m.pricingMethod === "per_m2") { configs.push({ label: null, config: { widthMm: 1000, heightMm: 1000 } }); reference = "a 1 m² piece (1000 × 1000 mm)"; }
+      else if (sized) {
+        for (const t of sizeTiers) configs.push({ label: t.label, config: { extra: { tierId: t.id }, widthMm: t.w, heightMm: t.h } });
+        reference = "each stock size";
+      } else configs.push({ label: null, config: {} });
+      const one = (r: any, qty: number) => (r.ok
+        ? { eachCents: Math.round(r.subtotalCents / qty), totalCents: r.subtotalCents, how: (r.breakdown ?? []).map((l: any) => l.label).join(" + ") }
+        : { message: r.message });
+      const priceAt = (qty: number, config: any) => ({
+        usual: one(quotePrintItem({ ...m, qtyTiersJson: [] }, { quantity: qty, ...config }), qty),
+        withSteps: one(quotePrintItem(m, { quantity: qty, ...config }), qty),
+      });
+      const at = (qty: number) => sized
+        ? { qty, ...priceAt(qty, configs[0].config), sizes: configs.map((c) => ({ label: c.label, ...priceAt(qty, c.config) })) }
+        : { qty, ...priceAt(qty, configs[0].config) };
+      const qtys = Array.from(new Set([1, ...steps.map((t: any) => t.minQty)])).sort((a, c) => a - c);
+      res.json({ reference, gstRate: 0.15, sizes: sized ? sizeTiers.map((t: any) => ({ id: t.id, label: t.label })) : [], rows: qtys.map(at) });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   app.patch("/api/admin/print-materials/:id", requireAuth, materialsTab, async (req, res) => {
@@ -21806,6 +21953,14 @@ export async function registerRoutes(
         const tiers = normaliseSizeTiers(patch.sizeTiersJson);
         if (!tiers.ok) return res.status(400).json({ message: tiers.error });
         patch.sizeTiersJson = tiers.tiers;
+      }
+      // Quantity pricing (bulk discounts / price each) — Dima's money, validated
+      // here, never in the form: @shared/print-qty-tiers is the one decider.
+      if ("qtyTiersJson" in patch) {
+        const sizesNow = Array.isArray(patch.sizeTiersJson) ? patch.sizeTiersJson : (Array.isArray(existing.sizeTiersJson) ? existing.sizeTiersJson : []);
+        const qty = normaliseQtyTiers(patch.qtyTiersJson, patch.pricingMethod ?? existing.pricingMethod, (sizesNow as any[]).map((t) => t.id));
+        if (!qty.ok) return res.status(400).json({ message: qty.error });
+        patch.qtyTiersJson = qty.tiers;
       }
       const m = await storage.updatePrintMaterial(existing.id, patch);
       if (!m) return res.status(404).json({ message: "Not found" });
@@ -26596,7 +26751,9 @@ export async function registerRoutes(
   // join.cufc.co.nz/account. A parent credential, never a staff session: it
   // reuses resolveFamily() for membership so the office and the family can
   // never disagree about whose child someone is.
-  registerParentRoutes(app);
+  // The account page's "Register for Term N" buttons are priced by the same
+  // academyQuoteFor that charges the card, so they are handed in from here.
+  registerParentRoutes(app, { openAcademyProgrammes });
 
   // Dashboard revenue — one honest number per workspace, with a period filter
   // and a daily series. Deliberately NOT built on /api/admin/stats, which

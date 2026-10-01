@@ -20,7 +20,7 @@
 //   - Money in integer cents; dates as ISO strings, never through `new Date()`.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import { organizations, printContacts, salesActivities, salesEmails, salesProspects, users } from "@shared/schema";
@@ -31,6 +31,7 @@ import { nzTodayIso } from "@shared/academy";
 import {
   OPEN_PIPELINE_STAGES,
   OUTREACH_FOOTER,
+  OUTREACH_UNSUB_WORD,
   OUTREACH_ATTACHMENT_MAX_BYTES,
   OUTREACH_ATTACHMENT_MAX_FILES,
   OUTREACH_ATTACHMENT_TYPES,
@@ -354,8 +355,10 @@ export function registerSalesRoutes(app: Express) {
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   /** The plainest HTML: a personal email, not a newsletter — which is also
    *  what keeps it in the Primary tab rather than Promotions. */
-  function outreachShell(inner: string, pixelUrl: string): string {
-    const foot = esc(OUTREACH_FOOTER).replace(/\n/g, "<br/>");
+  function outreachShell(inner: string, pixelUrl: string, unsubUrl: string): string {
+    // 🔴 A real opt-out link (UEMA s11), worded for cold outreach — never "Unsubscribe".
+    const foot = esc(OUTREACH_FOOTER).replace(/\n/g, "<br/>")
+      .replace(OUTREACH_UNSUB_WORD, `<a href="${esc(unsubUrl)}" style="color:#888;text-decoration:underline">${OUTREACH_UNSUB_WORD}</a>`);
     return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#111;margin:0;padding:16px">
 <div style="max-width:600px">${inner}<p style="margin:28px 0 0;font-size:11px;line-height:1.5;color:#888">${foot}</p></div><img src="${pixelUrl}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" /></body></html>`;
   }
@@ -410,6 +413,17 @@ export function registerSalesRoutes(app: Express) {
       const followUp = isoDate(b.nextFollowUpOn, "Follow-up date");
       const files = readAttachments(b.attachments);
 
+      // 🔴 Someone who unsubscribed is never emailed again — refused here, by
+      // address, whichever prospect row they sit on.
+      const opt: any = await db.execute(sql`
+        SELECT opted_out_at FROM sales_email_optouts
+        WHERE organization_id = ${orgId} AND lower(email) = ${to} LIMIT 1`);
+      const optRow = (opt.rows ?? opt)[0];
+      if (optRow) {
+        const when = new Intl.DateTimeFormat("en-NZ", { timeZone: "Pacific/Auckland", day: "numeric", month: "short", year: "numeric" }).format(new Date(optRow.opted_out_at));
+        return res.status(409).json({ message: `${to} unsubscribed on ${when}, so we can't email them again. Call them instead.` });
+      }
+
       // A double-click is not a second email. One minute is long enough to
       // catch it and short enough that a deliberate resend still works.
       const [recent] = await db
@@ -444,8 +458,13 @@ export function registerSalesRoutes(app: Express) {
         from: `${senderName} from United Prints <orders@unitedprints.co.nz>`,
         replyTo: me.email,
         subject,
-        html: outreachShell(rendered.html, `${PUBLIC_BASE}/t/se/${token}/o.gif`),
-        text: `${outreachPlainText(body)}\n\n--\n${OUTREACH_FOOTER}`,
+        html: outreachShell(rendered.html, `${PUBLIC_BASE}/t/se/${token}/o.gif`, `${PUBLIC_BASE}/t/se/${token}/unsubscribe`),
+        text: `${outreachPlainText(body)}\n\n--\n${OUTREACH_FOOTER}\nDon't email me again: ${PUBLIC_BASE}/t/se/${token}/unsubscribe`,
+        // RFC 8058 one-click: Gmail/Apple show their own "Unsubscribe" button.
+        headers: {
+          "List-Unsubscribe": `<${PUBLIC_BASE}/t/se/${token}/unsubscribe>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
         attachments: files.map((f) => ({ filename: f.filename, content: f.content, contentType: f.contentType })),
       });
       if (!sent.ok) {

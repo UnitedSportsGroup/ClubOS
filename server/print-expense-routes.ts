@@ -47,6 +47,16 @@ function parseAllocations(raw: any, totalCents: number):
   return { ok: true, rows };
 }
 
+/**
+ * One brand is the whole invoice. The form can't know the exact NZD total of a
+ * foreign invoice (the server converts it), so a single-brand split is pinned
+ * to the stored total here rather than refused for being a few cents out.
+ * Two or more brands must still add up exactly — that is a real split.
+ */
+function wholeIfSingle(raw: any, totalCents: number): any {
+  return Array.isArray(raw) && raw.length === 1 ? [{ ...raw[0], amountCents: totalCents }] : raw;
+}
+
 const CATEGORIES = ["merchandise", "materials", "equipment", "services", "freight", "software", "other"] as const;
 const TREATMENTS = ["inclusive", "plus_gst", "zero_rated", "overseas_no_gst"] as const;
 // AliPay added 2026-09-16 — it is how the shop pays its Chinese suppliers.
@@ -316,6 +326,17 @@ export function registerPrintExpenseRoutes(app: Express) {
       money.totalCents = fx.nzdCents;
       if (money.totalCents <= 0) throw new ExpenseError("Add the amount");
       const invoice = cleanInvoice(req.body);
+      // 🔴 What it was for — checked BEFORE the insert so a bad split never
+      // leaves a half-saved expense. (Until 2026-10-01 this route ignored the
+      // brand entirely: a brand picked when ADDING an expense was dropped, and
+      // only an edit kept it — which is why Dima asked for a feature that
+      // already existed.)
+      let allocRows: { brand: string; amountCents: number }[] = [];
+      if (req.body?.allocations !== undefined) {
+        const parsed = parseAllocations(wholeIfSingle(req.body.allocations, money.totalCents), money.totalCents);
+        if (!parsed.ok) throw new ExpenseError(parsed.error);
+        allocRows = parsed.rows;
+      }
 
       const [row] = await db.insert(printExpenses).values({
         organizationId: org.id,
@@ -335,6 +356,11 @@ export function registerPrintExpenseRoutes(app: Express) {
         createdByUserId: req.session.userId!,
         ...(invoice ?? {}),
       }).returning({ id: printExpenses.id });
+      for (const a of allocRows) {
+        await db.execute(sql`
+          INSERT INTO print_expense_allocations (expense_id, brand, amount_cents)
+          VALUES (${row.id}, ${a.brand}, ${a.amountCents})`);
+      }
       res.status(201).json({ id: row.id });
     } catch (e: any) { handle(res, e, "create"); }
   });
@@ -401,7 +427,7 @@ export function registerPrintExpenseRoutes(app: Express) {
       if (req.body?.allocations !== undefined) {
         const total = patch.totalCents ?? (await db.select({ t: printExpenses.totalCents })
           .from(printExpenses).where(eq(printExpenses.id, id)))[0]?.t ?? 0;
-        const parsed = parseAllocations(req.body.allocations, Number(total));
+        const parsed = parseAllocations(wholeIfSingle(req.body.allocations, Number(total)), Number(total));
         if (!parsed.ok) throw new ExpenseError(parsed.error);
         await db.execute(sql`DELETE FROM print_expense_allocations WHERE expense_id = ${id}`);
         for (const a of parsed.rows) {
