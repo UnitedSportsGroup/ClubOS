@@ -183,10 +183,12 @@ export function outreachEmailDraft(p: OutreachDraftInput, sender: { firstName: s
  *  both on a commercial message (s10 sender info, s11 unsubscribe). */
 export const OUTREACH_FOOTER =
   "United Prints · Christchurch United Football Club Inc. · Christchurch, New Zealand\n" +
-  "Don't want emails from us? Unsubscribe here and we won't email you again.";
-/** The word in OUTREACH_FOOTER that becomes the unsubscribe link (Dima, 2026-10-01:
- *  "reply unsubscribe" is not a link). The server swaps it for a real one. */
-export const OUTREACH_UNSUB_WORD = "Unsubscribe";
+  "Not the right time? Just let us know and we won't email you again.";
+/** The words in OUTREACH_FOOTER that become the opt-out link. Dima, 2026-10-01:
+ *  this is COLD outreach — nobody subscribed, so "Unsubscribe" reads like we put
+ *  them on a list. UEMA s11 needs a working way to say "stop", not that word.
+ *  The server swaps these words for the real link. */
+export const OUTREACH_UNSUB_WORD = "let us know";
 
 // ── Turning the typed message into the email ─────────────────────────────────
 // ONE renderer for the dialog's preview and for the email that is sent, so

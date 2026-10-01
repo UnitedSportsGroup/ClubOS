@@ -356,7 +356,7 @@ export function registerSalesRoutes(app: Express) {
   /** The plainest HTML: a personal email, not a newsletter — which is also
    *  what keeps it in the Primary tab rather than Promotions. */
   function outreachShell(inner: string, pixelUrl: string, unsubUrl: string): string {
-    // 🔴 A real unsubscribe link (UEMA s11) — not "reply unsubscribe".
+    // 🔴 A real opt-out link (UEMA s11), worded for cold outreach — never "Unsubscribe".
     const foot = esc(OUTREACH_FOOTER).replace(/\n/g, "<br/>")
       .replace(OUTREACH_UNSUB_WORD, `<a href="${esc(unsubUrl)}" style="color:#888;text-decoration:underline">${OUTREACH_UNSUB_WORD}</a>`);
     return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#111;margin:0;padding:16px">
@@ -459,7 +459,7 @@ export function registerSalesRoutes(app: Express) {
         replyTo: me.email,
         subject,
         html: outreachShell(rendered.html, `${PUBLIC_BASE}/t/se/${token}/o.gif`, `${PUBLIC_BASE}/t/se/${token}/unsubscribe`),
-        text: `${outreachPlainText(body)}\n\n--\n${OUTREACH_FOOTER}\nUnsubscribe: ${PUBLIC_BASE}/t/se/${token}/unsubscribe`,
+        text: `${outreachPlainText(body)}\n\n--\n${OUTREACH_FOOTER}\nDon't email me again: ${PUBLIC_BASE}/t/se/${token}/unsubscribe`,
         // RFC 8058 one-click: Gmail/Apple show their own "Unsubscribe" button.
         headers: {
           "List-Unsubscribe": `<${PUBLIC_BASE}/t/se/${token}/unsubscribe>`,

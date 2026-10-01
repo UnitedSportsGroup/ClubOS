@@ -103,9 +103,9 @@ export function registerSalesEmailPublicRoutes(app: Express) {
     res.set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
     const t = await unsubTarget(String(req.params.token)).catch(() => null);
     if (!t) return res.status(404).send(page("Link not found", `<h1 style="font-size:20px;margin:16px 0 8px">That link doesn't work any more</h1><p style="color:#52607a;font-size:14px">Email <a href="mailto:orders@unitedprints.co.nz">orders@unitedprints.co.nz</a> and we'll take you off our list.</p>`));
-    res.send(page("Unsubscribe", `<h1 style="font-size:20px;margin:16px 0 8px">Stop emails from United Prints?</h1>
+    res.send(page("No more emails", `<h1 style="font-size:20px;margin:16px 0 8px">No more emails from United Prints?</h1>
 <p style="color:#52607a;font-size:14px;margin:0 0 20px">We won't email <b>${escHtml(t.email)}</b> again.</p>
-<form method="post"><button type="submit" style="background:#1f4fd8;color:#fff;border:0;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;min-height:44px">Unsubscribe</button></form>`));
+<form method="post"><button type="submit" style="background:#1f4fd8;color:#fff;border:0;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;min-height:44px">Don't email me again</button></form>`));
   });
 
   app.post("/t/se/:token/unsubscribe", async (req: Request, res: Response) => {
@@ -126,7 +126,7 @@ export function registerSalesEmailPublicRoutes(app: Express) {
         await record(t.id, "unsubscribed", { ua: req.headers["user-agent"] ?? null })
           .catch((e) => console.error("[sales-email] unsubscribe event not logged", e));
       }
-      res.send(page("Unsubscribed", `<h1 style="font-size:20px;margin:16px 0 8px">You're unsubscribed</h1><p style="color:#52607a;font-size:14px;margin:0">We won't email <b>${escHtml(t.email)}</b> again. If you ever need printing, we're at <a href="https://unitedprints.co.nz">unitedprints.co.nz</a>.</p>`));
+      res.send(page("Done", `<h1 style="font-size:20px;margin:16px 0 8px">Done — we won't email you again</h1><p style="color:#52607a;font-size:14px;margin:0">That covers <b>${escHtml(t.email)}</b>. If you ever need printing, we're at <a href="https://unitedprints.co.nz">unitedprints.co.nz</a>.</p>`));
     } catch (err) {
       console.error("[sales-email] unsubscribe", err);
       res.status(500).send(page("Something went wrong", `<h1 style="font-size:20px;margin:16px 0 8px">That didn't go through</h1><p style="color:#52607a;font-size:14px">Please email <a href="mailto:orders@unitedprints.co.nz">orders@unitedprints.co.nz</a> and we'll take you off our list.</p>`));

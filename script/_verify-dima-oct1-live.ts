@@ -95,12 +95,12 @@ try {
   salesEmailId = (await pool.query(`INSERT INTO sales_emails (organization_id, prospect_id, token, to_email, subject, body) VALUES (8,$1,$2,$3,'probe','probe') RETURNING id`, [prospectId, token, probeEmail])).rows[0].id;
   const g = curl([`${BASE}/t/se/${token}/unsubscribe`]);
   const stillIn = (await pool.query(`SELECT count(*)::int n FROM sales_email_optouts WHERE lower(email)=$1`, [probeEmail])).rows[0].n;
-  ok("GET shows a confirm button and unsubscribes NOBODY (scanner-safe)", g.status === 200 && /<button[^>]*>Unsubscribe<\/button>/.test(g.body) && stillIn === 0, `${g.status} n=${stillIn}`);
+  ok("GET shows a confirm button and unsubscribes NOBODY (scanner-safe)", g.status === 200 && /<button[^>]*>Don't email me again<\/button>/.test(g.body) && stillIn === 0, `${g.status} n=${stillIn}`);
   const post1 = curl(["-X", "POST", `${BASE}/t/se/${token}/unsubscribe`]);
   const post2 = curl(["-X", "POST", "-H", "Content-Type: application/x-www-form-urlencoded", "-d", "List-Unsubscribe=One-Click", `${BASE}/t/se/${token}/unsubscribe`]);
   const opt = (await pool.query(`SELECT count(*)::int n FROM sales_email_optouts WHERE lower(email)=$1`, [probeEmail])).rows[0].n;
   const ev = (await pool.query(`SELECT count(*)::int n FROM sales_email_events WHERE sales_email_id=$1 AND type='unsubscribed'`, [salesEmailId])).rows[0].n;
-  ok("POST unsubscribes (and a second click/one-click is not a second row)", post1.status === 200 && /You're unsubscribed/.test(post1.body) && post2.status === 200 && opt === 1 && ev === 1, `${post1.status}/${post2.status} rows=${opt} events=${ev}`);
+  ok("POST unsubscribes (and a second click/one-click is not a second row)", post1.status === 200 && /we won't email you again/.test(post1.body) && post2.status === 200 && opt === 1 && ev === 1, `${post1.status}/${post2.status} rows=${opt} events=${ev}`);
   const bogus = curl(["-o", "/dev/null", `${BASE}/t/se/${crypto.randomBytes(24).toString("base64url")}/unsubscribe`]);
   ok("an unknown link answers 404 with a way out", bogus.status === 404, String(bogus.status));
   const send = admin(`/api/admin/sales/prospects/${prospectId}/email`, ["-X", "POST", "-H", "Content-Type: application/json", "-d",
@@ -119,3 +119,4 @@ finally {
   if (userId) { await pool.query(`DELETE FROM user_organizations WHERE user_id=$1`, [userId]); await pool.query(`DELETE FROM users WHERE id=$1`, [userId]).catch(() => pool.query(`UPDATE users SET active=false WHERE id=$1`, [userId])); }
   await pool.end(); console.log(`\n${pass} passed, ${fails.length} failed`); if (fails.length) process.exit(1);
 }
+
