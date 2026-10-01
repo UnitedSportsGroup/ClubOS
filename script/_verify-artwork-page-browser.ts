@@ -30,7 +30,8 @@ try {
   await (input as any).uploadFile("/tmp/ANCOP-Walk-Banner.png", "/tmp/Hi-Res-Banner.tif");
   await p.waitForFunction(() => { const j = Array.from(document.querySelectorAll('[data-testid="artwork-job"]')); return j.length >= 2 && j.every((x) => x.getAttribute("data-state") !== "sending"); }, { timeout: 600000 });
   const txt = await p.evaluate(() => document.body.innerText);
-  ok("both files show ✓ Received", (txt.match(/✓ Received/g) ?? []).length === 2, txt.slice(0, 400));
+  const states = await p.$$eval('[data-testid="artwork-job"]', (els: any[]) => els.map((e) => e.getAttribute("data-state")));
+  ok("both files show ✓ Received", states.length === 2 && states.every((x: string) => x === "done"), JSON.stringify(states));
   ok("no horizontal scroll at 390px", (await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0);
   await p.screenshot({ path: "/private/tmp/claude-501/artwork-page-mobile.png" });
   const files = (await pool.query(`SELECT id, filename, size_bytes, parts, status FROM print_quote_files WHERE quote_id=$1 ORDER BY id`, [quoteId])).rows;
@@ -42,8 +43,9 @@ try {
   await pool.query(`INSERT INTO user_organizations (user_id, organization_id, role, tabs) VALUES ($1,8,'admin',NULL)`, [userId]);
   const h = execFileSync("curl", ["-s", "-D", "-", "-o", "/dev/null", "-X", "POST", "-H", "Content-Type: application/json", "-d", JSON.stringify({ email, password }), `${BASE}/api/auth/login`]).toString();
   const cookie = h.match(/^set-cookie:\s*([^;]+)/im)?.[1] ?? "";
-  execFileSync("curl", ["-s", "-L", "-o", "/tmp/_dl.tif", "-H", `Cookie: ${cookie}`, "-H", "X-Workspace-Slug: united-prints", `${BASE}/api/admin/print-quotes/${quoteId}/files/${big?.id}?download=1`]);
-  ok("Dima's Download link returns the 60MB file byte for byte", sha(readFileSync("/tmp/_dl.tif")) === sha(readFileSync("/tmp/Hi-Res-Banner.tif")));
+  // Exactly as a click sends it: the cookie and NOTHING else (no workspace header).
+  execFileSync("curl", ["-s", "-L", "-o", "/tmp/_dl.tif", "-H", `Cookie: ${cookie}`, `${BASE}/api/admin/print-quotes/${quoteId}/files/${big?.id}?download=1`]);
+  ok("Dima's Download link (a plain click, no workspace header) returns the 60MB file byte for byte", sha(readFileSync("/tmp/_dl.tif")) === sha(readFileSync("/tmp/Hi-Res-Banner.tif")));
   const ask = execFileSync("curl", ["-s", "-X", "POST", "-H", `Cookie: ${cookie}`, "-H", "X-Workspace-Slug: united-prints", "-H", "Content-Type: application/json", "-d", '{"send":false}', `${BASE}/api/admin/print-quotes/${quoteId}/request-artwork`]).toString();
   ok("Copy upload link gives this customer's page", JSON.parse(ask).url === `https://shop.unitedprints.co.nz/print/artwork/${token}`, ask);
   const [cn, cv] = cookie.split("=");
@@ -59,7 +61,8 @@ try {
   await a.evaluate((id: number) => document.querySelector(`[data-testid="quote-file-preview-${id}"]`)?.scrollIntoView({ block: "center" }), png?.id);
   await a.waitForFunction((id: number) => ((document.querySelector(`[data-testid="quote-file-preview-${id}"]`) as HTMLImageElement | null)?.naturalWidth ?? 0) > 0, { timeout: 15000 }, png?.id).catch(() => {});
   const w = await a.$eval(`[data-testid="quote-file-preview-${png?.id}"]`, (e: any) => e.naturalWidth).catch(() => 0);
-  ok("the image PREVIEW renders in the Quotes tab", w > 0, String(w));
+  const pv = await a.evaluate(async (u: string) => { const r = await fetch(u, { credentials: "include" }); return { s: r.status, t: r.headers.get("content-type"), url: r.url.slice(0, 90) }; }, `/api/admin/print-quotes/${quoteId}/files/${png?.id}`);
+  ok("the image PREVIEW renders in the Quotes tab", w > 0, `${w} ${JSON.stringify(pv)}`);
   ok("Ask for artwork + Copy upload link buttons on the card", !!(await a.$(`[data-testid="button-ask-artwork-${quoteId}"]`)) && !!(await a.$(`[data-testid="button-copy-artwork-link-${quoteId}"]`)));
   await a.evaluate((id: number) => document.querySelector(`[data-testid="card-quote-${id}"]`)?.scrollIntoView({ block: "start" }), quoteId);
   await new Promise((r) => setTimeout(r, 600));

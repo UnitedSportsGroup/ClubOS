@@ -33,7 +33,8 @@ import { accountDiscountPct } from "@shared/print-account";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { guardPublicForm } from "./form-guard";
-import { requireAuth, requireTab } from "./auth";
+import { requireAuth, requireTab, requireTabAnywhere } from "./auth";
+import { storage } from "./storage";
 import {
   organizations,
   printQuotes,
@@ -853,12 +854,23 @@ export function registerPrintQuoteRoutes(app: Express) {
   });
 
   // The customer's artwork — a 5-minute signed URL, never a public link.
-  app.get("/api/admin/print-quotes/:id/files/:fileId", requireAuth, tab, async (req, res) => {
+  // 🔴 NOT behind requireTab: an <img> preview and a plain Download link can't
+  // send X-Workspace-Slug, so requireTab answered 400 to both (the API check
+  // passed only because it sent the header by hand). The workspace is the
+  // QUOTE's own, and the caller must be a member of it holding the Quotes tab.
+  app.get("/api/admin/print-quotes/:id/files/:fileId", requireAuth, requireTabAnywhere("quotes"), async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
       const id = parseInt(String(req.params.id), 10);
       const fileId = parseInt(String(req.params.fileId), 10);
-      if (!org || !Number.isFinite(id) || !Number.isFinite(fileId)) return res.status(400).json({ message: "Bad request" });
+      if (!Number.isFinite(id) || !Number.isFinite(fileId)) return res.status(400).json({ message: "Bad request" });
+      const [owner] = await db.select({ orgId: printQuotes.organizationId }).from(printQuotes).where(eq(printQuotes.id, id));
+      if (!owner) return res.status(404).json({ message: "Not found" });
+      const me = await storage.getUser(req.session.userId!);
+      if (me?.role !== "super_admin") {
+        const mine = await storage.getUserOrganizations(req.session.userId!);
+        if (!mine.some((m) => m.id === owner.orgId)) return res.status(404).json({ message: "Not found" });
+      }
+      const org = { id: owner.orgId };
       const [f] = await db.select({ key: printQuoteFiles.storageKey, filename: printQuoteFiles.filename, chunked: printQuoteFiles.chunked,
           parts: printQuoteFiles.parts, sizeBytes: printQuoteFiles.sizeBytes, contentType: printQuoteFiles.contentType })
         .from(printQuoteFiles)
