@@ -233,6 +233,18 @@ export type Family = {
  * families on the floor.
  */
 export async function resolveFamily(kind: PersonKind, id: number): Promise<Family | null> {
+  // A record merged into another IS that other person now: an old link, a
+  // bookmark or a search result taken before the merge opens the survivor,
+  // never an empty shell with no parent and no programmes. Followed a few
+  // steps in case a survivor was itself merged later.
+  if (kind === "contact") {
+    for (let hops = 0; hops < 5; hops++) {
+      const r = await db.execute(sql`SELECT merged_into_contact_id m FROM contacts WHERE id = ${id} LIMIT 1`);
+      const next = (r.rows as any[])[0]?.m;
+      if (!next) break;
+      id = Number(next);
+    }
+  }
   const person = await loadPerson(kind, id);
   if (!person) return null;
   const today = nzTodayIso();
@@ -442,7 +454,10 @@ export async function searchPeople(q: string, filter: SearchFilter, limit: numbe
                                  similarity(lower(c.first_name || ' ' || c.last_name), lower(${q})))`
                   : sql`0`} AS score
     FROM contacts c
-    WHERE c.type <> 'staff' AND NOT ${contactHiddenSql("c")} ${typeWhere} ${contactWhere}`;
+    -- A record merged into another person is that person now (2026-10-02,
+    -- Olga still seeing a second Ruben Kruger after the merge).
+    WHERE c.type <> 'staff' AND c.merged_into_contact_id IS NULL
+      AND NOT ${contactHiddenSql("c")} ${typeWhere} ${contactWhere}`;
 
   const childSel = sql`
     SELECT 'child'::text AS kind, ch.id, ch.first_name, ch.last_name, 'player'::text AS type,
