@@ -28,6 +28,8 @@ export interface EmailEditorSurfaceHandle {
   /** True while a text block is being typed in. Its words reach the design
    *  only when that edit ends, so a background save waits for it. */
   isEditing: () => boolean;
+  /** Finish the text edit in progress, so its words land in the design. */
+  endEditing: () => void;
 }
 
 interface SurfaceProps {
@@ -90,6 +92,12 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
         isReady: () => !!editorRef.current,
         isEditing: () => {
           try { return !!(editorRef.current as any)?.getEditing?.(); } catch { return false; }
+        },
+        endEditing: () => {
+          try {
+            const comp: any = (editorRef.current as any)?.getEditing?.();
+            comp?.getView?.()?.disableEditing?.();
+          } catch { /* nothing being edited */ }
         },
         insertText: (text: string) => {
           const editor = editorRef.current;

@@ -100,7 +100,9 @@ try {
   ok(!leaked, "the paste brought no fonts or backgrounds with it");
   await page.screenshot({ path: join(OUT, "zach-after-paste.png") });
   // Finish with the block the way a person does — click elsewhere on the page.
-  await page.mouse.click(30, 450);
+  // (the Design card's own heading — not a link)
+  const h = await page.evaluate(() => { const el = [...document.querySelectorAll("h2")].find((x) => /design/i.test(x.textContent || ""))!; const r = el.getBoundingClientRect(); return { x: r.left + 10, y: r.top + 5 }; });
+  await page.mouse.click(h.x, h.y);
   await sleep(3500);
   const auto = await page.$eval("[data-testid=mkt-autosave-status]", (e: any) => e.textContent).catch(() => "");
   ok(/Saved automatically/.test(auto), "it saved on its own once the block was finished", auto);

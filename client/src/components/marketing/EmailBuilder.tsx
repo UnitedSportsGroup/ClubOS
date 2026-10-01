@@ -272,6 +272,10 @@ export default function EmailBuilder({
       setError("The editor is still loading — try again in a moment.");
       return;
     }
+    if (surface.isEditing()) {
+      surface.endEditing();
+      await new Promise((r) => setTimeout(r, 50));   // let GrapesJS write it in
+    }
     setSaving(true);
     setError(null);
     try {
@@ -315,6 +319,22 @@ export default function EmailBuilder({
     autoTimer.current = setTimeout(run, AUTOSAVE_MS);
   }, [autoSave, commit, onDirty]);
 
+  // A click anywhere OUTSIDE the builder (the subject, Next, the page) ends the
+  // text edit, so what was typed is in the design — and saved — before the
+  // person moves on. Clicks inside the builder (its panels, other blocks) are
+  // left to GrapesJS.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const root = rootRef.current;
+      if (!root || root.contains(e.target as Node)) return;
+      const surface = surfaceRef.current;
+      if (surface?.isReady() && surface.isEditing()) surface.endEditing();
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, []);
+
   const handleSaveMobile = useCallback(async () => {
     // Saving an empty box over a design someone spent an hour on is the one
     // thing this path must never do. Clearing on purpose is still possible —
@@ -340,6 +360,7 @@ export default function EmailBuilder({
 
   return (
     <div
+      ref={rootRef}
       className={`flex flex-col gap-3 ${fillParent && !isNarrow ? "mkt-builder--fill" : ""}`}
       // Belt and braces where `overflow: clip` is unsupported (Safari < 16): a
       // box that scrolled itself is put straight back.
