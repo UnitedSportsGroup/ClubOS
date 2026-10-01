@@ -3561,8 +3561,9 @@ export const printQuotes = pgTable("print_quotes", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
 
-  // Random 48-hex token, for a future customer-facing quote view.
+  // Random 48-hex token — the customer's private artwork upload page uses it.
   token: text("token").notNull().unique(),
+  artworkRequestedAt: timestamp("artwork_requested_at", { withTimezone: true }),
 
   status: text("status").notNull().default("new"), // new | approved | rejected
 
@@ -3624,6 +3625,9 @@ export const printQuoteFiles = pgTable("print_quote_files", {
   storageKey: text("storage_key").notNull(),
   storageBackend: text("storage_backend").notNull(),
   checksum: text("checksum").notNull(),
+  parts: integer("parts").notNull().default(1),
+  status: text("status").notNull().default("ready"),
+  chunked: boolean("chunked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export type PrintQuoteFile = typeof printQuoteFiles.$inferSelect;

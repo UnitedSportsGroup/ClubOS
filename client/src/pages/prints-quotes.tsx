@@ -55,7 +55,8 @@ interface PrintQuote {
   createdAt: string;
   items: PrintQuoteItem[];
   /** The customer's uploaded artwork (2026-10-01). Older quotes have none. */
-  files?: { id: number; itemId: number | null; filename: string; sizeBytes: number }[];
+  files?: { id: number; itemId: number | null; filename: string; sizeBytes: number; contentType?: string }[];
+  artworkRequestedAt?: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -211,6 +212,22 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
   onReject: () => void;
 }) {
   const meta = STATUS_META[quote.status];
+  const { toast } = useToast();
+  // "Ask for artwork" — the customer's private upload page, emailed or copied.
+  const askMut = useMutation({
+    mutationFn: async (send: boolean) => (await apiRequest("POST", `/api/admin/print-quotes/${quote.id}/request-artwork`, { send })).json(),
+    onSuccess: async (r: { url: string; emailed: boolean }, send) => {
+      if (send) {
+        toast({ title: "Upload link emailed", description: `Sent to ${quote.customerEmail}. Their files will appear here.` });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/print-quotes"] });
+      } else {
+        try { await navigator.clipboard.writeText(r.url); toast({ title: "Upload link copied", description: "Paste it into a text or email to the customer." }); }
+        catch { toast({ title: "Their upload link", description: r.url }); }
+      }
+    },
+    onError: (e: Error) => toast({ title: "Couldn't do that", description: e.message, variant: "destructive" }),
+  });
+  const hasAnyFile = (quote.files ?? []).length > 0;
   return (
     <div data-testid={`card-quote-${quote.id}`} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -260,16 +277,35 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
             {(() => {
               const mine = (quote.files ?? []).filter((f) => f.itemId === it.id);
               if (mine.length) return (
-                <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid={`quote-files-${it.id}`}>
-                  {mine.map((f) => (
-                    <a key={f.id} href={`/api/admin/print-quotes/${quote.id}/files/${f.id}?download=1`} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/[0.08] border border-emerald-500/25 px-2 py-1 text-[11.5px] text-emerald-300 hover:bg-emerald-500/[0.14]">
-                      <Paperclip className="w-3 h-3 shrink-0" />
-                      <span className="truncate max-w-[14rem]">{f.filename}</span>
-                      <span className="text-emerald-300/60">{f.sizeBytes >= 1048576 ? `${(f.sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.sizeBytes / 1024))} KB`}</span>
-                      <Download className="w-3 h-3 shrink-0" />
-                    </a>
-                  ))}
+                <div className="mt-2 flex flex-wrap gap-2" data-testid={`quote-files-${it.id}`}>
+                  {mine.map((f) => {
+                    const href = `/api/admin/print-quotes/${quote.id}/files/${f.id}`;
+                    const isImg = /^image\//.test(f.contentType ?? "") || /\.(png|jpe?g|webp|gif|svg)$/i.test(f.filename);
+                    const isPdf = /pdf/.test(f.contentType ?? "") || /\.pdf$/i.test(f.filename);
+                    const size = f.sizeBytes >= 1048576 ? `${(f.sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.sizeBytes / 1024))} KB`;
+                    return (
+                      <div key={f.id} className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-1.5 w-[11.5rem]">
+                        {/* A preview Dima can judge before downloading — images under
+                            15MB inline (bigger ones open in a tab), PDFs open in a tab. */}
+                        {isImg && f.sizeBytes < 15 * 1048576 ? (
+                          <a href={href} target="_blank" rel="noreferrer" title="Open full size">
+                            <img src={href} alt={f.filename} loading="lazy" className="h-28 w-full rounded-md object-contain bg-[repeating-conic-gradient(#e5e7eb_0_25%,#fff_0_50%)] [background-size:16px_16px]" data-testid={`quote-file-preview-${f.id}`} />
+                          </a>
+                        ) : (
+                          <a href={href} target="_blank" rel="noreferrer" className="flex h-28 w-full flex-col items-center justify-center gap-1 rounded-md bg-white/[0.04] text-[11px] text-emerald-300 hover:bg-white/[0.07]">
+                            <FileText className="w-6 h-6" />{isPdf || isImg ? "Open preview" : "Open"}
+                          </a>
+                        )}
+                        <div className="mt-1.5 truncate text-[11.5px] text-emerald-300" title={f.filename}>{f.filename}</div>
+                        <div className="flex items-center justify-between text-[10.5px] text-emerald-300/60">
+                          <span>{size}</span>
+                          <a href={`${href}?download=1`} className="inline-flex items-center gap-1 text-emerald-300 hover:underline" data-testid={`quote-file-download-${f.id}`}>
+                            <Download className="w-3 h-3" /> Download
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               );
               if (!it.designFileName) return null;
@@ -277,8 +313,8 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
                 <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-500/[0.07] border border-amber-500/20 px-2 py-1.5 text-[11px] text-amber-200/80">
                   <Paperclip className="w-3 h-3 shrink-0 mt-0.5" />
                   <span>
-                    They named a file — <span className="font-medium">{it.designFileName}</span> — but it didn't come through
-                    (too big, or sent before uploads worked). Reply and ask them for it.
+                    They picked <span className="font-medium">{it.designFileName}</span> but it never reached us (sent before uploads worked).
+                    Use <b>Ask for artwork</b> below — they get a link to upload it, any size.
                   </span>
                 </div>
               );
@@ -302,6 +338,26 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
           {quote.heardAbout && (
             <div><span className="text-white/35">Heard about us via</span> <span className="text-white/75">{quote.heardAbout}</span></div>
           )}
+        </div>
+      )}
+
+      {/* Ask for artwork — for a quote whose file never arrived, or to get a better one. */}
+      {quote.status !== "rejected" && quote.customerEmail && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-3" data-testid={`ask-artwork-${quote.id}`}>
+          <span className="text-[11.5px] text-white/45 mr-1">
+            {hasAnyFile ? "Need a better file?" : "No artwork yet."}
+            {quote.artworkRequestedAt ? ` Asked ${new Date(quote.artworkRequestedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", timeZone: "Pacific/Auckland" })}.` : ""}
+          </span>
+          <button type="button" disabled={askMut.isPending} onClick={() => askMut.mutate(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 py-1.5 text-[12px] text-blue-300 hover:bg-blue-500/20 disabled:opacity-50 min-h-[32px]"
+            data-testid={`button-ask-artwork-${quote.id}`}>
+            <Mail className="w-3.5 h-3.5" /> Ask for artwork
+          </button>
+          <button type="button" disabled={askMut.isPending} onClick={() => askMut.mutate(false)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.05] disabled:opacity-50 min-h-[32px]"
+            data-testid={`button-copy-artwork-link-${quote.id}`}>
+            Copy upload link
+          </button>
         </div>
       )}
 
