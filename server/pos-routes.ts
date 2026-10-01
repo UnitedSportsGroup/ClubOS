@@ -304,6 +304,22 @@ async function shiftSummary(shiftId: number) {
   };
 }
 
+/** A register's Stripe Terminal Location — created once, then reused. A
+ *  Bluetooth reader (WisePad 3) can only connect to a location, and a smart
+ *  reader is registered to one, so both paths go through here. */
+async function ensureRegisterLocation(stripe: any, register: { id: number; name: string; stripeLocationId: string | null }, a: any = {}): Promise<string> {
+  if (register.stripeLocationId) return register.stripeLocationId;
+  const address = {
+    line1: str(a?.line1, 120) || POS_DEFAULT_READER_ADDRESS.line1,
+    city: str(a?.city, 60) || POS_DEFAULT_READER_ADDRESS.city,
+    postal_code: str(a?.postalCode, 12) || POS_DEFAULT_READER_ADDRESS.postal_code,
+    country: "NZ",
+  };
+  const loc = await stripe.terminal.locations.create({ display_name: register.name.slice(0, 100), address }, { idempotencyKey: `pos_register_${register.id}_location` });
+  await db.update(posRegisters).set({ stripeLocationId: loc.id, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
+  return loc.id;
+}
+
 export function registerPosRoutes(app: Express) {
   const gate = [requireAuth, requireTabAnywhere("pos")] as const;
 
@@ -372,19 +388,7 @@ export function registerPosRoutes(app: Express) {
       const account = await readerAccountFor(register);
       const { stripe, ok, reason } = stripeForAccount(account);
       if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
-      let locationId = register.stripeLocationId;
-      if (!locationId) {
-        const a = req.body?.address ?? {};
-        const address = {
-          line1: str(a.line1, 120) || POS_DEFAULT_READER_ADDRESS.line1,
-          city: str(a.city, 60) || POS_DEFAULT_READER_ADDRESS.city,
-          postal_code: str(a.postalCode, 12) || POS_DEFAULT_READER_ADDRESS.postal_code,
-          country: "NZ",
-        };
-        const loc = await stripe.terminal.locations.create({ display_name: register.name.slice(0, 100), address }, { idempotencyKey: `pos_register_${register.id}_location` });
-        locationId = loc.id;
-        await db.update(posRegisters).set({ stripeLocationId: locationId, updatedAt: new Date() }).where(eq(posRegisters.id, register.id));
-      }
+      const locationId = await ensureRegisterLocation(stripe, register, req.body?.address);
       let reader: any;
       try {
         reader = await stripe.terminal.readers.create({ registration_code: code, label: (str(req.body?.label, 60) || register.name).slice(0, 60), location: locationId });
@@ -790,6 +794,12 @@ export function registerPosRoutes(app: Express) {
       if (useReader && (await readerAccountFor(register!)) !== sale.moneyAccount) {
         return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This reader takes payments for a different Stripe account than this sale banks with. Use that account's reader, or the EFTPOS terminal and record it." });
       }
+      // The app's own reader (WisePad 3 over Bluetooth) is connected with a
+      // token for the REGISTER's account; a sale banking elsewhere could never
+      // be collected on it, so say so before a PaymentIntent exists.
+      if (!useReader && req.body?.sdk === true && register && (await readerAccountFor(register)) !== sale.moneyAccount) {
+        return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This register's readers take payments for a different Stripe account than this sale banks with. Use the EFTPOS terminal and record it." });
+      }
       const pi = await stripe.paymentIntents.create({
         amount: sale.remainingCents, currency: "nzd",
         payment_method_types: ["card_present"], capture_method: "automatic",
@@ -941,12 +951,28 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
 
+  // ── Where a Bluetooth reader connects (the app's WisePad 3) ──────────────
+  // The app asks once per register; the location is created on first use.
+  app.post("/api/admin/pos/registers/:id/terminal", ...gate, async (req, res) => {
+    try {
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, num(req.params.id)));
+      if (!register) return res.status(404).json({ message: "Register not found." });
+      const account = await readerAccountFor(register);
+      const { stripe, ok, reason } = stripeForAccount(account);
+      if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
+      const locationId = await ensureRegisterLocation(stripe, register);
+      res.json({ locationId, account, smartReaderId: register.stripeReaderId ?? null });
+    } catch (e: any) { if (!posError(res, e)) { console.error("[POS] terminal location", e); res.status(500).json({ message: e.message }); } }
+  });
+
   // ── Terminal connection token for the app SDK (Tap to Pay / WisePad) ─────
   app.post("/api/admin/pos/terminal/connection-token", ...gate, async (req, res) => {
     try {
       const registerId = num(req.body?.registerId);
       const [register] = Number.isFinite(registerId) ? await db.select().from(posRegisters).where(eq(posRegisters.id, registerId)) : [];
-      const account = isPosMoneyAccount(req.body?.moneyAccount) ? req.body.moneyAccount : "club";
+      // The register decides the account, so a phone can never mint a token for a
+      // different bucket than the sale it is about to charge.
+      const account = register ? await readerAccountFor(register) : isPosMoneyAccount(req.body?.moneyAccount) ? req.body.moneyAccount : "club";
       const { stripe, ok, reason } = stripeForAccount(account);
       if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
       const token = await stripe.terminal.connectionTokens.create(register?.stripeLocationId ? { location: register.stripeLocationId } : {});
