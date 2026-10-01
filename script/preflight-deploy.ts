@@ -156,6 +156,8 @@ const CANARIES: Canary[] = [
   { feature: "sales email tracking", path: "/api/admin/sales/outreach",                 expect: [401] },
   { feature: "camp history",         path: "/api/admin/camps/1/history",                expect: [401] },
   { feature: "energy",               path: "/api/admin/energy",                         expect: [401] },
+  { feature: "print quote artwork",  path: "/api/admin/print-quotes/1/files/1",          expect: [401] },
+  { feature: "print expenses by brand", path: "/api/admin/print-expenses/by-brand",      expect: [401] },
   // Parent accounts v2 (2026-09-28): password sign-in + saved cards. 401 = live.
   { feature: "parent saved cards",   path: "/api/public/parent/payment-methods",        expect: [401] },
 ];
