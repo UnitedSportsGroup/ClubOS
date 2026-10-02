@@ -90,6 +90,9 @@ const CANARIES: Canary[] = [
   { feature: "fines",               path: "/api/admin/fines",                       expect: [401] },
   { feature: "pos register",        path: "/api/admin/pos/bootstrap",               expect: [401] },
   { feature: "pos receipt (public)",path: "/api/public/pos/receipt/00000000-0000-0000-0000-000000000000", expect: [404] },
+  // The counter screen (our app on the S710). A deploy without it leaves the
+  // reader at the office counter showing "Can't reach ClubOS" mid-sale.
+  { feature: "pos counter screen",  path: "/api/public/pos/counter/state",         expect: [401] },
   { feature: "equipment holders",   path: "/api/public/equipment/me",               expect: [401] },
   // Coding Budget — the club's chart of accounts (882 codes) and the
   // transactions mapped to it. Canaried because the DATA survives a bad deploy
