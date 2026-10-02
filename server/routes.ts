@@ -38,7 +38,7 @@ import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, crea
 import { sendPurchaseEvent, sendLeadEvent, sendVenuePurchaseEvent } from "./meta-capi";
 import { purchaseEventId } from "@shared/meta-events";
 import * as tp from "./teampay";
-import { teampayEntries } from "@shared/schema";
+import { teampayEntries, mailerListContacts } from "@shared/schema";
 import { sendEmail, sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueSignupNotification, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail, sendSplitTeamConfirmedEmail, sendLeagueBroadcastEmail, sendMflContactNotification, sendFootballInstituteApplicationNotification, sendCic7sRegistrationNotification, sendCicContactNotification, sendCugcContactNotification, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification, sendCugcFreeSessionConfirmation, sendCugcFreeSessionNotification, sendClubLogoConsentNotification, sendCicBroadcastEmail, sendMflWaitlistConfirmation, sendMflWaitlistNotification, sendLeaguePaymentReminderEmail, sendMembershipWelcomeEmail, sendMembershipNotificationEmail, sendChatNewConversationNotification, sendChatReplyNotification, sendCicInterestNotification, sendCufcContactNotification, sendCufcBroadcastEmail, sendCugcBroadcastEmail, sendCicVolunteerNotification, sendClubLogoLicenceCopy, sendRefundConfirmationEmail } from "./email";
 import { cugcStripe, constructCugcWebhookEvent } from "./cugc-stripe";
 import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
@@ -9716,7 +9716,8 @@ export async function registerRoutes(
     try {
       const compId = req.query.competitionId ? parseInt(String(req.query.competitionId)) : null;
       const divisionId = req.query.divisionId ? parseInt(String(req.query.divisionId)) : null;
-      const recipients = await resolveMflAudience(MFL_ORG_ID, { competitionId: compId, audience: "all", divisionId });
+      const audience: MflAudience = req.query.audience === "schools" ? "schools" : "all";
+      const recipients = await resolveMflAudience(MFL_ORG_ID, { competitionId: compId, audience, divisionId });
       const unsub = await getUnsubscribedEmails(MFL_ORG_ID);
       const contacts = recipients.map((r) => ({ ...r, unsubscribed: unsub.has(r.email) }));
       res.json({ contacts, total: contacts.length, unsubscribedCount: contacts.filter((c) => c.unsubscribed).length });
@@ -9736,7 +9737,7 @@ export async function registerRoutes(
     try {
       const compId = req.body.competitionId ? parseInt(String(req.body.competitionId)) : null;
       const divisionId = req.body.divisionId ? parseInt(String(req.body.divisionId)) : null;
-      const audience = req.body.audience === "all" ? "all" : "captains";
+      const audience = parseMflAudience(req.body.audience);
       const recipients = await resolveMflAudience(MFL_ORG_ID, { competitionId: compId, audience, divisionId });
       const unsub = await getUnsubscribedEmails(MFL_ORG_ID);
       res.json({ count: recipients.filter((r) => !unsub.has(r.email)).length });
@@ -9766,7 +9767,7 @@ export async function registerRoutes(
       const subj = String(subject || "").trim();
       if (!subj || subj.length > 300) return res.status(400).json({ message: "A subject (under 300 chars) is required" });
       if (!String(body || "").trim()) return res.status(400).json({ message: "Email body is required" });
-      const aud = audience === "all" ? "all" : "captains";
+      const aud = parseMflAudience(audience);
       const compId = competitionId ? parseInt(String(competitionId)) : null;
       const divId = divisionId ? parseInt(String(divisionId)) : null;
 
@@ -28009,10 +28010,27 @@ async function getUnsubscribedEmails(orgId: number): Promise<Set<string>> {
 
 type MflContact = { name: string; email: string; phone: string; role: string; team: string; league: string; term: string };
 
+// The MFL Mailer's audiences. ONE parser for preview, send, contacts and the
+// scheduler: before "schools" existed the scheduler read anything that was not
+// "all" as "captains", so a scheduled schools send would have reached captains.
+type MflAudience = "captains" | "all" | "schools";
+function parseMflAudience(v: unknown): MflAudience {
+  return v === "all" ? "all" : v === "schools" ? "schools" : "captains";
+}
+// Hand-loaded list behind the "schools" audience (Connor's Football in Schools
+// primary-school offices). Term and league do not apply to it.
+const MFL_SCHOOLS_LIST = "schools";
+
 // Build the MFL contact database: captains (from team registrations) + squad
 // players (from Player Pay splits), deduped by email. audience 'captains' skips
 // players. competitionId null = every term. divisionId set = only that league.
-async function resolveMflAudience(orgId: number, opts: { competitionId: number | null; audience: "captains" | "all"; divisionId?: number | null }): Promise<MflContact[]> {
+async function resolveMflAudience(orgId: number, opts: { competitionId: number | null; audience: MflAudience; divisionId?: number | null }): Promise<MflContact[]> {
+  if (opts.audience === "schools") {
+    const rows = await db.select().from(mailerListContacts)
+      .where(and(eq(mailerListContacts.organizationId, orgId), eq(mailerListContacts.listKey, MFL_SCHOOLS_LIST)))
+      .orderBy(mailerListContacts.organisation, mailerListContacts.email);
+    return rows.map((r) => ({ name: r.name || "", email: r.email, phone: r.phone || "", role: r.role || "School", team: r.organisation || "", league: "", term: "Schools list" }));
+  }
   const comps = await storage.getLeagueCompetitions(orgId);
   const targetComps = opts.competitionId ? comps.filter((c) => c.id === opts.competitionId) : comps;
   const divisionId = opts.divisionId || null;
@@ -28163,7 +28181,7 @@ async function dispatchDueScheduledCampaigns(): Promise<void> {
       try {
         const cfg = JSON.parse(c.segmentConfig || "{}");
         const orgId = cfg.orgId || 3; // MFL
-        const aud = cfg.audience === "all" ? "all" : "captains";
+        const aud = parseMflAudience(cfg.audience);
         const all = await resolveMflAudience(orgId, { competitionId: cfg.competitionId ?? null, audience: aud, divisionId: cfg.divisionId ?? null });
         const unsub = await getUnsubscribedEmails(orgId);
         const recipients = all.filter((r) => !unsub.has(r.email));

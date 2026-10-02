@@ -1,0 +1,884 @@
+[
+ {
+  "email": "office@gilberthorpe.school.nz",
+  "school": "Gilberthorpe School",
+  "role": "office",
+  "km": 2.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "shelby@gilberthorpe.school.nz",
+  "school": "Gilberthorpe School",
+  "role": "sports",
+  "km": 2.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "reception@russley.school.nz",
+  "school": "Te Parito K\u014dwhai Russley School",
+  "role": "office",
+  "km": 2.3,
+  "worked": "No"
+ },
+ {
+  "email": "secretary@yaldhurst.school.nz",
+  "school": "Yaldhurst School \u2013 T\u014dtara T\u016bkaha",
+  "role": "office",
+  "km": 2.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "tessa.pearce@yaldhurst.school.nz",
+  "school": "Yaldhurst School \u2013 T\u014dtara T\u016bkaha",
+  "role": "sports",
+  "km": 2.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@stbernadetteschch.school.nz",
+  "school": "St Bernadette's School (Hornby)",
+  "role": "office",
+  "km": 2.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "cath@stbernadetteschch.school.nz",
+  "school": "St Bernadette's School (Hornby)",
+  "role": "sports",
+  "km": 2.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@hornbyprimary.school.nz",
+  "school": "Hornby Primary School",
+  "role": "office",
+  "km": 3.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "meganglenday@hornbyprimary.school.nz",
+  "school": "Hornby Primary School",
+  "role": "sports",
+  "km": 3.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "principal@avonhead.school.nz",
+  "school": "Avonhead School - Rakipaoa",
+  "role": "office",
+  "km": 3.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "bprice@avonhead.school.nz",
+  "school": "Avonhead School - Rakipaoa",
+  "role": "sports",
+  "km": 3.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@merrin.school.nz",
+  "school": "Merrin School Ng\u0101 Whet\u016b Kohara",
+  "role": "office",
+  "km": 4,
+  "worked": "Yes"
+ },
+ {
+  "email": "sport@merrin.school.nz",
+  "school": "Merrin School Ng\u0101 Whet\u016b Kohara",
+  "role": "sports",
+  "km": 4,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@olv.school.nz",
+  "school": "Our Lady of Victories",
+  "role": "office",
+  "km": 4.3,
+  "worked": "No"
+ },
+ {
+  "email": "principal@olv.school.nz",
+  "school": "Our Lady of Victories",
+  "role": "principal",
+  "km": 4.3,
+  "worked": "No"
+ },
+ {
+  "email": "paul.irving@tkr.school.nz",
+  "school": "Te K\u0101pehu Riccarton School",
+  "role": "office",
+  "km": 4.4,
+  "worked": "Yes"
+ },
+ {
+  "email": "jenn.ramsay@tkr.school.nz",
+  "school": "Te K\u0101pehu Riccarton School",
+  "role": "sports",
+  "km": 4.4,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@southhornby.school.nz",
+  "school": "Te Manu Tukutuku South Hornby School",
+  "role": "office",
+  "km": 4.4,
+  "worked": "Yes"
+ },
+ {
+  "email": "varnakomalap@southhornby.school.nz",
+  "school": "Te Manu Tukutuku South Hornby School",
+  "role": "sports",
+  "km": 4.4,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@ilam.school.nz",
+  "school": "Ilam School",
+  "role": "office",
+  "km": 5.3,
+  "worked": "No"
+ },
+ {
+  "email": "admin@westburn.school.nz",
+  "school": "Westburn Te Kura O Hereora",
+  "role": "office",
+  "km": 5.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@middleton.school.nz",
+  "school": "Middleton Grange School",
+  "role": "office",
+  "km": 5.7,
+  "worked": "No"
+ },
+ {
+  "email": "enquiries@stteresas.school.nz",
+  "school": "St Teresa's School (Riccarton)",
+  "role": "office",
+  "km": 6,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@roydvale.school.nz",
+  "school": "Te Ara Maurea Roydvale School",
+  "role": "office",
+  "km": 6.1,
+  "worked": "No"
+ },
+ {
+  "email": "office@harewood.school.nz",
+  "school": "Harewood School",
+  "role": "office",
+  "km": 6.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "kolff-loughreys@harewood.school.nz",
+  "school": "Harewood School",
+  "role": "sports",
+  "km": 6.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@medbury.school.nz",
+  "school": "Medbury Preparatory School",
+  "role": "office",
+  "km": 6.5,
+  "worked": "No"
+ },
+ {
+  "email": "brad.gilbert@medbury.school.nz",
+  "school": "Medbury Preparatory School",
+  "role": "sports",
+  "km": 6.5,
+  "worked": "No"
+ },
+ {
+  "email": "principal@wigramprimary.school.nz",
+  "school": "Wigram Primary School - Te Piki K\u0101hu",
+  "role": "office",
+  "km": 6.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "eronald@wigramprimary.school.nz",
+  "school": "Wigram Primary School - Te Piki K\u0101hu",
+  "role": "sports",
+  "km": 6.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@fendalton.school.nz",
+  "school": "T\u016bora Fendalton School",
+  "role": "office",
+  "km": 7,
+  "worked": "No"
+ },
+ {
+  "email": "admin@christtheking.school.nz",
+  "school": "Christ The King School (Burnside)",
+  "role": "office",
+  "km": 7.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "helen.tuuta@wharenui.school.nz",
+  "school": "Wharenui School",
+  "role": "office",
+  "km": 7.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "ashleigh.kerin@wharenui.school.nz",
+  "school": "Wharenui School",
+  "role": "sports",
+  "km": 7.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@knightsstream.school.nz",
+  "school": "Knights Stream School- Mingimingi Hautoa",
+  "role": "office",
+  "km": 7.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@burnsideprimary.school.nz",
+  "school": "Tuia Burnside Primary School",
+  "role": "office",
+  "km": 7.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "m.hooker@burnsideprimary.school.nz",
+  "school": "Tuia Burnside Primary School",
+  "role": "sports",
+  "km": 7.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@isleworth.school.nz",
+  "school": "Te Kura o Te M\u0101t\u0101puna Isleworth School",
+  "role": "office",
+  "km": 7.9,
+  "worked": "Yes"
+ },
+ {
+  "email": "vicky.taggart@isleworth.school.nz",
+  "school": "Te Kura o Te M\u0101t\u0101puna Isleworth School",
+  "role": "sports",
+  "km": 7.9,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@spreydon.school.nz",
+  "school": "Te Kura o M\u014dkihi Spreydon School",
+  "role": "office",
+  "km": 8.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "davidsene@spreydon.school.nz",
+  "school": "Te Kura o M\u014dkihi Spreydon School",
+  "role": "sports",
+  "km": 8.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@templeton.school.nz",
+  "school": "Te Kura o R\u0101t\u0101 Templeton School",
+  "role": "office",
+  "km": 8.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@wairakeichch.school.nz",
+  "school": "Wairakei School (Christchurch)",
+  "role": "office",
+  "km": 8.2,
+  "worked": "No"
+ },
+ {
+  "email": "enrol@aidanfield.school.nz",
+  "school": "Aidanfield Christian School",
+  "role": "office",
+  "km": 8.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@stpatricks.school.nz",
+  "school": "St Patrick's School (Bryndwr)",
+  "role": "office",
+  "km": 8.6,
+  "worked": "No"
+ },
+ {
+  "email": "admin@rowley.school.nz",
+  "school": "Te K\u014dmanawa Rowley School",
+  "role": "office",
+  "km": 8.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "nicole@rowley.school.nz",
+  "school": "Te K\u014dmanawa Rowley School",
+  "role": "sports",
+  "km": 8.7,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@elmwood.school.nz",
+  "school": "Elmwood Normal School",
+  "role": "office",
+  "km": 9.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "sandraj@elmwood.school.nz",
+  "school": "Elmwood Normal School",
+  "role": "sports",
+  "km": 9.2,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@emmanuelchristian.school.nz",
+  "school": "Emmanuel Christian School",
+  "role": "office",
+  "km": 9.2,
+  "worked": "No"
+ },
+ {
+  "email": "admin@oaklands.school.nz",
+  "school": "Oaklands Te Kura o \u014cwaka",
+  "role": "office",
+  "km": 9.2,
+  "worked": "No"
+ },
+ {
+  "email": "principal@sacredheartchch.school.nz",
+  "school": "Sacred Heart School (Christchurch)",
+  "role": "office",
+  "km": 9.4,
+  "worked": "No"
+ },
+ {
+  "email": "office@cotswold.school.nz",
+  "school": "Cotswold M\u0101t\u0101hae School",
+  "role": "office",
+  "km": 9.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@hoonhay.school.nz",
+  "school": "Hoon Hay Te Kura K\u014daka",
+  "role": "office",
+  "km": 9.6,
+  "worked": "No"
+ },
+ {
+  "email": "admin@ola.school.nz",
+  "school": "Our Lady of the Assumption School (Chch)",
+  "role": "office",
+  "km": 9.6,
+  "worked": "No"
+ },
+ {
+  "email": "principal@saintmichaels.co.nz",
+  "school": "St Michael's Church School",
+  "role": "office",
+  "km": 9.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@aotawhiti.school.nz",
+  "school": "Ao Tawhiti Unlimited Discovery",
+  "role": "office",
+  "km": 9.8,
+  "worked": "Yes"
+ },
+ {
+  "email": "megan.gould@aotawhiti.school.nz",
+  "school": "Ao Tawhiti Unlimited Discovery",
+  "role": "sports",
+  "km": 9.8,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@bishopdale.school.nz",
+  "school": "Bishopdale School Te Kura o Papak\u014dhatu",
+  "role": "office",
+  "km": 9.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@selhouse.school.nz",
+  "school": "Selwyn House School",
+  "role": "office",
+  "km": 9.9,
+  "worked": "No"
+ },
+ {
+  "email": "admin@stmargarets.school.nz",
+  "school": "St Margaret's College",
+  "role": "office",
+  "km": 9.9,
+  "worked": "No"
+ },
+ {
+  "email": "admin@waimairi.school.nz",
+  "school": "Waimairi School",
+  "role": "office",
+  "km": 9.9,
+  "worked": "No"
+ },
+ {
+  "email": "office@addington.school.nz",
+  "school": "Addington Te Kura Taumatua",
+  "role": "office",
+  "km": 10.1,
+  "worked": "No"
+ },
+ {
+  "email": "mahanui@whanau-tahi.school.nz",
+  "school": "TKKM o Te Whanau Tahi",
+  "role": "office",
+  "km": 10.1,
+  "worked": "No"
+ },
+ {
+  "email": "knightc@cathedralgrammar.school.nz",
+  "school": "The Cathedral Grammar School",
+  "role": "office",
+  "km": 10.2,
+  "worked": "No"
+ },
+ {
+  "email": "admin@westspreydon.school.nz",
+  "school": "Te Ara Koropiko West Spreydon School",
+  "role": "office",
+  "km": 10.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@stalbanscatholic.school.nz",
+  "school": "St Albans Catholic School (Christchurch)",
+  "role": "office",
+  "km": 10.7,
+  "worked": "No"
+ },
+ {
+  "email": "office@stmaryschch.school.nz",
+  "school": "St Mary's School (Christchurch)",
+  "role": "office",
+  "km": 10.7,
+  "worked": "No"
+ },
+ {
+  "email": "accounts@cas.school.nz",
+  "school": "Christchurch Adventist School",
+  "role": "office",
+  "km": 11.1,
+  "worked": "No"
+ },
+ {
+  "email": "stalbans@stalbans.school.nz",
+  "school": "St Albans School",
+  "role": "office",
+  "km": 11.1,
+  "worked": "No"
+ },
+ {
+  "email": "reception@stac.school.nz",
+  "school": "St Andrew's College (Christchurch)",
+  "role": "office",
+  "km": 11.1,
+  "worked": "No"
+ },
+ {
+  "email": "admin@somerfield.school.nz",
+  "school": "Somerfield Te Kura Wairepo",
+  "role": "office",
+  "km": 11.3,
+  "worked": "No"
+ },
+ {
+  "email": "admin@halswell.school.nz",
+  "school": "Te Kura o te Tauawa Halswell School",
+  "role": "office",
+  "km": 11.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "rachel.ono@halswell.school.nz",
+  "school": "Te Kura o te Tauawa Halswell School",
+  "role": "sports",
+  "km": 11.3,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@northcotechch.school.nz",
+  "school": "Te Kura o Matarangi - Northcote School",
+  "role": "office",
+  "km": 11.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "rebecca.low@northcotechch.school.nz",
+  "school": "Te Kura o Matarangi - Northcote School",
+  "role": "sports",
+  "km": 11.5,
+  "worked": "Yes"
+ },
+ {
+  "email": "admin@stfrancischch.school.nz",
+  "school": "St Francis of Assisi Catholic School",
+  "role": "office",
+  "km": 11.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@mairehau.net",
+  "school": "Mairehau Primary School",
+  "role": "office",
+  "km": 11.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@stjopapa.school.nz",
+  "school": "St Joseph's School (Papanui)",
+  "role": "office",
+  "km": 11.9,
+  "worked": "No"
+ },
+ {
+  "email": "principal@saintpeters.school.nz",
+  "school": "St Peter's School Te Kura Haoika",
+  "role": "office",
+  "km": 12,
+  "worked": "No"
+ },
+ {
+  "email": "office@paparoastreet.school.nz",
+  "school": "Paparoa Street School",
+  "role": "office",
+  "km": 12.1,
+  "worked": "No"
+ },
+ {
+  "email": "admin@waltham.school.nz",
+  "school": "Waltham School",
+  "role": "office",
+  "km": 12.1,
+  "worked": "No"
+ },
+ {
+  "email": "admin@pps.school.nz",
+  "school": "Papanui Primary School",
+  "role": "office",
+  "km": 12.2,
+  "worked": "No"
+ },
+ {
+  "email": "admin@thorrington.ac.nz",
+  "school": "Te Kura o Huriawa Thorrington",
+  "role": "office",
+  "km": 12.2,
+  "worked": "No"
+ },
+ {
+  "email": "office@redwoodprimary.school.nz",
+  "school": "Redwood School (Christchurch)",
+  "role": "office",
+  "km": 12.7,
+  "worked": "No"
+ },
+ {
+  "email": "info@shirleyprimary.school.nz",
+  "school": "Te Hiwa Shirley Primary School",
+  "role": "office",
+  "km": 12.7,
+  "worked": "No"
+ },
+ {
+  "email": "kura@whakapumau.ac.nz",
+  "school": "TKKM o Waitaha",
+  "role": "office",
+  "km": 12.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@pareawabanksave.school.nz",
+  "school": "Pareawa Banks Avenue School",
+  "role": "office",
+  "km": 12.9,
+  "worked": "No"
+ },
+ {
+  "email": "office@beckenham.school.nz",
+  "school": "Beckenham Te Kura o P\u016broto",
+  "role": "office",
+  "km": 13,
+  "worked": "No"
+ },
+ {
+  "email": "office@hillview.school.nz",
+  "school": "Hillview Christian School",
+  "role": "office",
+  "km": 13,
+  "worked": "No"
+ },
+ {
+  "email": "office@saintmarks.school.nz",
+  "school": "St Mark's School (Christchurch)",
+  "role": "office",
+  "km": 13.4,
+  "worked": "No"
+ },
+ {
+  "email": "office@belfast.school.nz",
+  "school": "P\u016btahi Belfast School",
+  "role": "office",
+  "km": 13.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@cashmereprimary.school.nz",
+  "school": "Cashmere Primary Te Pae Kerer\u016b",
+  "role": "office",
+  "km": 13.7,
+  "worked": "No"
+ },
+ {
+  "email": "admin@chcheast.school.nz",
+  "school": "Christchurch East School",
+  "role": "office",
+  "km": 13.9,
+  "worked": "No"
+ },
+ {
+  "email": "admin@opawa.school.nz",
+  "school": "Te Kura o \u014cp\u0101waho \u2013 Opawa School",
+  "role": "office",
+  "km": 13.9,
+  "worked": "No"
+ },
+ {
+  "email": "office@stmartins.school.nz",
+  "school": "St Martins School",
+  "role": "office",
+  "km": 14.1,
+  "worked": "No"
+ },
+ {
+  "email": "admin@ch.steiner.school.nz",
+  "school": "Rudolf Steiner School (Chch)",
+  "role": "office",
+  "km": 14.2,
+  "worked": "No"
+ },
+ {
+  "email": "office@tewaka.school.nz",
+  "school": "Te Waka Unua School",
+  "role": "office",
+  "km": 14.4,
+  "worked": "No"
+ },
+ {
+  "email": "jo@msnz.school.nz",
+  "school": "Mastery Schools New Zealand - Arapaki",
+  "role": "office",
+  "km": 14.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@linwoodave.school.nz",
+  "school": "Te Huarahi Linwood Avenue School",
+  "role": "office",
+  "km": 15.2,
+  "worked": "No"
+ },
+ {
+  "email": "tepa@rakaihautu.com",
+  "school": "Te P\u0101 o R\u0101kaihaut\u016b",
+  "role": "office",
+  "km": 15.6,
+  "worked": "No"
+ },
+ {
+  "email": "reception@stannes.co.nz",
+  "school": "St Anne's School (Woolston)",
+  "role": "office",
+  "km": 15.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@ngutuawa.school.nz",
+  "school": "Ngutuawa School",
+  "role": "office",
+  "km": 16.1,
+  "worked": "No"
+ },
+ {
+  "email": "admin@tamariki.school.nz",
+  "school": "Tamariki School",
+  "role": "office",
+  "km": 16.2,
+  "worked": "No"
+ },
+ {
+  "email": "office@bromley.school.nz",
+  "school": "Te Ahuwai Bromley School",
+  "role": "office",
+  "km": 16.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@whitau.school.nz",
+  "school": "Wh\u012btau School",
+  "role": "office",
+  "km": 16.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@waitakiri.school.nz",
+  "school": "Wait\u0101kiri Primary School",
+  "role": "office",
+  "km": 17.6,
+  "worked": "Yes"
+ },
+ {
+  "email": "karen.forbes-henry@waitakiri.school.nz",
+  "school": "Wait\u0101kiri Primary School",
+  "role": "sports",
+  "km": 17.6,
+  "worked": "Yes"
+ },
+ {
+  "email": "office@ouruhia.school.nz",
+  "school": "\u014curuhia Model School",
+  "role": "office",
+  "km": 17.8,
+  "worked": "No"
+ },
+ {
+  "email": "office@haeata.school.nz",
+  "school": "Haeata Community Campus",
+  "role": "office",
+  "km": 18.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@marshland.school.nz",
+  "school": "Te Rito Harakeke - Marshland School",
+  "role": "office",
+  "km": 18.6,
+  "worked": "No"
+ },
+ {
+  "email": "admin@hvs.school.nz",
+  "school": "Heathcote Valley School",
+  "role": "office",
+  "km": 18.7,
+  "worked": "No"
+ },
+ {
+  "email": "office@mtpleasant.school.nz",
+  "school": "Mt Pleasant School",
+  "role": "office",
+  "km": 18.9,
+  "worked": "No"
+ },
+ {
+  "email": "principal@stjames.school.nz",
+  "school": "St James School (Aranui)",
+  "role": "office",
+  "km": 18.9,
+  "worked": "No"
+ },
+ {
+  "email": "admin@queenspark.school.nz",
+  "school": "Queenspark Te Hua M\u0101nuka",
+  "role": "office",
+  "km": 19.6,
+  "worked": "No"
+ },
+ {
+  "email": "admin@redcliffs.school.nz",
+  "school": "Te Raekura Redcliffs School",
+  "role": "office",
+  "km": 19.7,
+  "worked": "No"
+ },
+ {
+  "email": "office@parkview.school.nz",
+  "school": "Parkview P\u0101rua",
+  "role": "office",
+  "km": 19.9,
+  "worked": "No"
+ },
+ {
+  "email": "admin@rawhiti.school.nz",
+  "school": "R\u0101whiti School",
+  "role": "office",
+  "km": 20.3,
+  "worked": "No"
+ },
+ {
+  "email": "admin@snbs.school.nz",
+  "school": "South New Brighton School",
+  "role": "office",
+  "km": 21.1,
+  "worked": "No"
+ },
+ {
+  "email": "office@governorsbay.school.nz",
+  "school": "Te Kura o \u014chinetahi - Governors Bay",
+  "role": "office",
+  "km": 21.4,
+  "worked": "No"
+ },
+ {
+  "email": "office@nbc.school.nz",
+  "school": "New Brighton Catholic School (Chch)",
+  "role": "office",
+  "km": 21.5,
+  "worked": "No"
+ },
+ {
+  "email": "office@lyttelton.school.nz",
+  "school": "Lyttelton Primary School",
+  "role": "office",
+  "km": 21.8,
+  "worked": "No"
+ },
+ {
+  "email": "admin@novamontessori.school.nz",
+  "school": "Nova Montessori School",
+  "role": "office",
+  "km": 22.2,
+  "worked": "No"
+ },
+ {
+  "email": "admin@sumner.school.nz",
+  "school": "Sumner School",
+  "role": "office",
+  "km": 23.2,
+  "worked": "No"
+ },
+ {
+  "email": "office@ourladystar.school.nz",
+  "school": "Our Lady Star of the Sea School (Christchurch)",
+  "role": "office",
+  "km": 23.6,
+  "worked": "No"
+ },
+ {
+  "email": "office@diamondharbour.school.nz",
+  "school": "Diamond Harbour School",
+  "role": "office",
+  "km": 37.4,
+  "worked": "No"
+ }
+]

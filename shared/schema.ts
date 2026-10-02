@@ -1018,6 +1018,23 @@ export const emailUnsubscribes = pgTable("email_unsubscribes", {
   orgEmailUnq: uniqueIndex("email_unsub_org_email_unq").on(t.organizationId, t.email),
 }));
 
+// Hand-loaded mailing lists (non-customers, e.g. primary-school offices for the
+// MFL Mailer's "Schools" audience). Never merged into captains/players.
+export const mailerListContacts = pgTable("mailer_list_contacts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  listKey: text("list_key").notNull(),
+  email: text("email").notNull(),
+  name: text("name"),
+  organisation: text("organisation"),
+  role: text("role"),
+  phone: text("phone"),
+  source: text("source").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  orgListEmailUnq: uniqueIndex("mailer_list_contacts_org_list_email_unq").on(t.organizationId, t.listKey, t.email),
+}));
+
 export const auditLogs = pgTable("audit_logs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),

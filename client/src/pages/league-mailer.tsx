@@ -24,7 +24,7 @@ export default function LeagueMailer() {
   // Audience selection (shared by compose + contacts)
   const [termId, setTermIdRaw] = useState<string>("all");
   const [divisionId, setDivisionId] = useState<string>("all");
-  const [audience, setAudience] = useState<"captains" | "all">("all");
+  const [audience, setAudience] = useState<"captains" | "all" | "schools">("all");
   // Divisions belong to a term — changing the term resets the league choice.
   const setTermId = (v: string) => { setTermIdRaw(v); setDivisionId("all"); };
 
@@ -68,14 +68,17 @@ export default function LeagueMailer() {
 // ── Contacts (CRM) ────────────────────────────────────────────────────────────
 function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, divisions }: { termId: string; setTermId: (s: string) => void; terms: LeagueCompetition[]; divisionId: string; setDivisionId: (s: string) => void; divisions: Division[] }) {
   const [q, setQ] = useState("");
-  const [role, setRole] = useState<"all" | "Captain" | "Player">("all");
-  const useDiv = termId !== "all" && divisionId !== "all";
+  const [role, setRole] = useState<"all" | "Captain" | "Player" | "schools">("all");
+  // "Schools" is its own list (not a role on a registration), fetched separately.
+  const isSchools = role === "schools";
+  const useDiv = !isSchools && termId !== "all" && divisionId !== "all";
 
   const { data, isLoading } = useQuery<{ contacts: Contact[]; total: number; unsubscribedCount: number }>({
-    queryKey: ["/api/admin/league/mailer/contacts", termId, divisionId],
+    queryKey: ["/api/admin/league/mailer/contacts", termId, divisionId, isSchools],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (termId !== "all") params.set("competitionId", termId);
+      if (isSchools) params.set("audience", "schools");
+      else if (termId !== "all") params.set("competitionId", termId);
       if (useDiv) params.set("divisionId", divisionId);
       const qs = params.toString();
       return fetch(`/api/admin/league/mailer/contacts${qs ? `?${qs}` : ""}`).then((r) => r.json());
@@ -86,7 +89,7 @@ function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, div
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return contacts.filter((c) =>
-      (role === "all" || c.role === role) &&
+      (role === "all" || isSchools || c.role === role) &&
       (!needle || c.name.toLowerCase().includes(needle) || c.email.toLowerCase().includes(needle) || (c.team || "").toLowerCase().includes(needle)),
     );
   }, [contacts, q, role]);
@@ -106,12 +109,17 @@ function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, div
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
+        {(isSchools ? [
+          { label: "Addresses", value: data?.total ?? 0 },
+          { label: "Schools", value: new Set(contacts.map((c) => c.team)).size },
+          { label: "Sports contacts", value: contacts.filter((c) => c.role !== "School office").length },
+          { label: "Unsubscribed", value: data?.unsubscribedCount ?? 0 },
+        ] : [
           { label: "Contacts", value: data?.total ?? 0 },
           { label: "Captains", value: contacts.filter((c) => c.role === "Captain").length },
           { label: "Players", value: contacts.filter((c) => c.role === "Player").length },
           { label: "Unsubscribed", value: data?.unsubscribedCount ?? 0 },
-        ].map((s, i) => (
+        ]).map((s, i) => (
           <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
             <p className="text-[10px] uppercase tracking-wider text-white/30">{s.label}</p>
             <p className="text-lg font-bold text-white mt-0.5">{s.value}</p>
@@ -125,14 +133,14 @@ function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, div
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, email or team…"
             className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/[0.03] border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/25" data-testid="contacts-search" />
         </div>
-        <Select value={termId} onValueChange={setTermId}>
+        {!isSchools && <Select value={termId} onValueChange={setTermId}>
           <SelectTrigger className="premium-input text-white w-[180px]"><SelectValue placeholder="Term" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All terms</SelectItem>
             {terms.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
           </SelectContent>
-        </Select>
-        {termId !== "all" && (
+        </Select>}
+        {!isSchools && termId !== "all" && (
           <Select value={divisionId} onValueChange={setDivisionId}>
             <SelectTrigger className="premium-input text-white w-[170px]"><SelectValue placeholder="League" /></SelectTrigger>
             <SelectContent>
@@ -147,6 +155,7 @@ function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, div
             <SelectItem value="all">Everyone</SelectItem>
             <SelectItem value="Captain">Captains</SelectItem>
             <SelectItem value="Player">Players</SelectItem>
+            <SelectItem value="schools">Schools list</SelectItem>
           </SelectContent>
         </Select>
         <button onClick={exportCsv} disabled={!filtered.length}
@@ -198,7 +207,7 @@ function ContactsView({ termId, setTermId, terms, divisionId, setDivisionId, div
 
 // ── Compose ───────────────────────────────────────────────────────────────────
 function ComposeView({ termId, setTermId, audience, setAudience, terms, divisionId, setDivisionId, divisions, toast }: {
-  termId: string; setTermId: (s: string) => void; audience: "captains" | "all"; setAudience: (a: "captains" | "all") => void;
+  termId: string; setTermId: (s: string) => void; audience: "captains" | "all" | "schools"; setAudience: (a: "captains" | "all" | "schools") => void;
   terms: LeagueCompetition[]; divisionId: string; setDivisionId: (s: string) => void; divisions: Division[]; toast: ReturnType<typeof useToast>["toast"];
 }) {
   const [subject, setSubject] = useState("");
@@ -269,7 +278,10 @@ function ComposeView({ termId, setTermId, audience, setAudience, terms, division
   const scheduleValid = scheduleMode === "now" || (!!scheduleAt && new Date(scheduleAt).getTime() > Date.now());
   const leagueName = divId ? (divisions.find((d) => String(d.id) === divisionId)?.name || "league") : null;
 
-  const audienceLabel = `${audience === "all" ? "Everyone (captains + players)" : "Captains only"}${termId === "all" ? " · all terms" : ` · ${terms.find((t) => String(t.id) === termId)?.name || "term"}`}${leagueName ? ` · ${leagueName}` : ""}`;
+  const isSchools = audience === "schools";
+  const audienceLabel = isSchools
+    ? "Primary schools (Football in Schools list)"
+    : `${audience === "all" ? "Everyone (captains + players)" : "Captains only"}${termId === "all" ? " · all terms" : ` · ${terms.find((t) => String(t.id) === termId)?.name || "term"}`}${leagueName ? ` · ${leagueName}` : ""}`;
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
@@ -278,14 +290,14 @@ function ComposeView({ termId, setTermId, audience, setAudience, terms, division
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-[11px] uppercase tracking-wider text-white/30 font-semibold">Audience</div>
-            <Select value={termId} onValueChange={setTermId}>
+            {!isSchools && <Select value={termId} onValueChange={setTermId}>
               <SelectTrigger className="premium-input text-white w-[160px] h-8 text-xs"><SelectValue placeholder="Term" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All terms</SelectItem>
                 {terms.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
               </SelectContent>
-            </Select>
-            {termId !== "all" && (
+            </Select>}
+            {!isSchools && termId !== "all" && (
               <Select value={divisionId} onValueChange={setDivisionId}>
                 <SelectTrigger className="premium-input text-white w-[150px] h-8 text-xs"><SelectValue placeholder="League" /></SelectTrigger>
                 <SelectContent>
@@ -295,7 +307,7 @@ function ComposeView({ termId, setTermId, audience, setAudience, terms, division
               </Select>
             )}
             <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.02] p-0.5">
-              {([["all", "Everyone"], ["captains", "Captains only"]] as const).map(([v, label]) => (
+              {([["all", "Everyone"], ["captains", "Captains only"], ["schools", "Schools"]] as const).map(([v, label]) => (
                 <button key={v} onClick={() => setAudience(v)}
                   className={`text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${audience === v ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70"}`}>{label}</button>
               ))}
@@ -404,7 +416,7 @@ function ComposeView({ termId, setTermId, audience, setAudience, terms, division
               <button onClick={() => setConfirmOpen(false)} className="text-white/30 hover:text-white/60"><X className="w-5 h-5" /></button>
             </div>
             <p className="text-sm text-white/60 leading-relaxed">
-              This {scheduleMode === "later" ? "schedules" : "sends"} "<span className="text-white">{subject}</span>" to <span className="text-amber-400 font-semibold">{preview?.count ?? 0} {audience === "all" ? "captains + players" : "captains"}</span> ({audienceLabel})
+              This {scheduleMode === "later" ? "schedules" : "sends"} "<span className="text-white">{subject}</span>" to <span className="text-amber-400 font-semibold">{preview?.count ?? 0} {audience === "all" ? "captains + players" : audience === "schools" ? "school addresses" : "captains"}</span> ({audienceLabel})
               {scheduleMode === "later" && scheduleAt ? <> for <span className="text-white">{new Date(scheduleAt).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></> : ""}.
               {scheduleMode === "later" ? " You can cancel it any time before it sends." : " This can't be undone."}
             </p>
