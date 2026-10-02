@@ -806,7 +806,7 @@ export function registerPrintQuoteRoutes(app: Express) {
 
       const ids = quotes.map((q) => q.id);
       const items = ids.length
-        ? await db.select().from(printQuoteItems).where(inArray(printQuoteItems.quoteId, ids))
+        ? await db.select().from(printQuoteItems).where(inArray(printQuoteItems.quoteId, ids)).orderBy(asc(printQuoteItems.id))
         : [];
       // The customer's artwork per quote — names and sizes only; the bytes are
       // fetched one file at a time through the signed-URL route below.
@@ -910,6 +910,80 @@ export function registerPrintQuoteRoutes(app: Express) {
       res.json({ url, emailed });
     } catch (e: any) {
       console.error("[print-quotes] request artwork failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Edit a quote BEFORE it is approved (Dima, 2026-10-02: "в процессе выясняется
+  // что-то дополнительно и сумма растёт или меняется"). The whole line list is
+  // sent; the server rebuilds it and recomputes the totals with the SAME
+  // quoteOrderTotals() every print order uses — the browser never sends a total.
+  //  · Only a quote still 'new' (row-locked, re-checked inside the transaction).
+  //  · An existing line keeps its area + artwork filename; a new line is free text.
+  //  · A line carrying the customer's uploaded artwork can be changed, never
+  //    removed — its files would be orphaned off every line on the card.
+  //  · The website's totals are frozen on the FIRST edit (original_*), and the
+  //    quote stops being "indicative" — the price is now Dima's.
+  app.put("/api/admin/print-quotes/:id/items", requireAuth, tab, async (req, res) => {
+    try {
+      const org = await workspaceOrg(req);
+      const id = parseInt(String(req.params.id), 10);
+      if (!org || !Number.isFinite(id)) return res.status(400).json({ message: "Bad request" });
+      const raw = Array.isArray(req.body?.items) ? req.body.items : null;
+      if (!raw || raw.length < 1 || raw.length > 50) return res.status(400).json({ message: "A quote needs between 1 and 50 lines" });
+
+      const lines: { id: number | null; designName: string | null; material: string | null; sizeLabel: string | null; quantity: number; lineExGstCents: number }[] = [];
+      for (const [i, it] of raw.entries()) {
+        const quantity = Number(it?.quantity);
+        const lineExGstCents = Number(it?.lineExGstCents);
+        const designName = s(it?.designName, 200) || null;
+        const material = s(it?.material, 200) || null;
+        if (!designName && !material) return res.status(400).json({ message: `Line ${i + 1} needs a description` });
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10_000) return res.status(400).json({ message: `Line ${i + 1}: quantity must be a whole number from 1 to 10,000` });
+        if (!Number.isInteger(lineExGstCents) || lineExGstCents < 0 || lineExGstCents > 50_000_000) return res.status(400).json({ message: `Line ${i + 1}: price must be between $0 and $500,000` });
+        const lineId = it?.id == null ? null : Number(it.id);
+        lines.push({ id: Number.isInteger(lineId) ? lineId : null, designName, material, sizeLabel: s(it?.sizeLabel, 120) || null, quantity, lineExGstCents });
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const locked = await tx.execute(sql`SELECT id, status, subtotal_cents, total_cents, original_total_cents FROM print_quotes
+          WHERE id = ${id} AND organization_id = ${org.id} FOR UPDATE`);
+        const q = ((locked as any).rows ?? locked)[0];
+        if (!q) return { status: 404, message: "Quote not found" };
+        if (q.status !== "new") return { status: 409, message: `This quote has already been ${q.status} — it can't be edited.` };
+
+        const existing = await tx.select().from(printQuoteItems).where(eq(printQuoteItems.quoteId, id));
+        const existingIds = new Set(existing.map((e) => e.id));
+        for (const l of lines) if (l.id != null && !existingIds.has(l.id)) return { status: 400, message: "A line doesn't belong to this quote — reload and try again." };
+        const keep = new Set(lines.filter((l) => l.id != null).map((l) => l.id as number));
+        const removed = existing.filter((e) => !keep.has(e.id));
+        if (removed.length) {
+          const withArt = await tx.select({ itemId: printQuoteFiles.itemId }).from(printQuoteFiles)
+            .where(and(eq(printQuoteFiles.quoteId, id), inArray(printQuoteFiles.itemId, removed.map((r) => r.id))));
+          if (withArt.length) return { status: 409, message: "A line you removed has the customer's artwork on it. Change that line instead of removing it." };
+          await tx.delete(printQuoteItems).where(and(eq(printQuoteItems.quoteId, id), inArray(printQuoteItems.id, removed.map((r) => r.id))));
+        }
+        for (const l of lines) {
+          if (l.id != null) {
+            await tx.update(printQuoteItems).set({ designName: l.designName, material: l.material, sizeLabel: l.sizeLabel, quantity: l.quantity, lineExGstCents: l.lineExGstCents })
+              .where(and(eq(printQuoteItems.id, l.id), eq(printQuoteItems.quoteId, id)));
+          } else {
+            await tx.insert(printQuoteItems).values({ quoteId: id, designName: l.designName, material: l.material, sizeLabel: l.sizeLabel, quantity: l.quantity, lineExGstCents: l.lineExGstCents });
+          }
+        }
+        const totals = quoteOrderTotals(lines.map((l) => l.lineExGstCents));
+        const [updated] = await tx.update(printQuotes).set({
+          subtotalCents: totals.subtotalCents, gstCents: totals.gstCents, totalCents: totals.totalCents,
+          indicative: false, editedAt: new Date(), editedBy: req.session.userId ?? null, updatedAt: new Date(),
+          ...(q.original_total_cents == null ? { originalSubtotalCents: Number(q.subtotal_cents), originalTotalCents: Number(q.total_cents) } : {}),
+        } as any).where(eq(printQuotes.id, id)).returning();
+        return { status: 200, quote: updated };
+      });
+      if (result.status !== 200) return res.status(result.status).json({ message: (result as any).message });
+      const items = await db.select().from(printQuoteItems).where(eq(printQuoteItems.quoteId, id)).orderBy(asc(printQuoteItems.id));
+      res.json({ ...(result as any).quote, items });
+    } catch (e: any) {
+      console.error("[print-quotes] edit failed:", e);
       res.status(500).json({ message: e.message });
     }
   });

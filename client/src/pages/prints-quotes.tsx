@@ -16,7 +16,9 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Receipt, Check, X, Clock, Mail, Phone, FileText, Paperclip, Download } from "lucide-react";
+import { Receipt, Check, X, Clock, Mail, Phone, FileText, Paperclip, Download, Pencil, Plus, Trash2 } from "lucide-react";
+import { MoneyInput } from "@/components/ui/money-input";
+import { centsToDollarInput, dollarInputToCents } from "@/lib/format";
 
 // ── Types (mirror server/print-quote-routes.ts response shapes) ────────────
 interface PrintQuoteItem {
@@ -57,6 +59,10 @@ interface PrintQuote {
   /** The customer's uploaded artwork (2026-10-01). Older quotes have none. */
   files?: { id: number; itemId: number | null; filename: string; sizeBytes: number; contentType?: string }[];
   artworkRequestedAt?: string | null;
+  /** Staff edits before approval (2026-10-02). NULL = never edited. */
+  originalSubtotalCents?: number | null;
+  originalTotalCents?: number | null;
+  editedAt?: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -228,6 +234,7 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
     onError: (e: Error) => toast({ title: "Couldn't do that", description: e.message, variant: "destructive" }),
   });
   const hasAnyFile = (quote.files ?? []).length > 0;
+  const [editing, setEditing] = useState(false);
   return (
     <div data-testid={`card-quote-${quote.id}`} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -236,6 +243,7 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
             <span className="font-medium text-[14px] text-white/90">{quote.customerName || "Unknown customer"}</span>
             <Pill label={meta.label} color={meta.color} />
             {quote.indicative && <Pill label="Indicative" color="#eab308" />}
+            {quote.editedAt && <Pill label="Edited" color="#a78bfa" />}
           </div>
           <div className="flex items-center gap-3 flex-wrap text-[12px] text-white/45">
             {quote.customerEmail && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{quote.customerEmail}</span>}
@@ -248,9 +256,13 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
         <div className="text-right shrink-0">
           <div className="text-lg font-semibold text-white/90">{money(quote.totalCents)}</div>
           <div className="text-[11px] text-white/35">incl GST</div>
+          {quote.originalTotalCents != null && quote.originalTotalCents !== quote.totalCents && (
+            <div className="text-[11px] text-white/35" data-testid={`quote-original-${quote.id}`}>website quoted {money(quote.originalTotalCents)}</div>
+          )}
         </div>
       </div>
 
+      {editing ? <QuoteEditor quote={quote} onDone={() => setEditing(false)} /> : (
       <div className="mt-3 border-t border-white/[0.06] pt-3 space-y-2">
         {quote.items.map((it) => (
           <div key={it.id} className="rounded-lg bg-white/[0.02] border border-white/[0.05] px-3 py-2">
@@ -322,6 +334,7 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
           </div>
         ))}
       </div>
+      )}
 
       {/* Everything else the customer told us, which had nowhere to show before. */}
       {(quote.note || quote.customerCompany || quote.heardAbout) && (
@@ -367,8 +380,16 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
           <span>GST {money(quote.gstCents)}</span>
         </div>
 
-        {quote.status === "new" ? (
-          <div className="flex items-center gap-2">
+        {quote.status === "new" && !editing ? (
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              data-testid={`button-edit-${quote.id}`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/70 px-3 py-1.5 text-[12px] font-medium hover:bg-white/[0.08] transition-colors disabled:opacity-40"
+            >
+              <Pencil className="w-3.5 h-3.5" /> Edit quote
+            </button>
             <button
               onClick={onReject}
               disabled={busy}
@@ -386,6 +407,8 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
               <Check className="w-3.5 h-3.5" /> Approve
             </button>
           </div>
+        ) : quote.status === "new" ? (
+          <span className="text-white/35 text-[12px]">Save or cancel your edits first</span>
         ) : quote.status === "approved" ? (
           <span className="text-emerald-300/80 text-[12px]">
             {quote.promotedOrderId ? `→ Order #${quote.promotedOrderId}` : "Moved to Orders"}
@@ -394,6 +417,95 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
           <span className="text-white/30 text-[12px]">{quote.rejectedReason || "Rejected"}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Edit a quote before approving it (Dima, 2026-10-02) ─────────────────────
+// Change any line, add a line, remove a line. The server recomputes the totals
+// (same GST maths as every print order) — this only previews them. A line the
+// customer attached artwork to can be changed but not removed.
+type DraftLine = { key: string; id: number | null; designName: string; material: string; sizeLabel: string; qty: string; unit: string; lineCents: number; hasArt: boolean };
+
+function QuoteEditor({ quote, onDone }: { quote: PrintQuote; onDone: () => void }) {
+  const { toast } = useToast();
+  const artItems = new Set((quote.files ?? []).map((f) => f.itemId).filter((x): x is number => x != null));
+  const [lines, setLines] = useState<DraftLine[]>(() => quote.items.map((it) => ({
+    key: `i${it.id}`, id: it.id, designName: it.designName ?? "", material: it.material ?? "", sizeLabel: it.sizeLabel ?? "",
+    qty: String(it.quantity), unit: centsToDollarInput(it.quantity > 0 ? Math.round(it.lineExGstCents / it.quantity) : it.lineExGstCents),
+    lineCents: it.lineExGstCents, hasArt: artItems.has(it.id),
+  })));
+  const set = (key: string, patch: Partial<DraftLine>, reprice = false) => setLines((ls) => ls.map((l) => {
+    if (l.key !== key) return l;
+    const n = { ...l, ...patch };
+    // An untouched line keeps the website's exact line total (bulk discounts
+    // don't divide evenly); touching qty or price re-prices it as qty × price.
+    if (reprice) n.lineCents = Math.max(0, dollarInputToCents(n.unit || "0")) * Math.max(0, parseInt(n.qty || "0", 10) || 0);
+    return n;
+  }));
+  const add = () => setLines((ls) => [...ls, { key: `n${Date.now()}`, id: null, designName: "", material: "", sizeLabel: "", qty: "1", unit: "", lineCents: 0, hasArt: false }]);
+  const remove = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
+
+  const subtotal = lines.reduce((a, l) => a + l.lineCents, 0);
+  const gst = Math.round(subtotal * 0.15);
+  const invalid = lines.length === 0 || lines.some((l) => !(l.designName.trim() || l.material.trim()) || !(parseInt(l.qty, 10) >= 1));
+
+  const save = useMutation({
+    mutationFn: async () => (await apiRequest("PUT", `/api/admin/print-quotes/${quote.id}/items`, {
+      items: lines.map((l) => ({ id: l.id, designName: l.designName, material: l.material, sizeLabel: l.sizeLabel, quantity: parseInt(l.qty, 10), lineExGstCents: l.lineCents })),
+    })).json(),
+    onSuccess: (r: PrintQuote) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/print-quotes"] });
+      toast({ title: "Quote updated", description: `New total ${money(r.totalCents)} incl GST. Approve when you're ready.` });
+      onDone();
+    },
+    onError: (e: unknown) => toast({ title: "Couldn't save the quote", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
+  const field = "w-full rounded-md bg-white/[0.04] border border-white/10 px-2.5 py-1.5 text-[13px] text-white/90 placeholder:text-white/25 focus:outline-none focus:border-white/25";
+  return (
+    <div className="mt-3 border-t border-white/[0.06] pt-3 space-y-2" data-testid={`quote-editor-${quote.id}`}>
+      {lines.map((l, i) => (
+        <div key={l.key} className="rounded-lg bg-white/[0.02] border border-white/[0.08] p-2.5 space-y-2" data-testid={`edit-line-${i}`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input className={field} value={l.designName} onChange={(e) => set(l.key, { designName: e.target.value })} placeholder="Description (e.g. Club banner, extra corflute)" data-testid={`edit-desc-${i}`} />
+            <input className={field} value={l.material} onChange={(e) => set(l.key, { material: e.target.value })} placeholder="Material / product" />
+          </div>
+          <div className="grid grid-cols-[1fr_5rem_7rem] sm:grid-cols-[1fr_6rem_8rem_auto] gap-2 items-center">
+            <input className={field} value={l.sizeLabel} onChange={(e) => set(l.key, { sizeLabel: e.target.value })} placeholder="Size" />
+            <input className={field} inputMode="numeric" value={l.qty} onChange={(e) => set(l.key, { qty: e.target.value.replace(/[^0-9]/g, "") }, true)} placeholder="Qty" aria-label="Quantity" data-testid={`edit-qty-${i}`} />
+            <MoneyInput value={l.unit} onChange={(v) => set(l.key, { unit: v }, true)} placeholder="each" aria-label="Price each, excl GST" className="h-[34px] text-[13px]" data-testid={`edit-unit-${i}`} />
+            <div className="col-span-3 sm:col-span-1 flex items-center justify-between sm:justify-end gap-3">
+              <span className="text-[12px] text-white/60 whitespace-nowrap">= <span className="font-medium text-white/85">{money(l.lineCents)}</span> excl GST</span>
+              {l.hasArt ? (
+                <span className="text-[10.5px] text-emerald-300/70" title="This line has the customer's artwork — change it instead of removing it">has artwork</span>
+              ) : (
+                <button type="button" onClick={() => remove(l.key)} className="p-1.5 rounded-md text-white/35 hover:text-red-300 hover:bg-red-500/10" aria-label="Remove line" data-testid={`edit-remove-${i}`}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={add} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-white/15 px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.04] min-h-[34px]" data-testid="edit-add-line">
+        <Plus className="w-3.5 h-3.5" /> Add a line
+      </button>
+      <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg bg-white/[0.03] px-3 py-2">
+        <div className="text-[12px] text-white/55 space-x-3">
+          <span>Subtotal {money(subtotal)}</span><span>GST {money(gst)}</span>
+          <span className="text-white/85 font-medium">Total {money(subtotal + gst)}</span>
+          {(quote.originalTotalCents ?? quote.totalCents) !== subtotal + gst && <span className="text-white/35">was {money(quote.originalTotalCents ?? quote.totalCents)}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onDone} disabled={save.isPending} className="rounded-lg border border-white/10 px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.05]">Cancel</button>
+          <button type="button" onClick={() => save.mutate()} disabled={save.isPending || invalid}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-200 px-3 py-1.5 text-[12px] font-medium hover:bg-blue-500/30 disabled:opacity-40" data-testid="edit-save">
+            <Check className="w-3.5 h-3.5" /> {save.isPending ? "Saving…" : "Save quote"}
+          </button>
+        </div>
+      </div>
+      {invalid && <p className="text-[11px] text-amber-300/80">Every line needs a description and a quantity of at least 1.</p>}
     </div>
   );
 }

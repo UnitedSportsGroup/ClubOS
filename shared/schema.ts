@@ -3609,6 +3609,13 @@ export const printQuotes = pgTable("print_quotes", {
   rejectedReason: text("rejected_reason"),
   promotedOrderId: integer("promoted_order_id").references(() => printOrders.id, { onDelete: "set null" }),
 
+  // Staff edits before approval (Dima, 2026-10-02). The website's totals are
+  // frozen on the FIRST edit; NULL = never edited.
+  originalSubtotalCents: integer("original_subtotal_cents"),
+  originalTotalCents: integer("original_total_cents"),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  editedBy: integer("edited_by").references(() => users.id, { onDelete: "set null" }),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
