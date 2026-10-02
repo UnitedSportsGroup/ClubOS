@@ -9809,6 +9809,9 @@ export const posRegisters = pgTable("pos_registers", {
   stripeReaderId: text("stripe_reader_id"),
   /** The club is cashless. A register opts IN to a drawer — a merch stand might. */
   handlesCash: boolean("handles_cash").notNull().default(false),
+  /** What the counter screen (our app on the S710) is showing. */
+  counterSaleId: integer("counter_sale_id"),
+  counterUpdatedAt: timestamp("counter_updated_at", tz),
   active: boolean("active").notNull().default(true),
   createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", tz).defaultNow().notNull(),
@@ -9904,12 +9907,47 @@ export const posPayments = pgTable("pos_payments", {
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   /** pending | succeeded | failed | canceled */
   status: text("status").notNull().default("succeeded"),
+  /** How a card was collected: reader (server-driven) | sdk (staff app) | counter (our app on the S710). NULL = not recorded. */
+  channel: text("channel"),
+  /** The counter screen claimed this payment and showed the card prompt. Once. */
+  collectStartedAt: timestamp("collect_started_at", tz),
   createdByUserId: integer("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", tz).defaultNow().notNull(),
   succeededAt: timestamp("succeeded_at", tz),
 }, (t) => ({
   saleIdx: index("pos_payments_sale_idx").on(t.saleId),
 }));
+
+/** A counter screen: our app on a Stripe smart reader, bound to one register. */
+export const posCounterDevices = pgTable("pos_counter_devices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  registerId: integer("register_id").references(() => posRegisters.id, { onDelete: "restrict" }),
+  tokenHash: text("token_hash").notNull(),
+  pairingCode: text("pairing_code"),
+  pairingExpiresAt: timestamp("pairing_expires_at", tz),
+  label: text("label"),
+  pairedAt: timestamp("paired_at", tz),
+  pairedByUserId: integer("paired_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  revokedAt: timestamp("revoked_at", tz),
+  revokedByUserId: integer("revoked_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  lastSeenAt: timestamp("last_seen_at", tz),
+  appVersion: text("app_version"),
+  nativeVersion: text("native_version"),
+  stripeReaderId: text("stripe_reader_id"),
+  readerStatus: text("reader_status"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", tz).defaultNow().notNull(),
+});
+export type PosCounterDevice = typeof posCounterDevices.$inferSelect;
+
+export const posCounterEvents = pgTable("pos_counter_events", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  deviceId: integer("device_id").notNull().references(() => posCounterDevices.id, { onDelete: "cascade" }),
+  level: text("level").notNull().default("info"),
+  message: text("message").notNull(),
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at", tz).defaultNow().notNull(),
+});
 export type PosPayment = typeof posPayments.$inferSelect;
 
 export const posRefunds = pgTable("pos_refunds", {

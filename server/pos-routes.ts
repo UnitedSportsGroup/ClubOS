@@ -62,6 +62,7 @@ import {
 import { stripe as clubStripe } from "./stripe";
 import { cugcStripe } from "./cugc-stripe";
 import { sendPosReceiptEmail } from "./email";
+import { liveCounterFor, showOnCounter, counterNoteForPayment } from "./pos-counter";
 
 const RECEIPT_BASE = process.env.POS_RECEIPT_BASE_URL || "https://app.usg.co.nz";
 
@@ -145,6 +146,7 @@ async function readerAccountFor(register: { defaultOrgId: number | null }): Prom
   const a = register.defaultOrgId ? await moneyAccountForOrg(register.defaultOrgId) : null;
   return a === "cugc" ? "cugc" : "club";
 }
+export const readerAccountForRegister = readerAccountFor;
 
 function readerView(r: any) {
   if (!r || r.deleted) return null;
@@ -246,6 +248,7 @@ export async function fulfilPaidSale(saleId: number): Promise<boolean> {
   return true;
 }
 
+export const sendPosReceiptForSale = (saleId: number, to: string) => sendReceipt(saleId, to);
 async function sendReceipt(saleId: number, to: string): Promise<boolean> {
   const sale = await loadSale(saleId);
   if (!sale) return false;
@@ -327,6 +330,9 @@ async function ensureRegisterLocation(stripe: any, register: { id: number; name:
  *  (EFTPOS, transfer, $0, void) left its cart on the reader indefinitely. */
 async function clearReaderDisplay(registerId: number): Promise<boolean> {
   try {
+    // A counter screen (our app on the reader) reads the sale's own state: a
+    // paid sale shows thank-you and then idles, a void one idles at once.
+    if (await liveCounterFor(registerId)) return false;
     const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, registerId));
     if (!register?.stripeReaderId) return false;
     const { stripe, ok } = stripeForAccount(await readerAccountFor(register));
@@ -352,8 +358,9 @@ export function registerPosRoutes(app: Express) {
       ]);
       const open = regs.length ? await db.select().from(posShifts).where(and(inArray(posShifts.registerId, regs.map((r) => r.id)), isNull(posShifts.closedAt))) : [];
       const openShifts = await Promise.all(open.map(async (s) => ({ ...s, openedByName: await staffName(s.openedByUserId) })));
+      const counters = new Map(await Promise.all(regs.map(async (r) => [r.id, await liveCounterFor(r.id)] as const)));
       res.json({
-        registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true })),
+        registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true, hasCounter: !!counters.get(r.id), counterOnline: counters.get(r.id)?.online === true })),
         brands: orgs.filter((o) => o.slug !== "sandbox").map((o) => ({ ...o, account: buckets.find((b) => b.organizationId === o.id)?.account ?? null })),
         moneyAccounts: POS_MONEY_ACCOUNTS,
         tenders: POS_TENDERS, manualTenders: POS_MANUAL_TENDERS, declineReasons: POS_DECLINE_REASONS, seller: POS_SELLER,
@@ -450,6 +457,13 @@ export function registerPosRoutes(app: Express) {
     try {
       const sale = await loadSale(num(req.params.id));
       if (!sale) return res.status(404).json({ message: "Sale not found." });
+      // Our own app on the reader: point it at this sale; it draws the cart
+      // (with photos) itself by polling. Nothing goes to Stripe.
+      if (await liveCounterFor(sale.registerId)) {
+        if (sale.status !== "open") return res.json({ shown: false, reason: "busy" });
+        await showOnCounter(sale.registerId, sale.lines.length ? sale.id : null);
+        return res.json({ shown: sale.lines.length > 0, via: "counter" });
+      }
       const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
       if (!register?.stripeReaderId) return res.json({ shown: false, reason: "no_reader" });
       if (sale.status !== "open" || sale.payments.some((p) => p.status === "pending")) return res.json({ shown: false, reason: "busy" });
@@ -820,7 +834,17 @@ export function registerPosRoutes(app: Express) {
       const { stripe, ok, reason } = stripeForAccount(sale.moneyAccount);
       if (!ok) return res.status(409).json({ code: "POS_NO_STRIPE", message: reason });
       const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
-      const useReader = req.body?.viaReader !== false && !!register?.stripeReaderId;
+      // 🔴 A register with a counter screen takes the card THERE. The S710 runs
+      // our app, so a server-driven prompt would never show — say "offline"
+      // plainly rather than fall back to something the customer cannot see.
+      const counter = req.body?.sdk === true || req.body?.viaReader === false ? null : await liveCounterFor(sale.registerId);
+      if (counter && !counter.online) {
+        return res.status(409).json({ code: "POS_COUNTER_OFFLINE", message: "The counter screen is offline. Check it is switched on and connected, or take the payment on the EFTPOS terminal and record it." });
+      }
+      if (counter && (await readerAccountFor(register!)) !== sale.moneyAccount) {
+        return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "The counter reader takes payments for a different Stripe account than this sale banks with. Use the EFTPOS terminal and record it." });
+      }
+      const useReader = !counter && req.body?.viaReader !== false && !!register?.stripeReaderId;
       if (useReader && (await readerAccountFor(register!)) !== sale.moneyAccount) {
         return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This reader takes payments for a different Stripe account than this sale banks with. Use that account's reader, or the EFTPOS terminal and record it." });
       }
@@ -837,7 +861,12 @@ export function registerPosRoutes(app: Express) {
         ...(sale.customerEmail ? { receipt_email: sale.customerEmail } : {}),
         metadata: { kind: "pos_sale", posSaleId: String(sale.id), saleNumber: sale.saleNumber, registerId: String(sale.registerId) },
       }, { idempotencyKey: `pos_sale_${sale.id}_card_${sale.payments.length}` });
-      const [payment] = await db.insert(posPayments).values({ saleId: sale.id, method: "card_present", amountCents: sale.remainingCents, stripePaymentIntentId: pi.id, status: "pending", createdByUserId: uid(req) }).returning();
+      const channel = counter ? "counter" : useReader ? "reader" : req.body?.sdk === true ? "sdk" : null;
+      const [payment] = await db.insert(posPayments).values({ saleId: sale.id, method: "card_present", amountCents: sale.remainingCents, stripePaymentIntentId: pi.id, status: "pending", channel, createdByUserId: uid(req) }).returning();
+      if (counter) {
+        await showOnCounter(sale.registerId, sale.id);
+        return res.status(201).json({ paymentId: payment.id, paymentIntentId: pi.id, clientSecret: null, viaReader: true, viaCounter: true, readerAction: null });
+      }
       let readerAction: any = null;
       if (useReader) {
         try {
@@ -868,7 +897,8 @@ export function registerPosRoutes(app: Express) {
       } else if (pi.status === "canceled") {
         await db.update(posPayments).set({ status: "canceled" }).where(and(eq(posPayments.id, payment.id), eq(posPayments.status, "pending")));
       }
-      res.json({ stripeStatus: pi.status, sale: await loadSale(saleId) });
+      const counterNote = payment.channel === "counter" && pi.status !== "succeeded" ? await counterNoteForPayment(payment.id) : null;
+      res.json({ stripeStatus: pi.status, sale: await loadSale(saleId), counterNote, counterClaimed: payment.channel === "counter" ? !!payment.collectStartedAt : null });
     } catch (e: any) { if (!posError(res, e)) { console.error("[POS] confirm", e); res.status(500).json({ message: e.message }); } }
   });
 
@@ -881,10 +911,13 @@ export function registerPosRoutes(app: Express) {
       const [sale] = await db.select().from(posSales).where(eq(posSales.id, saleId));
       const { stripe } = stripeForAccount(sale!.moneyAccount);
       const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale!.registerId));
-      if (register?.stripeReaderId) await stripe.terminal.readers.cancelAction(register.stripeReaderId).catch(() => {});
+      if (register?.stripeReaderId && payment.channel !== "counter") await stripe.terminal.readers.cancelAction(register.stripeReaderId).catch(() => {});
       if (payment.stripePaymentIntentId) {
         const pi = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
         if (pi.status === "succeeded") { await markPosPaymentSucceededByIntent(pi as any); return res.status(409).json({ code: "POS_ALREADY_PAID", message: "That card payment already went through.", sale: await loadSale(saleId) }); }
+        // 🔴 Mid-flight: the card has been read and Stripe is deciding. Cancelling
+        // the payment row now could record "cancelled" over money that lands.
+        if (pi.status === "processing" || pi.status === "requires_capture") return res.status(409).json({ code: "POS_CARD_PROCESSING", message: "The card is being processed right now — give it a few seconds." });
         if (pi.status !== "canceled") await stripe.paymentIntents.cancel(pi.id).catch(() => {});
       }
       await db.update(posPayments).set({ status: "canceled" }).where(and(eq(posPayments.id, payment.id), eq(posPayments.status, "pending")));

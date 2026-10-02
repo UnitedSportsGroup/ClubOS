@@ -88,7 +88,9 @@ function isPublicDarkSurface(): boolean {
     // The /success page after it is white by design and is NOT declared.
     (host.includes("minifootball") && path.endsWith("/class-book")) ||
     // The NZF academy registration page — navy and gold throughout.
-    startsWithAny("/academy")
+    startsWithAny("/academy") ||
+    // The counter screen on the Stripe S710 — near-black, our app's whole screen.
+    path === "/counter"
   );
 }
 

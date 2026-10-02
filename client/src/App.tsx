@@ -87,6 +87,7 @@ const GroupEquipment = lazy(() => import("@/pages/group-equipment"));
 const GroupFines = lazy(() => import("@/pages/group-fines"));
 const PosRegister = lazy(() => import("@/pages/pos-register"));
 const PosReceipt = lazy(() => import("@/pages/pos-receipt"));
+const PosCounter = lazy(() => import("@/pages/pos-counter"));
 const CodingBudget = lazy(() => import("@/pages/coding-budget"));
 const EquipmentHolder = lazy(() => import("@/pages/equipment-holder"));
 const GroupSponsors = lazy(() => import("@/pages/group-sponsors"));
@@ -834,6 +835,8 @@ function App() {
           <Switch>
             {/* Register receipts — public by 128-bit token, any host. */}
             <Route path="/receipt/:token" component={PosReceipt} />
+            {/* The counter screen — our app on the Stripe S710 shows this page. */}
+            <Route path="/counter" component={PosCounter} />
             <Route path="/">
               {(() => {
                 // Hostname-based routing for the public root:

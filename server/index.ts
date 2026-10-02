@@ -309,6 +309,8 @@ app.use(attributionCookieMiddleware);
   // rules live in Postgres (migrations/2026-09-09_pos.sql).
   const { registerPosRoutes } = await import("./pos-routes");
   registerPosRoutes(app);
+  const { registerPosCounterRoutes } = await import("./pos-counter");
+  registerPosCounterRoutes(app);
 
   // Coding Budget — Victor's FY2026 chart of accounts (882 codes) and the
   // transactions mapped against it. Locked to super admins: code 21 names

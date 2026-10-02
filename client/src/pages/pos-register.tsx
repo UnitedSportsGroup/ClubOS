@@ -17,6 +17,7 @@ import { formatCurrency, dollarInputToCents, centsToDollarInput } from "@/lib/fo
 import { RegisterPlayerModal } from "./admin-register-player";
 import { feedWedgeKey, shouldIgnoreWedgeTarget, EMPTY_WEDGE, type WedgeState } from "@/lib/wedge-scanner";
 import { roundCashToTenCents } from "@shared/pos";
+import type { CounterStatus } from "@shared/pos-counter";
 import {
   ShoppingBag, Search, ScanLine, X, Plus, Minus, Trash2, Receipt, Banknote, CreditCard, Landmark,
   MoreHorizontal, Loader2, CheckCircle2, AlertTriangle, UserRound, Percent, RotateCcw, Camera, CameraOff,
@@ -24,7 +25,7 @@ import {
 
 // ── Types (JSON shapes from server/pos-routes.ts) ───────────────────────────
 interface Brand { id: number; slug: string; name: string; account: string | null }
-interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
+interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; hasCounter?: boolean; counterOnline?: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
 interface Bootstrap {
   registers: Register[]; brands: Brand[];
   tenders: { value: string; label: string; rounds: boolean; needsReference: boolean }[];
@@ -230,9 +231,11 @@ export default function PosRegister() {
     onError: fail,
   });
   const [cardPaymentId, setCardPaymentId] = useState<number | null>(null);
+  // What the counter screen last said about this card payment ("declined", "cancelled").
+  const [counterNote, setCounterNote] = useState<string | null>(null);
   const cardPay = useMutation({
-    mutationFn: () => json<{ paymentId: number; viaReader: boolean; clientSecret: string | null }>("POST", `/api/admin/pos/sales/${saleId}/payments/card`, {}),
-    onSuccess: (r) => { setCardPaymentId(r.paymentId); refreshSale(); if (!r.viaReader) toast({ title: "No reader on this register", description: "Add a Stripe reader to the register, or use the EFTPOS terminal and record it.", variant: "destructive" }); },
+    mutationFn: () => json<{ paymentId: number; viaReader: boolean; viaCounter?: boolean; clientSecret: string | null }>("POST", `/api/admin/pos/sales/${saleId}/payments/card`, {}),
+    onSuccess: (r) => { setCardPaymentId(r.paymentId); setCounterNote(null); refreshSale(); if (!r.viaReader) toast({ title: "No reader on this register", description: "Add a Stripe reader to the register, or use the EFTPOS terminal and record it.", variant: "destructive" }); },
     onError: fail,
   });
   const cancelCard = useMutation({ mutationFn: () => json<Sale>("POST", `/api/admin/pos/sales/${saleId}/payments/${cardPaymentId}/cancel`, {}), onSuccess: (s) => { setCardPaymentId(null); refreshSale(s); }, onError: (e) => { setCardPaymentId(null); fail(e); } });
@@ -241,9 +244,10 @@ export default function PosRegister() {
     let stop = false;
     const tick = async () => {
       try {
-        const r = await json<{ stripeStatus: string; sale: Sale }>("POST", `/api/admin/pos/sales/${saleId}/payments/${cardPaymentId}/confirm`, {});
+        const r = await json<{ stripeStatus: string; sale: Sale; counterNote?: string | null }>("POST", `/api/admin/pos/sales/${saleId}/payments/${cardPaymentId}/confirm`, {});
         if (stop) return;
         refreshSale(r.sale);
+        setCounterNote(r.counterNote ?? null);
         if (r.stripeStatus === "succeeded") { setCardPaymentId(null); toast({ title: `Paid by card — ${r.sale.saleNumber}` }); }
         else if (r.stripeStatus === "canceled") { setCardPaymentId(null); toast({ title: "Card payment cancelled", variant: "destructive" }); }
       } catch { /* keep polling */ }
@@ -301,7 +305,7 @@ export default function PosRegister() {
   // The parent watches the reader while the sale is built: mirror the cart onto
   // its screen whenever what they would pay changes. Fire-and-forget — a busy
   // or offline reader must never slow the till.
-  const displayKey = s && register?.hasReader && !cardPending ? `${s.id}|${s.totalCents}|${s.discountCents}|${s.lines.map((l) => `${l.id}x${l.qty}`).join(",")}` : "";
+  const displayKey = s && (register?.hasReader || register?.hasCounter) && !cardPending ? `${s.id}|${s.totalCents}|${s.discountCents}|${s.lines.map((l) => `${l.id}x${l.qty}`).join(",")}` : "";
   useEffect(() => {
     if (!displayKey) return;
     const id = Number(displayKey.split("|")[0]);
@@ -493,7 +497,7 @@ export default function PosRegister() {
       {/* ── Sheets ── */}
       {picking && <VariantSheet product={picking} brand={brandName(picking.orgId)} onClose={() => setPicking(null)} onPick={(variantId) => addLine.mutate({ kind: "variant", variantId, qty: 1 })} pending={addLine.isPending} />}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onCode={onCode} />
-      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders.filter((t) => t.value !== "cash" || register.handlesCash)} hasReader={register.hasReader} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
+      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders.filter((t) => t.value !== "cash" || register.handlesCash)} hasReader={register.hasReader || !!register.hasCounter} viaCounter={!!register.hasCounter} counterNote={counterNote} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
       {s && <CustomerDialog open={customerOpen} onClose={() => setCustomerOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {s && <DiscountDialog open={discountOpen} onClose={() => setDiscountOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {done && <RefundDialog open={refundOpen} onClose={() => setRefundOpen(false)} sale={done} onSave={(b) => refund.mutate(b)} pending={refund.isPending} />}
@@ -574,8 +578,8 @@ function EventCard({ event, brand, sale, onAdd }: { event: EventRow; brand: stri
   );
 }
 
-function TenderSheet({ open, onClose, sale, tenders, hasReader, onPay, onCard, onCancelCard, cardPending, pending }: {
-  open: boolean; onClose: () => void; sale: Sale; tenders: Bootstrap["manualTenders"]; hasReader: boolean;
+function TenderSheet({ open, onClose, sale, tenders, hasReader, viaCounter, counterNote, onPay, onCard, onCancelCard, cardPending, pending }: {
+  open: boolean; onClose: () => void; sale: Sale; tenders: Bootstrap["manualTenders"]; hasReader: boolean; viaCounter: boolean; counterNote: string | null;
   onPay: (b: { method: string; amountCents: number; reference?: string }) => void; onCard: () => void; onCancelCard: () => void; cardPending: boolean; pending: boolean;
 }) {
   // Default to whatever this register can actually take — EFTPOS on a cashless one.
@@ -598,7 +602,8 @@ function TenderSheet({ open, onClose, sale, tenders, hasReader, onPay, onCard, o
         {cardPending ? (
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-[14px]">
             <div className="flex items-center gap-2 font-medium"><Loader2 className="h-4 w-4 animate-spin" />Waiting for the card…</div>
-            <div className="text-[12px] text-neutral-600 mt-1">Ask the customer to tap or insert on the reader. This updates by itself.</div>
+            <div className="text-[12px] text-neutral-600 mt-1">{viaCounter ? "The customer pays on the counter screen. This updates by itself." : "Ask the customer to tap or insert on the reader. This updates by itself."}</div>
+            {counterNote && <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[13px] text-amber-900" data-testid="pos-counter-note">{counterNote} They can try again on the screen, or cancel and take it another way.</div>}
             <button className={`${btnGhost} mt-3`} onClick={onCancelCard}>Cancel card payment</button>
           </div>
         ) : (
@@ -805,11 +810,19 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
     onError: (e) => toast({ title: "Couldn't clear the reader", description: errMessage(e), variant: "destructive" }),
   });
   const r = info.data?.reader ?? null;
+  const counterQ = useQuery<{ counter: CounterStatus | null }>({
+    queryKey: ["/api/admin/pos/registers", registerId, "counter"],
+    queryFn: () => json("GET", `/api/admin/pos/registers/${registerId}/counter`),
+    enabled: open,
+  });
+  const counterLinked = !!counterQ.data?.counter;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md bg-white text-neutral-900 min-w-0 overflow-hidden" data-testid="pos-reader-dialog">
+      <DialogContent className="max-w-md bg-white text-neutral-900 min-w-0 max-h-[90vh] overflow-y-auto overflow-x-hidden" data-testid="pos-reader-dialog">
         <DialogTitle className="text-[16px] font-semibold">Card reader · {registerName}</DialogTitle>
-        {info.isLoading ? (
+        {counterLinked && !r ? (
+          <p className="text-[13px] text-neutral-600">This register takes cards on its counter screen (below). Nothing else to pair.</p>
+        ) : info.isLoading ? (
           <div className="py-6 text-neutral-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Checking…</div>
         ) : r ? (
           <div className="space-y-3">
@@ -841,7 +854,66 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
             <button className={`${btnPrimary} w-full`} disabled={pair.isPending || code.trim().length < 3} onClick={() => pair.mutate()} data-testid="pos-reader-pair">{pair.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Pair reader</button>
           </div>
         )}
+        <CounterSection open={open} registerId={registerId} registerName={registerName} onChanged={onChanged} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The counter screen: our own app on the S710, linked by the code it shows. */
+function CounterSection({ open, registerId, registerName, onChanged }: { open: boolean; registerId: number; registerName: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [code, setCode] = useState("");
+  const [showLog, setShowLog] = useState(false);
+  const info = useQuery<{ counter: CounterStatus | null; events?: { id: number; level: string; message: string; at: string }[] }>({
+    queryKey: ["/api/admin/pos/registers", registerId, "counter"],
+    queryFn: () => json("GET", `/api/admin/pos/registers/${registerId}/counter`),
+    enabled: open, refetchInterval: open ? 5_000 : false,
+  });
+  const link = useMutation({
+    mutationFn: () => json("POST", `/api/admin/pos/registers/${registerId}/counter`, { code }),
+    onSuccess: () => { setCode(""); info.refetch(); onChanged(); toast({ title: "Counter screen linked", description: `It now shows ${registerName}'s sales and takes the card.` }); },
+    onError: (e) => toast({ title: "Couldn't link the screen", description: errMessage(e), variant: "destructive" }),
+  });
+  const unlink = useMutation({
+    mutationFn: () => json("DELETE", `/api/admin/pos/registers/${registerId}/counter`),
+    onSuccess: () => { info.refetch(); onChanged(); toast({ title: "Counter screen unlinked" }); },
+    onError: (e) => toast({ title: "Couldn't unlink", description: errMessage(e), variant: "destructive" }),
+  });
+  const c = info.data?.counter ?? null;
+  const ago = (iso: string | null) => { if (!iso) return "never"; const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString("en-NZ"); };
+  return (
+    <div className="mt-2 border-t border-neutral-200 pt-4 space-y-3" data-testid="pos-counter-section">
+      <div className="text-[14px] font-semibold">Counter screen</div>
+      {info.isLoading ? <div className="text-neutral-500 text-[13px]">Checking…</div> : c ? (
+        <>
+          <div className="rounded-xl border border-neutral-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[14px] font-medium truncate">{c.label || "Counter screen"}</div>
+                <div className="text-[12px] text-neutral-500 truncate">Seen {ago(c.lastSeenAt)}{c.nativeVersion ? ` · app ${c.nativeVersion}` : ""}{c.readerStatus ? ` · card reader ${c.readerStatus.replace(/_/g, " ")}` : ""}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-medium ${c.online ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`} data-testid="pos-counter-status">{c.online ? "Online" : "Offline"}</span>
+            </div>
+          </div>
+          <p className="text-[13px] text-neutral-600">The customer watches the cart build on this screen, with photos, then pays by card on it. Card sales on {registerName} go here.</p>
+          <button className={`${btnGhost} w-full`} onClick={() => setShowLog((v) => !v)}>{showLog ? "Hide" : "Show"} what the screen has been doing</button>
+          {showLog && (
+            <div className="max-h-48 overflow-y-auto rounded-xl border border-neutral-200 divide-y divide-neutral-100 text-[12px]">
+              {(info.data?.events ?? []).length === 0 ? <div className="p-3 text-neutral-500">Nothing logged yet.</div> : (info.data?.events ?? []).map((e) => (
+                <div key={e.id} className="px-3 py-1.5 flex gap-2"><span className={`shrink-0 ${e.level === "error" ? "text-red-600" : e.level === "warn" ? "text-amber-700" : "text-neutral-400"}`}>{new Date(e.at).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}</span><span className="min-w-0 [overflow-wrap:anywhere]">{e.message}</span></div>
+              ))}
+            </div>
+          )}
+          <button className={`${btnGhost} w-full`} disabled={unlink.isPending} onClick={() => unlink.mutate()} data-testid="pos-counter-unlink">{unlink.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Unlink the counter screen</button>
+        </>
+      ) : (
+        <>
+          <p className="text-[13px] text-neutral-600">If the reader is running the ClubOS counter app, it shows a 6-character code. Type it here to link it to {registerName}.</p>
+          <input className="w-full h-12 rounded-xl border border-neutral-300 px-3 text-[18px] tracking-[0.3em] uppercase bg-white" placeholder="ABC123" maxLength={8} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" autoCorrect="off" data-testid="pos-counter-code" />
+          <button className={`${btnPrimary} w-full`} disabled={link.isPending || code.replace(/[^A-Z0-9]/gi, "").length !== 6} onClick={() => link.mutate()} data-testid="pos-counter-link">{link.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Link counter screen</button>
+        </>
+      )}
+    </div>
   );
 }
