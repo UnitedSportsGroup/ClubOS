@@ -5,7 +5,10 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, Phone, Users, CreditCard, X, Check, AlertTriangle, ChevronRight, Crown, RotateCw, TrendingUp, Link2, Copy, Send } from "lucide-react";
+import { Mail, Phone, Users, CreditCard, X, Check, AlertTriangle, ChevronRight, Crown, RotateCw, TrendingUp, Link2, Copy, Send, ArrowRightLeft } from "lucide-react";
+import { MoneyInput } from "@/components/ui/money-input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { centsToDollarInput, dollarInputToCents } from "@/lib/format";
 import type { LeagueCompetition } from "@shared/schema";
 
 type AdminView = "registrations" | "splits" | "cashflow";
@@ -237,7 +240,11 @@ type Breakdown = {
   deposit: { amountCents: number; status: string; paidAt: string | null };
   weeks: { week: number; dueDate: string | null; amountCents: number; status: string; paidAt: string | null }[];
   missedCount: number; missedCents: number; payoffCents: number;
+  balance?: { amountCents: number; status: string; dueDate: string | null } | null;
 };
+
+// The captain's pay page — our own embedded checkout, never a Stripe link.
+const balancePayUrl = (regId: number) => `https://join.minifootball.co.nz/league/balance/${regId}`;
 
 type ReminderRow = {
   id: number; kind: string; sentTo: string; sentByName: string | null; sentAt: string;
@@ -279,7 +286,15 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
   const items = bd ? [
     { label: "Deposit", amountCents: bd.deposit.amountCents, status: bd.deposit.status, date: bd.deposit.paidAt, isPaid: bd.deposit.status === "paid" },
     ...bd.weeks.map(w => ({ label: `Week ${w.week}`, amountCents: w.amountCents, status: w.status, date: w.status === "paid" ? w.paidAt : w.dueDate, isPaid: w.status === "paid" })),
+    ...(bd.balance ? [{ label: "Balance", amountCents: bd.balance.amountCents, status: bd.balance.status, date: bd.balance.dueDate, isPaid: bd.balance.status === "paid" }] : []),
   ] : [];
+  const isOneOff = reg.paymentMode === "installment";
+  const copyPayLink = () => {
+    navigator.clipboard.writeText(balancePayUrl(reg.id)).then(
+      () => toast({ title: "Payment link copied", description: "Paste it into WhatsApp or an email." }),
+      () => toast({ title: "Couldn't copy", description: balancePayUrl(reg.id), variant: "destructive" }),
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -358,12 +373,20 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
             {canRemind && (bd.missedCount || 0) === 0 && (bd.payoffCents || 0) > 0 && reg.balanceStatus !== "paid" && (
               <div className="rounded-xl border border-[#d1b96e]/25 bg-[#d1b96e]/[0.05] p-4 flex items-start justify-between gap-3 flex-wrap" data-testid="pay-in-full-section">
                 <div>
-                  <p className="text-sm font-semibold text-[#d1b96e]">Pay in full — {formatCurrency(bd.payoffCents, { fromCents: true })} to go</p>
+                  <p className="text-sm font-semibold text-[#d1b96e]">{isOneOff ? "Balance to pay" : "Pay in full"} — {formatCurrency(bd.payoffCents, { fromCents: true })} to go</p>
                   <p className="text-[11px] text-white/40 mt-1">
-                    Emails {reg.captainName || "the captain"} a card link that pays the rest of the term in one go and stops the weekly charges. Lands against this team, this term.
+                    {isOneOff
+                      ? <>Emails {reg.captainName || "the captain"} a card link for the remaining {formatCurrency(bd.payoffCents, { fromCents: true })}. Nothing is charged automatically — it only lands when they pay.</>
+                      : <>Emails {reg.captainName || "the captain"} a card link that pays the rest of the term in one go and stops the weekly charges. Lands against this team, this term.</>}
                   </p>
                   {!reg.captainEmail && <p className="text-[11px] text-red-400/70 mt-1">No captain email on file.</p>}
                 </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={copyPayLink}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-white/10 text-white hover:bg-white/15 transition-colors"
+                  data-testid="copy-pay-link">
+                  <Copy className="w-3.5 h-3.5" /> Copy link
+                </button>
                 <button
                   onClick={() => sendReminder.mutate()}
                   disabled={sendReminder.isPending || !reg.captainEmail}
@@ -371,8 +394,9 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
                   data-testid="send-pay-in-full"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {sendReminder.isPending ? "Sending…" : "Send pay-in-full link"}
+                  {sendReminder.isPending ? "Sending…" : isOneOff ? "Email payment link" : "Send pay-in-full link"}
                 </button>
+                </div>
               </div>
             )}
 
@@ -414,7 +438,7 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
                         <div className="min-w-0">
                           <p className="text-[12px] text-white/70">
                             Sent {new Date(rem.sentAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}, {new Date(rem.sentAt).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}
-                            <span className="text-white/30"> · {rem.kind === "pay_in_full" ? `pay-in-full link · ${formatCurrency(rem.payoffCents || 0, { fromCents: true })}` : `${formatCurrency(rem.missedCents, { fromCents: true })} behind`}{rem.sentByName ? ` · by ${rem.sentByName}` : ""}</span>
+                            <span className="text-white/30"> · {rem.kind === "pay_in_full" ? `pay-in-full link · ${formatCurrency(rem.payoffCents || 0, { fromCents: true })}` : rem.kind === "team_moved" ? `moved team · ${formatCurrency(rem.payoffCents || 0, { fromCents: true })} link` : rem.kind === "balance_due" ? `payment link · ${formatCurrency(rem.payoffCents || 0, { fromCents: true })}` : `${formatCurrency(rem.missedCents, { fromCents: true })} behind`}{rem.sentByName ? ` · by ${rem.sentByName}` : ""}</span>
                           </p>
                           <p className="text-[11px] text-white/30 truncate">{rem.sentTo}</p>
                         </div>
@@ -434,6 +458,8 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
               </div>
             )}
 
+            <MoveTeamSection reg={reg} />
+
             {bd.paymentMode === "deposit_weekly" && (
               <p className="text-[11px] text-white/30 leading-relaxed">
                 Charged automatically each week to the card on file. The deposit covers the final weeks, so the total comes to exactly {formatCurrency(bd.totalCents, { fromCents: true })}. A red bar means a charge was missed or failed — chase that captain.
@@ -442,6 +468,167 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Move team — to another league (night / format) in the same term, with the
+   new fee and an optional payment link for the difference. The server decides
+   what is owed (new fee − what was actually paid) and refuses a fee below
+   what was paid, a full league (unless overridden), a team with fixtures, and
+   any fee change on a weekly plan or Player Pay. Nothing is auto-charged.
+   ────────────────────────────────────────────────────────────────────────── */
+type MoveOptions = {
+  teamId: number; teamName: string; currentDivisionId: number | null;
+  totalCents: number; paidCents: number; paymentMode: string | null;
+  captainName: string | null; captainEmail: string | null;
+  feeLocked: boolean; feeLockedReason: string | null; fixtures: number;
+  divisions: { id: number; name: string; priceCents: number; maxTeams: number | null; teams: number }[];
+};
+type MoveResult = { moved: boolean; from: string | null; to: string; totalCents: number; paidCents: number; owedCents: number; payUrl: string | null; emailed: boolean };
+
+function MoveTeamSection({ reg }: { reg: LeagueReg }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [divisionId, setDivisionId] = useState<string>("");
+  const [fee, setFee] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [allowOverCap, setAllowOverCap] = useState(false);
+  const [result, setResult] = useState<MoveResult | null>(null);
+
+  const { data: opts, isLoading } = useQuery<MoveOptions>({
+    queryKey: ["/api/admin/league/registrations", reg.id, "move-options"],
+    queryFn: () => apiRequest("GET", `/api/admin/league/registrations/${reg.id}/move-options`).then(r => r.json()),
+    enabled: open,
+  });
+  const target = opts?.divisions.find(d => String(d.id) === divisionId) || null;
+  // Fee defaults to the target league's price, but stays editable (an early-bird
+  // team keeps its early-bird price). Locked teams keep their current fee.
+  useEffect(() => {
+    if (!opts || !target) return;
+    setFee(centsToDollarInput(opts.feeLocked ? opts.totalCents : target.priceCents));
+    setAllowOverCap(false);
+  }, [divisionId, opts?.teamId]);
+
+  const feeCents = fee.trim() === "" ? null : dollarInputToCents(fee);
+  const owedCents = opts && feeCents != null ? feeCents - opts.paidCents : 0;
+  const full = !!target && target.maxTeams != null && target.teams >= target.maxTeams;
+  const belowPaid = !!opts && feeCents != null && feeCents !== opts.totalCents && feeCents < opts.paidCents;
+
+  const move = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/league/registrations/${reg.id}/move`, {
+      divisionId: Number(divisionId), totalCents: feeCents, notify: notify && owedCents > 0, allowOverCap,
+    }).then(r => r.json()),
+    onSuccess: (r: MoveResult) => {
+      setResult(r);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/league/competitions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/league/registrations", reg.id] });
+      toast({ title: `Moved to ${r.to}`, description: r.owedCents > 0 ? (r.emailed ? `Payment link for ${formatCurrency(r.owedCents, { fromCents: true })} emailed to the captain.` : `${formatCurrency(r.owedCents, { fromCents: true })} to pay — copy the link below.`) : "No change to what they owe." });
+    },
+    onError: (e: any) => toast({ title: "Couldn't move the team", description: e?.message || "Try again.", variant: "destructive" }),
+  });
+
+  if (result) {
+    return (
+      <div className="rounded-xl border border-green-500/25 bg-green-500/[0.05] p-4 space-y-2" data-testid="move-result">
+        <p className="text-sm font-semibold text-green-400 flex items-center gap-1.5"><Check className="w-4 h-4" /> Moved{result.from ? ` from ${result.from}` : ""} to {result.to}</p>
+        <p className="text-[11px] text-white/50">
+          Fee {formatCurrency(result.totalCents, { fromCents: true })} · paid {formatCurrency(result.paidCents, { fromCents: true })}
+          {result.owedCents > 0 ? <> · <span className="text-[#d1b96e]">{formatCurrency(result.owedCents, { fromCents: true })} to pay</span>{result.emailed ? " · link emailed" : ""}</> : " · nothing more to pay"}
+        </p>
+        {result.payUrl && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="text-[11px] text-white/60 bg-white/[0.04] rounded px-2 py-1 break-all">{result.payUrl}</code>
+            <button onClick={() => navigator.clipboard.writeText(result.payUrl!).then(() => toast({ title: "Payment link copied" }))}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/15" data-testid="move-copy-link">
+              <Copy className="w-3.5 h-3.5" /> Copy link
+            </button>
+          </div>
+        )}
+        <p className="text-[11px] text-white/30">Close and reopen the team to see the updated payments.</p>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} data-testid="move-team-open"
+        className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/[0.04] transition-colors">
+        <ArrowRightLeft className="w-3.5 h-3.5" /> Move team to another league
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3" data-testid="move-team-section">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-white flex items-center gap-1.5"><ArrowRightLeft className="w-4 h-4" /> Move team</p>
+        <button onClick={() => setOpen(false)} className="text-white/30 hover:text-white/60"><X className="w-4 h-4" /></button>
+      </div>
+      {isLoading || !opts ? <p className="text-xs text-white/30">Loading leagues…</p> : opts.fixtures > 0 ? (
+        <p className="text-[11px] text-red-400/80">This team already has {opts.fixtures} fixture{opts.fixtures === 1 ? "" : "s"}. Moving it would break the draw, so it can only be moved before fixtures are generated.</p>
+      ) : (
+        <>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-white/30">Move to</label>
+            <Select value={divisionId} onValueChange={setDivisionId}>
+              <SelectTrigger className="premium-input text-white mt-1" data-testid="move-division"><SelectValue placeholder="Pick a league" /></SelectTrigger>
+              <SelectContent>
+                {opts.divisions.filter(d => d.id !== opts.currentDivisionId).map(d => (
+                  <SelectItem key={d.id} value={String(d.id)}>
+                    {d.name} · {formatCurrency(d.priceCents, { fromCents: true })} · {d.teams}{d.maxTeams != null ? `/${d.maxTeams}` : ""} teams{d.maxTeams != null && d.teams >= d.maxTeams ? " · FULL" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {target && (
+            <>
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-white/30">Team fee in the new league</label>
+                <div className="mt-1"><MoneyInput value={fee} onChange={setFee} disabled={opts.feeLocked} data-testid="move-fee" /></div>
+                <p className="text-[11px] text-white/35 mt-1">
+                  {opts.feeLocked ? opts.feeLockedReason : <>Pre-filled with today's price for {target.name}. Change it if they keep an earlier price.</>}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                {[
+                  { label: "New fee", value: feeCents != null ? formatCurrency(feeCents, { fromCents: true }) : "—" },
+                  { label: "Already paid", value: formatCurrency(opts.paidCents, { fromCents: true }), klass: "text-green-400" },
+                  { label: owedCents >= 0 ? "Will owe" : "Paid over", value: formatCurrency(Math.abs(owedCents), { fromCents: true }), klass: owedCents > 0 ? "text-[#d1b96e]" : "text-white/60" },
+                ].map((s, i) => (
+                  <div key={i} className="rounded-lg border border-white/5 bg-white/[0.02] p-2">
+                    <p className="text-[10px] uppercase tracking-wider text-white/30">{s.label}</p>
+                    <p className={`text-sm font-bold mt-0.5 ${s.klass || "text-white"}`}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+              {belowPaid && <p className="text-[11px] text-red-400/80">That's less than they've already paid. Keep the fee at least {formatCurrency(opts.paidCents, { fromCents: true })} and refund any difference from Registrations.</p>}
+              {full && (
+                <label className="flex items-start gap-2 text-[12px] text-amber-300/90">
+                  <Checkbox checked={allowOverCap} onCheckedChange={v => setAllowOverCap(v === true)} className="mt-0.5" data-testid="move-over-cap" />
+                  {target.name} is full ({target.teams}/{target.maxTeams}). Move them in anyway.
+                </label>
+              )}
+              {owedCents > 0 && (
+                <label className="flex items-start gap-2 text-[12px] text-white/70">
+                  <Checkbox checked={notify} onCheckedChange={v => setNotify(v === true)} className="mt-0.5" data-testid="move-notify" />
+                  Email {opts.captainName || "the captain"}{opts.captainEmail ? ` (${opts.captainEmail})` : ""} a payment link for {formatCurrency(owedCents, { fromCents: true })}. Their card is never charged automatically.
+                </label>
+              )}
+              <button
+                onClick={() => move.mutate()}
+                disabled={move.isPending || feeCents == null || belowPaid || (full && !allowOverCap)}
+                className="w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-lg bg-[#d1b96e] text-black hover:bg-[#dcc788] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="move-confirm"
+              >
+                {move.isPending ? "Moving…" : `Move to ${target.name}${owedCents > 0 ? (notify ? ` and email ${formatCurrency(owedCents, { fromCents: true })} link` : ` (${formatCurrency(owedCents, { fromCents: true })} to pay)`) : ""}`}
+              </button>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

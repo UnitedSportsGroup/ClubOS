@@ -2760,13 +2760,45 @@ export async function sendLeaguePaymentReminderEmail(params: {
   captainEmail: string;
   captainName: string;
   teamName: string;
-  kind: "weekly_missed" | "balance_failed" | "pay_in_full";
+  kind: "weekly_missed" | "balance_failed" | "pay_in_full" | "balance_due" | "team_moved";
   missedCount: number;
   missedAmount: string;   // formatted, e.g. $95.00
   payoffAmount: string;   // formatted — clears the registration in one go
   payUrl: string;         // /league/balance/:id?rt=token
   pixelUrl: string;       // /api/public/league/reminder/:token/pixel.gif
+  // team_moved only — the move that created the balance, in plain words.
+  fromLeague?: string;
+  toLeague?: string;
+  totalAmount?: string;
+  paidAmount?: string;
 }): Promise<boolean> {
+  // A team moved to another league that costs more (Isaac's Move team tool), or
+  // a balance left to pay that nobody is behind on. Neither is "missed", and
+  // neither has a weekly plan to stop — so neither borrows that wording.
+  if (params.kind === "team_moved" || params.kind === "balance_due") {
+    const moved = params.kind === "team_moved";
+    const why = moved
+      ? `<strong>${params.teamName}</strong> is now in <strong>${params.toLeague || "its new league"}</strong>${params.fromLeague ? ` (moved from ${params.fromLeague})` : ""}. The team fee there is <strong>${params.totalAmount}</strong> and <strong>${params.paidAmount}</strong> has been paid, so there's <strong style="color:#d1b96e;">${params.payoffAmount}</strong> left to pay.`
+      : `There's <strong style="color:#d1b96e;">${params.payoffAmount}</strong> left to pay on <strong>${params.teamName}</strong>'s team fee for the term.`;
+    const bodyHtml = `
+    <p style="color:#e6e6e6; font-size:16px; margin:0 0 16px;">Hi ${params.captainName},</p>
+    <p style="color:#bdbdbd; font-size:14px; line-height:1.6; margin:0 0 16px;">${why}</p>
+    <p style="color:#bdbdbd; font-size:14px; line-height:1.6; margin:0 0 24px;">You can pay it here by card. Once it's through, your team is fully paid for the term.</p>
+    <p style="text-align:center; margin:0 0 24px;">
+      <a href="${params.payUrl}" style="display:inline-block; background:#d1b96e; color:#000; font-weight:600; text-decoration:none; padding:14px 28px; border-radius:9999px;">Pay ${params.payoffAmount}</a>
+    </p>
+    <p style="color:#8a8a8a; font-size:12px; line-height:1.6; margin:0;">Nothing will be charged to your card automatically. Questions, or something not right? Reply to this email.</p>
+    <img src="${params.pixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
+    return sendEmail({
+      to: params.captainEmail,
+      from: MFL_FROM,
+      replyTo: MFL_REPLY_TO,
+      subject: moved ? `${params.teamName}: ${params.payoffAmount} left to pay for ${params.toLeague || "your new league"}` : `${params.teamName}: ${params.payoffAmount} left to pay`,
+      html: mflShell({ heading: moved ? "Your team has moved" : "Balance to pay", bodyHtml }),
+      campId: params.programId,
+      registrationId: params.registrationId,
+    });
+  }
   // A captain who ASKED to pay the rest in one go — nothing is behind, and the
   // email must not read as if something were.
   if (params.kind === "pay_in_full") {

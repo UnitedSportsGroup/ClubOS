@@ -38,7 +38,7 @@ import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, crea
 import { sendPurchaseEvent, sendLeadEvent, sendVenuePurchaseEvent } from "./meta-capi";
 import { purchaseEventId } from "@shared/meta-events";
 import * as tp from "./teampay";
-import { teampayEntries, mailerListContacts } from "@shared/schema";
+import { teampayEntries, mailerListContacts, auditLogs } from "@shared/schema";
 import { sendEmail, sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueSignupNotification, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail, sendSplitTeamConfirmedEmail, sendLeagueBroadcastEmail, sendMflContactNotification, sendFootballInstituteApplicationNotification, sendCic7sRegistrationNotification, sendCicContactNotification, sendCugcContactNotification, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification, sendCugcFreeSessionConfirmation, sendCugcFreeSessionNotification, sendClubLogoConsentNotification, sendCicBroadcastEmail, sendMflWaitlistConfirmation, sendMflWaitlistNotification, sendLeaguePaymentReminderEmail, sendMembershipWelcomeEmail, sendMembershipNotificationEmail, sendChatNewConversationNotification, sendChatReplyNotification, sendCicInterestNotification, sendCufcContactNotification, sendCufcBroadcastEmail, sendCugcBroadcastEmail, sendCicVolunteerNotification, sendClubLogoLicenceCopy, sendRefundConfirmationEmail } from "./email";
 import { cugcStripe, constructCugcWebhookEvent } from "./cugc-stripe";
 import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
@@ -10170,7 +10170,15 @@ export async function registerRoutes(
         }
       }
 
-      const paidCents = depositCents + weeksPaid * weeklyCents;
+      // A one-off balance (instalment / Move team) is its own row. Before this it
+      // was invisible: a paid balance still read as "remaining".
+      const isInstallment = reg.paymentMode === "installment" && (reg.balanceCents ?? 0) > 0;
+      const balance = isInstallment ? {
+        amountCents: reg.balanceCents ?? 0,
+        status: reg.balanceStatus === "paid" ? "paid" : reg.balanceStatus === "failed" ? "failed" : "upcoming",
+        dueDate: (reg as any).balanceDueDate ?? null,
+      } : null;
+      const paidCents = depositCents + weeksPaid * weeklyCents + (balance?.status === "paid" ? balance.amountCents : 0);
       const remainingCents = Math.max(0, totalCents - paidCents);
       // Missed = the red rows in THIS breakdown (so the reminder header can
       // never disagree with the schedule the staffer is looking at); the
@@ -10183,7 +10191,7 @@ export async function registerRoutes(
         ? Math.max(0, (weeksTotal - weeksPaid) * weeklyCents)
         : (reg.paymentMode === "installment" ? Math.max(0, reg.balanceCents ?? 0) : 0);
       res.json({
-        teamName: reg.teamName, paymentMode: reg.paymentMode, totalCents, depositCents,
+        teamName: reg.teamName, paymentMode: reg.paymentMode, totalCents, depositCents, balance,
         weeklyAmountCents: weeklyCents, weeksTotal, weeksPaid, paidCents, remainingCents, deposit, weeks,
         missedCount, missedCents, payoffCents,
       });
@@ -10220,6 +10228,157 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Move a team to another league (night / format) ─────────────────────────
+  // Isaac's tool (Daniel, 2026-10-02): a captain who entered 5's and plays 7's
+  // owes the difference. Move the team, set the new fee, and — if more is owed —
+  // email the captain a link to OUR balance page (never a Stripe Payment Link).
+  //
+  // Money rules, all server-side:
+  //  · What is owed is newFee − amount actually paid. The browser proposes a fee,
+  //    never an amount owed.
+  //  · Never auto-charged: the balance is 'scheduled' with NO due date, and the
+  //    balance cron only charges rows whose due date has arrived. Pay link only.
+  //  · A fee BELOW what was paid is refused (refunds go through the Refunds tool).
+  //  · Weekly plans and Player Pay keep their fee — the move happens, the money
+  //    does not change here (their schedules are owned by Stripe / the split).
+  //  · Refused once the team has fixtures (a move would break the draw), and when
+  //    the target league is full unless allowOverCap is set on purpose.
+  //  · An open, unpaid balance PaymentIntent is cancelled first, so the pay page
+  //    can never reuse one carrying the OLD amount.
+  async function leagueMoveContext(regId: number) {
+    const reg = await storage.getRegistration(regId);
+    if (!reg) return { error: [404, "Registration not found"] as const };
+    const program = await storage.getProgram(reg.programId);
+    if (!program || program.organizationId !== MFL_ORG_ID) return { error: [404, "Registration not found"] as const };
+    const [team] = await db.select().from(leagueTeams).where(eq(leagueTeams.registrationId, regId));
+    if (!team) return { error: [404, "No team is linked to this registration"] as const };
+    const divisions = await storage.getLeagueDivisions(team.competitionId);
+    const teams = await storage.getLeagueTeams(MFL_ORG_ID, team.competitionId);
+    const [{ n: fixtures }] = (await db.execute(sql`SELECT count(*)::int AS n FROM league_games
+      WHERE competition_id = ${team.competitionId} AND (home_team_id = ${team.id} OR away_team_id = ${team.id})`)).rows as any[];
+    const [{ n: splits }] = (await db.execute(sql`SELECT count(*)::int AS n FROM split_sessions
+      WHERE registration_id = ${regId} AND status <> 'cancelled'`)).rows as any[];
+    const paidCents = Math.round(Number(reg.amountPaid || 0) * 100);
+    const feeLocked = reg.paymentMode === "deposit_weekly" || reg.paymentMode === "split" || Number(splits) > 0;
+    const feeLockedReason = feeLocked
+      ? (reg.paymentMode === "deposit_weekly" ? "This team pays weekly, so its fee can't change here — the move still works." : "This team paid by Player Pay, so its fee can't change here — the move still works.")
+      : null;
+    return { reg, program, team, divisions, teams, fixtures: Number(fixtures), paidCents, feeLocked, feeLockedReason };
+  }
+
+  app.get("/api/admin/league/registrations/:id/move-options", requireAuth, requireTab("payments"), async (req, res) => {
+    try {
+      const ctx = await leagueMoveContext(parseInt(String(req.params.id)));
+      if ("error" in ctx) return res.status(ctx.error![0]).json({ message: ctx.error![1] });
+      const { reg, team, divisions, teams, fixtures, paidCents, feeLocked, feeLockedReason } = ctx;
+      res.json({
+        teamId: team.id, teamName: team.name, currentDivisionId: team.divisionId,
+        totalCents: reg.totalCents ?? 0, paidCents, paymentMode: reg.paymentMode,
+        captainName: team.contactName, captainEmail: team.contactEmail,
+        feeLocked, feeLockedReason, fixtures,
+        divisions: divisions.map((d) => ({
+          id: d.id, name: d.name, priceCents: d.teamCostCents ?? 0, maxTeams: d.maxTeams ?? null,
+          teams: teams.filter((t) => t.divisionId === d.id && t.active).length,
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/league/registrations/:id/move", requireAuth, requireTab("payments"), async (req, res) => {
+    try {
+      const regId = parseInt(String(req.params.id));
+      const ctx = await leagueMoveContext(regId);
+      if ("error" in ctx) return res.status(ctx.error![0]).json({ message: ctx.error![1] });
+      const { reg, program, team, divisions, teams, fixtures, paidCents, feeLocked } = ctx;
+
+      const target = divisions.find((d) => d.id === parseInt(String(req.body?.divisionId)));
+      if (!target) return res.status(400).json({ message: "Pick a league in this term" });
+      if (target.id === team.divisionId) return res.status(400).json({ message: "The team is already in that league" });
+      if (fixtures > 0) return res.status(409).json({ message: `${team.name.trim()} already has ${fixtures} fixture${fixtures === 1 ? "" : "s"} — moving it would break the draw. Move it before fixtures are generated.` });
+      const inTarget = teams.filter((t) => t.divisionId === target.id && t.active).length;
+      if (target.maxTeams != null && inTarget >= target.maxTeams && req.body?.allowOverCap !== true) {
+        return res.status(409).json({ message: `${target.name} is full (${inTarget}/${target.maxTeams}). Tick "allow over the cap" if this is on purpose.`, full: true });
+      }
+      if (reg.balanceStatus === "charging") return res.status(409).json({ message: "A balance payment is going through right now — try again in a few minutes." });
+
+      const oldTotal = reg.totalCents ?? 0;
+      const rawFee = req.body?.totalCents;
+      const newTotal = rawFee === undefined || rawFee === null ? oldTotal : Number(rawFee);
+      if (!Number.isInteger(newTotal) || newTotal < 0 || newTotal > 500_000) return res.status(400).json({ message: "The new fee must be a whole number of cents between $0 and $5,000" });
+      const feeChanges = newTotal !== oldTotal;
+      if (feeLocked && feeChanges) return res.status(400).json({ message: "This team's fee can't change here (weekly plan or Player Pay). Move it with the fee unchanged." });
+      if (feeChanges && newTotal < paidCents) {
+        return res.status(400).json({ message: `They've already paid $${(paidCents / 100).toFixed(2)}, more than the new fee. Keep the fee at least that, and refund any difference from Registrations.` });
+      }
+      const owedCents = feeChanges ? newTotal - paidCents : 0;
+
+      // Never leave an open balance intent carrying the old amount behind.
+      if (feeChanges && reg.balancePaymentIntentId) {
+        const pi = await retrievePaymentIntent(reg.balancePaymentIntentId).catch(() => null);
+        if (pi && pi.status === "succeeded" && reg.balanceStatus !== "paid") {
+          return res.status(409).json({ message: "A balance payment has just gone through but isn't recorded yet — wait a minute and try again." });
+        }
+        if (pi && pi.status !== "succeeded" && pi.status !== "canceled") {
+          const { stripe } = await import("./stripe");
+          await stripe.paymentIntents.cancel(pi.id);
+        }
+      }
+
+      const fromDiv = divisions.find((d) => d.id === team.divisionId);
+      await db.transaction(async (tx) => {
+        await tx.update(leagueTeams).set({ divisionId: target.id, ...(feeChanges ? { paymentStatus: owedCents > 0 ? "deposit_paid" : "paid_in_full" } : {}) } as any).where(eq(leagueTeams.id, team.id));
+        const regSet: any = { leagueDivisionId: target.id };
+        if (feeChanges) {
+          regSet.totalCents = newTotal;
+          if (owedCents > 0) {
+            Object.assign(regSet, {
+              paymentMode: "installment", depositCents: paidCents, balanceCents: owedCents,
+              balanceStatus: "scheduled", balanceDueDate: null, balanceAttempts: 0, balancePaymentIntentId: null,
+            });
+          } else if (reg.paymentMode === "installment") {
+            Object.assign(regSet, { depositCents: paidCents, balanceCents: 0, balanceStatus: "paid" });
+          }
+        }
+        await tx.update(registrations).set(regSet).where(eq(registrations.id, regId));
+        await tx.insert(auditLogs).values({
+          userId: req.session.userId ?? null, action: "league_team_moved", entity: "registration", entityId: regId,
+          details: JSON.stringify({ teamId: team.id, team: team.name, from: fromDiv?.name ?? null, to: target.name, oldTotalCents: oldTotal, newTotalCents: newTotal, paidCents, owedCents, overCap: target.maxTeams != null && inTarget >= target.maxTeams }),
+        } as any);
+      });
+
+      const base = process.env.MFL_PUBLIC_URL || "https://join.minifootball.co.nz";
+      let payUrl = owedCents > 0 ? `${base}/league/balance/${regId}` : null;
+      let emailed = false;
+      if (owedCents > 0 && req.body?.notify === true) {
+        const contact = await storage.getContact(reg.contactId);
+        const to = contact?.email || team.contactEmail;
+        if (to) {
+          const token = crypto.randomBytes(24).toString("base64url");
+          const fmt = (c: number) => `$${(c / 100).toFixed(2)}`;
+          emailed = await sendLeaguePaymentReminderEmail({
+            registrationId: regId, programId: reg.programId, captainEmail: to,
+            captainName: contact?.firstName || (team.contactName || "").split(" ")[0] || "there",
+            teamName: team.name.trim(), kind: "team_moved", missedCount: 0, missedAmount: fmt(owedCents), payoffAmount: fmt(owedCents),
+            fromLeague: fromDiv?.name || undefined, toLeague: target.name, totalAmount: fmt(newTotal), paidAmount: fmt(paidCents),
+            payUrl: `${payUrl}?rt=${token}`, pixelUrl: `${base}/api/public/league/reminder/${token}/pixel.gif`,
+          });
+          if (emailed) {
+            const user = req.session.userId ? await storage.getUser(req.session.userId) : null;
+            await db.insert(leaguePaymentReminders).values({
+              registrationId: regId, token, kind: "team_moved", sentTo: to, sentByUserId: req.session.userId ?? null,
+              sentByName: user ? `${(user as any).firstName ?? ""} ${(user as any).lastName ?? ""}`.trim() || (user as any).email : null,
+              missedCount: 0, missedCents: owedCents, payoffCents: owedCents,
+            });
+          }
+        }
+      }
+      res.json({ moved: true, from: fromDiv?.name ?? null, to: target.name, totalCents: newTotal, paidCents, owedCents, payUrl, emailed });
+    } catch (e: any) {
+      console.error("[league move] error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/admin/league/registrations/:id/payment-reminder", requireAuth, async (req, res) => {
     try {
       const regId = parseInt(String(req.params.id));
@@ -10243,7 +10402,7 @@ export async function registerRoutes(
       // "an invoice to pay the remaining amount in full rather than weekly")
       // gets the SAME payoff link — it clears the remaining weeks and stops the
       // subscription — with wording that does not accuse them of being behind.
-      let kind: "weekly_missed" | "balance_failed" | "pay_in_full" = missed.kind ?? "pay_in_full";
+      let kind: "weekly_missed" | "balance_failed" | "pay_in_full" | "balance_due" = missed.kind ?? "pay_in_full";
       let payoffCents = missed.payoffCents;
       if (!missed.kind || missed.missedCents <= 0) {
         kind = "pay_in_full";
@@ -10252,6 +10411,9 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Nothing left to pay on this team." });
         }
       }
+      // A one-off balance (e.g. after Move team) has no weekly plan to stop — the
+      // pay-in-full wording would be wrong for it.
+      if (kind === "pay_in_full" && reg.paymentMode === "installment") kind = "balance_due";
 
       const contact = await storage.getContact(reg.contactId);
       if (!contact?.email) return res.status(400).json({ message: "No captain email on file." });
