@@ -353,7 +353,7 @@ export function registerPosRoutes(app: Express) {
       const [regs, buckets, orgs, me] = await Promise.all([
         db.select().from(posRegisters).where(eq(posRegisters.active, true)).orderBy(asc(posRegisters.id)),
         db.select().from(posOrgMoneyAccounts),
-        db.select({ id: organizations.id, slug: organizations.slug, name: organizations.name }).from(organizations).where(eq(organizations.active, true)).orderBy(asc(organizations.id)),
+        db.select({ id: organizations.id, slug: organizations.slug, name: organizations.name, logoUrl: organizations.logoUrl }).from(organizations).where(eq(organizations.active, true)).orderBy(asc(organizations.id)),
         storage.getUser(uid(req)),
       ]);
       const open = regs.length ? await db.select().from(posShifts).where(and(inArray(posShifts.registerId, regs.map((r) => r.id)), isNull(posShifts.closedAt))) : [];
@@ -361,7 +361,7 @@ export function registerPosRoutes(app: Express) {
       const counters = new Map(await Promise.all(regs.map(async (r) => [r.id, await liveCounterFor(r.id)] as const)));
       res.json({
         registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true, hasCounter: !!counters.get(r.id), counterOnline: counters.get(r.id)?.online === true })),
-        brands: orgs.filter((o) => o.slug !== "sandbox").map((o) => ({ ...o, account: buckets.find((b) => b.organizationId === o.id)?.account ?? null })),
+        brands: orgs.filter((o) => o.slug !== "sandbox").map((o) => ({ ...o, logoUrl: absUrl(o.logoUrl), account: buckets.find((b) => b.organizationId === o.id)?.account ?? null })),
         moneyAccounts: POS_MONEY_ACCOUNTS,
         tenders: POS_TENDERS, manualTenders: POS_MANUAL_TENDERS, declineReasons: POS_DECLINE_REASONS, seller: POS_SELLER,
         me: { id: me?.id, name: [me?.firstName, me?.lastName].filter(Boolean).join(" ") || me?.email, canIssueRefunds: me?.canIssueRefunds === true },

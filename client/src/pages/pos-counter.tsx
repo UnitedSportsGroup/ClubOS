@@ -64,6 +64,9 @@ export default function PosCounter() {
   const [collecting, setCollecting] = useState<number | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [readerStatus, setReaderStatus] = useState<string | null>(null);
+  // What the NATIVE side is collecting right now — the truth, unlike our own
+  // `collecting`, which a page reload forgets.
+  const [nativeCollecting, setNativeCollecting] = useState<string | null>(null);
   const hasNative = !!nativeBridge();
   const startedRef = useRef(false);
 
@@ -87,6 +90,7 @@ export default function PosCounter() {
     const tick = async () => {
       const ni = readNativeInfo();
       setReaderStatus(ni.readerStatus ?? null);
+      setNativeCollecting(ni.collecting ? String(ni.collecting) : null);
       const qs = new URLSearchParams({ v: APP_VERSION });
       if (ni.nativeVersion) qs.set("nv", ni.nativeVersion);
       if (ni.readerId) qs.set("reader", ni.readerId);
@@ -133,8 +137,9 @@ export default function PosCounter() {
   // card is worse than "getting the reader ready".
   const readerReady = !hasNative || readerStatus === "connected";
   useEffect(() => {
-    if (charge && !charge.claimed && !charge.lastError && collecting !== charge.paymentId && hasNative && readerReady) claim(false);
-  }, [charge?.paymentId, charge?.claimed, charge?.lastError, readerReady]);
+    // 🔴 Never start a second prompt while the reader is still busy with one.
+    if (charge && !charge.claimed && !charge.lastError && collecting !== charge.paymentId && hasNative && readerReady && !nativeCollecting) claim(false);
+  }, [charge?.paymentId, charge?.claimed, charge?.lastError, readerReady, nativeCollecting]);
   // Just linked to a till: the native card part can connect now (its token needs the link).
   const wasPaired = useRef<boolean | null>(null);
   useEffect(() => {
@@ -142,13 +147,22 @@ export default function PosCounter() {
     if (wasPaired.current === false && state.paired) { try { nativeBridge()?.linked?.(); } catch { /* old shell */ } }
     wasPaired.current = state.paired;
   }, [state?.paired]);
-  // Staff cancelled at the till while the prompt was up: take it down.
+  // Staff cancelled at the till while the prompt was up: take it down. Only
+  // when the payment is GONE (two polls running, so a blip doesn't count) — a
+  // different payment appearing is not a cancel; the reader finishes the one
+  // it has and its result settles it. (Found on the real S710, 3 Oct: a second
+  // till's charge arriving cancelled the first customer's prompt.)
+  const goneTicks = useRef(0);
   useEffect(() => {
-    if (collecting && (!charge || charge.paymentId !== collecting)) {
+    if (!collecting) { goneTicks.current = 0; return; }
+    const stillThere = state?.screen === "pay";
+    goneTicks.current = stillThere ? 0 : goneTicks.current + 1;
+    if (goneTicks.current >= 2) {
       try { nativeBridge()?.cancelCollect(); } catch { /* ignore */ }
       setCollecting(null);
+      goneTicks.current = 0;
     }
-  }, [charge?.paymentId, collecting]);
+  }, [state]);
 
   // Hidden door to the reader's own settings (Wi-Fi, updates): five taps in the
   // top-right corner within three seconds. The reader asks for its admin PIN.

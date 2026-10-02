@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 
 // ── Types (JSON shapes from server/pos-routes.ts) ───────────────────────────
-interface Brand { id: number; slug: string; name: string; account: string | null }
+interface Brand { id: number; slug: string; name: string; account: string | null; logoUrl?: string | null }
 interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; hasCounter?: boolean; counterOnline?: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
 interface Bootstrap {
   registers: Register[]; brands: Brand[];
@@ -71,6 +71,8 @@ async function json<T>(method: string, url: string, body?: unknown): Promise<T> 
   const res = await apiRequest(method, url, body);
   return res.json();
 }
+/** "Default · L" — a one-colour product names its colour "Default"; staff need only the size. */
+const cleanDetail = (d: string | null) => (d ? d.replace(/^Default\s*·\s*/i, "") || null : null);
 function errMessage(e: any): string {
   const m = String(e?.message ?? e ?? "");
   // apiRequest throws `${status}: ${body}` — pull the JSON message out if there is one.
@@ -294,6 +296,7 @@ export default function PosRegister() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const brands = boot.data?.brands ?? [];
   const brandName = (id: number) => brands.find((b) => b.id === id)?.name ?? "";
+  const brandLogo = (id: number) => brands.find((b) => b.id === id)?.logoUrl ?? null;
   const qq = q.trim().toLowerCase();
   const products = (catalogue.data?.products ?? []).filter((p) => (brand == null || p.orgId === brand) && (!qq || p.title.toLowerCase().includes(qq)));
   const programmes = (catalogue.data?.programmes ?? []).filter((p) => (brand == null || p.orgId === brand) && (!qq || p.name.toLowerCase().includes(qq)));
@@ -434,23 +437,37 @@ export default function PosRegister() {
 
               {!done && (
                 <>
-                  <div className="max-h-[38vh] overflow-y-auto divide-y divide-neutral-100">
+                  <div className="max-h-[52vh] overflow-y-auto divide-y divide-neutral-100">
                     {(!s || s.lines.length === 0) && <div className="p-6 text-center text-[13px] text-neutral-500">Tap an item, scan a tag, or register a player.</div>}
                     {s?.lines.map((l) => (
-                      <div key={l.id} className="flex items-center gap-2 px-4 py-2.5" data-testid={`pos-line-${l.id}`}>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13px] font-medium truncate">{l.title}</div>
-                          <div className="text-[11px] text-neutral-500 truncate">{[l.detail, l.brand].filter(Boolean).join(" · ")}</div>
+                      // The same card the customer sees on the counter screen: the
+                      // product's photo (or its brand's crest), the full name, then
+                      // the controls underneath so nothing gets cut to "Pullove…".
+                      <div key={l.id} className="flex gap-3 px-4 py-3" data-testid={`pos-line-${l.id}`}>
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-neutral-200 bg-white flex items-center justify-center">
+                          {l.meta?.imageUrl ? <img src={l.meta.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                            : brandLogo(l.organizationId) ? <img src={brandLogo(l.organizationId)!} alt="" className="h-[70%] w-[70%] object-contain" />
+                            : <span className="text-[16px] font-semibold text-neutral-400">{l.title.slice(0, 1)}</span>}
                         </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-medium leading-snug line-clamp-2 [overflow-wrap:anywhere]">{l.title}</div>
+                              <div className="text-[11px] text-neutral-500 truncate">{[cleanDetail(l.detail), l.brand].filter(Boolean).join(" · ")}</div>
+                            </div>
+                            <div className="shrink-0 text-right text-[13px] font-semibold tabular-nums">{$(l.lineCents)}</div>
+                          </div>
+                          <div className="mt-1.5 flex items-center justify-between">
                         {l.kind === "variant" || l.kind === "custom" || l.kind === "event_ticket" ? (
                           <div className="flex items-center gap-1">
                             <button className="h-9 w-9 rounded-lg border border-neutral-200 flex items-center justify-center disabled:opacity-40" disabled={s.paidCents > 0} onClick={() => l.qty > 1 ? setQty.mutate({ lineId: l.id, qty: l.qty - 1 }) : removeLine.mutate(l.id)} aria-label="Less" data-testid={`pos-line-minus-${l.id}`}><Minus className="h-4 w-4" /></button>
                             <span className="w-6 text-center text-[13px]" data-testid={`pos-line-qty-${l.id}`}>{l.qty}</span>
                             <button className="h-9 w-9 rounded-lg border border-neutral-200 flex items-center justify-center disabled:opacity-40" disabled={s.paidCents > 0} onClick={() => setQty.mutate({ lineId: l.id, qty: l.qty + 1 })} aria-label="More" data-testid={`pos-line-plus-${l.id}`}><Plus className="h-4 w-4" /></button>
                           </div>
-                        ) : null}
-                        <div className="w-16 text-right text-[13px] font-medium">{$(l.lineCents)}</div>
+                        ) : <span className="text-[11px] text-neutral-400">{l.unitCents !== l.lineCents ? `${l.qty} × ${$(l.unitCents)}` : ""}</span>}
                         <button className="h-9 w-9 rounded-lg text-neutral-400 hover:text-red-600 flex items-center justify-center" onClick={() => removeLine.mutate(l.id)} disabled={s.paidCents > 0} aria-label="Remove"><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
