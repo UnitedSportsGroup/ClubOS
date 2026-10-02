@@ -211,7 +211,8 @@ async function stateFor(d: Device): Promise<CounterState> {
     id: sale.id, number: sale.saleNumber, status: sale.status,
     lines: lines.map((l) => {
       const o = orgs.find((x) => x.id === l.organizationId);
-      return { id: l.id, title: l.title, detail: l.detail, qty: l.qty, unitCents: l.unitCents, lineCents: l.lineCents, image: absUrl((l.meta as any)?.imageUrl) ?? null, brand: o?.name ?? "", brandLogo: absUrl(o?.logo) };
+      // "Default · L" — a product with one colour names it "Default"; a customer needs only the size.
+      return { id: l.id, title: l.title, detail: l.detail ? l.detail.replace(/^Default\s*·\s*/i, "") || null : null, qty: l.qty, unitCents: l.unitCents, lineCents: l.lineCents, image: absUrl((l.meta as any)?.imageUrl) ?? null, brand: o?.name ?? "", brandLogo: absUrl(o?.logo) };
     }),
     subtotalCents: sale.subtotalCents, discountCents: sale.discountCents, totalCents: sale.totalCents, gstCents: sale.gstCents,
     paidCents: sale.paidCents, remainingCents: Math.max(0, sale.totalCents - sale.paidCents),
@@ -348,7 +349,9 @@ export function registerPosCounterRoutes(app: Express) {
         return res.json({ stripeStatus: pi.status });
       }
       if (row.p.status === "pending") await db.update(posPayments).set({ collectStartedAt: null }).where(and(eq(posPayments.id, row.p.id), eq(posPayments.status, "pending")));
-      const human = outcome === "canceled" ? "The customer cancelled on the reader." : message ? `Card not accepted: ${message}` : "The card was not accepted.";
+      const human = outcome === "canceled" ? "The customer cancelled on the reader."
+        : outcome === "unavailable" ? "The card reader wasn't ready — try again in a moment."
+        : message ? `Card not accepted: ${message}` : "The card was not accepted.";
       await logEvent(d.id, outcome === "canceled" ? "info" : "warn", human, { kind: "card_result", paymentId: row.p.id, outcome, stripeStatus: pi.status, raw: message });
       res.json({ stripeStatus: pi.status });
     } catch (e: any) { console.error("[COUNTER] result", e); res.status(500).json({ message: e.message }); }
@@ -441,7 +444,8 @@ export function registerPosCounterRoutes(app: Express) {
       });
       await storage.createAuditLog({ userId: me, action: "update", entity: "pos_register", entityId: registerId, details: `Linked counter screen #${d.id} to ${register.name}` } as any);
       await logEvent(d.id, "info", `Linked to ${register.name}`);
-      res.status(201).json({ counter: await liveCounterFor(registerId) });
+      const live = await liveCounterFor(registerId);
+      res.status(201).json({ counter: live ? { id: live.id, label: live.label, online: live.online, pairedAt: live.pairedAt } : null });
     } catch (e: any) { console.error("[COUNTER] pair", e); res.status(500).json({ message: e.message }); }
   });
 

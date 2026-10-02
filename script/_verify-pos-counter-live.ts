@@ -116,6 +116,9 @@ async function main() {
   ok("…with GST shown", cart.body?.sale?.gstCents === 13, String(cart.body?.sale?.gstCents));
 
   // ── Card ─────────────────────────────────────────────────────────────────
+  const early = await api("POST", `/api/admin/pos/sales/${sale.body.id}/payments/card`, {});
+  ok("🔴 Card is refused while the screen's card reader isn't connected", early.status === 409 && early.body?.code === "POS_COUNTER_READER", early.body?.message);
+  await A.call("GET", "/api/public/pos/counter/state?rs=connected");
   const card = await api("POST", `/api/admin/pos/sales/${sale.body.id}/payments/card`, {});
   ok("Card goes to the counter screen", card.status === 201 && card.body?.viaCounter === true, JSON.stringify(card.body).slice(0, 120));
   const pid = card.body.paymentId;
@@ -234,7 +237,12 @@ async function cleanup() {
   for (const id of made.registers) {
     await pool.query(`delete from pos_sales where register_id = $1`, [id]).catch(() => {});
     await pool.query(`delete from pos_shifts where register_id = $1`, [id]).catch(() => {});
-    await pool.query(`delete from pos_registers where id = $1`, [id]).catch((e) => console.error("cleanup register", e.message));
+    // A register holding a paid probe sale can't be deleted (the database
+    // refuses to delete a paid sale) — retire it so no till ever lists it.
+    await pool.query(`delete from pos_registers where id = $1`, [id]).catch(async () => {
+      await pool.query(`update pos_shifts set closed_at = now(), closed_by_user_id = opened_by_user_id where register_id = $1 and closed_at is null`, [id]).catch(() => {});
+      await pool.query(`update pos_registers set active = false where id = $1`, [id]).catch(() => {});
+    });
   }
   for (const id of made.users) {
     await pool.query(`delete from user_organizations where user_id = $1`, [id]).catch(() => {});

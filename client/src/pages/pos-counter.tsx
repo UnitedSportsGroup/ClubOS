@@ -29,6 +29,7 @@ interface NativeBridge {
   openSettings(): void;
   setToken(token: string): void;
   reload(): void;
+  linked?(): void;
 }
 const nativeBridge = (): NativeBridge | null => (typeof window !== "undefined" && (window as any).ClubOSCounter) || null;
 interface NativeInfo { nativeVersion?: string; readerId?: string; readerStatus?: string; collecting?: string | null }
@@ -62,6 +63,7 @@ export default function PosCounter() {
   const [fatal, setFatal] = useState<string | null>(null);
   const [collecting, setCollecting] = useState<number | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [readerStatus, setReaderStatus] = useState<string | null>(null);
   const hasNative = !!nativeBridge();
   const startedRef = useRef(false);
 
@@ -84,6 +86,7 @@ export default function PosCounter() {
     let stop = false;
     const tick = async () => {
       const ni = readNativeInfo();
+      setReaderStatus(ni.readerStatus ?? null);
       const qs = new URLSearchParams({ v: APP_VERSION });
       if (ni.nativeVersion) qs.set("nv", ni.nativeVersion);
       if (ni.readerId) qs.set("reader", ni.readerId);
@@ -126,9 +129,19 @@ export default function PosCounter() {
       if (e?.data?.code !== "COUNTER_CLAIMED") { setClaimError(e?.message || "Couldn't start the card payment."); remoteLog("error", `claim failed: ${e?.message}`, { paymentId: charge.paymentId }); }
     }
   }, [charge?.paymentId, hasNative]);
+  // Claim only once the card part is connected — a prompt that cannot take a
+  // card is worse than "getting the reader ready".
+  const readerReady = !hasNative || readerStatus === "connected";
   useEffect(() => {
-    if (charge && !charge.claimed && !charge.lastError && collecting !== charge.paymentId && hasNative) claim(false);
-  }, [charge?.paymentId, charge?.claimed, charge?.lastError]);
+    if (charge && !charge.claimed && !charge.lastError && collecting !== charge.paymentId && hasNative && readerReady) claim(false);
+  }, [charge?.paymentId, charge?.claimed, charge?.lastError, readerReady]);
+  // Just linked to a till: the native card part can connect now (its token needs the link).
+  const wasPaired = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (wasPaired.current === false && state.paired) { try { nativeBridge()?.linked?.(); } catch { /* old shell */ } }
+    wasPaired.current = state.paired;
+  }, [state?.paired]);
   // Staff cancelled at the till while the prompt was up: take it down.
   useEffect(() => {
     if (collecting && (!charge || charge.paymentId !== collecting)) {
@@ -156,7 +169,7 @@ export default function PosCounter() {
         : !state ? <Boot />
         : state.screen === "pair" ? <PairScreen state={state} hasNative={hasNative} />
         : state.screen === "cart" ? <CartScreen state={state} />
-        : state.screen === "pay" ? <PayScreen state={state} hasNative={hasNative} collecting={collecting === state.charge?.paymentId} claimError={claimError} onRetry={() => claim(true)} />
+        : state.screen === "pay" ? <PayScreen state={state} hasNative={hasNative} readerReady={readerReady} collecting={collecting === state.charge?.paymentId} claimError={claimError} onRetry={() => claim(true)} />
         : state.screen === "paid" ? <PaidScreen key={state.sale?.id} state={state} />
         : <IdleScreen state={state} />}
       {offline && (
@@ -238,13 +251,19 @@ function PairScreen({ state, hasNative }: { state: CounterState; hasNative: bool
 /** Crests, kit with real photographs, and what's open — one slide at a time. */
 function IdleScreen({ state }: { state: CounterState }) {
   const idle = state.idle;
+  // The state arrives as a new object every second; key the loop on its CONTENT
+  // and rotate which eight pieces of kit show, hour by hour.
+  const contentKey = JSON.stringify([idle?.brands.length, idle?.products.map((p) => p.title), idle?.programmes.length, new Date().getHours()]);
   const slides = useMemo(() => {
     const out: ({ kind: "crests" } | { kind: "product"; p: NonNullable<CounterState["idle"]>["products"][number] } | { kind: "programmes" })[] = [{ kind: "crests" }];
-    const prods = idle?.products ?? [];
+    // Eight pieces of kit is a full loop; more just makes the dots a ruler.
+    const all = idle?.products ?? [];
+    const start = all.length ? (new Date().getHours() * 8) % all.length : 0;
+    const prods = [...all.slice(start), ...all.slice(0, start)].slice(0, 8);
     prods.forEach((p, i) => { out.push({ kind: "product", p }); if (i === 3 && idle?.programmes.length) out.push({ kind: "programmes" }); });
     if (prods.length <= 3 && idle?.programmes.length) out.push({ kind: "programmes" });
     return out;
-  }, [idle]);
+  }, [contentKey]);
   const [i, setI] = useState(0);
   useEffect(() => { const t = setInterval(() => setI((x) => (x + 1) % Math.max(1, slides.length)), 6500); return () => clearInterval(t); }, [slides.length]);
   const slide = slides[i % Math.max(1, slides.length)];
@@ -284,7 +303,7 @@ function IdleScreen({ state }: { state: CounterState }) {
             <div className="text-[30px] font-bold leading-[1.1] tracking-tight">Kia ora.<br />Welcome to the club.</div>
             <div className="mt-8 grid grid-cols-3 gap-3">
               {(idle?.brands ?? []).slice(0, 9).map((b) => (
-                <div key={b.name} className="flex aspect-square items-center justify-center rounded-2xl bg-white/[0.05] p-3 ring-1 ring-white/10">
+                <div key={b.name} className="flex aspect-square items-center justify-center rounded-2xl bg-white p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
                   <img src={b.logo} alt={b.name} className="max-h-full max-w-full object-contain" />
                 </div>
               ))}
@@ -293,8 +312,8 @@ function IdleScreen({ state }: { state: CounterState }) {
         )}
       </div>
       <div className="flex items-center justify-between px-6 pb-5 pt-3 text-[12px] text-white/40">
-        <span>{state.register?.name ?? "Counter"}</span>
-        <span className="flex gap-1">{slides.map((_, k) => <span key={k} className={`h-1.5 rounded-full transition-all ${k === i % slides.length ? "w-4 bg-white/70" : "w-1.5 bg-white/20"}`} />)}</span>
+        <span className="min-w-0 truncate pr-3">{state.register?.name ?? "Counter"}</span>
+        <span className="flex shrink-0 gap-1">{slides.map((_, k) => <span key={k} className={`h-1.5 rounded-full transition-all ${k === i % slides.length ? "w-4 bg-white/70" : "w-1.5 bg-white/20"}`} />)}</span>
       </div>
     </div>
   );
@@ -367,7 +386,7 @@ function CartScreen({ state }: { state: CounterState }) {
   );
 }
 
-function PayScreen({ state, hasNative, collecting, claimError, onRetry }: { state: CounterState; hasNative: boolean; collecting: boolean; claimError: string | null; onRetry: () => void }) {
+function PayScreen({ state, hasNative, readerReady, collecting, claimError, onRetry }: { state: CounterState; hasNative: boolean; readerReady: boolean; collecting: boolean; claimError: string | null; onRetry: () => void }) {
   const sale = state.sale!;
   const charge = state.charge!;
   const failed = !!charge.lastError && !collecting && !charge.claimed;
@@ -382,7 +401,7 @@ function PayScreen({ state, hasNative, collecting, claimError, onRetry }: { stat
         ) : failed ? (
           <>
             <div className="mt-6 rounded-2xl bg-red-500/10 px-5 py-4 text-[15px] text-red-200">{charge.lastError}</div>
-            <button onClick={onRetry} className="mt-6 h-16 w-full rounded-2xl bg-white text-[18px] font-bold text-black" data-testid="counter-retry">Try again</button>
+            <button onClick={onRetry} disabled={!readerReady} className="mt-6 h-16 w-full rounded-2xl bg-white text-[18px] font-bold text-black disabled:opacity-40" data-testid="counter-retry">{readerReady ? "Try again" : "Getting the reader ready…"}</button>
             <div className="mt-3 text-[13px] text-white/50">Or use another card — or ask at the counter.</div>
           </>
         ) : claimError ? (
@@ -393,7 +412,7 @@ function PayScreen({ state, hasNative, collecting, claimError, onRetry }: { stat
         ) : (
           <div className="mt-8 flex items-center gap-3 text-[15px] text-white/70">
             <div className="counter-spin h-5 w-5 rounded-full border-2 border-white/20 border-t-white" />
-            {collecting || charge.claimed ? "Tap, insert or swipe your card" : "Getting the reader ready…"}
+            {collecting || charge.claimed ? "Tap, insert or swipe your card" : readerReady ? "Starting the card reader…" : "Getting the card reader ready…"}
           </div>
         )}
       </div>

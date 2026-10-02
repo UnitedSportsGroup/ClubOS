@@ -841,6 +841,11 @@ export function registerPosRoutes(app: Express) {
       if (counter && !counter.online) {
         return res.status(409).json({ code: "POS_COUNTER_OFFLINE", message: "The counter screen is offline. Check it is switched on and connected, or take the payment on the EFTPOS terminal and record it." });
       }
+      // The screen reports its card reader's state; "connecting" etc. means the
+      // customer would be shown a prompt that cannot take a card yet.
+      if (counter && counter.readerStatus && counter.readerStatus !== "connected") {
+        return res.status(409).json({ code: "POS_COUNTER_READER", message: `The counter screen's card reader isn't ready (${counter.readerStatus.replace(/_/g, " ")}). Give it a moment, or restart the reader.` });
+      }
       if (counter && (await readerAccountFor(register!)) !== sale.moneyAccount) {
         return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "The counter reader takes payments for a different Stripe account than this sale banks with. Use the EFTPOS terminal and record it." });
       }
