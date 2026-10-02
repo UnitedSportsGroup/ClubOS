@@ -374,7 +374,7 @@ function QuoteCard({ quote, busy, onApprove, onReject }: {
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-3 text-[12px]">
+      <div className="mt-3 flex items-center justify-between flex-wrap gap-x-4 gap-y-2 border-t border-white/[0.06] pt-3 text-[12px]">
         <div className="text-white/40 space-x-3">
           <span>Subtotal {money(quote.subtotalCents)}</span>
           <span>GST {money(quote.gstCents)}</span>
@@ -468,14 +468,14 @@ function QuoteEditor({ quote, onDone }: { quote: PrintQuote; onDone: () => void 
       {lines.map((l, i) => (
         <div key={l.key} className="rounded-lg bg-white/[0.02] border border-white/[0.08] p-2.5 space-y-2" data-testid={`edit-line-${i}`}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <input className={field} value={l.designName} onChange={(e) => set(l.key, { designName: e.target.value })} placeholder="Description (e.g. Club banner, extra corflute)" data-testid={`edit-desc-${i}`} />
-            <input className={field} value={l.material} onChange={(e) => set(l.key, { material: e.target.value })} placeholder="Material / product" />
+            <label className="block"><span className="block text-[10.5px] text-white/40 mb-0.5">Description</span><input className={field} value={l.designName} onChange={(e) => set(l.key, { designName: e.target.value })} placeholder="e.g. Club banner, extra corflute" data-testid={`edit-desc-${i}`} /></label>
+            <label className="block"><span className="block text-[10.5px] text-white/40 mb-0.5">Material / product</span><input className={field} value={l.material} onChange={(e) => set(l.key, { material: e.target.value })} placeholder="e.g. PVC banner" /></label>
           </div>
-          <div className="grid grid-cols-[1fr_5rem_7rem] sm:grid-cols-[1fr_6rem_8rem_auto] gap-2 items-center">
-            <input className={field} value={l.sizeLabel} onChange={(e) => set(l.key, { sizeLabel: e.target.value })} placeholder="Size" />
-            <input className={field} inputMode="numeric" value={l.qty} onChange={(e) => set(l.key, { qty: e.target.value.replace(/[^0-9]/g, "") }, true)} placeholder="Qty" aria-label="Quantity" data-testid={`edit-qty-${i}`} />
-            <MoneyInput value={l.unit} onChange={(v) => set(l.key, { unit: v }, true)} placeholder="each" aria-label="Price each, excl GST" className="h-[34px] text-[13px]" data-testid={`edit-unit-${i}`} />
-            <div className="col-span-3 sm:col-span-1 flex items-center justify-between sm:justify-end gap-3">
+          <div className="grid grid-cols-[1fr_4.5rem_7.5rem] sm:grid-cols-[1fr_6rem_9rem_auto] gap-2 items-end">
+            <label className="block min-w-0"><span className="block text-[10.5px] text-white/40 mb-0.5">Size</span><input className={field} value={l.sizeLabel} onChange={(e) => set(l.key, { sizeLabel: e.target.value })} placeholder="e.g. 3000 × 800 mm" /></label>
+            <label className="block"><span className="block text-[10.5px] text-white/40 mb-0.5">Qty</span><input className={field} inputMode="numeric" value={l.qty} onChange={(e) => set(l.key, { qty: e.target.value.replace(/[^0-9]/g, "") }, true)} placeholder="1" data-testid={`edit-qty-${i}`} /></label>
+            <label className="block"><span className="block text-[10.5px] text-white/40 mb-0.5">Each, excl GST</span><MoneyInput value={l.unit} onChange={(v) => set(l.key, { unit: v }, true)} placeholder="0.00" className="h-[34px] text-[13px]" data-testid={`edit-unit-${i}`} /></label>
+            <div className="col-span-3 sm:col-span-1 flex items-center justify-between sm:justify-end gap-3 sm:pb-1.5">
               <span className="text-[12px] text-white/60 whitespace-nowrap">= <span className="font-medium text-white/85">{money(l.lineCents)}</span> excl GST</span>
               {l.hasArt ? (
                 <span className="text-[10.5px] text-emerald-300/70" title="This line has the customer's artwork — change it instead of removing it">has artwork</span>
