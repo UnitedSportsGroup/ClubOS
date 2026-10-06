@@ -4,6 +4,7 @@ import { trainingGroupFor } from "@shared/training-groups";
 import { nzTodayIso } from "@shared/academy";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
+import { resolveMailerAudience } from "./mailer-audience";
 import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
@@ -2568,66 +2569,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMailerSegmentEmails(segmentType: string, segmentConfig?: any): Promise<string[]> {
-    const config = segmentConfig ? (typeof segmentConfig === 'string' ? JSON.parse(segmentConfig) : segmentConfig) : {};
-
-    if (segmentType === 'all') {
-      const rows = await db.select({ email: contacts.email }).from(contacts)
-        .where(and(eq(contacts.type, 'guardian'), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
-      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
-    }
-
-    if (segmentType === 'camp' && config.campId) {
-      const regs = await db.select({ contactId: registrations.contactId })
-        .from(registrations)
-        .where(and(eq(registrations.programId, config.campId), eq(registrations.status, 'confirmed')));
-      const contactIds = [...new Set(regs.map(r => r.contactId))];
-      if (!contactIds.length) return [];
-      const rows = await db.select({ email: contacts.email }).from(contacts)
-        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
-      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
-    }
-
-    if (segmentType === 'day' && config.campId && config.campDateId) {
-      const items = await db.select({ registrationId: registrationItems.registrationId })
-        .from(registrationItems)
-        .where(eq(registrationItems.campDateId, config.campDateId));
-      const regIds = [...new Set(items.map(i => i.registrationId))];
-      if (!regIds.length) return [];
-      const regs = await db.select({ contactId: registrations.contactId })
-        .from(registrations)
-        .where(and(inArray(registrations.id, regIds), eq(registrations.status, 'confirmed')));
-      const contactIds = [...new Set(regs.map(r => r.contactId))];
-      if (!contactIds.length) return [];
-      const rows = await db.select({ email: contacts.email }).from(contacts)
-        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
-      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
-    }
-
-    if (segmentType === 'session' && config.campId && config.campDateId && config.sessionType) {
-      const normalizedType = config.sessionType.toUpperCase();
-      const items = await db.select({ registrationId: registrationItems.registrationId })
-        .from(registrationItems)
-        .where(and(
-          eq(registrationItems.campDateId, config.campDateId),
-          eq(registrationItems.productType, normalizedType)
-        ));
-      const regIds = [...new Set(items.map(i => i.registrationId))];
-      if (!regIds.length) return [];
-      const regs = await db.select({ contactId: registrations.contactId })
-        .from(registrations)
-        .where(and(inArray(registrations.id, regIds), eq(registrations.status, 'confirmed')));
-      const contactIds = [...new Set(regs.map(r => r.contactId))];
-      if (!contactIds.length) return [];
-      const rows = await db.select({ email: contacts.email }).from(contacts)
-        .where(and(inArray(contacts.id, contactIds), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`));
-      return [...new Set(rows.map(r => r.email!).filter(Boolean))];
-    }
-
-    if (segmentType === 'custom' && config.emails) {
-      return config.emails;
-    }
-
-    return [];
+    // The Mailer's audience has ONE decider — server/mailer-audience.ts — so
+    // the count a staff member previews is the list the send walks, and both
+    // read the guardian's address as well as the registrant's (the newest
+    // academy families carry it on the guardian row alone). The per-address
+    // names for {{first_name}} / {{player_first_name}} come from the same call.
+    const { emails } = await resolveMailerAudience(segmentType, segmentConfig);
+    return emails;
   }
 
   async getFacilities(orgId: number): Promise<Facility[]> {

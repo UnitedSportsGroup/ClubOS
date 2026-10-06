@@ -9,8 +9,11 @@
 
 import {
   applyMergeTags,
+  applyMergeTagsText,
   hasUnsubscribeLink,
+  joinNames,
   renderForRecipient,
+  usesPlayerTag,
   visibleTextLength,
 } from "../server/mailer-render";
 
@@ -112,6 +115,36 @@ ok(visibleTextLength("<html><body><h1>Camp is on</h1></body></html>") > 5, "real
   ok(src.includes("&quot;"), "a quote in the URL is escaped to &quot;");
   ok(!src.includes('"'), "the src value carries no raw quote to close the attribute with");
   ok(!/onerror\s*=/.test(quoted.slice(quoted.indexOf("<img")).split(">")[0].replace(src, "")), "nothing escapes into a new attribute");
+}
+
+// ── the player tags (Zach, 2026-10-05) ──────────────────────────────────────
+// {{first_name}} is the parent whose inbox it is; {{player_first_name}} is the
+// registered child the address stands for. Two different people, one address.
+{
+  const base = { email: "p@x.com", unsubscribeUrl: UNSUB, firstName: "Kat", lastName: "Smith" };
+  ok(applyMergeTags("Hi {{player_first_name}},", { ...base, players: [{ firstName: "Ryan", lastName: "Smith" }] }) === "Hi Ryan,",
+    "{{player_first_name}} resolves to the registered child");
+  ok(applyMergeTags("Hi {{first_name}} — {{player_first_name}}", { ...base, players: [{ firstName: "Ryan" }] }) === "Hi Kat — Ryan",
+    "parent and child tags are different people on the same address");
+  ok(applyMergeTags("{{player_first_name}}", { ...base, players: [{ firstName: "Jack" }, { firstName: "Lily" }] }) === "Jack and Lily",
+    "two children on one address read 'Jack and Lily'");
+  ok(applyMergeTags("{{player_first_name}}", { ...base, players: [{ firstName: "Jack" }, { firstName: "Lily" }, { firstName: "Tom" }] }) === "Jack, Lily and Tom",
+    "three read 'Jack, Lily and Tom'");
+  ok(applyMergeTags("{{player_name}}", { ...base, players: [{ firstName: "Ryan", lastName: "Smith" }] }) === "Ryan Smith",
+    "{{player_name}} is the full name");
+  ok(applyMergeTags("Hi {{player_first_name}},", base) === "Hi there,",
+    "no registered child reads 'Hi there,' — never blank, never the parent's name");
+  ok(applyMergeTags("Hi {{player_first_name}},", { ...base, players: [] }) === "Hi there,", "an empty list reads 'Hi there,' too");
+  ok(applyMergeTags("{{player_first_name}}", { ...base, players: [{ firstName: "<b>Jo</b>" }] }) === "&lt;b&gt;Jo&lt;/b&gt;",
+    "a child's name is escaped inside HTML");
+  ok(applyMergeTagsText("{{player_first_name}}, you're in — {{first_name}} & co", { ...base, players: [{ firstName: "Ryan" }] }) === "Ryan, you're in — Kat & co",
+    "the subject-line variant resolves the same tags WITHOUT HTML escaping");
+  ok(applyMergeTagsText("{{promo}}", base) === "{{promo}}", "an unknown tag survives in a subject too");
+  ok(applyMergeTags("{{unsubscribe_url}}", { ...base, unsubscribeUrl: "https://x/u?a=1&b=2" }) === "https://x/u?a=1&b=2",
+    "the unsubscribe URL is still placed raw into its href");
+  ok(joinNames([]) === "" && joinNames([" A "]) === "A", "joinNames: empty and single");
+  ok(usesPlayerTag("Hi {{ Player_First_Name }}") && usesPlayerTag("{{player_name}}") && !usesPlayerTag("{{first_name}}"),
+    "usesPlayerTag spots both player tags and nothing else");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL CHECKS PASSED");

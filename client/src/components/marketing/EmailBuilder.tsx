@@ -71,11 +71,18 @@ const AUTOSAVE_MS = 1500;
 const WARN_BYTES = 80 * 1024;
 const BLOCK_BYTES = 100 * 1024;
 
-const MERGE_TAGS: { label: string; tag: string }[] = [
-  { label: "First name", tag: "{{first_name}}" },
-  { label: "Last name", tag: "{{last_name}}" },
-  { label: "Email", tag: "{{email}}" },
-  { label: "Unsubscribe URL", tag: "{{unsubscribe_url}}" },
+// {{first_name}} is the PARENT (whose inbox it is); {{player_first_name}} is
+// the registered CHILD the address stands for — Zach, 2026-10-05: an academy
+// invitation is addressed to the player and lands with the parent. Two
+// children on one address read "Jack and Lily". Resolved per recipient at
+// send in server/mailer-audience.ts; nothing here guesses a name.
+const MERGE_TAGS: { label: string; tag: string; hint: string }[] = [
+  { label: "First name", tag: "{{first_name}}", hint: "the parent's first name — whose inbox it is" },
+  { label: "Player first name", tag: "{{player_first_name}}", hint: "the registered child's first name; two children on one address read \"Jack and Lily\"" },
+  { label: "Player full name", tag: "{{player_name}}", hint: "the registered child's full name" },
+  { label: "Last name", tag: "{{last_name}}", hint: "the parent's last name" },
+  { label: "Email", tag: "{{email}}", hint: "the address this copy is sent to" },
+  { label: "Unsubscribe URL", tag: "{{unsubscribe_url}}", hint: "this recipient's own unsubscribe link" },
 ];
 
 function byteLength(s: string): number {
@@ -378,7 +385,7 @@ export default function EmailBuilder({
                 type="button"
                 onClick={() => insertTag(m.tag)}
                 className="rounded-full border px-2.5 py-1 font-mono text-[11px] hover:bg-muted"
-                title={`Insert ${m.tag} — swapped for each recipient's ${m.label.toLowerCase()} at send`}
+                title={`Insert ${m.tag} — ${m.hint}; swapped for each recipient at send`}
               >
                 {m.tag}
               </button>

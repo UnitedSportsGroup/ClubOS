@@ -655,6 +655,10 @@ export default function AdminMailer() {
               className="premium-input text-white/80 text-lg h-12"
               data-testid="input-subject"
             />
+            <p className="text-xs text-white/40" data-testid="subject-merge-hint">
+              Personalise the subject too: <code className="font-mono text-white/60">{"{{first_name}}"}</code> is the parent,{" "}
+              <code className="font-mono text-white/60">{"{{player_first_name}}"}</code> the registered child — swapped for each recipient at send.
+            </p>
           </div>
 
           <div className="glass-card rounded-2xl p-4 space-y-3">

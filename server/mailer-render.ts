@@ -5,9 +5,16 @@
  * Two jobs, both of which the camps mailer was missing before 2026-09-09:
  *
  * 1. **Merge tags.** The builder's palette offers {{first_name}}, {{last_name}},
- *    {{email}} and {{unsubscribe_url}}. Offering them and then posting the
- *    braces to 3,800 people is worse than not offering them, so they are
- *    resolved here, per recipient.
+ *    {{player_first_name}}, {{player_name}}, {{email}} and {{unsubscribe_url}}.
+ *    Offering them and then posting the braces to 3,800 people is worse than
+ *    not offering them, so they are resolved here, per recipient.
+ *
+ *    {{first_name}} is the PARENT — whose inbox it is. {{player_first_name}}
+ *    is the registered CHILD the address stands for (Zach, 2026-10-05: an
+ *    academy invitation is addressed to the player and lands with the parent).
+ *    Two children on one address read "Jack and Lily"; one address is one
+ *    recipient because the broadcast queue, and its never-resend guard, key on
+ *    it. Who the parent and the children ARE is decided in mailer-audience.ts.
  *
  * 2. **An unsubscribe link, guaranteed.** NZ's Unsolicited Electronic Messages
  *    Act 2007 s11 requires a functional unsubscribe facility on a commercial
@@ -23,8 +30,13 @@
 export interface RecipientContext {
   email: string;
   unsubscribeUrl: string;
+  /** The parent's name — the person whose inbox this is. */
   firstName?: string | null;
   lastName?: string | null;
+  /** The registered children this address stands for, in the audience's
+   *  scope. Empty or missing reads "there", the same neutral fallback as an
+   *  unknown parent — never a guess, never a blank. */
+  players?: ReadonlyArray<{ firstName: string; lastName?: string | null }> | null;
   /**
    * 🔴 THE OPEN PIXEL, AND WITHOUT IT AN OPEN CAN NEVER BE RECORDED.
    *
@@ -50,24 +62,66 @@ function escapeHtml(v: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** "Jack" · "Jack and Lily" · "Jack, Lily and Tom". Empty when there are none. */
+export function joinNames(names: ReadonlyArray<string>): string {
+  const list = names.map((n) => n.trim()).filter(Boolean);
+  if (list.length === 0) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
+
+/** Every tag's value for one recipient, as PLAIN TEXT. The HTML path escapes
+ *  these; the subject line uses them as they are (a subject is not markup,
+ *  and "Tom &amp; Jerry" in an inbox is its own bug). */
+function mergeValues(ctx: RecipientContext): Record<string, string> {
+  const first = (ctx.firstName || "").trim();
+  const last = (ctx.lastName || "").trim();
+  const players = (ctx.players ?? []).filter((p) => p && (p.firstName || "").trim());
+  const playerFirst = joinNames(players.map((p) => p.firstName));
+  const playerFull = joinNames(players.map((p) => `${p.firstName.trim()} ${(p.lastName || "").trim()}`.trim()));
+  return {
+    // "Hi there," is the fallback: a real greeting when the name is unknown.
+    first_name: first || "there",
+    last_name: last,
+    player_first_name: playerFirst || "there",
+    player_name: playerFull || "there",
+    email: ctx.email,
+    unsubscribe_url: ctx.unsubscribeUrl,
+  };
+}
+
+const TAG_RE = /\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}/gi;
+
 /** `{{ first_name }}`, `{{first_name}}`, `{{First_Name}}` — all the same tag.
  *  Anything we do not recognise is left exactly as typed rather than blanked,
  *  because a visible `{{promo_code}}` is a bug someone can see and report,
  *  while a silent deletion is one nobody ever finds. */
 export function applyMergeTags(html: string, ctx: RecipientContext): string {
-  const first = (ctx.firstName || "").trim();
-  const last = (ctx.lastName || "").trim();
-  const values: Record<string, string> = {
-    // "Hi there," is the fallback: a real greeting when the name is unknown.
-    first_name: escapeHtml(first || "there"),
-    last_name: escapeHtml(last),
-    email: escapeHtml(ctx.email),
-    unsubscribe_url: ctx.unsubscribeUrl,
-  };
-  return html.replace(/\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}/gi, (whole, key: string) => {
+  const values = mergeValues(ctx);
+  return html.replace(TAG_RE, (whole, key: string) => {
+    const k = key.toLowerCase();
+    const v = values[k];
+    if (v === undefined) return whole;
+    // The URL is ours and goes into an href; a name out of the database is escaped.
+    return k === "unsubscribe_url" ? v : escapeHtml(v);
+  });
+}
+
+/** The same tags in a plain-text field — the SUBJECT LINE. No HTML escaping:
+ *  "Jack, you're invited" must not arrive as "Jack, you&#39;re invited". */
+export function applyMergeTagsText(text: string, ctx: RecipientContext): string {
+  const values = mergeValues(ctx);
+  return text.replace(TAG_RE, (whole, key: string) => {
     const v = values[key.toLowerCase()];
     return v === undefined ? whole : v;
   });
+}
+
+/** True when a design or subject uses a player tag at all — so a page can say
+ *  which addresses would read "Hi there" before anyone presses Send. */
+export function usesPlayerTag(text: string): boolean {
+  return /\{\{\s*player_(first_)?name\s*\}\}/i.test(text);
 }
 
 /** The footer added when a design carries no unsubscribe link. Deliberately

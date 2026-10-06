@@ -15,7 +15,8 @@
 //     canvas, breaking WYSIWYG; same rule brand.ts's starter template follows).
 //   • merge tags ({{first_name}} etc.) are used ONLY where the send engine
 //     actually fills them (server/marketing/{flow-graph,worker}.ts support
-//     exactly: first_name, last_name, email, unsubscribe_url, preferences_url).
+//     exactly: first_name, last_name, player_first_name, player_name, email,
+//     unsubscribe_url, preferences_url).
 //     Match/product/date facts aren't real merge tags today, so they're baked
 //     as real, editable football copy instead of invented placeholders.
 //

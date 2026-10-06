@@ -115,7 +115,8 @@ import {
   validateIdentityDeferral,
 } from "@shared/nzf-identity";
 import { isOfficePaymentMethod } from "@shared/payments";
-import { renderForRecipient, visibleTextLength } from "./mailer-render";
+import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
+import { resolveMailerAudience, lookupMailerRecipient } from "./mailer-audience";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
 import { behaviorEventsToInsert } from "@shared/behavior";
 import { isAllowedDestination, buildRedirectUrl, clickIdFromBytes, ipHashSeed, mainSiteForHost, isValidLinkKey, linkKeyFromBytes, CLUB_ROOT_DOMAINS, rootDomainForHost, isOurOrigin } from "@shared/short-links";
@@ -6448,8 +6449,19 @@ export async function registerRoutes(
 
       const orgId = await predictorOrgId();
       const hasCampaign = typeof body === "string" && body.trim().length > 0;
+      // The test address is resolved the way a real recipient is — so a staff
+      // member who is also a parent sees their own children's names where a
+      // family would, and anyone else sees the honest "there".
+      const who = await lookupMailerRecipient(dest);
+      const testCtx = {
+        email: dest,
+        unsubscribeUrl: cufcUnsubUrl(orgId, dest),
+        firstName: who.firstName,
+        lastName: who.lastName,
+        players: who.players,
+      };
       const html = hasCampaign
-        ? renderForRecipient(body, { email: dest, unsubscribeUrl: cufcUnsubUrl(orgId, dest) })
+        ? renderForRecipient(body, testCtx)
         : `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;"><h2 style="color:#22399B;">Test Email from ClubOS</h2><p>Delivery is working. Compose your email and send a test again to see the real thing.</p></div>`;
 
       const apiRes = await fetch("https://api.resend.com/emails", {
@@ -6462,7 +6474,7 @@ export async function registerRoutes(
           from: senderEmail,
           to: [dest],
           reply_to: replyTo || undefined,
-          subject: hasCampaign ? `[TEST] ${String(subject || "(no subject)").trim()}` : "CUFC ClubOS — Test Email",
+          subject: hasCampaign ? `[TEST] ${applyMergeTagsText(String(subject || "(no subject)").trim(), testCtx)}` : "CUFC ClubOS — Test Email",
           html,
         }),
       });
@@ -6485,17 +6497,17 @@ export async function registerRoutes(
       const validSegments = ["all", "camp", "day", "session", "custom"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
 
-      let emails: string[] = [];
-      if (segmentType === 'custom' && manualEmails) {
-        emails = manualEmails.filter((e: string) => e && e.includes('@'));
-      } else {
-        emails = await storage.getMailerSegmentEmails(segmentType, segmentConfig);
-      }
-
-      if (manualEmails && manualEmails.length > 0 && segmentType !== 'custom') {
-        const manual = manualEmails.filter((e: string) => e && e.includes('@'));
-        emails = Array.from(new Set([...emails, ...manual]));
-      }
+      // ONE decider for who this goes to and whose names ride on each address:
+      // the parent's for {{first_name}}, the registered children's for
+      // {{player_first_name}} (Zach, 2026-10-05 — an academy invitation is
+      // addressed to the player and lands in the parent's inbox). The preview
+      // count reads the same function, so the number shown is the number sent.
+      const audience = await resolveMailerAudience(
+        segmentType,
+        segmentConfig,
+        Array.isArray(manualEmails) ? manualEmails : undefined,
+      );
+      let emails: string[] = audience.emails;
 
       // 🔴 Honour the opt-out list. Every other mailer in ClubOS does; this one
       // never has, so anyone who unsubscribed kept receiving camp campaigns.
@@ -6506,27 +6518,6 @@ export async function registerRoutes(
       const suppressed = requested - emails.length;
 
       if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
-
-      // First names for {{first_name}} — one query, not one per recipient. An
-      // address with no contact row keeps the neutral fallback in the renderer.
-      const nameByEmail = new Map<string, string>();
-      try {
-        const wanted = new Set(emails.map((e) => e.trim().toLowerCase()));
-        const rows = await db
-          .select({ email: contacts.email, firstName: contacts.firstName })
-          .from(contacts)
-          .where(sql`${contacts.email} IS NOT NULL AND ${contacts.email} <> ''`);
-        for (const r of rows) {
-          const key = (r.email || "").trim().toLowerCase();
-          if (key && wanted.has(key) && r.firstName && !nameByEmail.has(key)) {
-            nameByEmail.set(key, r.firstName);
-          }
-        }
-      } catch (e) {
-        // Personalisation is a nicety; the send is not. Fall back to the
-        // renderer's neutral greeting rather than failing the campaign.
-        console.error("[Camps mailer] first-name lookup failed; sending without personalisation:", e);
-      }
 
       const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
       const replyAddress = replyTo || "info@cufc.co.nz";
@@ -6587,19 +6578,24 @@ export async function registerRoutes(
         // invisible. That is exactly how the CUFC mailer shipped, and why
         // Daniel opened a test of his own and watched it read "Not opened".
         async (email, pixelUrl) => {
+          const who = audience.byEmail.get(email.trim().toLowerCase());
+          const ctx = {
+            email,
+            firstName: who?.firstName ?? null,
+            lastName: who?.lastName ?? null,
+            players: who?.players ?? [],
+            unsubscribeUrl: cufcUnsubUrl(orgId, email),
+            pixelUrl,
+          };
           const ok = await sendEmail({
             to: email,
             from: senderEmail,
             replyTo: replyAddress,
-            subject,
+            // The subject takes the same tags, as plain text.
+            subject: applyMergeTagsText(subject, ctx),
             // Per recipient: merge tags resolved, an unsubscribe link
             // guaranteed even when the design forgot one, and the open pixel.
-            html: renderForRecipient(body, {
-              email,
-              firstName: nameByEmail.get(email.trim().toLowerCase()) ?? null,
-              unsubscribeUrl: cufcUnsubUrl(orgId, email),
-              pixelUrl,
-            }),
+            html: renderForRecipient(body, ctx),
           });
           return ok;
         },
