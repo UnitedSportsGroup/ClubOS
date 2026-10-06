@@ -242,6 +242,10 @@ export function DobInput({
               onPaste={onBoxPaste}
               onBlur={() => onBoxBlur(box)}
               onFocus={(e) => { try { e.currentTarget.select(); } catch { /* ignore */ } }}
+              // A tap into a box that already holds "07" selects it, so typing
+              // replaces it — with maxLength=2 a third digit otherwise goes nowhere
+              // and the box looks dead (the live trace found exactly that).
+              onClick={(e) => { try { e.currentTarget.select(); } catch { /* ignore */ } }}
               disabled={disabled}
               required={required}
               autoFocus={autoFocus && box === "day"}

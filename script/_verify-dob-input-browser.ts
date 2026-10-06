@@ -23,37 +23,62 @@ const ok = (l: string, good: boolean, d = "") => {
 
 type Page = {
   label: string;
+  /** short, for screenshot names */
+  key: string;
   url: string;
   /** data-testid of the DobInput group */
   testid: string;
   /** what a valid 11/07/2018 should produce under the field */
   expectStatus: RegExp;
-  /** the page's own guard: "is this the page, not a closed/404 state" */
-  ready: RegExp;
+  /** Clicks that reach the child form: each a data-testid, or text:… for a
+   *  button found by its words. A wizard's first step is not the form. */
+  advance?: string[];
 };
 
 const PAGES: Page[] = [
   {
     label: "camp booking (FUNdamentals)",
+    key: "camp",
     url: "https://join.cufc.co.nz/fundamentals/book",
     testid: "input-child-dob-0",
     expectStatus: /8 years old/,
-    ready: /Date of Birth/i,
+    // Step 1 is the session picker; the child form is step 2.
+    advance: [
+      "text:Full Day", "button-next-step-2",
+      "fill:input-parent-first=Verify", "fill:input-parent-last=Probe",
+      "fill:input-parent-email=dob-verify@example.com", "fill:input-parent-phone=0210000000",
+      "button-next-step-3",
+    ],
   },
   {
     label: "academy checkout (Pre-Academy, Term 4)",
+    key: "academy",
     url: "https://join.cufc.co.nz/academy/pre-academy-u9-u12?option=30",
     testid: "input-child-dob",
     // Born 2018 → U8 in 2026 → the Term 4 lead-in line, not a refusal.
     expectStatus: /U9 from 2027/,
-    ready: /Date of birth/i,
+    advance: ["button-new-family", "text:Continue"],
   },
   {
     label: "class booking (Ballers U9)",
+    key: "class",
     url: "https://join.minifootball.co.nz/ballers-u9/class-book",
     testid: "input-child-dob",
     expectStatus: /8 years old/,
-    ready: /First name/i,
+  },
+  {
+    label: "cufc.co.nz Open Training",
+    key: "open-training",
+    url: "https://cufc.co.nz/open-training",
+    testid: "open-training-dob",
+    expectStatus: /8 years old/,
+  },
+  {
+    label: "cugc.co.nz Register",
+    key: "cugc-register",
+    url: "https://cugc.co.nz/register",
+    testid: "lead-dob",
+    expectStatus: /8 years old/,
   },
 ];
 
@@ -72,16 +97,36 @@ try {
       await page.goto(p.url, { waitUntil: "networkidle2", timeout: 60000 });
       await new Promise((r) => setTimeout(r, 1500));
 
-      const body = await page.evaluate(() => document.body.innerText);
-      if (!p.ready.test(body)) {
-        ok(`${p.label}: the page rendered its form`, false, `no "${p.ready}" on the page (closed? moved?)`);
-        await page.screenshot({ path: `${SHOTS}/${p.testid}-${w}-notready.png` });
+      const sel = (box: string) => `[data-testid="${p.testid}-${box}"]`;
+      for (const step of p.advance ?? []) {
+        if (await page.$(sel("day"))) break; // already on the form
+        if (step.startsWith("fill:")) {
+          const [tid, val] = step.slice(5).split("=");
+          const el = await page.$(`[data-testid="${tid}"]`);
+          if (el) { await el.click({ clickCount: 3 }); await page.keyboard.type(val); } else console.log(`     (no ${tid} to fill — skipping)`);
+          continue;
+        }
+        if (step.startsWith("text:")) {
+          const want = step.slice(5);
+          const hit = await page.evaluate((t) => {
+            const b = Array.from(document.querySelectorAll("button")).find((e) => (e.textContent || "").trim().includes(t) && !(e as HTMLButtonElement).disabled);
+            if (!b) return false; (b as HTMLElement).click(); return true;
+          }, want);
+          if (!hit) console.log(`     (no enabled button "${want}" to click — skipping)`);
+        } else {
+          const el = await page.$(`[data-testid="${step}"]`);
+          if (el) await el.click(); else console.log(`     (no ${step} on this step — skipping)`);
+        }
+        await new Promise((r) => setTimeout(r, 900));
+      }
+      // The form itself is the readiness check — placeholder text is not in innerText.
+      const day = await page.waitForSelector(sel("day"), { timeout: 15000 }).catch(() => null);
+      if (!day) {
+        ok(`${p.label}: the child form is reachable`, false, "no DOB field after stepping through");
+        await page.screenshot({ path: `${SHOTS}/${p.key}-${w}-notready.png` });
         await page.close();
         continue;
       }
-
-      const sel = (box: string) => `[data-testid="${p.testid}-${box}"]`;
-      const day = await page.$(sel("day"));
       ok("the three typed boxes are on the page", !!day && !!(await page.$(sel("month"))) && !!(await page.$(sel("year"))));
       const nativeDates = await page.$$eval('input[type="date"]', (els) => els.length);
       ok("no browser-drawn date control is left", nativeDates === 0, `${nativeDates} found`);
@@ -111,7 +156,7 @@ try {
       const msg = await page.$(`[data-testid="${p.testid}-message"]`);
       ok("…and no error message", !msg);
 
-      await page.screenshot({ path: `${SHOTS}/${p.testid.replace(/-0$/, "")}-${p.label.split(" ")[0]}-${w}.png` });
+      await page.screenshot({ path: `${SHOTS}/${p.key}-${w}.png` });
 
       // Now a date that is not a date.
       const dayEl = (await page.$(sel("day")))!;
