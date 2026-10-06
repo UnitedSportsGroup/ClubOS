@@ -171,6 +171,7 @@ const sections: Section[] = [
         <ul className="list-disc pl-5 space-y-1.5">
           <li>Request access to the personal information we hold about you or your child.</li>
           <li>Request correction of any information that is inaccurate, incomplete or out of date.</li>
+          <li>Request deletion of your personal information, or your child's, and the closure of your account.</li>
           <li>Withdraw consent for marketing communications at any time.</li>
           <li>
             Make a complaint about how we have handled your personal information, either to us directly or
@@ -192,6 +193,22 @@ const sections: Section[] = [
           To make a request or raise a concern, please contact our office using the details at the bottom of
           this page.
         </p>
+        <div id="delete" data-testid="section-delete" className="rounded-xl border p-4 space-y-2" style={{ borderColor: `${BRAND.blue}33` }}>
+          <p className="font-semibold">Deleting your account and data (ClubOS website and the ClubOS app)</p>
+          <ol className="list-decimal pl-5 space-y-1.5">
+            <li>
+              Email our office from the address on your account (or your child's registration) and ask for your
+              data to be deleted. Staff accounts are created by the organisation, so a staff member can also ask
+              their manager.
+            </li>
+            <li>We confirm who you are, then delete or anonymise your account and personal information within 30 days.</li>
+            <li>
+              Payment and invoice records are kept for 7 years because New Zealand tax law requires it; a
+              registration that was paid for stays in our records as an anonymised entry. Everything else — your
+              login, profile, contact details, messages and photos — is deleted.
+            </li>
+          </ol>
+        </div>
       </>
     ),
   },
