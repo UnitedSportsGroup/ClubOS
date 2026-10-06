@@ -2893,6 +2893,8 @@ export async function registerRoutes(
       ageMin: p.ageMin,
       ageMax: p.ageMax,
       seasonYear: p.seasonYear,
+      // 1–4. Term 4 is the lead-in to next season — the checkout's eligibility line reads this.
+      termNumber: term?.termNumber ?? null,
       capacity: p.capacity,
       spotsRemaining,
       isFull: typeof spotsRemaining === "number" && spotsRemaining <= 0,
@@ -3024,8 +3026,6 @@ export async function registerRoutes(
         seasonYear: p.seasonYear ?? Number(nzTodayIso().slice(0, 4)),
         termId: term?.id ?? null,
         termLabel: term ? (term.name || `Term ${term.termNumber} ${term.year}`) : null,
-        // Term 4 is the lead-in to next season — the client's eligibility line reads this.
-        termNumber: term?.termNumber ?? null,
         // The client's eligibility line reads this: Term 4 is the lead-in to next season.
         termNumber: term?.termNumber ?? null,
         options: priced,
