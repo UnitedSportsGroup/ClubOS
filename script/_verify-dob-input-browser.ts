@@ -101,6 +101,9 @@ try {
       ok('"7" in Month (only July) moves focus to Year', focused === `${p.testid}-year`, String(focused));
       const monthVal = await page.$eval(sel("month"), (e) => (e as HTMLInputElement).value);
       ok('…and Month reads "07"', monthVal === "07", monthVal);
+      // The screenshot that found the stale-blur bug: "11" had become "01".
+      const dayVal = await page.$eval(sel("day"), (e) => (e as HTMLInputElement).value);
+      ok('…and Day still reads "11" after focus moved on', dayVal === "11", dayVal);
       await page.keyboard.type("2018");
       await new Promise((r) => setTimeout(r, 300));
       const after = await page.evaluate(() => document.body.innerText);

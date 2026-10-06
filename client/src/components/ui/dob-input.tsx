@@ -97,6 +97,11 @@ export function DobInput({
 }: DobInputProps) {
   const testId = rest["data-testid"];
   const [parts, setParts] = React.useState<DobParts>(() => partsFromIso(value));
+  // 🔴 Handlers read THIS, never `parts` from their render: typing the second
+  // digit of "11" moves focus, the day box blurs in the SAME tick, and a blur
+  // handler holding the previous render's "1" would pad it to "01" over the
+  // "11" that had just landed. A screenshot found it; the text checks did not.
+  const partsRef = React.useRef<DobParts>(parts);
   const [touched, setTouched] = React.useState<Record<Box, boolean>>({ day: false, month: false, year: false });
   const refs = { day: React.useRef<HTMLInputElement>(null), month: React.useRef<HTMLInputElement>(null), year: React.useRef<HTMLInputElement>(null) };
   const lastEmitted = React.useRef<string>(value ?? "");
@@ -108,7 +113,8 @@ export function DobInput({
     const v = value ?? "";
     if (v === lastEmitted.current) return;
     lastEmitted.current = v;
-    setParts(partsFromIso(v));
+    partsRef.current = partsFromIso(v);
+    setParts(partsRef.current);
   }, [value]);
 
   const check = checkDobParts(parts, today);
@@ -126,6 +132,7 @@ export function DobInput({
   );
 
   const update = (next: DobParts) => {
+    partsRef.current = next;
     setParts(next);
     emit(next);
   };
@@ -153,7 +160,7 @@ export function DobInput({
     }
     const v = digits(raw, MAX[box]);
     const done = boxComplete(box, v);
-    const next = { ...parts, [box]: done ? padBox(box, v) : v };
+    const next = { ...partsRef.current, [box]: done ? padBox(box, v) : v };
     update(next);
     if (done) {
       const i = ORDER.indexOf(box);
@@ -173,7 +180,7 @@ export function DobInput({
     }
     if ((e.key === "/" || e.key === "." || e.key === "-" || e.key === " ") && i < ORDER.length - 1) {
       e.preventDefault();
-      if (el.value) update({ ...parts, [box]: padBox(box, el.value) });
+      if (el.value) update({ ...partsRef.current, [box]: padBox(box, el.value) });
       focusBox(ORDER[i + 1]);
       return;
     }
@@ -192,8 +199,8 @@ export function DobInput({
 
   const onBoxBlur = (box: Box) => {
     setTouched((t) => ({ ...t, [box]: true }));
-    const padded = padBox(box, parts[box]);
-    if (padded !== parts[box]) update({ ...parts, [box]: padded });
+    const padded = padBox(box, partsRef.current[box]);
+    if (padded !== partsRef.current[box]) update({ ...partsRef.current, [box]: padded });
   };
 
   // Shout only once the person has been through the boxes — never on the
