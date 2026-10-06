@@ -241,11 +241,21 @@ export function DobInput({
               onKeyDown={(e) => onBoxKeyDown(box, e)}
               onPaste={onBoxPaste}
               onBlur={() => onBoxBlur(box)}
+              // A tap into a box selects what it holds, so typing replaces it —
+              // with maxLength=2 a third digit otherwise goes nowhere and the box
+              // looks dead (a live trace found exactly that). Arriving by tap or
+              // Tab: select on focus. Tapping a box that is ALREADY focused and
+              // fully selected: Chrome treats that mousedown as a possible drag of
+              // the selected text and collapses the selection on its own schedule,
+              // undoing any select() made in a click handler — so the mousedown is
+              // cancelled and the selection made right there. 🔴 Never defer a
+              // select() with a timer: select() also FOCUSES, and a stale one
+              // yanked focus back mid-typing ("11 7 2018" became "20 18").
               onFocus={(e) => { try { e.currentTarget.select(); } catch { /* ignore */ } }}
-              // A tap into a box that already holds "07" selects it, so typing
-              // replaces it — with maxLength=2 a third digit otherwise goes nowhere
-              // and the box looks dead (the live trace found exactly that).
-              onClick={(e) => { try { e.currentTarget.select(); } catch { /* ignore */ } }}
+              onMouseDown={(e) => {
+                const el = e.currentTarget;
+                if (document.activeElement === el) { e.preventDefault(); try { el.select(); } catch { /* ignore */ } }
+              }}
               disabled={disabled}
               required={required}
               autoFocus={autoFocus && box === "day"}
