@@ -133,7 +133,7 @@ try {
       if (!day) { await page.close(); continue; }
 
       await day.evaluate((el) => (el as HTMLElement).scrollIntoView({ block: "center" }));
-      const heights = await page.$$eval(`[data-testid="${p.testid}"] input`, (els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+      const heights = await page.$$eval(`[data-testid="${p.testid}"] input:not([type=hidden])`, (els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
       ok(`every box is at least 44px tall (${heights.join("/")})`, heights.every((x) => x >= 44 - 1) || !mobile, mobile ? "" : "desktop — informational");
 
       // Type like a parent would: 11, 7, 2018 — and let focus move itself.
@@ -160,10 +160,10 @@ try {
 
       // Now a date that is not a date.
       const dayEl = (await page.$(sel("day")))!;
-      await dayEl.click({ clickCount: 3 });
+      await dayEl.click();
       await page.keyboard.type("31");
       const monthEl = (await page.$(sel("month")))!;
-      await monthEl.click({ clickCount: 3 });
+      await monthEl.click();
       await page.keyboard.type("02");
       await page.keyboard.press("Tab");
       await new Promise((r) => setTimeout(r, 300));
@@ -172,7 +172,7 @@ try {
 
       // Backspace in an empty Year steps back to Month.
       const yearEl = (await page.$(sel("year")))!;
-      await yearEl.click({ clickCount: 3 });
+      await yearEl.click();
       await page.keyboard.press("Backspace");
       await page.keyboard.press("Backspace");
       focused = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.getAttribute("data-testid"));
