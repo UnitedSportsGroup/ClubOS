@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { DobInput } from "@/components/ui/dob-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation } from "wouter";
@@ -750,7 +750,9 @@ export default function BookingPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[12px] text-slate-500 font-semibold">Date of Birth</label>
-                  <DatePickerInput value={child.dateOfBirth} onChange={e => updateChild(i, "dateOfBirth", e.target.value)} className="rounded-xl border-slate-200 h-11" data-testid={`input-child-dob-${i}`} />
+                  {/* Typed, not picked: the calendar that stood here opened on this
+                      month, so a 2017 birthday was ~110 taps back. */}
+                  <DobInput value={child.dateOfBirth} onChange={e => updateChild(i, "dateOfBirth", e.target.value)} inputClassName="rounded-xl border-slate-200 h-11" tone="light" data-testid={`input-child-dob-${i}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[12px] text-slate-500 font-semibold">Allergies / Medical Notes</label>

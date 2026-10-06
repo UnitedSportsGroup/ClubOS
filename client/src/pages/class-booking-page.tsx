@@ -6,7 +6,8 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 import { ArrowLeft, Lock, CheckCircle, Calendar, Repeat, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { DobInput } from "@/components/ui/dob-input";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import { purchaseEventId } from "@shared/meta-events";
@@ -592,7 +593,7 @@ export default function ClassBookingPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <Input value={childFirst} onChange={e => { setChildFirst(e.target.value); setChildKey(null); }} placeholder="First name" className={T.input} />
                     <Input value={childLast} onChange={e => { setChildLast(e.target.value); setChildKey(null); }} placeholder="Last name" className={T.input} />
-                    <DatePickerInput value={childDob} onChange={e => { setChildDob(e.target.value); setChildKey(null); }} className="col-span-2" />
+                    <DobInput value={childDob} onChange={e => { setChildDob(e.target.value); setChildKey(null); }} className="col-span-2" inputClassName={cn("h-11", T.input)} tone="dark" data-testid="input-child-dob" />
                   </div>
                 </div>
 

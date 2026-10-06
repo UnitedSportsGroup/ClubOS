@@ -3024,6 +3024,8 @@ export async function registerRoutes(
         seasonYear: p.seasonYear ?? Number(nzTodayIso().slice(0, 4)),
         termId: term?.id ?? null,
         termLabel: term ? (term.name || `Term ${term.termNumber} ${term.year}`) : null,
+        // The client's eligibility line reads this: Term 4 is the lead-in to next season.
+        termNumber: term?.termNumber ?? null,
         options: priced,
       });
     }
@@ -3210,8 +3212,13 @@ export async function registerRoutes(
         seasonYear,
         program.ageMin,
         program.ageMax,
+        { termNumber: term?.termNumber ?? null },
       );
-      if (!eligibility.eligible) return res.status(400).json({ message: eligibility.reason });
+      if (!eligibility.eligible) {
+        return res.status(400).json({
+          message: `${eligibility.reason} If the academy has invited your child into this programme, email academy@cufc.co.nz and we'll register them for you.`,
+        });
+      }
 
       // ── 4. Capacity ────────────────────────────────────────────────────────
       const spots = await academySpotsRemaining(program);
@@ -5748,7 +5755,7 @@ export async function registerRoutes(
         }
 
         const seasonYear: number = program.seasonYear ?? Number(nzTodayIso().slice(0, 4));
-        const eligibility = checkAcademyEligibility(playerDob, seasonYear, program.ageMin, program.ageMax);
+        const eligibility = checkAcademyEligibility(playerDob, seasonYear, program.ageMin, program.ageMax, { termNumber: term?.termNumber ?? null });
 
         // Deliberately a WARNING, not a block. Staff registering a walk-up in
         // front of the parent may have a reason to place a child outside the

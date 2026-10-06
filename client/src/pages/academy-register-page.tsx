@@ -20,6 +20,7 @@ import {
   ArrowLeft, ArrowRight, Lock, ShieldCheck, Loader2, AlertCircle, CheckCircle2,
   MapPin, Users, Info, Mail, Tag, X,
 } from "lucide-react";
+import { DobInput } from "@/components/ui/dob-input";
 import { checkEligibility, GENDERS, type Gender, type AcademyPaymentPlan } from "@shared/academy";
 import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import { purchaseEventId } from "@shared/meta-events";
@@ -84,6 +85,8 @@ interface Programme {
   ageMin: number | null;
   ageMax: number | null;
   seasonYear: number;
+  /** 1–4. Term 4 is the lead-in to next season (see checkEligibility). */
+  termNumber?: number | null;
   capacity: number | null;
   spotsRemaining: number | null;
   isFull: boolean;
@@ -684,7 +687,7 @@ function WaitlistForm({
       </div>
       <div>
         <Label>Player's date of birth (optional)</Label>
-        <TextInput type="date" value={childDob} onChange={(e) => setChildDob(e.target.value)} style={{ colorScheme: "dark" }} max={new Date().toISOString().slice(0, 10)} data-testid="input-waitlist-dob" />
+        <DobInput unstyled inputClassName={fieldCls} inputStyle={fieldStyle} labelStyle={{ color: BRAND.mute }} tone="dark" value={childDob} onChange={(e) => setChildDob(e.target.value)} data-testid="input-waitlist-dob" />
       </div>
       <div>
         <Label required>Your name (parent/guardian)</Label>
@@ -951,7 +954,7 @@ export default function AcademyRegisterPage() {
   useEffect(() => { setPromo(null); setPromoError(null); }, [selectedOptionId, plan]);
 
   const eligibility = programme && child.dateOfBirth
-    ? checkEligibility(child.dateOfBirth, programme.seasonYear, programme.ageMin, programme.ageMax)
+    ? checkEligibility(child.dateOfBirth, programme.seasonYear, programme.ageMin, programme.ageMax, { termNumber: programme.termNumber ?? null })
     : null;
 
   const chooseValid = !!selectedOption && !!selectedQuote;
@@ -1378,12 +1381,18 @@ export default function AcademyRegisterPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label required>Date of birth</Label>
-                      <TextInput
-                        type="date"
+                      {/* Three typed boxes, never a picker — a 2017 birthday was ten
+                          years of spinning on the phone's own wheel. The eligibility
+                          line below is the status, so the field's own age line is off. */}
+                      <DobInput
+                        unstyled
+                        inputClassName={fieldCls}
+                        inputStyle={fieldStyle}
+                        labelStyle={{ color: BRAND.mute }}
+                        tone="dark"
+                        showAge={false}
                         value={child.dateOfBirth}
                         onChange={(e) => { setChild((c) => ({ ...c, dateOfBirth: e.target.value })); setChildKey(null); }}
-                        style={{ colorScheme: "dark" }}
-                        max={new Date().toISOString().slice(0, 10)}
                         data-testid="input-child-dob"
                       />
                       {child.dateOfBirth && eligibility && (

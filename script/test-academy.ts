@@ -85,6 +85,18 @@ ok("U13 does not fit Pre-Academy U9–U12", () => {
   assert.equal(r.eligible, false);
 });
 ok("boundary low is inclusive", () => assert.equal(checkEligibility("2017-01-01", 2026, 9, 12).eligible, true));
+// Term 4 lead-in (Erika Bruning, 5 Oct 2026: Isaac, born 2018, refused by the U9–U12 form).
+ok("U8 in Term 4 is next season's U9 — eligible, and says so", () => {
+  const r = checkEligibility("2018-07-11", 2026, 9, 12, { termNumber: 4 });
+  assert.equal(r.eligible, true);
+  assert.equal(r.leadIn, true);
+  assert.match(r.reason, /U9 from 2027/);
+});
+ok("U8 in Term 3 is still refused", () => assert.equal(checkEligibility("2018-07-11", 2026, 9, 12, { termNumber: 3 }).eligible, false));
+ok("U7 in Term 4 is refused — the lead-in is ONE grade, not a door", () => assert.equal(checkEligibility("2019-07-11", 2026, 9, 12, { termNumber: 4 }).eligible, false));
+ok("U13 in Term 4 is refused — the top bound is aging out, not leading in", () => assert.equal(checkEligibility("2013-07-11", 2026, 9, 12, { termNumber: 4 }).eligible, false));
+ok("no term given → no lead-in", () => assert.equal(checkEligibility("2018-07-11", 2026, 9, 12).eligible, false));
+ok("the refusal names the band and the grade, not the lead-in", () => assert.doesNotMatch(checkEligibility("2019-07-11", 2026, 9, 12, { termNumber: 4 }).reason, /lead-in/));
 ok("boundary high is inclusive", () => assert.equal(checkEligibility("2014-01-01", 2026, 9, 12).eligible, true));
 ok("U4 fits FUNiño U4–U8", () => assert.equal(checkEligibility("2022-01-01", 2026, 4, 8).eligible, true));
 ok("unbounded max accepts an older player", () => {

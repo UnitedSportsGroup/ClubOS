@@ -570,6 +570,8 @@ export type OpenAcademyProgramme = {
   seasonYear: number;
   termId: number | null;
   termLabel: string | null;
+  /** 1–4; Term 4 is the lead-in to next season (shared/academy checkEligibility). */
+  termNumber?: number | null;
   options: {
     id: number;
     name: string;

@@ -100,22 +100,51 @@ export interface EligibilityResult {
   eligible: boolean;
   grade: number | null;
   reason: string;
+  /** True when the child is one grade under the band and the term is the
+   *  season's last — registered as next season's intake, not this season's. */
+  leadIn?: boolean;
+}
+
+export interface EligibilityOptions {
+  /** The programme's current term number (1–4). Term 4 is the lead-in to the
+   *  next season, so a child who reaches the band NEXT season may register. */
+  termNumber?: number | null;
 }
 
 /** Is this child in the programme's age band for the season?
  *  `ageMin`/`ageMax` are the programme's grade bounds (inclusive), e.g. 4..8.
- *  A null bound means "unbounded on that side". */
+ *  A null bound means "unbounded on that side".
+ *
+ *  🔴 Term 4 lead-in (2026-10-07). Erika Bruning, 5 Oct: "struggling to
+ *  register due to Isaac's date of birth being in 2018 and the registration
+ *  form did not accept DOB later than 2017." Isaac is U8 in 2026 and U9 from
+ *  1 January — and Term 4 (Oct–Dec) is where the club moves next season's U9s
+ *  up. The hard refusal did not keep him out: his registration went through
+ *  with a 2017 birthday typed to get past it, so the register now carries a
+ *  wrong year for a real child. In the season's last term a child ONE grade
+ *  under the band is therefore eligible, named as next season's grade. The
+ *  top bound stays strict: a child over the band is aging OUT, and the
+ *  programme above is where they belong. */
 export function checkEligibility(
   dobIso: string | null | undefined,
   seasonYear: number,
   ageMin: number | null | undefined,
   ageMax: number | null | undefined,
+  opts?: EligibilityOptions,
 ): EligibilityResult {
   const grade = ageGradeFor(dobIso, seasonYear);
   if (grade === null) {
     return { eligible: false, grade: null, reason: "A valid date of birth is required." };
   }
   if (typeof ageMin === "number" && grade < ageMin) {
+    if (opts?.termNumber === TERMS_PER_YEAR && grade === ageMin - 1) {
+      return {
+        eligible: true,
+        grade,
+        leadIn: true,
+        reason: `U${grade} in ${seasonYear}, U${ageMin} from ${seasonYear + 1} — Term ${TERMS_PER_YEAR} is the lead-in to next season.`,
+      };
+    }
     return {
       eligible: false,
       grade,
