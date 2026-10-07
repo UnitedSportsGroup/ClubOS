@@ -50,6 +50,7 @@ import { quotePrintItem, quoteOrderTotals } from "./print-pricing";
 import { emailQuoteReceivedCustomer, emailQuoteRequestDima } from "./print-email";
 import { sql } from "drizzle-orm";
 import { driveStorage } from "./drive-storage";
+import { nextPrintOrderNumber } from "./print-order-number";
 import { ART_MAX_BYTES, ART_PART_BYTES, newArtPrefix, signArtParts, listArtParts, signedArtUrl, streamArtParts, partKey } from "./print-artwork-storage";
 import { emailQuoteArtworkRequest } from "./print-email";
 
@@ -270,6 +271,9 @@ function matchStockTier(material: PrintMaterial, widthMm: number | null, heightM
  * a human quote", because a made-up number here becomes a real print_orders
  * row the moment he presses Approve.
  */
+/** The Materials add-on that prices a second print location (the back of a tee). */
+export const BACK_PRINT_ADDON_ID = "extra_print_location";
+
 async function priceQuoteLines(
   orgId: number,
   rawItems: any[],
@@ -339,12 +343,30 @@ async function priceQuoteLines(
     if (tierId) extra.tierId = tierId;
     if (method) extra.method = method;
 
+    // A print on the BACK as well as the front (Dima, 5 Oct: "can we add the
+    // back?"). It is priced by the product's own "Second print location"
+    // add-on — a price Dima set in Materials — never by a figure written here.
+    // A product without that add-on cannot price a back print, so the line goes
+    // to a human rather than quietly charging the front only.
+    const backPrint = it?.backPrint === true;
+    const addons = (material.addonsJson as { id: string; default?: boolean }[] | null) ?? [];
+    if (backPrint && !addons.some((a) => a.id === BACK_PRINT_ADDON_ID)) {
+      return {
+        ...base, ok: false, materialName: material.name, areaM2: null, sizeLabel: null, lineExGstCents: 0,
+        message: "A print on the back needs a quick look from us — send it through and we'll price it by hand.",
+      };
+    }
+    const selectedAddonIds = backPrint
+      ? [...addons.filter((a) => a.default).map((a) => a.id), BACK_PRINT_ADDON_ID]
+      : undefined;
+
     const outcome = quotePrintItem(material, {
       widthMm: widthMm ?? undefined,
       heightMm: heightMm ?? undefined,
       quantity: effectiveQty,
       sides: 1,
       accountDiscountPct,
+      ...(selectedAddonIds ? { selectedAddonIds } : {}),
       ...(Object.keys(extra).length ? { extra } : {}),
     });
 
@@ -1021,10 +1043,7 @@ export function registerPrintQuoteRoutes(app: Express) {
         // Reuse the SAME orderNumber + magicLinkToken scheme as the existing
         // public order-creation route (POST /api/print/orders in routes.ts) —
         // do not invent a scheme that could collide.
-        const allOrders = await db.select({ id: printOrders.id }).from(printOrders)
-          .where(eq(printOrders.organizationId, org.id));
-        const year = new Date().getFullYear();
-        const orderNumber = `UP-${year}-${String(allOrders.length + 1).padStart(4, "0")}`;
+        const orderNumber = await nextPrintOrderNumber();
         const magicLinkToken = crypto.randomBytes(24).toString("hex");
 
         const title = items[0]?.designName || `Website quote — ${quote.customerName || "customer"}`;

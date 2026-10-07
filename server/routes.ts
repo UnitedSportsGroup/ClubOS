@@ -21361,8 +21361,8 @@ export async function registerRoutes(
       const body = { ...req.body };
       const orgId = Number(body.organizationId) || 8;
       if (!body.orderNumber) {
-        const existing = await storage.getPrintOrdersByOrg(orgId);
-        body.orderNumber = `UP-${new Date().getFullYear()}-${String(existing.length + 1).padStart(4, "0")}`;
+        const { nextPrintOrderNumber } = await import("./print-order-number");
+        body.orderNumber = await nextPrintOrderNumber();
       }
       if (!body.magicLinkToken) {
         body.magicLinkToken = crypto.randomBytes(24).toString("hex");
@@ -22271,9 +22271,8 @@ export async function registerRoutes(
       const totals = quoteOrderTotals([itemQuote.subtotalCents]);
 
       const orgId = material.organizationId;
-      const allOrders = await storage.getPrintOrdersByOrg(orgId);
-      const year = new Date().getFullYear();
-      const orderNumber = `UP-${year}-${String(allOrders.length + 1).padStart(4, "0")}`;
+      const { nextPrintOrderNumber } = await import("./print-order-number");
+      const orderNumber = await nextPrintOrderNumber();
       const magicLinkToken = require("crypto").randomBytes(24).toString("hex");
 
       const pickupReady = new Date();

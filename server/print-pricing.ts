@@ -218,7 +218,9 @@ export function quotePrintItem(material: PrintMaterial, config: ItemConfig): Quo
       unitPriceCents = (blankCostCents + decorationPerPieceCents) * config.quantity + setupCents;
 
       breakdown.push({ label: `${config.quantity} × blank @ ${moneyLabel(blankCostCents)}`, cents: blankCostCents * config.quantity });
-      breakdown.push({ label: `${method.toUpperCase()} decoration ${config.quantity} × ${moneyLabel(decorationPerPieceCents)}`, cents: decorationPerPieceCents * config.quantity });
+      // Customers read "Decoration" — the method (DTG / screen / embroidery) is the
+      // shop's choice, not theirs (Dima, 5 Oct: "just write decoration").
+      breakdown.push({ label: `Decoration ${config.quantity} × ${moneyLabel(decorationPerPieceCents)}`, cents: decorationPerPieceCents * config.quantity });
       if (setupCents > 0) breakdown.push({ label: `Screen setup × ${colours} colour${colours > 1 ? "s" : ""}`, cents: setupCents });
 
       estimatedCostCents = Math.round((blankCostCents * 0.6 + decorationPerPieceCents * 0.4) * config.quantity);
