@@ -250,10 +250,13 @@ export async function isAlreadyPosted(payoutId: string): Promise<boolean> {
 
 /** A person coded this deposit in Xero themselves. Recorded so the sweep stops
  *  re-checking it; nothing is posted. */
+// 🔴 split_json is NOT NULL and Postgres checks the proposed row BEFORE
+// ON CONFLICT — without it this threw on every call, so no payout was ever
+// marked hand-coded and each one was re-planned (and Telegrammed) hourly.
 export async function markHandledByHand(payoutId: string, arrivalDate: string, payoutCents: number, currency: string) {
   await db.execute(sql`
-    INSERT INTO xero_payout_posts (organization_id, stripe_payout_id, stripe_account, arrival_date, currency, payout_cents, status, error)
-    VALUES (1, ${payoutId}, 'club', ${arrivalDate}, ${currency}, ${payoutCents}, 'skipped', 'coded by hand in Xero')
+    INSERT INTO xero_payout_posts (organization_id, stripe_payout_id, stripe_account, arrival_date, currency, payout_cents, split_json, status, error)
+    VALUES (1, ${payoutId}, 'club', ${arrivalDate}, ${currency}, ${payoutCents}, '{}'::jsonb, 'skipped', 'coded by hand in Xero')
     ON CONFLICT (stripe_account, stripe_payout_id) DO UPDATE SET status = 'skipped', error = 'coded by hand in Xero', updated_at = now()
     WHERE xero_payout_posts.status <> 'posted'`);
 }
