@@ -11,11 +11,14 @@
 // club's ledger just because it was deployed.
 
 import { listRecentPayouts, PayoutNotSplittable } from "./xero-payout";
-import { planPayout, postPayout, isAlreadyPosted, markHandledByHand } from "./xero-payout-post";
+import { planPayout, postPayout, isAlreadyPosted, markHandledByHand, findStripeDuplicates } from "./xero-payout-post";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;   // hourly
 const BOOT_DELAY_MS = 3 * 60 * 1000;        // let the app settle after a deploy
 const LOOK_BACK = 8;                        // payouts, so a long weekend still catches up
+const RETRY_DAYS = 45;                      // a FAILED payout is retried this long, wherever it sits
 
 async function notify(text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN, chat = process.env.TELEGRAM_CHAT_ID;
@@ -33,6 +36,20 @@ async function sweep() {
   const blocked: string[] = [];
   try {
     const payouts = await listRecentPayouts(LOOK_BACK);
+    // 🔴 A payout that FAILED is retried until it posts or a person is seen to
+    // have done it — not only while it is one of the latest eight. The 25 Sep
+    // 2026 deposit ($9,590.03) failed during the chart change, fell out of the
+    // window, and sat uncoded for eleven days until Olga asked for it by hand.
+    const stuck = await db.execute(sql`
+      SELECT stripe_payout_id AS id, payout_cents AS "amountCents", currency,
+             to_char(arrival_date AT TIME ZONE 'Pacific/Auckland', 'YYYY-MM-DD') AS "arrivalDate"
+        FROM xero_payout_posts
+       WHERE stripe_account = 'club' AND status IN ('failed', 'pending')
+         AND stripe_payout_id LIKE 'po\\_%' AND stripe_payout_id <> 'po_test_1'
+         AND arrival_date > now() - make_interval(days => ${RETRY_DAYS})
+       ORDER BY arrival_date DESC`);
+    const known = new Set(payouts.map(p => p.id));
+    for (const r of stuck.rows as any[]) if (!known.has(r.id)) { payouts.push(r); known.add(r.id); }
     // Oldest first, so a catch-up lands in the order the bank statement shows.
     for (const p of payouts.slice().reverse()) {
       try {
@@ -73,6 +90,16 @@ async function sweep() {
     console.error("[xero-payout] sweep failed:", e?.message ?? e);
     await notify(`🔴 <b>Xero payout sweep failed</b>\n${String(e?.message ?? e).slice(0, 300)}`);
     return;
+  }
+
+  // A person keying their own entry AFTER ours leaves the deposit counted
+  // twice. One Xero call; each duplicate is reported once, never deleted here.
+  try {
+    const dupes = await findStripeDuplicates();
+    if (dupes.length) await notify(`🔴 <b>Stripe deposit entered twice in Xero</b> — income is overstated until one is deleted\n\n` +
+      dupes.slice(0, 8).map(d => `• ${d}`).join("\n") + (dupes.length > 8 ? `\n• …and ${dupes.length - 8} more` : ""));
+  } catch (e: any) {
+    console.error("[xero-payout] duplicate check failed:", e?.message ?? e);
   }
 
   // 🔴 Silence is the failure mode here. A payout that refuses to post looks

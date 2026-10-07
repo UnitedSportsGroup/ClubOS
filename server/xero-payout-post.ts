@@ -489,3 +489,88 @@ export async function postPayout(payoutId: string, opts: { orgId?: number; by: s
     throw new Error(detail);
   }
 }
+
+/**
+ * Deposits that now carry MORE THAN ONE Stripe entry in Xero.
+ *
+ * 🔴 The duplicate guard above only stops US posting after a person. It cannot
+ * stop a person keying their own entry AFTER we posted — which is exactly what
+ * happened on 16, 17, 18, 22, 23, 24, 25 and 28 Sep 2026: our split was there,
+ * a hand-keyed one was added beside it, and only Olga deleting her copy kept
+ * the deposit from counting twice. Xero counts an unreconciled Receive Money in
+ * the P&L, so a copy nobody deletes overstates income. Only AUTHORISED entries
+ * count — a deleted copy is not a duplicate.
+ *
+ * One Xero call covers the whole window. Each duplicate is reported ONCE: the
+ * claim is an atomic UPDATE on our own row (two Fly machines sweep), keyed on
+ * the other entry's id so a second, different duplicate on the same day is
+ * still reported.
+ *
+ * Read-only towards Xero. Deleting an entry a person made is a person's call.
+ */
+export async function findStripeDuplicates(orgId = 1, days = 40): Promise<string[]> {
+  const ours = await db.execute(sql`
+    SELECT id, stripe_payout_id, xero_bank_txn_id, split_json->>'arrivalDate' AS d, payout_cents,
+           COALESCE(split_json->'dupesReported', '[]'::jsonb) AS reported
+      FROM xero_payout_posts
+     WHERE stripe_account = 'club' AND status IN ('posted', 'skipped')
+       AND stripe_payout_id <> 'po_test_1' AND split_json->>'arrivalDate' IS NOT NULL
+       AND arrival_date > now() - make_interval(days => ${days})`);
+  const rows = ours.rows as any[];
+  if (!rows.length) return [];
+
+  const { xero, tenantId } = await getXeroForOrg(orgId);
+  const bank = await stripeBankAccount(orgId);
+  if (!bank) throw new Error(`no active Xero bank account with number ${BANK_ACCOUNT_NUMBER}`);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  // 🔴 Xero pages bank transactions 100 at a time. Unpaged, a 40-day window on
+  // this account (uniform, camps, grants…) silently stops in mid-August and
+  // finds nothing — which read as "no duplicates" in the first test.
+  const where = `BankAccount.AccountID==Guid("${bank.accountID}") AND Type=="RECEIVE" AND Date>=DateTime(${since.slice(0,4)},${Number(since.slice(5,7))},${Number(since.slice(8,10))})`;
+  const all: any[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const res = await xeroCall(() => xero.accountingApi.getBankTransactions(tenantId, undefined, where, "Date DESC", page));
+    const got = res.body.bankTransactions ?? [];
+    all.push(...got);
+    if (got.length < 100) break;
+  }
+  const byDate = new Map<string, any[]>();
+  for (const t of all) {
+    if (String(t.status) !== "AUTHORISED") continue;
+    const ref = String(t.reference ?? "");
+    if (!/stripe/i.test(`${t.contact?.name ?? ""} ${ref}`)) continue;
+    const raw: any = t.date;
+    const d = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? "").slice(0, 10);
+    byDate.set(d, [...(byDate.get(d) ?? []), t]);
+  }
+
+  const out: string[] = [];
+  for (const r of rows) {
+    // Every Stripe entry that day belonging to THIS deposit: ours, plus anything
+    // without another payout's reference (a different payout of ours that day is
+    // not a duplicate).
+    const forThis = (byDate.get(r.d) ?? []).filter((t) => {
+      const other = /Stripe payout (po_[A-Za-z0-9]+)/.exec(String(t.reference ?? ""))?.[1];
+      return !other || other === r.stripe_payout_id;
+    });
+    if (forThis.length < 2) continue;
+    // Keep the reconciled one (else ours); everything else is the extra entry.
+    const keep = forThis.find((t) => t.isReconciled) ?? forThis.find((t) => t.bankTransactionID === r.xero_bank_txn_id) ?? forThis[0];
+    for (const t of forThis.filter((x) => x !== keep)) {
+      const claim = await db.execute(sql`
+        UPDATE xero_payout_posts
+           SET split_json = jsonb_set(split_json, '{dupesReported}',
+                 COALESCE(split_json->'dupesReported', '[]'::jsonb) || to_jsonb(${t.bankTransactionID}::text)),
+               updated_at = now()
+         WHERE id = ${r.id}
+           AND NOT (COALESCE(split_json->'dupesReported', '[]'::jsonb) ? ${t.bankTransactionID})
+        RETURNING id`);
+      if (!(claim.rows as any[]).length) continue;
+      const who = (x: any) => x.bankTransactionID === r.xero_bank_txn_id ? "ClubOS's split" : `hand entry "${String(x.reference ?? "").slice(0, 30) || "no ref"}"`;
+      out.push(`${r.d} deposit $${(r.payout_cents / 100).toFixed(2)}: ${who(t)} $${t.total} ` +
+        `(${t.isReconciled ? "RECONCILED — check by hand" : "unreconciled"}) duplicates ${who(keep)} $${keep.total} ` +
+        `(${keep.isReconciled ? "reconciled" : "unreconciled"}) [${t.bankTransactionID}]`);
+    }
+  }
+  return out;
+}
