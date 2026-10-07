@@ -19,6 +19,11 @@
 //
 // Prices come from the same engine that prices a real print order, so a
 // signed-in trade customer is quoted their own rate automatically.
+//
+// FRONT AND BACK (Dima, 5 Oct: "can we add the back?"). Each side holds its own
+// design, size and position. A back print is charged by the product's own
+// "Second print location" add-on — Dima's price, set in Materials — and only
+// when BOTH sides carry a design. A back-only shirt is one print, priced as one.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -75,25 +80,61 @@ type PriceResponse = {
   accountPricing: { applied: boolean; discountPct: number } | null;
 };
 
+type Side = "front" | "back";
+type SideDesign = {
+  tab: "image" | "text";
+  text: string;
+  fontId: string;
+  inkId: string;
+  tracking: number;
+  imgUrl: string | null;
+  imgName: string | null;
+  imgAspect: number;
+  placement: Placement;
+};
+
+const FRONT_START: SideDesign = {
+  tab: "text", text: "MERRY\nCHRISTMAS", fontId: "Anton", inkId: "white", tracking: 0.02,
+  imgUrl: null, imgName: null, imgAspect: 1, placement: { widthMm: 210, x: 0.5, y: 0.28 },
+};
+// The back starts EMPTY — a back print is something the customer adds, never
+// something they find on their bill.
+const BACK_START: SideDesign = {
+  ...FRONT_START, text: "", placement: { widthMm: 260, x: 0.5, y: 0.3 },
+};
+
+function artworkOf(d: SideDesign): TeeArtwork {
+  if (d.tab === "image" && d.imgUrl) return { kind: "image", url: d.imgUrl, aspect: d.imgAspect };
+  const lines = d.text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (d.tab === "text" && lines.length) {
+    const font = FONTS.find((f) => f.id === d.fontId) ?? FONTS[0];
+    const ink = INK.find((i) => i.id === d.inkId) ?? INK[0];
+    return { kind: "text", lines, font: font.css, colour: ink.hex, weight: font.weight, letterSpacing: d.tracking, lineHeight: 1.12 };
+  }
+  return { kind: "none" };
+}
+
 export default function PrintStudioPage() {
   const [colourId, setColourId] = useState("black");
-  const [tab, setTab] = useState<"image" | "text">("text");
-  const [placement, setPlacement] = useState<Placement>({ widthMm: 210, x: 0.5, y: 0.28 });
+  const [side, setSide] = useState<Side>("front");
+  const [designs, setDesigns] = useState<Record<Side, SideDesign>>({ front: FRONT_START, back: BACK_START });
+  const d = designs[side];
+  const update = (patch: Partial<SideDesign>) => setDesigns((all) => ({ ...all, [side]: { ...all[side], ...patch } }));
+  const { tab, placement, imgUrl, imgName, text, fontId, inkId, tracking } = d;
+  const setTab = (t: SideDesign["tab"]) => update({ tab: t });
+  const setPlacement = (p: Placement) => update({ placement: p });
+  const setText = (t: string) => update({ text: t });
+  const setFontId = (f: string) => update({ fontId: f });
+  const setInkId = (i: string) => update({ inkId: i });
+  const setTracking = (t: number) => update({ tracking: t });
 
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const [imgName, setImgName] = useState<string | null>(null);
-  // The actual file, so it reaches Dima with the order (2026-10-01) — before,
-  // only its NAME did, and every studio order meant asking for the artwork.
-  const imgFileRef = useRef<File | null>(null);
+  // The actual files, one per side, so they reach Dima with the order
+  // (2026-10-01) — before, only a NAME did, and every studio order meant
+  // asking for the artwork.
+  const imgFileRef = useRef<Record<Side, File | null>>({ front: null, back: null });
   const [artworkNote, setArtworkNote] = useState<string | null>(null);
-  const [imgAspect, setImgAspect] = useState(1);
   const [imgError, setImgError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const [text, setText] = useState("MERRY\nCHRISTMAS");
-  const [fontId, setFontId] = useState<string>("Anton");
-  const [inkId, setInkId] = useState("white");
-  const [tracking, setTracking] = useState(0.02);
 
   const [qty, setQty] = useState<Record<SizeKey, number>>(
     () => Object.fromEntries(SIZES.map((s) => [s, 0])) as Record<SizeKey, number>,
@@ -104,14 +145,17 @@ export default function PrintStudioPage() {
   const font = FONTS.find((f) => f.id === fontId) ?? FONTS[0];
   const ink = INK.find((i) => i.id === inkId) ?? INK[0];
 
-  const artwork: TeeArtwork = useMemo(() => {
-    if (tab === "image" && imgUrl) return { kind: "image", url: imgUrl, aspect: imgAspect };
-    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (tab === "text" && lines.length) {
-      return { kind: "text", lines, font: font.css, colour: ink.hex, weight: font.weight, letterSpacing: tracking, lineHeight: 1.12 };
-    }
-    return { kind: "none" };
-  }, [tab, imgUrl, imgAspect, text, font, ink, tracking]);
+  const artwork: TeeArtwork = useMemo(() => artworkOf(d), [d]);
+  const frontArt = useMemo(() => artworkOf(designs.front), [designs.front]);
+  const backArt = useMemo(() => artworkOf(designs.back), [designs.back]);
+  const hasFront = frontArt.kind !== "none";
+  const hasBack = backArt.kind !== "none";
+  const anyDesign = hasFront || hasBack;
+  // Two printed sides = one extra print location. One side, whichever it is,
+  // is a single print.
+  const backPrint = hasFront && hasBack;
+  // The print the engine sizes: the front, unless only the back is printed.
+  const mainPlacement = hasFront || !hasBack ? designs.front.placement : designs.back.placement;
 
   // ── The product ───────────────────────────────────────────────────────────
   const { data: materials, isLoading, isError } = useQuery<Material[]>({
@@ -146,7 +190,7 @@ export default function PrintStudioPage() {
         credentials: "same-origin",
         signal: ac.signal,
         body: JSON.stringify({
-          items: [{ materialSlug: garment.slug, widthMm: placement.widthMm, heightMm: placement.widthMm, quantity: totalQty }],
+          items: [{ materialSlug: garment.slug, widthMm: mainPlacement.widthMm, heightMm: mainPlacement.widthMm, quantity: totalQty, backPrint }],
         }),
       });
       setPrice(r.ok ? await r.json() : null);
@@ -155,7 +199,7 @@ export default function PrintStudioPage() {
     } finally {
       if (!ac.signal.aborted) setPricing(false);
     }
-  }, [garment, totalQty, placement.widthMm]);
+  }, [garment, totalQty, mainPlacement.widthMm, backPrint]);
 
   useEffect(() => {
     const t = setTimeout(() => { void reprice(); }, 350);
@@ -179,8 +223,8 @@ export default function PrintStudioPage() {
       const url = String(reader.result);
       const img = new Image();
       img.onload = () => {
-        setImgAspect(img.height && img.width ? img.height / img.width : 1);
-        setImgUrl(url); setImgName(file.name); imgFileRef.current = file; setTab("image");
+        imgFileRef.current[side] = file;
+        update({ imgAspect: img.height && img.width ? img.height / img.width : 1, imgUrl: url, imgName: file.name, tab: "image" });
       };
       // A file that will not decode must not become a broken preview the
       // customer reads as accepted.
@@ -198,19 +242,34 @@ export default function PrintStudioPage() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [who, setWho] = useState({ name: "", email: "", phone: "" });
 
+  function sideSummary(which: Side): string | null {
+    const sd = designs[which];
+    const art = which === "front" ? frontArt : backArt;
+    if (art.kind === "none") return null;
+    const f = FONTS.find((x) => x.id === sd.fontId) ?? FONTS[0];
+    const i = INK.find((x) => x.id === sd.inkId) ?? INK[0];
+    const what = art.kind === "image"
+      ? `uploaded image ${sd.imgName}`
+      : `text "${sd.text.replace(/\n/g, " / ")}" — ${f.label}, ${i.label} ink`;
+    return `${which === "front" ? "Front" : "Back"}: ${sd.placement.widthMm}mm wide, ${what}`;
+  }
+
   function designSummary(): string {
     const sizes = SIZES.filter((s) => qty[s] > 0).map((s) => `${s}×${qty[s]}`).join(", ");
-    const art =
-      artwork.kind === "image" ? `Uploaded image: ${imgName}`
-      : artwork.kind === "text" ? `Text: "${text.replace(/\n/g, " / ")}" — ${font.label}, ${ink.label} ink`
-      : "No design yet";
+    const sides = [sideSummary("front"), sideSummary("back")].filter(Boolean) as string[];
     return [
       `CUSTOM TEE — designed in the studio`,
       `Garment: ${garment?.name ?? "tee"} · ${colour.label}`,
       `Sizes: ${sizes || "not set"} (${totalQty} total)`,
-      `Print: ${placement.widthMm}mm wide, front`,
-      art,
+      ...(sides.length ? sides : ["No design yet"]),
     ].join("\n");
+  }
+
+  function designLabel(which: Side): string | null {
+    const sd = designs[which];
+    const art = which === "front" ? frontArt : backArt;
+    if (art.kind === "none") return null;
+    return art.kind === "text" ? sd.text.replace(/\n/g, " / ") : "Custom uploaded artwork";
   }
 
   async function sendOrder(e: React.FormEvent) {
@@ -231,28 +290,43 @@ export default function PrintStudioPage() {
           sourceUrl: typeof window !== "undefined" ? window.location.href : undefined,
           items: [{
             materialSlug: garment.slug,
-            widthMm: placement.widthMm,
-            heightMm: placement.widthMm,
+            widthMm: mainPlacement.widthMm,
+            heightMm: mainPlacement.widthMm,
             quantity: totalQty,
-            design: artwork.kind === "text" ? text.replace(/\n/g, " / ") : "Custom uploaded artwork",
-            design_file: imgName ?? undefined,
+            backPrint,
+            design: [
+              designLabel("front") && (hasBack ? `Front: ${designLabel("front")}` : designLabel("front")),
+              designLabel("back") && `Back: ${designLabel("back")}`,
+            ].filter(Boolean).join(" · "),
+            design_file: [
+              frontArt.kind === "image" ? designs.front.imgName : null,
+              backArt.kind === "image" ? designs.back.imgName : null,
+            ].filter(Boolean).join(", ") || undefined,
           }],
         }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { setOrderError(data?.message ?? "We couldn't send that. Give us a call on 0800 800 199."); return; }
-      // Then the image itself, against the quote ClubOS just created.
+      // Then the image(s) themselves, against the quote ClubOS just created —
+      // front and back go to the same line, which takes several files.
       const up = Array.isArray(data?.uploads) ? data.uploads[0] : null;
-      const file = artwork.kind === "image" ? imgFileRef.current : null;
-      if (up?.path && file) {
-        try {
-          const u = new URL(up.path, window.location.origin);
-          u.searchParams.set("name", file.name);
-          const res = await fetch(u.toString(), { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
-          setArtworkNote(res.ok ? "Your image came through with the order." : "Your order is in, but the image didn't upload — email it to orders@unitedprints.co.nz.");
-        } catch {
-          setArtworkNote("Your order is in, but the image didn't upload — email it to orders@unitedprints.co.nz.");
+      const files = ([
+        frontArt.kind === "image" ? imgFileRef.current.front : null,
+        backArt.kind === "image" ? imgFileRef.current.back : null,
+      ].filter(Boolean) as File[]);
+      if (up?.path && files.length) {
+        let ok = true;
+        for (const file of files) {
+          try {
+            const u = new URL(up.path, window.location.origin);
+            u.searchParams.set("name", file.name);
+            const res = await fetch(u.toString(), { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+            if (!res.ok) ok = false;
+          } catch { ok = false; }
         }
+        setArtworkNote(ok
+          ? (files.length > 1 ? "Your images came through with the order." : "Your image came through with the order.")
+          : "Your order is in, but an image didn't upload — email it to orders@unitedprints.co.nz.");
       }
       setSent(true);
     } catch {
@@ -308,10 +382,15 @@ export default function PrintStudioPage() {
         {/* ── The shirt ── */}
         <div className="lg:order-2">
           <div className="sticky top-24 rounded-3xl border border-[#cbd1de]/70 bg-white p-4 shadow-[0_1px_2px_rgba(1,37,131,.04),0_18px_44px_-20px_rgba(1,37,131,.24)] sm:p-6">
-            <TeeMockup colour={colour} artwork={artwork} placement={placement} onPlacementChange={setPlacement} />
+            <div className="mb-2 flex justify-center">
+              <SideSwitch side={side} onChange={setSide} hasFront={hasFront} hasBack={hasBack} />
+            </div>
+            <TeeMockup colour={colour} artwork={artwork} placement={placement} onPlacementChange={setPlacement} back={side === "back"} />
             <p className="mt-1 text-center text-[12px] leading-relaxed text-[#4a5265]/70">
               {artwork.kind === "none"
-                ? "Add your design on the left and it appears here."
+                ? side === "back"
+                  ? "Nothing on the back yet. Add words or an image on the left to print the back too."
+                  : "Add your design on the left and it appears here."
                 : "Drag your design to move it. Preview only — colours shift slightly in print."}
             </p>
           </div>
@@ -342,6 +421,24 @@ export default function PrintStudioPage() {
           {/* Design */}
           <section>
             <h2 className={`${upDisplay} text-lg text-[#012583]`}>2 · Your design</h2>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <SideSwitch side={side} onChange={setSide} hasFront={hasFront} hasBack={hasBack} />
+              {side === "back" && hasBack && (
+                <button
+                  onClick={() => { imgFileRef.current.back = null; setDesigns((all) => ({ ...all, back: BACK_START })); }}
+                  className="min-h-[44px] text-[13px] font-semibold text-[#4a5265] underline-offset-4 hover:underline"
+                >
+                  Remove back print
+                </button>
+              )}
+            </div>
+            {side === "back" && (
+              <p className="mt-2 text-[13px] text-[#4a5265]/80">
+                {hasFront
+                  ? "A print on the back is added to the price as a second print."
+                  : "Printing on the back only? That's fine — it's priced as one print."}
+              </p>
+            )}
             <div className="mt-3 inline-flex rounded-full bg-[#012583]/6 p-1">
               {(["text", "image"] as const).map((t) => (
                 <button
@@ -432,7 +529,7 @@ export default function PrintStudioPage() {
                 </button>
                 {imgUrl && (
                   <button
-                    onClick={() => { setImgUrl(null); setImgName(null); setImgAspect(1); }}
+                    onClick={() => { imgFileRef.current[side] = null; update({ imgUrl: null, imgName: null, imgAspect: 1 }); }}
                     className="mt-2 min-h-[44px] text-[13px] font-semibold text-[#4a5265] underline-offset-4 hover:underline"
                   >
                     Remove image
@@ -464,7 +561,7 @@ export default function PrintStudioPage() {
                       : "border-[#cbd1de] text-[#012583] hover:border-[#4a5265]/50"
                   }`}
                 >
-                  {p.label} · {p.widthMm}mm
+                  {side === "back" ? p.label.replace("front", "back").replace("Left chest", "Small") : p.label} · {p.widthMm}mm
                 </button>
               ))}
             </div>
@@ -536,10 +633,10 @@ export default function PrintStudioPage() {
 
             <button
               onClick={() => setOrderOpen(true)}
-              disabled={totalQty < 1 || artwork.kind === "none"}
+              disabled={totalQty < 1 || !anyDesign}
               className={`${upBtn.green} mt-5 w-full disabled:cursor-not-allowed disabled:opacity-45`}
             >
-              {artwork.kind === "none" ? "Add a design first" : totalQty < 1 ? "Add some sizes first" : "Send my order"}
+              {!anyDesign ? "Add a design first" : totalQty < 1 ? "Add some sizes first" : "Send my order"}
             </button>
             <p className="mt-2 text-center text-[12px] leading-relaxed text-[#4a5265]/75">
               We'll confirm sizes, stock and artwork, then send you a payment link. Nothing is charged yet.
@@ -569,7 +666,12 @@ export default function PrintStudioPage() {
               <form onSubmit={sendOrder}>
                 <h2 className={`${upDisplay} text-2xl text-[#012583]`}>Send your order</h2>
                 <p className="mt-2 text-[14px] leading-relaxed">
-                  {totalQty} × {colour.label} tee, {placement.widthMm}mm front print.
+                  {totalQty} × {colour.label} tee,{" "}
+                  {backPrint
+                    ? `${designs.front.placement.widthMm}mm front + ${designs.back.placement.widthMm}mm back print.`
+                    : hasBack
+                      ? `${designs.back.placement.widthMm}mm back print.`
+                      : `${designs.front.placement.widthMm}mm front print.`}
                   {price?.totalCents ? <> Around <span className="font-bold text-[#012583]">{money(price.totalCents)}</span> incl GST.</> : null}
                 </p>
                 <div className="mt-5 space-y-4">
@@ -605,5 +707,26 @@ export default function PrintStudioPage() {
         </div>
       )}
     </UpShell>
+  );
+}
+
+function SideSwitch({ side, onChange, hasFront, hasBack }: { side: Side; onChange: (s: Side) => void; hasFront: boolean; hasBack: boolean }) {
+  return (
+    <div className="inline-flex rounded-full bg-[#012583]/6 p-1" role="group" aria-label="Which side of the shirt">
+      {(["front", "back"] as const).map((sd) => {
+        const has = sd === "front" ? hasFront : hasBack;
+        return (
+          <button
+            key={sd} onClick={() => onChange(sd)} aria-pressed={side === sd} data-testid={`studio-side-${sd}`}
+            className={`flex min-h-[40px] items-center gap-1.5 rounded-full px-5 text-[13px] font-bold uppercase tracking-wide transition ${
+              side === sd ? "bg-white text-[#043bcb] shadow-sm" : "text-[#012583]/60 hover:text-[#012583]"
+            }`}
+          >
+            {sd === "front" ? "Front" : "Back"}
+            {has && <span className="h-1.5 w-1.5 rounded-full bg-[#33cc00]" aria-label="has a design" />}
+          </button>
+        );
+      })}
+    </div>
   );
 }

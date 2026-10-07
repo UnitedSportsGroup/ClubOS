@@ -29,6 +29,7 @@ import {
   printOrderEvents,
 } from "@shared/schema";
 import { sendEmail } from "./email";
+import { nextPrintOrderNumber } from "./print-order-number";
 
 const UNITED_PRINTS_ORG_ID = 8;
 const NOTIFY_EMAIL = "orders@unitedprints.co.nz";
@@ -326,9 +327,7 @@ export function registerPrintRequestRoutes(app: Express) {
       if (action === "approve") {
         // Same order-number scheme as everywhere else — never invent one that
         // could collide.
-        const existing = await db.select({ id: printOrders.id }).from(printOrders)
-          .where(eq(printOrders.organizationId, org.id));
-        const orderNumber = `UP-${new Date().getFullYear()}-${String(existing.length + 1).padStart(4, "0")}`;
+        const orderNumber = await nextPrintOrderNumber();
         const magicLinkToken = crypto.randomBytes(24).toString("hex");
         const requester = await storage.getUser(row.requesterUserId);
 

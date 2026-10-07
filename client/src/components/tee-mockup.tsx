@@ -140,8 +140,13 @@ export function TeeMockup({
     svg.addEventListener("pointerup", up);
   }
 
+  // The back of a tee has a shallow neckline; the front dips. Same garment,
+  // so only the neck curve changes — the shopper can tell which side they are
+  // designing at a glance.
+  const neckY = back ? 96 : 116;
   const BODY =
-    "M172 92 L112 124 L74 208 L134 236 L148 202 L148 486 Q148 500 162 500 L338 500 Q352 500 352 486 L352 202 L366 236 L426 208 L388 124 L328 92 Q312 84 300 84 Q290 116 250 116 Q210 116 200 84 Q188 84 172 92 Z";
+    `M172 92 L112 124 L74 208 L134 236 L148 202 L148 486 Q148 500 162 500 L338 500 Q352 500 352 486 L352 202 L366 236 L426 208 L388 124 L328 92 Q312 84 300 84 Q290 ${neckY} 250 ${neckY} Q210 ${neckY} 200 84 Q188 84 172 92 Z`;
+  const COLLAR = back ? "M200 84 Q250 108 300 84" : "M200 84 Q250 128 300 84";
 
   return (
     <svg
@@ -241,14 +246,14 @@ export function TeeMockup({
 
         {/* 5 — construction: collar rib, seams, hems */}
         <path
-          d="M200 84 Q250 128 300 84"
+          d={COLLAR}
           fill="none"
           stroke={colour.dark ? "rgba(255,255,255,.16)" : "rgba(0,0,0,.16)"}
           strokeWidth="9"
           strokeLinecap="round"
         />
         <path
-          d="M200 84 Q250 128 300 84"
+          d={COLLAR}
           fill="none"
           stroke={colour.dark ? "rgba(0,0,0,.35)" : "rgba(0,0,0,.10)"}
           strokeWidth="1.2"
