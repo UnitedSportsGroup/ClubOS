@@ -132,6 +132,15 @@ interface ParentPrefill {
   children: { key: string; firstName: string; lastName: string; dateOfBirth: string | null; ageGrade: number | null }[];
 }
 
+interface PromoPreview {
+  valid: true;
+  code: string;
+  promoCents: number;
+  termTotalCents: number;
+  payTodayCents: number;
+  weeklyCents: number | null;
+}
+
 interface IntentResponse {
   registrationId: number;
   clientSecret: string;
@@ -274,6 +283,36 @@ export default function ClassBookingPage() {
   const [childDob, setChildDob] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Promo code. Checked against the server (same decider as the charge); the
+  // page only ever shows what the server said the code does.
+  const [codeInput, setCodeInput] = useState("");
+  const [promo, setPromo] = useState<PromoPreview | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
+  // A code was priced for one option + payment choice; changing either re-checks it.
+  useEffect(() => { setPromo(null); setPromoError(null); }, [selectedOption?.id, paymentMode]);
+
+  const applyCode = async () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    setPromoChecking(true);
+    setPromoError(null);
+    try {
+      const res = await fetch("/api/public/class-registrations/promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programSlug: slug, programOptionId: selectedOption?.id, paymentMode, code }),
+      });
+      const data = await res.json();
+      if (data.valid) setPromo(data);
+      else { setPromo(null); setPromoError(data.message || "That code isn't valid."); }
+    } catch {
+      setPromoError("Couldn't check that code — try again.");
+    } finally {
+      setPromoChecking(false);
+    }
+  };
+
   const [intent, setIntent] = useState<IntentResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -354,6 +393,7 @@ export default function ClassBookingPage() {
           childKey,
           notes,
           utm,
+          discountCode: promo?.code ?? null,
         }),
       });
       const data = await res.json();
@@ -604,6 +644,31 @@ export default function ClassBookingPage() {
                   className={T.textarea}
                 />
 
+                <div>
+                  <h2 className={T.label}>Promo code</h2>
+                  {promo ? (
+                    <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${T.optionSel}`}>
+                      <span><strong>{promo.code}</strong> applied — {money(promo.promoCents)} off</span>
+                      <button type="button" className="underline" onClick={() => { setPromo(null); setCodeInput(""); }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input
+                        value={codeInput}
+                        onChange={e => { setCodeInput(e.target.value.toUpperCase()); setPromoError(null); }}
+                        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyCode(); } }}
+                        placeholder="Have a code?"
+                        autoCapitalize="characters"
+                        className={T.input}
+                      />
+                      <Button type="button" onClick={applyCode} disabled={!codeInput.trim() || promoChecking} className={`${T.cta.replace("w-full ", "").replace("py-6", "py-2.5")} shrink-0 px-6`}>
+                        {promoChecking ? "Checking…" : "Apply"}
+                      </Button>
+                    </div>
+                  )}
+                  {promoError && <div className={`${T.error} mt-2`}>{promoError}</div>}
+                </div>
+
                 {error && <div className={T.error}>{error}</div>}
 
                 <Button
@@ -633,11 +698,17 @@ export default function ClassBookingPage() {
                       </div>
                       <div className={`flex justify-between ${T.line}`}>
                         <span>Then weekly{term ? ` from ${nzShortDate(term.startDate)}` : ""}</span>
-                        <span className="font-mono">{money(selectedOption.weeklyPriceCents ?? 0)} × {program.numWeeklyPayments ?? 0}</span>
+                        <span className="font-mono">{money(promo?.weeklyCents ?? selectedOption.weeklyPriceCents ?? 0)} × {program.numWeeklyPayments ?? 0}</span>
                       </div>
+                      {promo && (
+                        <div className="flex justify-between text-emerald-600">
+                          <span>Code {promo.code}</span>
+                          <span className="font-mono">−{money(promo.promoCents)}</span>
+                        </div>
+                      )}
                       <div className={`flex justify-between ${T.line}`}>
                         <span>Term total</span>
-                        <span className="font-mono">{money(selectedOption.fullPriceCents)}</span>
+                        <span className="font-mono">{money(promo?.termTotalCents ?? selectedOption.fullPriceCents)}</span>
                       </div>
                       <div className={`flex justify-between font-bold text-base pt-2 border-t ${T.divider} mt-2`}>
                         <span>You pay today</span>
@@ -677,9 +748,15 @@ export default function ClassBookingPage() {
                             </div>
                           </>
                         )}
+                        {promo && (
+                          <div className="flex justify-between text-emerald-600">
+                            <span>Code {promo.code}</span>
+                            <span className="font-mono">−{money(promo.promoCents)}</span>
+                          </div>
+                        )}
                         <div className={`flex justify-between font-bold text-base pt-2 border-t ${T.divider} mt-2`}>
                           <span>You pay today</span>
-                          <span className="font-mono">{money(q.payNow)}</span>
+                          <span className="font-mono">{money(promo?.payTodayCents ?? q.payNow)}</span>
                         </div>
                       </>
                     );

@@ -3,6 +3,7 @@ import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
 import type { Program } from "@shared/schema";
 import { lineCents } from "@shared/registration-split";
+import { applyClassPromo, classPromoCoversProgram } from "@shared/class-promo";
 import { seriesKey, seriesName, editionLabel, sortEditions, currentEditionId } from "@shared/programme-series";
 import { LIVE_WINDOW_MINUTES, liveStageFor, liveBrandFor, liveBrandsForWorkspace, type LiveStage } from "@shared/live-activity";
 import { gradeFromLabel, trainingGroupLabel } from "@shared/training-groups";
@@ -2086,6 +2087,60 @@ export async function registerRoutes(
   // in one shot. Server-side re-quotes pricing so the client can never
   // spoof the amount paid. After Stripe confirms the PaymentIntent, the
   // webhook flips the registration to 'confirmed' and fires confirmation.
+  /** Resolve a promo code for the light class checkout. Wraps the academy
+   *  resolver (status, dates, usage cap) and then insists the code NAMES this
+   *  programme — see classPromoCoversProgram. */
+  async function resolveClassPromo(
+    code: string, program: any, payNowCents: number, isWeekly: boolean,
+    depositWeekly: { depositCents: number; weeks: number; weeklyCents: number } | null,
+  ): Promise<{ ok: true; code: string; promoCents: number; termTotalCents: number; payTodayCents: number; weeklyCents: number | null } | { ok: false; reason: string }> {
+    const resolved = await resolveAcademyPromo(code, program.organizationId, program.id);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    if (!classPromoCoversProgram(resolved.promo as any, program.id)) {
+      return { ok: false, reason: "That code doesn't apply to this programme." };
+    }
+    if (isWeekly && !depositWeekly) return { ok: false, reason: "That code can only be used when paying in full." };
+    const r = applyClassPromo({ valueType: resolved.promo.valueType, value: resolved.promo.value as any, payNowCents, depositWeekly });
+    if (!r.ok) return r;
+    return { ...r, code: String(resolved.promo.code).toUpperCase() };
+  }
+
+  // Preview a code before the card step: same quote, same decider as the intent.
+  app.post("/api/public/class-registrations/promo", async (req, res) => {
+    try {
+      const { programSlug, programOptionId, paymentMode, code } = req.body || {};
+      if (!code || !String(code).trim()) return res.json({ valid: false, message: "Enter a code." });
+      const program = await storage.getProgramBySlug(String(programSlug || ""));
+      if (!program || !program.isActive || program.scheduleType !== "term") return res.status(404).json({ valid: false, message: "Program not found" });
+      const option = programOptionId ? await storage.getProgramOption(parseInt(programOptionId)) : null;
+      if (programOptionId && (!option || option.programId !== program.id || !option.isActive)) {
+        return res.status(400).json({ valid: false, message: "Choose an option first." });
+      }
+      let term = null;
+      if (program.termId) {
+        const [t] = await db.select().from(terms).where(eq(terms.id, program.termId));
+        term = t ?? null;
+      }
+      const priceProgram: any = option
+        ? { ...program, termPriceCents: option.fullPriceCents, sessionCount: option.sessionCount ?? program.sessionCount, pricingModel: option.pricingModel }
+        : program;
+      const { quoteProgram } = await import("./program-pricing");
+      const quote = quoteProgram(priceProgram, term);
+      if (quote.payNowCents <= 0) return res.json({ valid: false, message: quote.reason });
+      const isWeekly = paymentMode === "weekly" && !!option?.allowPayWeekly;
+      const isDepositWeekly = isWeekly && (program as any).paymentPlan === "deposit_weekly"
+        && quote.payNowCents === option!.fullPriceCents;
+      const r = await resolveClassPromo(String(code), program, quote.payNowCents, isWeekly, isDepositWeekly
+        ? { depositCents: (program as any).depositCents ?? 0, weeks: (program as any).numWeeklyPayments ?? 0, weeklyCents: option?.weeklyPriceCents ?? 0 }
+        : null);
+      if (!r.ok) return res.json({ valid: false, message: r.reason });
+      res.json({ valid: true, ...r });
+    } catch (e: any) {
+      console.error("[Class promo preview] failed:", e);
+      res.status(500).json({ valid: false, message: "Couldn't check that code." });
+    }
+  });
+
   app.post("/api/public/class-registrations/intent", async (req, res) => {
     try {
       const {
@@ -2097,6 +2152,7 @@ export async function registerRoutes(
         childKey,
         notes,
         utm,
+        discountCode,
       } = req.body || {};
 
       if (!programSlug || !firstName || !lastName || !email || !phone || !childFirst || !childLast) {
@@ -2191,6 +2247,18 @@ export async function registerRoutes(
         }
       }
 
+      // Promo code (HC20 for Ballers, 2026-10-09). Named by the request, priced
+      // here — the browser never sends an amount. applyClassPromo is the one
+      // decider, shared with the preview endpoint below.
+      const promo = discountCode
+        ? await resolveClassPromo(String(discountCode), program, quote.payNowCents, !!isWeekly, isDepositWeekly
+            ? { depositCents: planDepositCents, weeks: planWeeks, weeklyCents: planWeeklyCents } : null)
+        : null;
+      if (promo && !promo.ok) return res.status(400).json({ code: "bad_discount", message: promo.reason });
+      const promoCents = promo?.ok ? promo.promoCents : 0;
+      const planWeeklyChargeCents = promo?.ok && promo.weeklyCents != null ? promo.weeklyCents : planWeeklyCents;
+      const upfrontChargeCents = promo?.ok && !isDepositWeekly ? promo.payTodayCents : quote.payNowCents;
+
       // Create / find guardian + child contacts.
       // NB (2026-07-09): these two calls used to read `storage.getContactByEmail?.()`
       // and `storage.createContactRelationship?.()`. Neither method has ever existed
@@ -2261,10 +2329,13 @@ export async function registerRoutes(
         // whatever term the programme is flipped to next.
         termId: term?.id ?? null,
         subtotalCents: isDepositWeekly ? quote.payNowCents : isWeekly ? weeklyPriceCents : quote.payNowCents,
-        discountCents: quote.discountCents,
+        discountCents: quote.discountCents + promoCents,
         // Deposit-weekly owes the whole term; the deposit is what lands today.
-        totalCents: isDepositWeekly ? quote.payNowCents : isWeekly ? weeklyPriceCents : quote.payNowCents,
-        ...(isDepositWeekly ? { depositCents: planDepositCents, weeklyAmountCents: planWeeklyCents, weeksTotal: planWeeks, weeksPaid: 0, balanceStatus: "scheduled" } : {}),
+        totalCents: isDepositWeekly ? quote.payNowCents - promoCents : isWeekly ? weeklyPriceCents : upfrontChargeCents,
+        // The weekly subscription reads weeklyAmountCents, so a code that comes
+        // off the weekly payments only has to be written here.
+        ...(isDepositWeekly ? { depositCents: planDepositCents, weeklyAmountCents: planWeeklyChargeCents, weeksTotal: planWeeks, weeksPaid: 0, balanceStatus: "scheduled" } : {}),
+        ...(promo?.ok ? { discountCode: promo.code } : {}),
         currency: "NZD",
         notes: notes || null,
         utmSource: utm?.source || null,
@@ -2307,7 +2378,7 @@ export async function registerRoutes(
           setup_future_usage: "off_session",
           payment_method_types: ["card"],
           receipt_email: email,
-          description: `${program.name}${optionLabel} — $${(planDepositCents / 100).toFixed(2)} deposit, then $${(planWeeklyCents / 100).toFixed(2)}/week × ${planWeeks}`,
+          description: `${program.name}${optionLabel} — $${(planDepositCents / 100).toFixed(2)} deposit, then $${(planWeeklyChargeCents / 100).toFixed(2)}/week × ${planWeeks}${promo?.ok ? ` (code ${promo.code})` : ""}`,
           metadata: { ...sharedMetadata, plan: "deposit_weekly" },
         });
         clientSecret = paymentIntent.client_secret;
@@ -2357,10 +2428,10 @@ export async function registerRoutes(
       } else {
         // One-shot PaymentIntent for upfront payment
         const paymentIntent = await stripe.paymentIntents.create({
-          amount: quote.payNowCents,
+          amount: upfrontChargeCents,
           currency: "nzd",
           receipt_email: email,
-          description: `${program.name}${optionLabel}${term ? ` — Term ${term.termNumber} ${term.year}` : ""}`,
+          description: `${program.name}${optionLabel}${term ? ` — Term ${term.termNumber} ${term.year}` : ""}${promo?.ok ? ` · code ${promo.code}` : ""}`,
           automatic_payment_methods: { enabled: true },
           metadata: sharedMetadata,
         });
@@ -2379,12 +2450,14 @@ export async function registerRoutes(
         paymentMode: isDepositWeekly ? "deposit_weekly" : isWeekly ? "weekly" : "upfront",
         quote: {
           fullPriceCents: quote.fullPriceCents,
-          payNowCents: isDepositWeekly ? planDepositCents : isWeekly ? weeklyPriceCents : quote.payNowCents,
-          discountCents: quote.discountCents,
+          payNowCents: isDepositWeekly ? planDepositCents : isWeekly ? weeklyPriceCents : upfrontChargeCents,
+          discountCents: quote.discountCents + promoCents,
+          promoCents,
+          discountCode: promo?.ok ? promo.code : null,
           sessionsRemaining: quote.sessionsRemaining,
           totalSessions: quote.totalSessions,
           reason: isDepositWeekly
-            ? `$${(planDepositCents / 100).toFixed(2)} today, then $${(planWeeklyCents / 100).toFixed(2)}/week × ${planWeeks}`
+            ? `$${(planDepositCents / 100).toFixed(2)} today, then $${(planWeeklyChargeCents / 100).toFixed(2)}/week × ${planWeeks}`
             : isWeekly
               ? `${weeklyPriceCents > 0 ? `$${(weeklyPriceCents / 100).toFixed(2)}/week` : ""} × ${option?.sessionCount ?? quote.totalSessions} weeks`
               : quote.reason,
@@ -2396,7 +2469,7 @@ export async function registerRoutes(
         plan: isDepositWeekly ? (() => {
           const now = Date.now();
           const start = term?.startDate ? new Date(term.startDate + "T00:00:00Z").getTime() : now + 7 * 86400000;
-          return { depositCents: planDepositCents, weeklyAmountCents: planWeeklyCents, weeksTotal: planWeeks,
+          return { depositCents: planDepositCents, weeklyAmountCents: planWeeklyChargeCents, weeksTotal: planWeeks,
                    firstChargeDate: new Date(Math.max(start, now + 2 * 86400000)).toISOString().slice(0, 10) };
         })() : null,
         option: option ? { id: option.id, name: option.name, scheduleText: option.scheduleText } : null,
@@ -22934,7 +23007,7 @@ export async function registerRoutes(
   // maxTotalUses) is checked HERE; the additive stacking math lives in the pure
   // shared module. Returns the rules to apply, the underlying records (keyed by
   // canonical code, for usage recording), and any rejected typed codes.
-  async function resolveLeagueDiscounts(codes: string[], teamCount: number, now: Date): Promise<{
+  async function resolveLeagueDiscounts(codes: string[], teamCount: number, now: Date, programId?: number): Promise<{
     rules: DiscountRule[]; records: Record<string, any>; rejected: string[];
   }> {
     const records: Record<string, any> = {};
@@ -22972,6 +23045,13 @@ export async function registerRoutes(
       const endOk = !d.endDate || new Date(d.endDate) >= now;
       const usageOk = !d.maxTotalUses || (d.timesUsed ?? 0) < d.maxTotalUses;
       if (!(startOk && endOk && usageOk)) { if (!isAuto) rejected.push(code); continue; }
+      // A code scoped to named programmes (HC20 / CUFC20 → the Ballers youth
+      // league, 2026-10-09) only works on those programmes. This resolver
+      // never read the scope, so a youth code would have taken 20% off a team.
+      if (d.appliesTo === "specific_camps" && !(programId && (d.campIds ?? []).includes(programId))) {
+        if (!isAuto) rejected.push(code);
+        continue;
+      }
       records[dCode] = d;
       rules.push({
         code: dCode,
@@ -23033,7 +23113,7 @@ export async function registerRoutes(
       }
       const orderSubtotal = perTeamSubtotals.reduce((a, b) => a + b, 0);
 
-      const { rules, rejected } = await resolveLeagueDiscounts(codes, teamList.length, now);
+      const { rules, rejected } = await resolveLeagueDiscounts(codes, teamList.length, now, program.id);
       const { discountLines, discountTotalCents } = computeOrderDiscount(orderSubtotal, rules);
 
       // Per-team distribution + payment math so the page can show the exact
@@ -23395,7 +23475,7 @@ export async function registerRoutes(
       // when 2+ teams. Stacked additively, capped, then distributed back across
       // the teams proportionally so each team's own deposit/weekly math is exact.
       const orderSubtotal = teamsResolved.reduce((s, t) => s + t.subtotalCents, 0);
-      const { rules } = await resolveLeagueDiscounts(codes, teamsResolved.length, now);
+      const { rules } = await resolveLeagueDiscounts(codes, teamsResolved.length, now, program.id);
       const { discountLines, discountTotalCents } = computeOrderDiscount(orderSubtotal, rules);
       const appliedCodes = discountLines.map((l) => l.code).join(",") || null;
       const teamDiscounts = distributeDiscountAcrossTeams(teamsResolved.map((t) => t.subtotalCents), discountTotalCents);
@@ -27570,6 +27650,14 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
         console.error(`[Class deposit-weekly] reg ${registrationId}: subscription failed:`, e?.message || e);
         await storage.updateRegistration(registrationId, { balanceStatus: "failed" } as any);
       }
+    }
+    // Count a class-book promo once the money has landed (HC20 on Ballers).
+    if ((reg as any).discountCode && program?.organizationId) {
+      try {
+        const d = await storage.getDiscountByCode(String((reg as any).discountCode), program.organizationId!);
+        const promoCents = Math.max(0, ((reg as any).subtotalCents ?? 0) - ((reg as any).totalCents ?? 0));
+        if (d) await storage.incrementDiscountUsage(d.id, promoCents);
+      } catch (e) { console.error(`[Class promo] reg ${registrationId}: usage count failed:`, e); }
     }
     const nzDate = (iso: string) => new Date(iso + "T12:00:00+12:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" });
     const isMflProgram = program?.organizationId === 3;
