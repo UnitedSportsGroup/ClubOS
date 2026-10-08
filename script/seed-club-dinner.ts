@@ -60,8 +60,8 @@ async function main() {
   console.log(`\n  Club Dinner seed — ${COMMIT ? "COMMIT" : "DRY RUN"}\n`);
   await c.query("BEGIN");
   try {
-    const org = (await c.query(`select id from organizations where slug = 'christchurch-united'`)).rows[0];
-    if (!org) throw new Error("CUFC org not found");
+    const org = (await c.query(`select id from organizations where slug = 'south-island-united'`)).rows[0]; // SIU since 2026-10-09 — the dinner is SIU-branded (Daniel)
+    if (!org) throw new Error("SIU org not found");
 
     let ev = (await c.query(`select * from club_events where slug = $1`, [EVENT.slug])).rows[0];
     if (ev) {
