@@ -76,13 +76,16 @@ const BLOCK_BYTES = 100 * 1024;
 // invitation is addressed to the player and lands with the parent. Two
 // children on one address read "Jack and Lily". Resolved per recipient at
 // send in server/mailer-audience.ts; nothing here guesses a name.
+// Quick tags read as plain words (Daniel, 2026-10-09: "just the quick tags like
+// first name … to quickly type and build emails"); the {{tag}} is what's inserted.
+// The unsubscribe link is not offered — every footer already carries it, and the
+// server adds one to any email that lacks it (server/mailer-render.ts).
 const MERGE_TAGS: { label: string; tag: string; hint: string }[] = [
   { label: "First name", tag: "{{first_name}}", hint: "the parent's first name — whose inbox it is" },
+  { label: "Last name", tag: "{{last_name}}", hint: "the parent's last name" },
   { label: "Player first name", tag: "{{player_first_name}}", hint: "the registered child's first name; two children on one address read \"Jack and Lily\"" },
   { label: "Player full name", tag: "{{player_name}}", hint: "the registered child's full name" },
-  { label: "Last name", tag: "{{last_name}}", hint: "the parent's last name" },
   { label: "Email", tag: "{{email}}", hint: "the address this copy is sent to" },
-  { label: "Unsubscribe URL", tag: "{{unsubscribe_url}}", hint: "this recipient's own unsubscribe link" },
 ];
 
 function byteLength(s: string): number {
@@ -101,21 +104,6 @@ function stripHtml(html: string): string {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-/** True when an initialDoc carries real content — so we skip the template gallery
- *  (editing an existing design) and open straight into the builder. */
-function isMeaningfulDoc(doc: unknown): boolean {
-  if (!doc) return false;
-  if (typeof doc === "string") return doc.trim().length > 0;
-  if (typeof doc === "object") {
-    const d = doc as Record<string, unknown>;
-    if (typeof d.mjml === "string" && d.mjml.trim()) return true;
-    if (d.project) return true;
-    if (typeof d.html === "string" && d.html.trim()) return true;
-    if (d.type === "doc") return true; // legacy Tiptap
-  }
-  return false;
 }
 
 /** True below ~768px, where the 3-pane builder is too cramped to use. */
@@ -204,9 +192,11 @@ export default function EmailBuilder({
   // "start from a template or blank" screen instead of a blank canvas. Once a
   // starting point is chosen, `activeDoc` is what the surface loads; the gallery
   // is reachable again from the toolbar (replaces the design after a confirm).
-  const startedWithDoc = isMeaningfulDoc(initialDoc);
   const [activeDoc, setActiveDoc] = useState<unknown | null>(initialDoc ?? null);
-  const [chosen, setChosen] = useState<boolean>(startedWithDoc);
+  // Daniel, 2026-10-09: "default option is start from blank not template". A new
+  // email opens straight onto the blank white page; templates stay one click away
+  // on the toolbar's Templates button.
+  const [chosen, setChosen] = useState<boolean>(true);
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
 
   const applyTemplate = useCallback((doc: StarterTemplateDoc) => {
@@ -378,16 +368,17 @@ export default function EmailBuilder({
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2" data-testid="mkt-builder-actions">
         {!isNarrow && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-xs text-muted-foreground">Personalise:</span>
+            <span className="mr-1 text-xs text-muted-foreground">Insert:</span>
             {MERGE_TAGS.map((m) => (
               <button
                 key={m.tag}
                 type="button"
                 onClick={() => insertTag(m.tag)}
-                className="rounded-full border px-2.5 py-1 font-mono text-[11px] hover:bg-muted"
-                title={`Insert ${m.tag} — ${m.hint}; swapped for each recipient at send`}
+                className="rounded-full border px-3 py-1 text-xs font-medium hover:bg-muted"
+                title={`Inserts ${m.tag} — ${m.hint}; swapped for each recipient at send`}
+                data-testid={`mkt-tag-${m.tag.replace(/[{}]/g, "")}`}
               >
-                {m.tag}
+                + {m.label}
               </button>
             ))}
           </div>

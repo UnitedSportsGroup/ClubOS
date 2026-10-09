@@ -41,23 +41,45 @@ export interface BrandCanvas {
   font: string;
 }
 
-/** The flat brand row the blocks + starter read. Derived from getBrandMeta so it
- *  always matches the live brand email shells. */
+/** Daniel, 2026-10-09: "make all templates on white background to make it all
+ *  super simple". The BUILDER is light for every brand: white page, ink text,
+ *  hairline borders. Only the accent stays the brand's — and on a white page a
+ *  dark brand's light accent (MFL gold, CIC 7's lime) cannot carry text, so each
+ *  brand gets an accent that reads on white, with its own colour on the button
+ *  label (black button + gold label is MFL; navy button + lime is the 7's).
+ *  🔴 Emails already designed keep their own colours — they carry them inline. */
+const LIGHT_ACCENT: Record<string, { accent: string; onAccent: string }> = {
+  mfl: { accent: "#111111", onAccent: "#d1b96e" },
+  cufc: { accent: "#1d3fae", onAccent: "#ffffff" },
+  siu: { accent: "#111111", onAccent: "#c59949" },
+  cic: { accent: "#111111", onAccent: "#c9a43e" },
+  cic7s: { accent: "#0a1122", onAccent: "#cffd5a" },
+  cugc: { accent: "#013590", onAccent: "#ffffff" },
+  usc: { accent: "#4f46e5", onAccent: "#ffffff" },
+  usg: { accent: "#1d3fae", onAccent: "#ffffff" },
+  prints: { accent: "#d4541f", onAccent: "#ffffff" },
+  neutral: { accent: "#1d3fae", onAccent: "#ffffff" },
+};
+
+/** The flat brand row the blocks, templates and starter read — always LIGHT. */
 export function brandCanvasTheme(brandKey: string | null | undefined): BrandCanvas {
   const b: BrandTheme = getBrandMeta(brandKey);
+  const a = LIGHT_ACCENT[b.key] ?? LIGHT_ACCENT.neutral;
   return {
     key: b.key,
     name: b.name,
-    isDark: b.isDark,
-    bg: b.bg,
-    surface: b.surface,
-    border: b.border,
-    text: b.text,
-    muted: b.muted,
-    heading: b.heading,
-    accent: b.accent,
-    onAccent: b.onAccent,
-    logoUrl: b.logoUrl,
+    isDark: false,
+    bg: "#ffffff",
+    surface: "#ffffff",
+    border: "#e5e7eb",
+    text: "#1f2937",
+    muted: "#6b7280",
+    heading: "#111827",
+    accent: a.accent,
+    onAccent: a.onAccent,
+    // A dark brand's logo is white artwork and vanishes on white — the name is
+    // set as type instead. Only a brand that is already light keeps its logo.
+    logoUrl: b.isDark ? undefined : b.logoUrl,
     font: EMAIL_FONT,
   };
 }
@@ -72,53 +94,28 @@ export function brandColorPalette(brandKey: string | null | undefined): string[]
 }
 
 /**
- * The brand starter email. This is what a fresh campaign opens as — designed, not
- * blank. Every element carries EXPLICIT brand colours + font so the live canvas is
- * true WYSIWYG (no <mj-head><mj-attributes> — grapesjs-mjml renders those as stray
- * visible components in the canvas, and their compile-time defaults don't preview).
+ * What a new email opens as — a BLANK white page (Daniel, 2026-10-09: "default
+ * option is start from blank not template"). One text block to type into, and the
+ * unsubscribe footer the law requires (NZ UEMA s11) so nobody has to remember it.
+ * Every element carries explicit colours + font so the canvas is true WYSIWYG
+ * (no <mj-attributes> — grapesjs-mjml renders those as stray components).
  */
 export function buildStarterMjml(brandKey: string | null | undefined): string {
   const b = brandCanvasTheme(brandKey);
-  const logo = b.logoUrl
-    ? `<mj-image src="${b.logoUrl}" alt="${escapeAttr(b.name)}" width="150px" padding="0" align="left" />`
-    : `<mj-text color="${b.heading}" font-family="${b.font}" font-size="22px" font-weight="800" letter-spacing="-0.3px" padding="0">${escapeText(b.name)}</mj-text>`;
-
   return `<mjml>
   <mj-body background-color="${b.bg}">
-    <mj-section background-color="${b.surface}" padding="28px 28px 8px">
+    <mj-section background-color="${b.surface}" padding="32px 28px 8px">
       <mj-column>
-        ${logo}
-      </mj-column>
-    </mj-section>
-
-    <mj-section background-color="${b.surface}" padding="8px 28px 4px">
-      <mj-column>
-        <mj-text color="${b.heading}" font-family="${b.font}" font-size="30px" font-weight="800" line-height="1.2" letter-spacing="-0.5px">
-          Your headline goes here
+        <mj-text color="${b.text}" font-family="${b.font}" font-size="16px" line-height="1.7" padding="0">
+          Hi {{first_name}},<br /><br />Start typing your message here.
         </mj-text>
       </mj-column>
     </mj-section>
 
-    <mj-section background-color="${b.surface}" padding="4px 28px 20px">
+    <mj-section background-color="${b.bg}" padding="28px 28px 28px">
       <mj-column>
-        <mj-text color="${b.text}" font-family="${b.font}" font-size="16px" line-height="1.7">
-          Write a warm opening line here — tell them what this email is about in one clear sentence. Then drag blocks from the left to build the rest.
-        </mj-text>
-        <mj-button href="https://" align="left" background-color="${b.accent}" color="${b.onAccent}" font-family="${b.font}" border-radius="10px" font-weight="700" inner-padding="13px 26px" padding-top="18px">
-          Register now
-        </mj-button>
-      </mj-column>
-    </mj-section>
-
-    <mj-section background-color="${b.surface}" padding="0 28px">
-      <mj-column>
-        <mj-divider border-color="${b.border}" border-width="1px" padding="8px 0" />
-      </mj-column>
-    </mj-section>
-
-    <mj-section background-color="${b.bg}" padding="16px 28px 28px">
-      <mj-column>
-        <mj-text color="${b.muted}" font-family="${b.font}" font-size="12px" line-height="1.6" align="center">
+        <mj-divider border-color="${b.border}" border-width="1px" padding="0 0 16px" />
+        <mj-text color="${b.muted}" font-family="${b.font}" font-size="12px" line-height="1.6" align="center" padding="0">
           You're receiving this because you're part of ${escapeText(b.name)}.<br />
           <a href="{{unsubscribe_url}}" style="color:${b.muted};text-decoration:underline;">Unsubscribe</a>
         </mj-text>
@@ -167,9 +164,6 @@ function findFontProperty(sm: any): any {
   return undefined;
 }
 
-function escapeAttr(s: string): string {
-  return s.replace(/"/g, "&quot;");
-}
 function escapeText(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

@@ -655,10 +655,24 @@ export default function AdminMailer() {
               className="premium-input text-white/80 text-lg h-12"
               data-testid="input-subject"
             />
-            <p className="text-xs text-white/40" data-testid="subject-merge-hint">
-              Personalise the subject too: <code className="font-mono text-white/60">{"{{first_name}}"}</code> is the parent,{" "}
-              <code className="font-mono text-white/60">{"{{player_first_name}}"}</code> the registered child — swapped for each recipient at send.
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="subject-merge-hint">
+              <span className="text-xs text-white/40 mr-1">Insert:</span>
+              {([
+                ["First name", "{{first_name}}"],
+                ["Player first name", "{{player_first_name}}"],
+              ] as const).map(([label, tag]) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setSubject((s) => (s && !/\s$/.test(s) ? `${s} ${tag}` : `${s}${tag}`))}
+                  className="rounded-full border border-white/10 px-3 min-h-9 text-xs font-medium text-white/70 hover:bg-white/5"
+                  title={`Adds ${tag} — swapped for each recipient at send`}
+                  data-testid={`button-subject-tag-${tag.replace(/[{}]/g, "")}`}
+                >
+                  + {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="glass-card rounded-2xl p-4 space-y-3">
