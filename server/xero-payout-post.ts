@@ -18,6 +18,8 @@ import { sql } from "drizzle-orm";
 import { getXeroForOrg } from "./xero";
 import { walkPayout, type WalkedItem } from "./xero-payout";
 import type { XeroCategoryKey } from "@shared/xero-payout";
+import { academyProfiles, fillContact } from "./xero-contact-profile";
+import { detailCodeFor, detailLabel, gradeFor, type DetailInput } from "@shared/xero-detail-codes";
 
 const CONTACT_NAME = "Stripe Payments";
 /**
@@ -113,15 +115,74 @@ async function academyInvoices(orgId: number) {
 /** Programmes Olga invoices per child (and so must never be coded as plain income). */
 const INVOICED_PROGRAMMES = new Set<number>([16 /* Pre-Academy */]);
 
+/**
+ * What the detailed code needs for each registration: programme, option, the
+ * player's DOB, the term, the MFL division. Camps carry their children on
+ * registration_items, so a camp DOB is read there — and only when the booking
+ * is for ONE child (siblings in different age bands cannot share one line).
+ */
+async function detailInfo(regIds: number[]) {
+  const out = new Map<number, DetailInput & { termNumber: number | null }>();
+  if (!regIds.length) return out;
+  const r = await db.execute(sql`
+    SELECT r.id, p.id program_id, p.name program_name, p.type program_type, o.name option_name,
+           coalesce(c.date_of_birth::text, (
+             SELECT CASE WHEN count(DISTINCT ri.child_id) = 1 THEN min(ch.date_of_birth)::text END
+               FROM registration_items ri JOIN children ch ON ch.id = ri.child_id
+              WHERE ri.registration_id = r.id)) dob,
+           t.year term_year, t.term_number, d.name division_name
+      FROM registrations r
+      LEFT JOIN programs p ON p.id = r.program_id
+      LEFT JOIN program_options o ON o.id = r.program_option_id
+      LEFT JOIN contacts c ON c.id = r.contact_id
+      LEFT JOIN terms t ON t.id = r.term_id
+      LEFT JOIN league_divisions d ON d.id = r.league_division_id
+     WHERE r.id IN (${sql.join(regIds.map((i) => sql`${i}`), sql`, `)})`);
+  for (const x of r.rows as any[]) {
+    out.set(Number(x.id), {
+      programId: x.program_id == null ? null : Number(x.program_id), programName: x.program_name ?? null,
+      programType: x.program_type ?? null, optionName: x.option_name ?? null,
+      dob: x.dob ? String(x.dob).slice(0, 10) : null,
+      seasonYear: x.term_year ? Number(x.term_year) : new Date().getFullYear(),
+      termNumber: x.term_number ? Number(x.term_number) : null,
+      divisionName: x.division_name ?? null,
+    });
+  }
+  return out;
+}
+
+/** MFL Player Pay shares: the division (and so 5's / 7's / 9's) comes off the
+ *  team's split session. A venue booking split carries no division and stays put. */
+async function splitDetailInfo(memberIds: number[]) {
+  const out = new Map<number, DetailInput & { termNumber: number | null }>();
+  if (!memberIds.length) return out;
+  const r = await db.execute(sql`
+    SELECT m.id, p.id program_id, p.name program_name, p.type program_type, d.name division_name
+      FROM split_members m
+      JOIN split_sessions s ON s.id = m.split_session_id
+      LEFT JOIN programs p ON p.id = s.program_id
+      LEFT JOIN league_divisions d ON d.id = s.league_division_id
+     WHERE m.id IN (${sql.join(memberIds.map((i) => sql`${i}`), sql`, `)}) AND s.league_division_id IS NOT NULL`);
+  for (const x of r.rows as any[]) {
+    out.set(Number(x.id), {
+      programId: x.program_id == null ? null : Number(x.program_id), programName: x.program_name ?? null,
+      programType: x.program_type ?? "league_team", optionName: null, dob: null, seasonYear: null,
+      termNumber: null, divisionName: x.division_name ?? null,
+    });
+  }
+  return out;
+}
+
 /** What an invoice needs: the child, their age group (the option bought), the
  *  term, and the parent the invoice contact is named for. */
 async function invoiceInfo(regIds: number[]) {
-  const out = new Map<number, { child: string; grade: number | null; termLabel: string; parentFirst: string; parentLast: string; parentEmail: string | null }>();
+  const out = new Map<number, { child: string; grade: number | null; termLabel: string; parentFirst: string; parentLast: string; parentEmail: string | null; accountCode: string; description: string; childContactId: number | null }>();
   if (!regIds.length) return out;
   const r = await db.execute(sql`
     SELECT r.id, btrim(c.first_name)||' '||btrim(c.last_name) child, o.name option_name,
            c.date_of_birth::text dob, coalesce(t.name, '') term_name, t.year term_year,
-           coalesce(g.first_name,'') pf, coalesce(g.last_name,'') pl, g.email pe
+           coalesce(g.first_name,'') pf, coalesce(g.last_name,'') pl, g.email pe,
+           r.program_id, t.term_number, r.contact_id child_contact_id
       FROM registrations r
       JOIN contacts c ON c.id = r.contact_id
       LEFT JOIN program_options o ON o.id = r.program_option_id
@@ -129,11 +190,19 @@ async function invoiceInfo(regIds: number[]) {
       LEFT JOIN contacts g ON g.id = r.guardian_id
      WHERE r.id IN (${sql.join(regIds.map((i) => sql`${i}`), sql`, `)})`);
   for (const x of (r.rows as any[])) {
-    const fromOption = /U\s?(\d{1,2})/i.exec(String(x.option_name ?? ""))?.[1];
-    const fromDob = x.dob ? Number(String(x.term_year ?? new Date().getFullYear())) - Number(String(x.dob).slice(0, 4)) : null;
     const term = /term\s*(\d)/i.exec(String(x.term_name))?.[1];
+    const d: DetailInput & { termNumber: number | null } = {
+      programId: x.program_id == null ? null : Number(x.program_id), programName: null, programType: "academy",
+      optionName: x.option_name ?? null, dob: x.dob ? String(x.dob).slice(0, 10) : null,
+      seasonYear: x.term_year ? Number(x.term_year) : new Date().getFullYear(),
+      termNumber: x.term_number ? Number(x.term_number) : (term ? Number(term) : null), divisionName: null,
+    };
     out.set(Number(x.id), {
-      child: String(x.child), grade: fromOption ? Number(fromOption) : fromDob,
+      child: String(x.child), grade: gradeFor(d),
+      // 🔴 The SAME decider as the Receive Money lines — 101-02-01 for a U9.
+      // Falls back to the 101 parent only when the age group is unknowable.
+      accountCode: detailCodeFor(d) ?? "101", description: `Training fee — ${detailLabel(d)}`,
+      childContactId: x.child_contact_id == null ? null : Number(x.child_contact_id),
       termLabel: term ? `Term ${term}` : String(x.term_name || "Term"),
       parentFirst: String(x.pf), parentLast: String(x.pl), parentEmail: x.pe ? String(x.pe) : null,
     });
@@ -160,13 +229,20 @@ async function raiseAcademyInvoice(orgId: number, v: NonNullable<PostPlan["toInv
     }
   }
   if (!contactID) throw new Error(`could not create the Xero contact ${name}`);
+  // Phone, address and the other parent from ClubOS — blanks only, and never
+  // allowed to stop the invoice (a profile is nice; the invoice is the money).
+  try {
+    const all = await academyProfiles();
+    const prof = Array.from(all.values()).flat().find((p) => p.childId === v.childContactId);
+    if (prof) await fillContact(orgId, contactID, prof);
+  } catch (e: any) { console.warn(`[xero-payout] could not fill the profile of ${name}: ${e?.message ?? e}`); }
   const band = v.grade <= 10 ? "U9/10" : "U11/12";
   const due = new Date(Date.parse(date) + 8 * 86400_000).toISOString().slice(0, 10);
   const res = await xero.accountingApi.createInvoices(tenantId, { invoices: [{
     type: "ACCREC" as any, contact: { contactID }, date, dueDate: due, status: "AUTHORISED" as any,
     lineAmountTypes: "Inclusive" as any, reference: `${date.slice(0, 4)} ${band} - ${v.termLabel}`,
     brandingThemeID: process.env.XERO_ACADEMY_BRANDING_THEME || "41bcfebe-bc82-4d2d-a06e-5df0b6b60b46",
-    lineItems: [{ description: "Training fee", quantity: 1, unitAmount: v.amountCents / 100, accountCode: "101", taxType: "OUTPUT2" }],
+    lineItems: [{ description: v.description || "Training fee", quantity: 1, unitAmount: v.amountCents / 100, accountCode: v.accountCode || "101", taxType: "OUTPUT2" }],
   }] });
   const inv = res.body.invoices?.[0];
   if (!inv?.invoiceNumber) throw new Error(`Xero did not return an invoice for ${name}`);
@@ -198,6 +274,7 @@ export interface PostPlan {
    * screen — this connection can create invoices but not record payments.
    */
   toInvoice?: { regId: number; child: string; grade: number; amountCents: number; termLabel: string;
+    accountCode: string; description: string; childContactId: number | null;
     parentFirst: string; parentLast: string; parentEmail: string | null }[];
   /** Anything that must be resolved by a human before this can post. */
   blockers: string[];
@@ -312,6 +389,7 @@ export async function planPayout(payoutId: string, orgId = 1): Promise<PostPlan>
       if (!i || !i.grade) { blockers.push(`Pre-Academy payment $${(it.grossCents / 100).toFixed(2)} (registration ${it.resolved!.recordId}) — no age group to invoice it under`); continue; }
       skip.add(it);
       toInvoice.push({ regId: Number(it.resolved!.recordId), child: i.child, grade: i.grade, amountCents: it.grossCents,
+        accountCode: i.accountCode, description: i.description, childContactId: i.childContactId,
         termLabel: i.termLabel, parentFirst: i.parentFirst, parentLast: i.parentLast, parentEmail: i.parentEmail });
     }
   }
@@ -319,6 +397,14 @@ export async function planPayout(payoutId: string, orgId = 1): Promise<PostPlan>
   // Group by the account each item resolves to, summing refunds against sales in
   // the same account exactly as a hand-coded entry does.
   const groups = new Map<string, { account: string; tax: string; cents: number; what: Set<string>; n: number; kids: string[] }>();
+  const regIds = (items as WalkedItem[])
+    .filter((it) => it.resolved?.source === "registrations" && !skip.has(it))
+    .map((it) => Number(it.resolved!.recordId)).filter(Number.isFinite);
+  const details = await detailInfo(regIds);
+  const splitDetails = await splitDetailInfo((items as WalkedItem[])
+    .filter((it) => it.resolved?.source === "split_members" && String(it.category).startsWith("league"))
+    .map((it) => Number(it.resolved!.recordId)).filter(Number.isFinite));
+  const liveForDetail = await activeAccountCodes(orgId);
   for (const it of items as WalkedItem[]) {
     if (skip.has(it)) continue;
     const cat = it.category as XeroCategoryKey;
@@ -333,10 +419,20 @@ export async function planPayout(payoutId: string, orgId = 1): Promise<PostPlan>
       if (!blockers.includes(msg)) blockers.push(msg);
       continue;
     }
-    const key = `${rule.xero_account_code}|${rule.xero_tax_type}`;
-    const g = groups.get(key) ?? { account: rule.xero_account_code, tax: rule.xero_tax_type, cents: 0, what: new Set<string>(), n: 0, kids: [] as string[] };
+    // 🔴 Refine to the age-group / camp / format sub-account (101-02-01 for a U9
+    // Pre-Academy fee). Only a code that is ACTIVE in Xero today is used; anything
+    // else keeps the mapped parent rather than failing the whole payout.
+    const det = it.resolved?.source === "registrations" ? details.get(Number(it.resolved.recordId))
+      : it.resolved?.source === "split_members" && String(cat).startsWith("league") ? splitDetails.get(Number(it.resolved.recordId))
+      : undefined;
+    const fine = det ? detailCodeFor(det) : null;
+    const account = fine && liveForDetail.has(fine) ? fine : rule.xero_account_code;
+    const label = det && it.resolved?.source === "registrations" ? detailLabel(det) : null;
+    const key = `${account}|${rule.xero_tax_type}`;
+    const g = groups.get(key) ?? { account, tax: rule.xero_tax_type, cents: 0, what: new Set<string>(), n: 0, kids: [] as string[] };
     g.cents += it.grossCents; g.n++;
-    if (it.resolved?.description) g.what.add(it.resolved.description);
+    if (label) g.what.add(label);
+    else if (it.resolved?.description) g.what.add(it.resolved.description);
     // An academy payment with no invoice is named, so it is never invoiced later.
     const kid = academy.includes(it) ? names.get(Number(it.resolved!.recordId)) : undefined;
     if (kid) g.kids.push(kid);
