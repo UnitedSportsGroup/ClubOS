@@ -440,7 +440,7 @@ export function setLetterhead(editor: Editor, id: string | null): void {
   const lh = LETTERHEADS.find((l) => l.id === id);
   if (!lh) return;
   body.append(
-    `<mj-section css-class="${LETTERHEAD_CLASS}" background-color="#ffffff" padding="28px 28px 4px"><mj-column><mj-image src="${lh.src}" alt="${lh.label}" width="${lh.width}px" align="left" padding="0" /></mj-column></mj-section>`,
+    `<mj-section css-class="${LETTERHEAD_CLASS}" background-color="#ffffff" padding="28px 28px 4px"><mj-column><mj-image src="${lh.src}" alt="${lh.label}" width="${lh.width}px" align="center" padding="0" /></mj-column></mj-section>`,
     { at: 0 },
   );
 }

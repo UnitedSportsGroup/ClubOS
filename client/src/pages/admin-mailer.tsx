@@ -612,7 +612,7 @@ export default function AdminMailer() {
               <SelectInput
                 value={senderId}
                 onChange={(e) => { senderTouched.current = true; if (e.target.value === "custom") setSenderId("custom"); else pickSender(e.target.value); }}
-                className="w-full sm:w-96"
+                className="premium-input h-11 w-full sm:w-96 rounded-md border border-white/10 px-3"
                 data-testid="select-sender"
               >
                 {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
