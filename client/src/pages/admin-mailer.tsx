@@ -13,6 +13,7 @@ import {
   List, ListOrdered, Link as LinkIcon, Image, Type, Palette,
   Eye, Loader2, CheckCircle2, AlertCircle, Upload, Heading1,
   Heading2, Minus, RotateCcw, Search,
+  Paperclip,
 } from "lucide-react";
 
 import { useWorkspace } from "@/lib/workspace-context";
@@ -128,6 +129,38 @@ export default function AdminMailer() {
     pickSender(defaultSenderFor(me.id).id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id]);
+
+  // Attachments — the same files go to every recipient, so the total is capped
+  // (server/mailer-attachments.ts says why). Read to base64 in the browser;
+  // the server re-checks type and size.
+  type Attachment = { filename: string; contentType: string; content: string; bytes: number };
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const ATTACH_MAX_BYTES = 7 * 1024 * 1024;
+  const attachedBytes = attachments.reduce((n, a) => n + a.bytes, 0);
+  const addFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = [...attachments];
+    for (const f of Array.from(files)) {
+      if (next.length >= 5) { toast({ title: "Up to 5 attachments", variant: "destructive" }); break; }
+      if (next.reduce((n, a) => n + a.bytes, 0) + f.size > ATTACH_MAX_BYTES) {
+        toast({ title: `"${f.name}" is too big`, description: "Attachments are capped at 7 MB in total, because every recipient gets a copy. Link to a bigger file instead.", variant: "destructive" });
+        continue;
+      }
+      const content = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(f);
+      });
+      next.push({ filename: f.name, contentType: f.type || "application/octet-stream", content, bytes: f.size });
+    }
+    setAttachments(next);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+  const attachmentPayload = attachments.length
+    ? attachments.map(({ filename, contentType, content }) => ({ filename, contentType, content }))
+    : undefined;
   const [hasEditorContent, setHasEditorContent] = useState(false);
   const { currentOrg } = useWorkspace();
   const brandKey = BRAND_BY_SLUG[currentOrg?.slug ?? ""] ?? "";
@@ -290,6 +323,7 @@ export default function AdminMailer() {
         body: bodyHtml,
         fromEmail,
         replyTo,
+        attachments: attachmentPayload,
       }),
     onSuccess: () =>
       toast({
@@ -311,6 +345,7 @@ export default function AdminMailer() {
         segmentType,
         segmentConfig,
         manualEmails: manualEmails.length > 0 ? manualEmails : undefined,
+        attachments: attachmentPayload,
       }),
     onSuccess: async (res) => {
       const data = await res.json();
@@ -328,6 +363,7 @@ export default function AdminMailer() {
       setBodyHtml("");
       setBodyDoc(null);
       setDesignSavedAt(null);
+      setAttachments([]);
       // Sent — the local copy has done its job.
       writeDraft(orgSlug, null);
       setRecoverable(null);
@@ -805,6 +841,50 @@ export default function AdminMailer() {
               </div>
             </div>
 
+            {/* Attachments — PDFs, images, documents; same files to everyone. */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5" data-testid="mailer-attachments-bar">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.ics"
+                className="hidden"
+                onChange={(e) => addFiles(e.target.files)}
+                data-testid="input-attachments"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-11 md:h-9 border-white/10 text-white/70 hover:bg-white/5"
+                data-testid="button-add-attachment"
+              >
+                <Paperclip className="w-4 h-4 mr-1.5" />
+                Attach a file
+              </Button>
+              {attachments.length === 0 ? (
+                <span className="text-xs text-white/30">PDFs, images, Word, Excel — up to 7 MB in total.</span>
+              ) : (
+                <>
+                  {attachments.map((a, i) => (
+                    <span key={`${a.filename}-${i}`} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] pl-3 text-xs text-white/80" data-testid={`attachment-${i}`}>
+                      {a.filename}
+                      <span className="ml-1.5 text-white/40">{a.bytes >= 1048576 ? `${(a.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(a.bytes / 1024))} KB`}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${a.filename}`}
+                        onClick={() => setAttachments((xs) => xs.filter((_, j) => j !== i))}
+                        className="px-2.5 min-h-11 md:min-h-9 text-white/30 hover:text-red-400"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <span className="text-xs text-white/40">{(attachedBytes / 1048576).toFixed(1)} of 7 MB</span>
+                </>
+              )}
+            </div>
+
             {/* 🔴 A fixed box the builder FILLS (fillParent), clipped so the
                 browser can never scroll it to chase the caret — the Save bar
                 sliding off the top on paste (Zach, 2026-09-30) was this box
@@ -895,6 +975,12 @@ export default function AdminMailer() {
                 <div className="text-xs text-white/40 mb-1">Reply To</div>
                 <div className="text-sm text-white/80" data-testid="text-review-reply">{replyTo}</div>
               </div>
+              {attachments.length > 0 && (
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                  <div className="text-xs text-white/40 mb-1">Attachments</div>
+                  <div className="text-sm text-white/80" data-testid="text-review-attachments">{attachments.map((a) => a.filename).join(", ")}</div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-white/10 overflow-hidden">

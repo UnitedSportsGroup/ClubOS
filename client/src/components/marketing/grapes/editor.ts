@@ -23,6 +23,7 @@ import "grapesjs/dist/css/grapes.min.css";
 import "./premium.css";
 import { registerBlocks } from "./blocks";
 import { registerClubBlocks } from "./club-blocks";
+import { LETTERHEADS } from "./letterheads";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
 import { installCleanPaste } from "./clean-paste";
 
@@ -427,6 +428,33 @@ export function exportResult(editor: Editor): EmailBuilderResult {
  * it into that component's content; otherwise drop a small text block into the
  * body so the tag is never lost.
  */
+const LETTERHEAD_CLASS = "clubos-letterhead";
+
+/** Put a letterhead at the very top of the email, replacing any earlier one;
+ *  null takes it away. Marked by a css-class so it is found again later. */
+export function setLetterhead(editor: Editor, id: string | null): void {
+  const wrapper = editor.getWrapper();
+  const body: any = wrapper?.find("mj-body")[0] ?? wrapper;
+  if (!body) return;
+  for (const c of body.components().filter((c: any) => c.getAttributes?.()["css-class"] === LETTERHEAD_CLASS)) c.remove();
+  const lh = LETTERHEADS.find((l) => l.id === id);
+  if (!lh) return;
+  body.append(
+    `<mj-section css-class="${LETTERHEAD_CLASS}" background-color="#ffffff" padding="28px 28px 4px"><mj-column><mj-image src="${lh.src}" alt="${lh.label}" width="${lh.width}px" align="left" padding="0" /></mj-column></mj-section>`,
+    { at: 0 },
+  );
+}
+
+/** Which letterhead the email currently carries, if any. */
+export function currentLetterhead(editor: Editor): string | null {
+  const wrapper = editor.getWrapper();
+  const body: any = wrapper?.find("mj-body")[0] ?? wrapper;
+  const sec = body?.components().find((c: any) => c.getAttributes?.()["css-class"] === LETTERHEAD_CLASS);
+  const img = sec?.find?.("mj-image")?.[0];
+  const src = img?.getAttributes?.().src;
+  return LETTERHEADS.find((l) => l.src === src)?.id ?? null;
+}
+
 export function insertMergeTag(editor: Editor, tag: string): void {
   const sel = editor.getSelected();
   const type = sel?.get("type");

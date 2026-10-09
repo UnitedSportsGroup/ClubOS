@@ -106,6 +106,7 @@ import {
   NZF_ETHNICITIES as NZF_ETHNICITY_OPTIONS,
 } from "@shared/academy";
 import { ageFromDob } from "@shared/family";
+import { readMailerAttachments } from "./mailer-attachments";
 import {
   NZF_COUNTRIES,
   NZF_ETHNICITY_GROUPS,
@@ -6524,8 +6525,12 @@ export async function registerRoutes(
       // sends the actual subject and body, through the same renderer as the
       // live send — merge tags resolved, unsubscribe footer attached — so what
       // lands in your inbox is what lands in theirs.
-      const { to, from: fromAddr, subject, body, replyTo } = req.body;
-      const senderEmail = fromAddr || "CUFC Camps <noreply@cufc.co.nz>";
+      const { to, from: fromAddr, fromEmail: fromChosen, subject, body, replyTo } = req.body;
+      // The page posts `fromEmail`; this read only `from`, so every test came
+      // from "CUFC Camps" whatever sender was chosen.
+      const senderEmail = fromChosen || fromAddr || "CUFC Camps <noreply@cufc.co.nz>";
+      const att = readMailerAttachments(req.body.attachments);
+      if (!att.ok) return res.status(400).json({ message: att.message });
       const dest = String(to || "").trim();
       if (!dest.includes("@")) return res.status(400).json({ message: "A test address is required" });
 
@@ -6558,6 +6563,9 @@ export async function registerRoutes(
           reply_to: replyTo || undefined,
           subject: hasCampaign ? `[TEST] ${applyMergeTagsText(String(subject || "(no subject)").trim(), testCtx)}` : "CUFC ClubOS — Test Email",
           html,
+          attachments: att.files.length
+            ? att.files.map((a) => ({ filename: a.filename, content: a.content, content_type: a.contentType }))
+            : undefined,
         }),
       });
       const result = await apiRes.json();
@@ -6578,6 +6586,10 @@ export async function registerRoutes(
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
       const validSegments = ["all", "camp", "day", "session", "custom"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
+      // Refused BEFORE a campaign row exists, so a bad file never leaves a
+      // half-made send in the history.
+      const att = readMailerAttachments(req.body.attachments);
+      if (!att.ok) return res.status(400).json({ message: att.message });
 
       // ONE decider for who this goes to and whose names ride on each address:
       // the parent's for {{first_name}}, the registered children's for
@@ -6678,6 +6690,7 @@ export async function registerRoutes(
             // Per recipient: merge tags resolved, an unsubscribe link
             // guaranteed even when the design forgot one, and the open pixel.
             html: renderForRecipient(body, ctx),
+            attachments: att.files.length ? att.files : undefined,
           });
           return ok;
         },

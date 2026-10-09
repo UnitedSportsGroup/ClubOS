@@ -15,7 +15,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Editor } from "grapesjs";
-import { createEmailEditor, exportResult, insertMergeTag } from "./grapes/editor";
+import { createEmailEditor, currentLetterhead, exportResult, insertMergeTag, setLetterhead } from "./grapes/editor";
 import type { EmailBuilderResult } from "./EmailBuilder";
 
 export interface EmailEditorSurfaceHandle {
@@ -30,6 +30,10 @@ export interface EmailEditorSurfaceHandle {
   isEditing: () => boolean;
   /** Finish the text edit in progress, so its words land in the design. */
   endEditing: () => void;
+  /** Put a letterhead at the top (null removes it). */
+  setLetterhead: (id: string | null) => void;
+  /** The letterhead the design carries now, if any. */
+  getLetterhead: () => string | null;
 }
 
 interface SurfaceProps {
@@ -98,6 +102,14 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
             const comp: any = (editorRef.current as any)?.getEditing?.();
             comp?.getView?.()?.disableEditing?.();
           } catch { /* nothing being edited */ }
+        },
+        setLetterhead: (id: string | null) => {
+          const editor = editorRef.current;
+          if (editor) { setLetterhead(editor, id); onDirtyRef.current?.(); }
+        },
+        getLetterhead: () => {
+          const editor = editorRef.current;
+          try { return editor ? currentLetterhead(editor) : null; } catch { return null; }
         },
         insertText: (text: string) => {
           const editor = editorRef.current;

@@ -24,6 +24,8 @@ import { getBrandMeta } from "./brand-themes";
 import TemplateGallery from "./TemplateGallery";
 import type { StarterTemplateDoc } from "./grapes/templates";
 import type { EmailEditorSurfaceHandle } from "./email-editor-surface";
+import { LETTERHEADS } from "./grapes/letterheads";
+import { SelectInput } from "@/components/ui/select-input";
 
 /** What the builder hands back on save: the doc (source of truth, persisted to
  *  mkt_templates.block_tree / campaign drafts) plus the compiled email-safe HTML
@@ -238,6 +240,18 @@ export default function EmailBuilder({
 
   const brand = getBrandMeta(brandKey);
 
+  // Letterhead picker. Read back from the design once it loads, so reopening an
+  // email shows the letterhead it already has.
+  const [letterhead, setLetterheadId] = useState<string>("none");
+  useEffect(() => {
+    const t = window.setTimeout(() => setLetterheadId(surfaceRef.current?.getLetterhead() ?? "none"), 1200);
+    return () => window.clearTimeout(t);
+  }, [surfaceKey]);
+  const chooseLetterhead = useCallback((id: string) => {
+    setLetterheadId(id);
+    surfaceRef.current?.setLetterhead(id === "none" ? null : id);
+  }, []);
+
   const insertTag = useCallback((tag: string) => {
     surfaceRef.current?.insertText(tag);
   }, []);
@@ -385,6 +399,20 @@ export default function EmailBuilder({
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {!isNarrow && chosen && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Letterhead:</span>
+              <SelectInput
+                value={letterhead}
+                onChange={(e) => chooseLetterhead(e.target.value)}
+                className="h-8 w-56 text-sm"
+                data-testid="mkt-letterhead"
+              >
+                <option value="none">None</option>
+                {LETTERHEADS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </SelectInput>
+            </div>
+          )}
           {!isNarrow && chosen && (
             <button
               type="button"
