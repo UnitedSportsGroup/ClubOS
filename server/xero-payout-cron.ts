@@ -12,6 +12,7 @@
 
 import { listRecentPayouts, PayoutNotSplittable } from "./xero-payout";
 import { planPayout, postPayout, isAlreadyPosted, markHandledByHand, findStripeDuplicates } from "./xero-payout-post";
+import { syncAcademyContacts } from "./xero-contact-profile";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -100,6 +101,24 @@ async function sweep() {
       dupes.slice(0, 8).map(d => `• ${d}`).join("\n") + (dupes.length > 8 ? `\n• …and ${dupes.length - 8} more` : ""));
   } catch (e: any) {
     console.error("[xero-payout] duplicate check failed:", e?.message ?? e);
+  }
+
+  // Every new "(A U…)" contact — one the poster raised an invoice for, or one Olga
+  // keyed by hand — gets its phone, address and other parent from ClubOS. Blanks
+  // only, never overwritten. Hourly: contacts touched in the last 3 hours (one
+  // Xero call when nothing changed). 3am NZ: every contact, for a child whose
+  // ClubOS registration landed AFTER Olga made their Xero contact.
+  try {
+    const nzHour = Number(new Intl.DateTimeFormat("en-NZ", { hour: "numeric", hour12: false, timeZone: "Pacific/Auckland" }).format(new Date()));
+    const full = nzHour === 3;
+    const rows = await syncAcademyContacts(1, { commit: true, since: full ? undefined : new Date(Date.now() - 3 * 3600_000) });
+    const filled = rows.filter(r => r.outcome === "filled");
+    const errors = rows.filter(r => r.outcome === "error");
+    if (filled.length) console.log(`[xero-contacts] filled ${filled.length}: ${filled.map(r => r.name).join(", ").slice(0, 400)}`);
+    if (errors.length) await notify(`⚠️ <b>Xero academy contacts — ${errors.length} could not be filled</b>\n\n` +
+      errors.slice(0, 6).map(r => `• ${r.name}: ${r.detail}`).join("\n"));
+  } catch (e: any) {
+    console.error("[xero-contacts] fill failed:", e?.message ?? e);
   }
 
   // 🔴 Silence is the failure mode here. A payout that refuses to post looks

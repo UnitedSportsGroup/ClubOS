@@ -202,12 +202,14 @@ export interface SyncRow { name: string; contactID: string; outcome: "filled" | 
  * Every "(A U…)" contact in Xero. Dry run unless commit. One GET for the list
  * (Xero pages contacts at 100), one PUT per contact that actually changes.
  */
-export async function syncAcademyContacts(orgId = 1, opts: { commit?: boolean; limit?: number } = {}): Promise<SyncRow[]> {
+export async function syncAcademyContacts(orgId = 1, opts: { commit?: boolean; limit?: number; since?: Date } = {}): Promise<SyncRow[]> {
   const { xero, tenantId } = await getXeroForOrg(orgId);
   const profiles = await academyProfiles();
   const contacts: any[] = [];
   for (let page = 1; page <= 50; page++) {
-    const r = await call(() => xero.accountingApi.getContacts(tenantId, undefined,
+    // `since` = Xero's If-Modified-Since: only contacts created or edited after it.
+    // The hourly sweep uses it so a quiet hour costs ONE Xero call.
+    const r = await call(() => xero.accountingApi.getContacts(tenantId, opts.since,
       `Name.StartsWith("(A ") AND ContactStatus=="ACTIVE"`, "Name", undefined, page));
     const got = r.body.contacts ?? [];
     contacts.push(...got);
