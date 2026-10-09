@@ -689,10 +689,10 @@ export default function GroupPayouts() {
                           </div>
                           <div className="sm:hidden text-[11px] text-white/30 mt-0.5">{l.when}</div>
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap hidden md:table-cell">
+                        <td className="px-4 py-2.5 max-w-[200px] break-words hidden md:table-cell">
                           {l.resolved?.player ?? l.payerName ?? <span className="text-white/25">—</span>}
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap hidden md:table-cell">
+                        <td className="px-4 py-2.5 max-w-[200px] break-words hidden md:table-cell">
                           {l.resolved?.parent ?? (l.resolved?.player ? <span className="text-white/25">—</span> : l.payerEmail ? <span className="text-white/40 text-[12px]">{l.payerEmail}</span> : <span className="text-white/25">—</span>)}
                         </td>
                         <td className={`px-4 py-2.5 text-right whitespace-nowrap hidden sm:table-cell ${l.grossCents < 0 ? "text-red-300" : ""}`}>
