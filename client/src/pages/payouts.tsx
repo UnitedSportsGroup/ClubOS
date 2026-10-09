@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatCurrency } from "@/lib/format";
+import { PAYOUT_GROUP_META, PAYOUT_GROUP_ORDER, type PayoutGroup } from "@shared/payout-groups";
 import {
   Banknote, ArrowLeft, ChevronRight, Download, Search as SearchIcon,
   AlertTriangle, RefreshCcw, ArrowUp, ArrowDown, ChevronsUpDown, Hourglass, Clock,
@@ -26,6 +27,23 @@ interface ResolvedRef {
   player: string | null;
   parent: string | null;
   detail: string | null;
+  /** Academy · Additional · Holiday camp · Leagues · Events… (shared/payout-groups.ts) */
+  group?: PayoutGroup;
+}
+
+/** The group a line is filed under — Stripe's own lines are "stripe", anything
+ *  the server could not match is "other" (read as "Not matched"). */
+function groupOf(l: PayoutLine): PayoutGroup {
+  return l.resolved?.group ?? (l.kind === "other" ? "stripe" : "other");
+}
+
+function GroupChip({ group }: { group: PayoutGroup }) {
+  const m = PAYOUT_GROUP_META[group];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${m.chip}`} data-testid={`chip-group-${group}`}>
+      {m.label}
+    </span>
+  );
 }
 
 interface PayoutLine {
@@ -316,6 +334,9 @@ export default function GroupPayouts() {
     return p && /^po_[A-Za-z0-9]+$/.test(p) ? p : null;
   });
   const [search, setSearch] = useState("");
+  // Daniel, 2026-10-09: the breakdown separated by kind — academy, additional,
+  // holiday camps, leagues, the dinner… A chip filters to one; null = all.
+  const [groupFilter, setGroupFilter] = useState<PayoutGroup | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
 
   const listUrl = `/api/admin/payouts?account=${account}${cursor ? `&starting_after=${cursor}` : ""}`;
@@ -339,13 +360,28 @@ export default function GroupPayouts() {
   const filteredLines = useMemo(() => {
     if (!detail) return [];
     const q = search.trim().toLowerCase();
-    if (!q) return detail.lines;
-    return detail.lines.filter((l) =>
+    const inGroup = groupFilter ? detail.lines.filter((l) => groupOf(l) === groupFilter) : detail.lines;
+    if (!q) return inGroup;
+    return inGroup.filter((l) =>
       [l.resolved?.programme, l.resolved?.player, l.resolved?.parent, l.resolved?.detail, l.payerName, l.payerEmail, l.description]
         .filter(Boolean)
         .some((v) => (v as string).toLowerCase().includes(q)),
     );
-  }, [detail, search]);
+  }, [detail, search, groupFilter]);
+
+  // Per-group count and money, over the WHOLE payout (not the search), so the
+  // strip always adds up to the payout above it.
+  const groupTotals = useMemo(() => {
+    const m = new Map<PayoutGroup, { count: number; grossCents: number; netCents: number }>();
+    for (const l of detail?.lines ?? []) {
+      const g = groupOf(l);
+      const t = m.get(g) ?? { count: 0, grossCents: 0, netCents: 0 };
+      t.count += 1; t.grossCents += l.grossCents; t.netCents += l.netCents;
+      m.set(g, t);
+    }
+    return PAYOUT_GROUP_ORDER.filter((g) => m.has(g)).map((g) => ({ group: g, ...m.get(g)! }));
+  }, [detail]);
+
 
   // Sort AFTER filtering, so search + sort compose. Stripe returns lines
   // newest-first, so "When" sorts by original position — the `when` string is
@@ -389,6 +425,18 @@ export default function GroupPayouts() {
       .map((x) => x.l);
   }, [filteredLines, sort]);
 
+  // The table reads in group order — a header per group, its rows in the
+  // chosen sort beneath it.
+  const groupedLines = useMemo(() => {
+    const by = new Map<PayoutGroup, PayoutLine[]>();
+    for (const l of sortedLines) {
+      const g = groupOf(l);
+      if (!by.has(g)) by.set(g, []);
+      by.get(g)!.push(l);
+    }
+    return PAYOUT_GROUP_ORDER.filter((g) => by.has(g)).map((g) => ({ group: g, lines: by.get(g)! }));
+  }, [sortedLines]);
+
   function toggleSort(key: SortKey) {
     setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: SORT_FIRST_DIR[key] }));
   }
@@ -399,13 +447,15 @@ export default function GroupPayouts() {
     setSelectedId(null);
     setSearch("");
     setSort(null);
+    setGroupFilter(null);
   }
 
   function downloadCsv() {
     if (!detail) return;
-    const header = ["When", "Type", "Programme", "Player", "Parent", "Detail", "Payer", "Payer email", "Gross", "Fee", "Net"];
+    const header = ["When", "Group", "Type", "Programme", "Player", "Parent", "Detail", "Payer", "Payer email", "Gross", "Fee", "Net"];
     const rows = detail.lines.map((l) => [
       l.when,
+      PAYOUT_GROUP_META[groupOf(l)].label,
       l.kind === "charge" ? (l.resolved ? SOURCE_LABEL[l.resolved.source] : "Payment") : l.kind === "refund" ? "Refund" : "Other",
       l.resolved?.programme ?? l.description ?? "",
       l.resolved?.player ?? "",
@@ -492,6 +542,36 @@ export default function GroupPayouts() {
               </div>
             ) : null}
 
+            {groupTotals.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3" data-testid="payout-group-strip">
+                <button
+                  type="button"
+                  onClick={() => setGroupFilter(null)}
+                  className={`rounded-xl border px-3 py-2 text-left min-h-11 ${groupFilter === null ? "border-emerald-500/40 bg-emerald-500/[0.06]" : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"}`}
+                  data-testid="button-group-all"
+                >
+                  <div className="text-[11px] uppercase tracking-wide text-white/45">All</div>
+                  <div className="text-sm font-semibold text-white/85">{detail.lines.length} · {formatCurrency(detail.lines.reduce((n, l) => n + l.netCents, 0), { fromCents: true })}</div>
+                </button>
+                {groupTotals.map((g) => (
+                  <button
+                    key={g.group}
+                    type="button"
+                    onClick={() => setGroupFilter((cur) => (cur === g.group ? null : g.group))}
+                    className={`rounded-xl border px-3 py-2 text-left min-h-11 ${groupFilter === g.group ? "border-emerald-500/40 bg-emerald-500/[0.06]" : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"}`}
+                    data-testid={`button-group-${g.group}`}
+                    title={`Show only ${PAYOUT_GROUP_META[g.group].label} — net after Stripe's fees`}
+                  >
+                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/55">
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full border ${PAYOUT_GROUP_META[g.group].dot}`} />
+                      {PAYOUT_GROUP_META[g.group].label}
+                    </div>
+                    <div className="text-sm font-semibold text-white/85">{g.count} · {formatCurrency(g.netCents, { fromCents: true })}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="relative mb-3">
               <SearchIcon className="w-4 h-4 text-white/25 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -560,7 +640,23 @@ export default function GroupPayouts() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedLines.map((l) => (
+                    {groupedLines.map(({ group, lines }) => (
+                      <Fragment key={group}>
+                      <tr className="bg-white/[0.025] border-b border-white/[0.06]" data-testid={`row-group-${group}`}>
+                        <td colSpan={7} className="px-4 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-white/70">
+                              <span className={`inline-block w-2.5 h-2.5 rounded-full border ${PAYOUT_GROUP_META[group].dot}`} />
+                              {PAYOUT_GROUP_META[group].label}
+                              <span className="font-normal normal-case tracking-normal text-white/40">{lines.length} {lines.length === 1 ? "line" : "lines"}</span>
+                            </span>
+                            <span className="text-[12.5px] font-semibold text-white/75">
+                              {formatCurrency(lines.reduce((n, l) => n + l.netCents, 0), { fromCents: true })} net
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    {lines.map((l) => (
                       <tr key={l.id} data-testid={`row-payout-line-${l.id}`} className="border-b border-white/[0.04] last:border-0">
                         <td className="px-4 py-2.5 whitespace-nowrap text-white/60 text-[13px] hidden sm:table-cell">{l.when}</td>
                         <td className="px-4 py-2.5 sm:min-w-[220px]">
@@ -571,6 +667,7 @@ export default function GroupPayouts() {
                             </span>
                           ) : l.resolved ? (
                             <div>
+                              <div className="mb-1"><GroupChip group={groupOf(l)} /></div>
                               <div className="text-white/85">{l.resolved.programme}</div>
                               <div className="text-[11px] text-white/35 mt-0.5">
                                 {SOURCE_LABEL[l.resolved.source]}
@@ -608,6 +705,8 @@ export default function GroupPayouts() {
                           {formatCurrency(l.netCents, { fromCents: true })}
                         </td>
                       </tr>
+                    ))}
+                      </Fragment>
                     ))}
                     {filteredLines.length === 0 ? (
                       <tr>

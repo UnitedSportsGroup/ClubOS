@@ -30,7 +30,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
 import type Stripe from "stripe";
-import { inArray, or } from "drizzle-orm";
+import { inArray, or, sql } from "drizzle-orm";
+import { registrationGroup, type PayoutGroup } from "@shared/payout-groups";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import { stripe } from "./stripe";
@@ -125,7 +126,16 @@ interface ResolvedRef {
   player: string | null;
   parent: string | null;
   detail: string | null;
+  /** Which part of the club — decided here, drawn as a badge on the page. */
+  group?: PayoutGroup;
 }
+
+/** A source's group when the matcher did not set a finer one. */
+const SOURCE_GROUP: Record<ResolvedRef["source"], PayoutGroup> = {
+  registration: "other", split: "league", membership: "membership", shop: "shop",
+  facility: "venue", print: "print", invoice: "invoice", cugc: "gymnastics",
+  adspace: "venue", stripe: "stripe",
+};
 
 const fullName = (c: { firstName: string | null; lastName: string | null } | undefined | null) =>
   c ? [c.firstName, c.lastName].filter(Boolean).join(" ") || null : null;
@@ -174,13 +184,15 @@ async function resolveClubByPaymentIntent(piIds: string[]) {
         .where(inArray(contacts.id, Array.from(contactIds)));
       const contactById = new Map(contactRows.map((c) => [c.id, c]));
       const programRows = await db
-        .select({ id: programs.id, name: programs.name })
+        .select({ id: programs.id, name: programs.name, type: programs.type, academySection: programs.academySection, organizationId: programs.organizationId })
         .from(programs)
         .where(inArray(programs.id, Array.from(programIds)));
       const programById = new Map(programRows.map((p) => [p.id, p.name]));
+      const programInfo = new Map(programRows.map((p) => [p.id, p]));
       for (const r of regs) {
         const ref: ResolvedRef = {
           source: "registration",
+          group: registrationGroup(programInfo.get(r.programId)),
           programme: programById.get(r.programId) ?? `Programme #${r.programId}`,
           player: fullName(contactById.get(r.contactId)),
           parent: r.guardianId ? fullName(contactById.get(r.guardianId)) : null,
@@ -292,6 +304,44 @@ async function resolveClubByPaymentIntent(piIds: string[]) {
     }
   }
 
+  // 8. Club events (the Club Dinner) and 9. Team Pay (Ethnic Cup, CIC 7's) —
+  // both were "Not matched to a ClubOS record" until 2026-10-09.
+  const unmatched = Array.from(new Set(piIds)).filter((pi) => !byPi.has(pi));
+  if (unmatched.length > 0) {
+    const ev: any = await db.execute(sql`
+      SELECT o.stripe_payment_intent_id AS pi, o.ref, o.quantity, o.buyer_name, e.name AS event_name, t.name AS ticket
+        FROM club_event_orders o JOIN club_events e ON e.id = o.event_id
+        LEFT JOIN club_event_ticket_types t ON t.id = o.ticket_type_id
+       WHERE o.stripe_payment_intent_id IN (${sql.join(unmatched.map((x) => sql`${x}`), sql`, `)})`);
+    for (const r of (ev.rows ?? ev) as any[]) {
+      byPi.set(r.pi, {
+        source: "shop", group: "event",
+        programme: `${r.event_name} — ${r.quantity} × ${r.ticket ?? "ticket"}`,
+        player: r.buyer_name ?? null, parent: null, detail: r.ref ?? null,
+      });
+    }
+    const left = unmatched.filter((pi) => !byPi.has(pi));
+    if (left.length > 0) {
+      const tp: any = await db.execute(sql`
+        SELECT tp.stripe_payment_intent_id AS pi, tp.name AS who, te.team_name, c.name AS comp
+          FROM teampay_players tp JOIN teampay_entries te ON te.id = tp.entry_id
+          LEFT JOIN teampay_competitions c ON c.id = te.competition_id
+         WHERE tp.stripe_payment_intent_id IN (${sql.join(left.map((x) => sql`${x}`), sql`, `)})
+        UNION ALL
+        SELECT te.team_stripe_payment_intent_id, NULL, te.team_name, c.name
+          FROM teampay_entries te LEFT JOIN teampay_competitions c ON c.id = te.competition_id
+         WHERE te.team_stripe_payment_intent_id IN (${sql.join(left.map((x) => sql`${x}`), sql`, `)})`);
+      for (const r of (tp.rows ?? tp) as any[]) {
+        if (!r.pi) continue;
+        byPi.set(r.pi, {
+          source: "split", group: "tournament",
+          programme: r.comp ?? "Team Pay",
+          player: r.who ?? null, parent: null, detail: r.team_name ? `Team ${r.team_name}` : null,
+        });
+      }
+    }
+  }
+
   return { byPi, bySubscription };
 }
 
@@ -344,14 +394,16 @@ async function resolveClubBySubscriptionIds(subIds: string[]): Promise<Map<strin
       .where(inArray(contacts.id, Array.from(contactIds)));
     const contactById = new Map(contactRows.map((c) => [c.id, c]));
     const programRows = await db
-      .select({ id: programs.id, name: programs.name })
+      .select({ id: programs.id, name: programs.name, type: programs.type, academySection: programs.academySection, organizationId: programs.organizationId })
       .from(programs)
       .where(inArray(programs.id, Array.from(programIds)));
     const programById = new Map(programRows.map((p) => [p.id, p.name]));
+      const programInfo = new Map(programRows.map((p) => [p.id, p]));
     for (const r of regs) {
       if (!r.stripeSubscriptionId) continue;
       bySub.set(r.stripeSubscriptionId, {
         source: "registration",
+        group: registrationGroup(programInfo.get(r.programId)),
         programme: programById.get(r.programId) ?? `Programme #${r.programId}`,
         player: fullName(contactById.get(r.contactId)),
         parent: r.guardianId ? fullName(contactById.get(r.guardianId)) : null,
@@ -461,12 +513,14 @@ async function resolveClubByMetadata(
       : [];
     const contactById = new Map(contactRows.map((c) => [c.id, c]));
     const programRows = programIds.size
-      ? await db.select({ id: programs.id, name: programs.name }).from(programs).where(inArray(programs.id, Array.from(programIds)))
+      ? await db.select({ id: programs.id, name: programs.name, type: programs.type, academySection: programs.academySection, organizationId: programs.organizationId }).from(programs).where(inArray(programs.id, Array.from(programIds)))
       : [];
     const programById = new Map(programRows.map((p) => [p.id, p.name]));
+      const programInfo = new Map(programRows.map((p) => [p.id, p]));
     for (const r of regs) {
       regById.set(r.id, {
         source: "registration",
+        group: registrationGroup(programInfo.get(r.programId)),
         programme: programById.get(r.programId) ?? `Programme #${r.programId}`,
         player: fullName(contactById.get(r.contactId)),
         parent: r.guardianId ? fullName(contactById.get(r.guardianId)) : null,
@@ -534,6 +588,10 @@ async function resolveClubByMetadata(
     if (ref) byCharge.set(u.chargeId, ref);
   }
   return byCharge;
+}
+
+function withGroup(r: ResolvedRef | null): ResolvedRef | null {
+  return r ? { ...r, group: r.group ?? SOURCE_GROUP[r.source] ?? "other" } : null;
 }
 
 /** The whole detail build — exported so script/_test-payouts.ts can exercise
@@ -701,7 +759,7 @@ export async function explainPayout(client: Stripe, account: AccountKey, id: str
       description: m.description,
       payerName: m.payerName,
       payerEmail: m.payerEmail,
-      resolved: (m.chargeId && resolvedByCharge.get(m.chargeId)) || null,
+      resolved: withGroup((m.chargeId && resolvedByCharge.get(m.chargeId)) || (m.paymentIntentId && byPi.get(m.paymentIntentId)) || null),
     })),
     ...other.map((t) => ({
       id: t.id,
@@ -713,7 +771,7 @@ export async function explainPayout(client: Stripe, account: AccountKey, id: str
       description: t.description ?? t.type,
       payerName: null,
       payerEmail: null,
-      resolved: describeOther(t),
+      resolved: withGroup(describeOther(t)),
     })),
   ];
 
