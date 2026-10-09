@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 
 import { useWorkspace } from "@/lib/workspace-context";
+import { SelectInput } from "@/components/ui/select-input";
+import { CUFC_MAILER_SENDERS, defaultSenderFor, senderFrom } from "@shared/mailer-senders";
 
 // The visual builder is a ~725KB GrapesJS bundle. Lazy so the Mailer's Setup
 // and Send steps stay light and it only streams in when you reach Content.
@@ -109,8 +111,23 @@ export default function AdminMailer() {
   const [selectedSession, setSelectedSession] = useState<string>("");
   const [manualEmails, setManualEmails] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
-  const [fromEmail, setFromEmail] = useState("CUFC Camps <noreply@cufc.co.nz>");
-  const [replyTo, setReplyTo] = useState("info@cufc.co.nz");
+  const [fromEmail, setFromEmail] = useState(senderFrom(CUFC_MAILER_SENDERS[0]));
+  const [replyTo, setReplyTo] = useState(CUFC_MAILER_SENDERS[0].email);
+  // "Send as": pre-selected from the person signed in (Zach → grassroots@,
+  // Olga → accounts@), changeable, with "Custom" keeping the free-text fields.
+  const [senderId, setSenderId] = useState<string>(CUFC_MAILER_SENDERS[0].id);
+  const senderTouched = useRef(false);
+  const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
+  const pickSender = (id: string) => {
+    setSenderId(id);
+    const s = CUFC_MAILER_SENDERS.find((x) => x.id === id);
+    if (s) { setFromEmail(senderFrom(s)); setReplyTo(s.email); }
+  };
+  useEffect(() => {
+    if (senderTouched.current || me?.id == null) return;
+    pickSender(defaultSenderFor(me.id).id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id]);
   const [hasEditorContent, setHasEditorContent] = useState(false);
   const { currentOrg } = useWorkspace();
   const brandKey = BRAND_BY_SLUG[currentOrg?.slug ?? ""] ?? "";
@@ -554,14 +571,26 @@ export default function AdminMailer() {
 
           <div className="glass-card rounded-2xl p-6 space-y-4">
             <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Sender Details</h2>
+            <div>
+              <label className="text-xs text-white/40 mb-1.5 block">Send as</label>
+              <SelectInput
+                value={senderId}
+                onChange={(e) => { senderTouched.current = true; if (e.target.value === "custom") setSenderId("custom"); else pickSender(e.target.value); }}
+                className="w-full sm:w-96"
+                data-testid="select-sender"
+              >
+                {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                <option value="custom">Custom…</option>
+              </SelectInput>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-white/40 mb-1.5 block">From Email</label>
-                <Input value={fromEmail} onChange={e => setFromEmail(e.target.value)} className="premium-input text-white/80" data-testid="input-from-email" />
+                <label className="text-xs text-white/40 mb-1.5 block">From</label>
+                <Input value={fromEmail} readOnly={senderId !== "custom"} onChange={e => setFromEmail(e.target.value)} className="premium-input text-white/80" data-testid="input-from-email" />
               </div>
               <div>
-                <label className="text-xs text-white/40 mb-1.5 block">Reply-To</label>
-                <Input value={replyTo} onChange={e => setReplyTo(e.target.value)} className="premium-input text-white/80" data-testid="input-reply-to" />
+                <label className="text-xs text-white/40 mb-1.5 block">Replies go to</label>
+                <Input value={replyTo} readOnly={senderId !== "custom"} onChange={e => setReplyTo(e.target.value)} className="premium-input text-white/80" data-testid="input-reply-to" />
               </div>
             </div>
           </div>
