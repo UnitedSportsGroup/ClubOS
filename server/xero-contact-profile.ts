@@ -221,6 +221,8 @@ export async function syncAcademyContacts(orgId = 1, opts: { commit?: boolean; l
     const p = profilePatch(xc, m.profile);
     if (!p) { out.push({ name, contactID: xc.contactID, outcome: "complete", detail: "" }); continue; }
     if (opts.commit) {
+      // Xero allows 60 calls a minute per tenant, shared with the payout sweep.
+      await new Promise((r) => setTimeout(r, 1100));
       try {
         await call(() => xero.accountingApi.updateContact(tenantId, xc.contactID, { contacts: [{ contactID: xc.contactID, ...p.patch }] }));
       } catch (e: any) {
