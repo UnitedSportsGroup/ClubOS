@@ -4041,6 +4041,23 @@ export async function registerRoutes(
     }
   });
 
+  // Every academy term this club has ever run — Friendly Manager, Xero and
+  // ClubOS on one timeline (@shared/term-programme-history). Same gate as the
+  // holiday camp history: the programme must be in the caller's scope.
+  app.get("/api/admin/camps/:id/term-history", requireAuth, async (req, res) => {
+    try {
+      const prog = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!prog || prog.scheduleType !== "term") return res.status(404).json({ message: "Programme not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, prog.organizationId)) return res.status(404).json({ message: "Programme not found" });
+      const { termProgrammeHistory } = await import("./term-programme-history");
+      res.json(await termProgrammeHistory(prog.organizationId!, { slug: prog.slug ?? null, name: prog.name }));
+    } catch (error: any) {
+      console.error("[term-history]", error);
+      res.status(500).json({ message: "Couldn't build the term history." });
+    }
+  });
+
   app.patch("/api/admin/camps/:id", requireAuth, async (req, res) => {
     try {
       const camp = await storage.updateProgram(parseInt(req.params.id), req.body);

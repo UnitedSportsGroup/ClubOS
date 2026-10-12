@@ -1,0 +1,22 @@
+import { classifyTermRow, type TermHistoryRow } from "../shared/term-programme-history";
+let f = 0;
+const row = (o: Partial<TermHistoryRow>): TermHistoryRow => ({ id: 1, source: "xero", first_name: "A", last_name: "B", fee_description: null, programme: null, term_name: null, season_year: null, paid_on: "2025-02-01", amount_cents: 16000, ...o });
+const exp = (o: Partial<TermHistoryRow>, stream: string | null, period: string | null, label: string) => {
+  const c = classifyTermRow(row(o));
+  const got = c.include ? `${c.stream} ${c.period}` : `out`;
+  const want = stream ? `${stream} ${period}` : "out";
+  const ok = got === want; if (!ok) f++;
+  console.log(`${ok ? "✓" : "✗"} ${label}: ${got}${ok ? "" : ` (want ${want})`}`);
+};
+exp({ programme: "FUNiño", fee_description: "FS 2024 - Term 4", term_name: "Term 4 2024" }, "funino", "2024-t4", "Xero FS invoice");
+exp({ source: "friendly_manager", programme: "Pre Academy U9-U12:: U11 Term 1 (Birth Year - 2015)", fee_description: "Term 1 2026 - Pre Academy U9-U12:: U11 Term 1 (Birth Year - 2015)", term_name: "Term 1 2026" }, "pre_academy", "2026-t1", "birth year is not the term year");
+exp({ programme: "Levies", fee_description: "2026 U11/U12 - Term 2 & MF Levies", term_name: "Term 2 2026" }, "pre_academy", "2026-t2", "levies bundle = academy fee");
+exp({ programme: "Academy / Pre-Academy", fee_description: "2026 U13-Term 2 & MF Leives" }, "academy", "2026-t2", "U13 → Academy");
+exp({ programme: "Academy / Pre-Academy", fee_description: "2019 - Academy: U 9 - whole year invoice", paid_on: "2019-02-01" }, "pre_academy", "2019-yr", "whole year stays a year");
+exp({ programme: "Technification", fee_description: "2024 Technification - T4" }, "technification", "2024-t4", "Technification T4");
+exp({ source: "friendly_manager", programme: "U4-8 Players: Unlimited Play", term_name: "Term 1", paid_on: "2024-12-20" }, "funino", "2025-t1", "Term 1 paid in December = next year");
+exp({ programme: "Residency", fee_description: "Residency T1 2025" }, null, null, "residency out");
+exp({ programme: "Payment", fee_description: "Payment" }, null, null, "bare payment out");
+exp({ programme: "Summer Fundamentals Holiday Programme (U4-U8)" }, null, null, "holiday camp out");
+exp({ programme: "Uniform / kit", fee_description: "2023 - Uniform package" }, null, null, "uniform out");
+console.log(f ? `${f} FAILED` : "all passed"); process.exit(f ? 1 : 0);
