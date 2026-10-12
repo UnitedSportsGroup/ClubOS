@@ -2603,6 +2603,9 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
   // show if term 3 selector is selected." Same `?term=` the tiles and the
   // Players tab read, so the three never disagree.
   const { term: activeTerm, setTerm, terms: termChips, ready: termReady } = useActiveTerm(campId);
+  // Upcoming (today on top) vs Past — Zach, 2026-10-13: finding today's roll
+  // meant scrolling past every session that had already happened.
+  const [when, setWhen] = useState<"upcoming" | "past">("upcoming");
 
   const { data: allSessions, isLoading } = useQuery<(SessionSummary & { termId?: number | null; name?: string | null; startTime?: string | null; endTime?: string | null })[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
@@ -2625,9 +2628,11 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
   // A session is in the chosen term when its own DATE is (the server says
   // which). "all" shows everything; "none" shows sessions outside every term.
   const filterOn = isTermMode && activeTerm !== "all";
-  const sessions = filterOn
+  const inTerm = filterOn
     ? allSessions.filter(s => activeTerm === "none" ? s.termId == null : String(s.termId ?? "") === activeTerm)
     : allSessions;
+  const pastCount = inTerm.filter(s => s.isPast).length;
+  const sessions = isTermMode ? inTerm.filter(s => (when === "past" ? !!s.isPast : !s.isPast)) : inTerm;
   const sessionTermIds = new Set(allSessions.map(s => s.termId).filter((t): t is number => t != null));
   // Chips: every term that has registrations OR sessions, newest first.
   const chips = termChips.filter(t => t.id == null ? allSessions.some(s => s.termId == null) : true);
@@ -2665,11 +2670,31 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
     </div>
   );
 
+  const whenPicker = isTermMode && (
+    <div className="inline-flex rounded-lg border border-white/[0.08] p-0.5" data-testid="sessions-when">
+      {(["upcoming", "past"] as const).map(w => (
+        <button
+          key={w}
+          onClick={() => setWhen(w)}
+          className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all cursor-pointer ${
+            when === w ? "bg-blue-500/15 text-blue-400" : "text-white/45 hover:text-white/70"}`}
+          data-testid={`sessions-when-${w}`}
+        >
+          {w === "upcoming" ? "Upcoming" : `Past${pastCount ? ` (${pastCount})` : ""}`}
+        </button>
+      ))}
+    </div>
+  );
+
   if (sessions.length === 0) {
     return (
       <div className="space-y-4">
         {termPicker}
-        <p className="text-[13px] text-white/40 text-center py-8" data-testid="sessions-empty-term">No sessions in this term yet.</p>
+        {whenPicker}
+        <p className="text-[13px] text-white/40 text-center py-8" data-testid="sessions-empty-term">
+          {inTerm.length === 0 ? "No sessions in this term yet."
+            : when === "upcoming" ? "No more sessions this term — they're under Past." : "No past sessions in this term yet."}
+        </p>
       </div>
     );
   }
@@ -2688,13 +2713,15 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
     return (
       <div className="space-y-4">
         {termPicker}
+        {whenPicker}
         <SessionLegend />
-        {Object.entries(weeks).map(([weekLabel, weekSessions]) => {
+        {(when === "past" ? Object.entries(weeks).reverse() : Object.entries(weeks)).map(([weekLabel, weekSessions]) => {
           const weekDone = weekSessions.filter(s => sessionState(s) === "done").length;
           const weekMissed = weekSessions.filter(s => sessionState(s) === "missed").length;
           const sorted = [...weekSessions].sort((a, b) => {
-            if (a.date !== b.date) return a.date.localeCompare(b.date);
-            return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+            const c = a.date !== b.date ? a.date.localeCompare(b.date) : (a.startTime ?? "").localeCompare(b.startTime ?? "");
+            // Past reads newest first — the session you just ran is at the top.
+            return when === "past" ? -c : c;
           });
 
           return (
