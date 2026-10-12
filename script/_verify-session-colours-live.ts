@@ -17,7 +17,7 @@ import bcrypt from "bcryptjs";
 
 const BASE = process.env.VERIFY_BASE ?? "https://app.usg.co.nz";
 const WS = "christchurch-united";
-const CAMP = 4;                       // FUNiño — First Kicks
+const CAMP = Number(process.env.VERIFY_CAMP ?? 4); // default FUNiño — First Kicks
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
 let pass = 0, fail = 0;

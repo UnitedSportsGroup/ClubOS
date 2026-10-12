@@ -467,6 +467,11 @@ app.use(attributionCookieMiddleware);
   const { startReminderCron } = await import("./calendar-invites");
   startReminderCron();
 
+  // Term programmes: make next term's sessions (and so its roll) exist on
+  // their own, from each programme's saved weekly pattern. Insert-only.
+  const { startTermSessionsCron } = await import("./term-sessions-cron");
+  startTermSessionsCron();
+
   // MFL instalments: charge scheduled team-registration balances on their due date.
   const { startLeagueBalanceCron } = await import("./league-balance-cron");
   startLeagueBalanceCron();
