@@ -1589,6 +1589,9 @@ export class DatabaseStorage implements IStorage {
           productType: "SESSION",
           bookedCount: totalCount + cohort,
           capacity: d.capacityFullDay || 0,
+          // The term this session's DATE falls in — so the Sessions tab can show
+          // one term at a time (Daniel, 2026-10-12: "don't show old ones").
+          termId: t,
           name: d.name,
           startTime: d.startTime,
           endTime: d.endTime,

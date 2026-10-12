@@ -2597,8 +2597,13 @@ function SessionLegend() {
 
 function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any; detailPath: string }) {
   const [, navigate] = useLocation();
+  // 🔴 ONE TERM AT A TIME. Daniel, 2026-10-12, of FUNiño opening on July's
+  // sessions on the first day of Term 4: "don't show old ones — make them only
+  // show if term 3 selector is selected." Same `?term=` the tiles and the
+  // Players tab read, so the three never disagree.
+  const { term: activeTerm, setTerm, terms: termChips, ready: termReady } = useActiveTerm(campId);
 
-  const { data: sessions, isLoading } = useQuery<(SessionSummary & { name?: string | null; startTime?: string | null; endTime?: string | null })[]>({
+  const { data: allSessions, isLoading } = useQuery<(SessionSummary & { termId?: number | null; name?: string | null; startTime?: string | null; endTime?: string | null })[]>({
     queryKey: ["/api/admin/camps", campId, "sessions-summary"],
     queryFn: async () => {
       const res = await workspaceFetch(`/api/admin/camps/${campId}/sessions-summary`);
@@ -2607,15 +2612,66 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
     },
   });
 
-  if (isLoading) {
+  if (isLoading || !termReady) {
     return <Skeleton className="h-64 w-full rounded-xl bg-blue-500/[0.04]" />;
   }
 
-  if (!sessions || sessions.length === 0) {
+  if (!allSessions || allSessions.length === 0) {
     return <p className="text-[13px] text-white/25 text-center py-8">No sessions available. Add dates first.</p>;
   }
 
   const isTermMode = camp?.scheduleType === "term";
+  // A session is in the chosen term when its own DATE is (the server says
+  // which). "all" shows everything; "none" shows sessions outside every term.
+  const filterOn = isTermMode && activeTerm !== "all";
+  const sessions = filterOn
+    ? allSessions.filter(s => activeTerm === "none" ? s.termId == null : String(s.termId ?? "") === activeTerm)
+    : allSessions;
+  const sessionTermIds = new Set(allSessions.map(s => s.termId).filter((t): t is number => t != null));
+  // Chips: every term that has registrations OR sessions, newest first.
+  const chips = termChips.filter(t => t.id == null ? allSessions.some(s => s.termId == null) : true);
+  for (const id of Array.from(sessionTermIds)) {
+    if (!chips.some(c => c.id === id)) chips.push({ id, label: `Term`, year: null, termNumber: null, count: 0, totalCents: 0, isProgrammeTerm: false });
+  }
+  const termPicker = isTermMode && chips.length > 0 && (
+    <div className="flex items-center gap-1.5 flex-wrap" data-testid="sessions-filter-terms">
+      {chips.map(t => {
+        const key = t.id == null ? "none" : String(t.id);
+        const on = activeTerm === key;
+        const n = allSessions.filter(s => key === "none" ? s.termId == null : String(s.termId ?? "") === key).length;
+        return (
+          <button
+            key={key}
+            onClick={() => setTerm(key)}
+            className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+              on ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                 : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"}`}
+            data-testid={`sessions-filter-term-${key}`}
+          >
+            {t.label}<span className="ml-1.5 text-white/30">{n} session{n === 1 ? "" : "s"}</span>
+          </button>
+        );
+      })}
+      <button
+        onClick={() => setTerm("all")}
+        className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer border ${
+          activeTerm === "all" ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                               : "text-white/45 border-white/[0.08] hover:text-white/70 hover:bg-white/[0.03]"}`}
+        data-testid="sessions-filter-term-all"
+      >
+        All terms <span className="ml-1.5 text-white/30">{allSessions.length}</span>
+      </button>
+    </div>
+  );
+
+  if (sessions.length === 0) {
+    return (
+      <div className="space-y-4">
+        {termPicker}
+        <p className="text-[13px] text-white/40 text-center py-8" data-testid="sessions-empty-term">No sessions in this term yet.</p>
+      </div>
+    );
+  }
 
   // Term-mode: each row is one session (one camp_date) — no morning/afternoon
   // split. Group by week so 70 sessions across a 10-week term don't render
@@ -2630,6 +2686,7 @@ function SessionsTab({ campId, camp, detailPath }: { campId: number; camp?: any;
 
     return (
       <div className="space-y-4">
+        {termPicker}
         <SessionLegend />
         {Object.entries(weeks).map(([weekLabel, weekSessions]) => {
           const weekDone = weekSessions.filter(s => sessionState(s) === "done").length;
