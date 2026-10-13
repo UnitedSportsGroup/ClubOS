@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { CoachOverview } from "@/components/coach-overview";
 import { CampHistoryTab } from "@/components/camp-history-tab";
-import { TermHistoryTab } from "@/components/term-history-tab";
+import { TermHistoryTab, PriceHistory } from "@/components/term-history-tab";
 import { CoachAttendanceTab } from "@/components/coach-attendance-tab";
 import { streamForProgramme } from "@shared/term-programme-history";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -3232,7 +3232,9 @@ export default function AdminCampDetail() {
         {view === "attendance" && <CoachAttendanceTab campId={campId} />}
         {view === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {view === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
-        {view === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}
+        {view === "pricing" && (camp.scheduleType === "term"
+          ? <div className="space-y-5"><ClassPricingTab campId={campId} camp={camp} /><PriceHistory campId={campId} /></div>
+          : <PricingTab campId={campId} />)}
         {view === "email" && <EmailTab campId={campId} />}
         {view === "performance" && <PerformanceTab campId={campId} />}
         {view === "history" && (camp?.scheduleType === "term" ? <TermHistoryTab campId={campId} /> : <CampHistoryTab campId={campId} />)}

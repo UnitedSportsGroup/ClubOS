@@ -258,3 +258,94 @@ function Stat({ label, value, sub, change }: { label: string; value: string; sub
     </div>
   );
 }
+
+// ── Price history (Pricing tab) ────────────────────────────────────────────
+// Daniel, 2026-10-14: "time selectors to be able to see price history over time
+// and how it's changed for our database records". Read from the same rows as
+// the History tab — Friendly Manager, Xero and ClubOS — so the two agree.
+type PriceAmount = { cents: number; count: number; sources: string[]; part: boolean };
+type PriceGroup = { group: string; feeCents: number; feeCount: number; payments: number; amounts: PriceAmount[] };
+type PricePeriod = { key: string; title: string; year: number; groups: PriceGroup[] };
+
+
+export function PriceHistory({ campId }: { campId: number }) {
+  const { data, isLoading } = useQuery<{ priceHistory?: PricePeriod[] }>({
+    queryKey: ["/api/admin/camps", campId, "term-history"],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/camps/${campId}/term-history`);
+      if (!res.ok) throw new Error("Couldn't load the price history");
+      return res.json();
+    },
+  });
+  const periods = data?.priceHistory ?? [];
+  const years = Array.from(new Set(periods.map((p) => p.year))).sort((a, b) => b - a);
+  const [year, setYear] = useState<number | "all" | null>(null);
+  const active = year ?? (years[0] ?? "all");
+  const shown = periods.filter((p) => active === "all" || p.year === active);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  if (isLoading) return <div className="text-sm text-white/40 py-6">Loading price history…</div>;
+  if (periods.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-white/[0.08] p-4 sm:p-5 space-y-4" data-testid="price-history">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-white">Price history</div>
+          <div className="text-[12px] text-white/45">What families were actually charged each term, from Friendly Manager, Xero and ClubOS. The fee is the most common full payment; smaller amounts are pro-rata, discounts or instalments.</div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="price-history-years">
+          {years.map((y) => (
+            <button key={y} onClick={() => setYear(y)} data-testid={`price-year-${y}`}
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border cursor-pointer ${active === y ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "text-white/45 border-white/[0.08] hover:text-white/70"}`}>{y}</button>
+          ))}
+          <button onClick={() => setYear("all")} data-testid="price-year-all"
+            className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border cursor-pointer ${active === "all" ? "bg-blue-500/15 text-blue-400 border-blue-500/25" : "text-white/45 border-white/[0.08] hover:text-white/70"}`}>All years</button>
+        </div>
+      </div>
+
+      <div className="divide-y divide-white/[0.06]">
+        {shown.map((p) => {
+          const total = p.groups.reduce((n, g) => n + g.payments, 0);
+          // A handful of stray amounts under an odd label is noise, not a price.
+          const main = p.groups.filter((g) => g.feeCount >= 3 || g.payments >= total * 0.1);
+          const minor = p.groups.filter((g) => !main.includes(g));
+          const open = openKey === p.key;
+          return (
+            <div key={p.key} className="py-3" data-testid="price-period">
+              <button onClick={() => setOpenKey(open ? null : p.key)} className="w-full flex flex-wrap items-baseline gap-x-5 gap-y-2 text-left cursor-pointer">
+                <span className="w-36 shrink-0 text-[13px] font-medium text-white/80">{p.title}</span>
+                <span className="flex flex-wrap gap-2 flex-1">
+                  {(main.length ? main : p.groups).map((g) => (
+                    <span key={g.group} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[12.5px]">
+                      <span className="text-white/50">{g.group}</span> <span className="font-semibold text-white">{formatCurrency(g.feeCents / 100)}</span>
+                      <span className="text-white/35"> · {g.feeCount} paid</span>
+                    </span>
+                  ))}
+                </span>
+                <span className="text-[11.5px] text-blue-400/80">{open ? "Hide" : "Every amount"}</span>
+              </button>
+              {open && (
+                <div className="mt-3 ml-0 sm:ml-36 space-y-2 text-[12.5px]">
+                  {[...main, ...minor].map((g) => (
+                    <div key={g.group}>
+                      <div className="text-white/60 font-medium">{g.group} <span className="text-white/35 font-normal">· {g.payments} payment{g.payments === 1 ? "" : "s"}</span></div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {g.amounts.map((a) => (
+                          <span key={a.cents} title={a.sources.map((s) => (SOURCE_LABEL as Record<string, string>)[s] ?? s).join(", ")}
+                            className={`rounded px-2 py-0.5 ${a.cents === g.feeCents ? "bg-blue-500/10 text-blue-400" : "bg-white/[0.04] text-white/55"}`}>
+                            {formatCurrency(a.cents / 100)} ×{a.count}{a.part ? " · part" : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

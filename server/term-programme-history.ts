@@ -33,13 +33,33 @@ export async function termProgrammeHistory(orgId: number, programme: { slug: str
     if (person) { cell.people.add(person); e.people.add(person); }
   };
 
+  // PRICE HISTORY (Daniel, 2026-10-14: "see price history over time … for our
+  // database records"). What families were actually charged for THIS
+  // programme, per term and age group, from the same rows as the money above.
+  // 🔴 The most common amount in a term is its fee; anything else is pro-rata,
+  // a discount or a part-payment — shown, never averaged into the fee.
+  const thisStream = streamForProgramme(programme.slug, programme.name);
+  const prices = new Map<string, Map<string, Map<number, { n: number; sources: Set<Source> }>>>();
+  const price = (k: string, s: TermStream, group: string, src: Source, cents: number) => {
+    if (s !== thisStream || cents <= 0) return;
+    let byGroup = prices.get(k); if (!byGroup) prices.set(k, (byGroup = new Map()));
+    let byAmt = byGroup.get(group); if (!byAmt) byGroup.set(group, (byAmt = new Map()));
+    const e = byAmt.get(cents) ?? { n: 0, sources: new Set<Source>() };
+    e.n++; e.sources.add(src); byAmt.set(cents, e);
+  };
+  const ageGroupOf = (t: string | null | undefined) => {
+    const m = /\bu\s?(\d{1,2})(?:\s?(?:[-–\/]|to)\s?u?\s?(\d{1,2}))?\b/i.exec(t ?? "");
+    return m ? (m[2] ? `U${m[1]}–U${m[2]}` : `U${m[1]}`) : "All ages";
+  };
+
   // ClubOS's own term registrations. A migrated one (legacy_source set) is the
   // same money as a history row with that fee number — ClubOS's copy wins.
   const own: any = await db.execute(sql`
     SELECT p.slug, p.name, r.id AS reg_id, r.total_cents, r.legacy_external_id,
            t.year, t.term_number, r.registered_at::date::text AS registered_on,
-           c.first_name, c.last_name
+           c.first_name, c.last_name, po.name AS option_name
     FROM registrations r
+    LEFT JOIN program_options po ON po.id = r.program_option_id
     JOIN programs p ON p.id = r.program_id
     LEFT JOIN terms t ON t.id = r.term_id
     LEFT JOIN contacts c ON c.id = r.contact_id
@@ -54,6 +74,7 @@ export async function termProgrammeHistory(orgId: number, programme: { slug: str
     const named = r.year && r.term_number;
     const k = named ? `${r.year}-t${r.term_number}` : termForPaidDate(r.registered_on ?? today);
     add(k, s, "clubos", cents, personKey(r.first_name, r.last_name) ?? `r:${r.reg_id}`, !named);
+    price(k, s, ageGroupOf(r.option_name), "clubos", cents);
   }
 
   // Friendly Manager and Xero (the history import).
@@ -92,6 +113,7 @@ export async function termProgrammeHistory(orgId: number, programme: { slug: str
     if (r.fee_number && migrated.has(r.fee_number)) continue; // counted from ClubOS
     if (dupes.has(r.id)) { skip("Recorded twice (a Friendly Manager payment and a Xero invoice) — counted once", r.amount_cents); continue; }
     add(c.period, c.stream, r.source as Source, r.amount_cents, personKey(r.first_name, r.last_name), c.how === "paid_date");
+    price(c.period, c.stream, ageGroupOf([r.programme, r.fee_description].filter(Boolean).join(" ")), r.source as Source, r.amount_cents);
   }
 
   const current = termForPaidDate(today);
@@ -111,9 +133,32 @@ export async function termProgrammeHistory(orgId: number, programme: { slug: str
     };
   });
 
+  const priceHistory = Array.from(prices.entries())
+    .sort((a, b) => periodOrder(b[0]) - periodOrder(a[0]))
+    .map(([k, byGroup]) => ({
+      key: k, title: periodTitle(k), year: periodYear(k),
+      groups: Array.from(byGroup.entries()).map(([group, byAmt]) => {
+        const amounts = Array.from(byAmt.entries()).map(([cents, e]) => ({ cents, count: e.n, sources: Array.from(e.sources) }))
+          .sort((a, b) => b.count - a.count || b.cents - a.cents);
+        // 🔴 Academy was paid in weekly instalments ($50, $70, $72.90), which
+        // outnumber full fees — so the fee is the most common FULL-SIZE amount
+        // (≥40% of the largest repeated one), and the small ones are labelled
+        // part-payments rather than read as the price.
+        const repeated = amounts.filter((a) => a.count >= 2);
+        const ceiling = Math.max(...(repeated.length ? repeated : amounts).map((a) => a.cents));
+        const fee = amounts.find((a) => a.cents >= ceiling * 0.4) ?? amounts[0];
+        return {
+          group, feeCents: fee.cents, feeCount: fee.count,
+          payments: amounts.reduce((n, a) => n + a.count, 0),
+          amounts: amounts.map((a) => ({ ...a, part: a.cents < fee.cents * 0.4 })),
+        };
+      }).sort((a, b) => a.group.localeCompare(b.group, undefined, { numeric: true })),
+    }));
+
   return {
     today,
-    thisStream: streamForProgramme(programme.slug, programme.name),
+    thisStream,
+    priceHistory,
     periods,
     excluded: Array.from(excluded.entries()).map(([reason, v]) => ({ reason, ...v })).sort((a, b) => b.cents - a.cents),
   };
