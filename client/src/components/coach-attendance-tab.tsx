@@ -48,11 +48,12 @@ function useParam(name: string): [string | undefined, (v: string | null) => void
   return [value, set];
 }
 
-export function CoachAttendanceTab({ campId }: { campId: number }) {
+export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boolean }) {
   const [termParam, setTerm] = useParam("aterm");
   const [teamParam, setTeam] = useParam("ateam");
+  const [modeParam, setMode] = useParam("aview");
   const [find, setFind] = useState("");
-  const [showUpcoming, setShowUpcoming] = useState(false);
+  const [when, setWhen] = useState<"upcoming" | "past">("past");
 
   const { data, isLoading, isFetching, dataUpdatedAt, refetch, error } = useQuery<Resp>({
     queryKey: [`/api/admin/camps/${campId}/coach-attendance`, termParam ?? "auto"],
@@ -65,18 +66,9 @@ export function CoachAttendanceTab({ campId }: { campId: number }) {
   });
 
   const teams = data && data.connected ? data.teams : [];
-  const q = find.trim().toLowerCase();
-  const visibleChips = teams.filter((t) => !q || t.name.toLowerCase().includes(q) || t.players.some((p) => p.name.toLowerCase().includes(q)));
-  const selected = teamParam ? teams.filter((t) => t.id === teamParam) : visibleChips;
-
-  const totals = useMemo(() => {
-    let due = 0, taken = 0, present = 0, marked = 0;
-    for (const t of selected) for (const s of t.sessions) {
-      if (s.past || s.today) { if (s.planned || s.taken) due++; if (s.taken) taken++; }
-      present += s.present; marked += s.present + s.absent + s.injured;
-    }
-    return { due, taken, present, marked };
-  }, [selected]);
+  // One group only (Technification, U4–U8) — no point asking which.
+  const team = teams.find((t) => t.id === teamParam) ?? (teams.length === 1 ? teams[0] : null);
+  const mode = modeParam === "players" ? "players" : "sessions";
 
   if (isLoading) return <div className="py-16 text-center text-white/40 text-sm">Loading attendance from the coaching platform…</div>;
   if (error) return <div className="py-16 text-center text-red-400 text-sm">Couldn't load attendance: {(error as Error).message}</div>;
@@ -101,80 +93,165 @@ export function CoachAttendanceTab({ campId }: { campId: number }) {
         {termChips}
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4 text-sm text-amber-300 flex gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>Attendance can't be shown right now — {data.reason} Nothing here is a guess: until the coaching platform answers, this tab shows nothing rather than an empty roll.</span>
+          <span>Attendance can't be shown right now — {data.reason} Until the coaching platform answers, this tab shows nothing rather than an empty roll.</span>
         </div>
       </div>
     );
   }
 
   const updated = new Date(dataUpdatedAt).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" });
-  const follow = data.followUps.filter((f) => !teamParam || f.teams.includes(teams.find((t) => t.id === teamParam)?.name ?? ""));
+  const follow = data.followUps.filter((f) => !team || f.teams.includes(team.name));
+  const q = find.trim().toLowerCase();
+  const cards = teams.filter((t) => !q || t.name.toLowerCase().includes(q) || t.players.some((p) => p.name.toLowerCase().includes(q)));
 
-  return (
-    <div className="space-y-5" data-testid="attendance-tab">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {termChips}
-        <button onClick={() => refetch()} className="inline-flex items-center gap-1.5 text-[12px] text-white/40 hover:text-white/70" data-testid="attendance-refresh">
-          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-          Live from coach.cufc.co.nz · updated {updated}
-        </button>
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {termChips}
+      <button onClick={() => refetch()} className="inline-flex items-center gap-1.5 text-[12px] text-white/40 hover:text-white/70" data-testid="attendance-refresh">
+        <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+        Live from coach.cufc.co.nz · updated {updated}
+      </button>
+    </div>
+  );
+  const noRegs = !data.registrationsInClubos && (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[12.5px] text-white/50 flex gap-2" data-testid="attendance-no-regs">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+      <span>No {data.term.name} registrations for this programme are in ClubOS yet, so nobody here can be checked against payment. Only open-training players are listed to follow up.</span>
+    </div>
+  );
+
+  if (teams.length === 0) {
+    return (
+      <div className="space-y-5" data-testid="attendance-tab">
+        {header}
+        <div className="rounded-xl border border-white/[0.08] p-8 text-center text-sm text-white/45">
+          No team or training group on the coaching platform has a session in {data.term.name} for this programme yet.
+        </div>
       </div>
+    );
+  }
 
-      {/* Team / training group finder */}
-      <div className="space-y-2.5">
+  // ── Step 1: pick a team or training group ─────────────────────────────────
+  if (!team) {
+    return (
+      <div className="space-y-5" data-testid="attendance-tab">
+        {header}
         <div className="relative max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-          <input
-            value={find}
-            onChange={(e) => setFind(e.target.value)}
-            placeholder="Find a team, training group or player…"
-            className="premium-input w-full pl-9 pr-3 py-2 text-sm"
-            data-testid="attendance-find"
-          />
+          <input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a team, training group or player…"
+            className="premium-input w-full pl-9 pr-3 py-2 text-sm" data-testid="attendance-find" />
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap" data-testid="attendance-teams">
-          <button onClick={() => setTeam(null)} className={chip(!teamParam)} data-testid="attendance-team-all">
-            All groups <span className="ml-1.5 text-white/30">{teams.length}</span>
-          </button>
-          {visibleChips.map((t) => (
-            <button key={t.id} onClick={() => setTeam(t.id)} className={chip(teamParam === t.id)} data-testid={`attendance-team-${t.id}`}>
-              {t.name} <span className="ml-1.5 text-white/30">{t.players.length}</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="attendance-teams">
+          {cards.map((t) => {
+            const due = t.sessions.filter((s) => (s.past || s.today) && (s.planned || s.taken)).length;
+            const taken = t.sessions.filter((s) => s.taken).length;
+            const present = t.players.reduce((n, p) => n + p.present, 0);
+            const marked = t.players.reduce((n, p) => n + p.present + p.absent + p.injured, 0);
+            const missed = t.sessions.filter((s) => s.past && s.planned && !s.taken).length;
+            const hit = q ? t.players.filter((p) => p.name.toLowerCase().includes(q)).map((p) => p.name) : [];
+            return (
+              <button key={t.id} onClick={() => setTeam(t.id)} data-testid={`attendance-team-${t.id}`}
+                className="text-left rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-blue-500/30 hover:bg-blue-500/[0.04] transition-all px-4 py-3.5 cursor-pointer">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-white">{t.name}</span>
+                  <span className="text-[11.5px] text-white/35">{t.players.length} players</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-white/55">
+                  <span>{taken}/{due} rolls taken</span>
+                  <span>{pct(present, marked)} attendance</span>
+                  {missed > 0 && <span className="text-red-400">{missed} no roll</span>}
+                </div>
+                {hit.length > 0 && <div className="mt-1.5 text-[11.5px] text-blue-400">{hit.slice(0, 3).join(", ")}{hit.length > 3 ? ` +${hit.length - 3}` : ""}</div>}
+              </button>
+            );
+          })}
+        </div>
+        {noRegs}
+        {follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
+      </div>
+    );
+  }
+
+  // ── Step 2: one team — sessions or players ────────────────────────────────
+  const today = data.today;
+  const upcoming = team.sessions.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+  const past = team.sessions.filter((s) => s.date < today).sort((a, b) => b.date.localeCompare(a.date));
+  const list = when === "upcoming" ? upcoming : past;
+  return (
+    <div className="space-y-5" data-testid="attendance-tab">
+      {header}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {teams.length > 1 && (
+            <button onClick={() => { setTeam(null); setFind(""); }} className="text-[12.5px] text-white/45 hover:text-white/75" data-testid="attendance-back">
+              ← All groups
+            </button>
+          )}
+          <span className="text-lg font-semibold text-white">{team.name}</span>
+          <span className="text-[12px] text-white/40">{team.players.length} players</span>
+        </div>
+        <div className="inline-flex rounded-lg border border-white/[0.08] p-0.5" data-testid="attendance-mode">
+          {(["sessions", "players"] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m === "sessions" ? null : m)} data-testid={`attendance-mode-${m}`}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium cursor-pointer ${mode === m ? "bg-blue-500/15 text-blue-400" : "text-white/45 hover:text-white/70"}`}>
+              {m === "sessions" ? "Sessions" : "Players · history"}
             </button>
           ))}
         </div>
       </div>
+      {noRegs}
+      {follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
 
-      {teams.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.08] p-8 text-center text-sm text-white/45">
-          No team or training group on the coaching platform has a session in {data.term.name} for this programme yet.
+      {mode === "sessions" ? (
+        <div className="space-y-3">
+          <div className="inline-flex rounded-lg border border-white/[0.08] p-0.5" data-testid="attendance-when">
+            {(["upcoming", "past"] as const).map((w) => (
+              <button key={w} onClick={() => setWhen(w)}
+                className={`px-3 py-1.5 rounded-md text-[12px] font-medium cursor-pointer ${when === w ? "bg-blue-500/15 text-blue-400" : "text-white/45 hover:text-white/70"}`}>
+                {w === "upcoming" ? `Today & upcoming ${upcoming.length}` : `Past ${past.length}`}
+              </button>
+            ))}
+          </div>
+          {list.length === 0 ? (
+            <div className="rounded-xl border border-white/[0.08] p-6 text-center text-sm text-white/40">No {when} sessions this term.</div>
+          ) : (
+            <div className="space-y-2">{list.map((s) => <SessionRow key={s.date} s={s} team={team} />)}</div>
+          )}
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Stat label="Rolls taken" value={`${totals.taken} / ${totals.due}`} hint="sessions so far" />
-            <Stat label="Attendance" value={pct(totals.present, totals.marked)} hint={`${totals.present} present of ${totals.marked} marked`} />
-            <Stat label="Groups" value={String(selected.length)} hint={teamParam ? "selected" : "with sessions this term"} />
-            <Stat label="To follow up" value={String(follow.length)} hint="at a session, not registered" warn={follow.length > 0} />
-          </div>
+        <TeamGrid team={team} showUpcoming={false} highlight="" />
+      )}
+    </div>
+  );
+}
 
-          {!data.registrationsInClubos && (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[12.5px] text-white/50 flex gap-2" data-testid="attendance-no-regs">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
-              <span>No {data.term.name} registrations for this programme are in ClubOS yet, so nobody here can be checked against payment. Only open-training players are listed to follow up.</span>
-            </div>
-          )}
-
-          {follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
-
-          <label className="inline-flex items-center gap-2 text-[12px] text-white/45 cursor-pointer select-none">
-            <input type="checkbox" checked={showUpcoming} onChange={(e) => setShowUpcoming(e.target.checked)} data-testid="attendance-upcoming" />
-            Show upcoming sessions too
-          </label>
-
-          <div className="space-y-6">
-            {selected.map((t) => <TeamGrid key={t.id} team={t} showUpcoming={showUpcoming} highlight={q} />)}
-          </div>
-        </>
+function SessionRow({ s, team }: { s: Session; team: Team }) {
+  const [open, setOpen] = useState(s.today);
+  const l = dayLabel(s.date);
+  const tone = s.today ? "border-amber-500/30 bg-amber-500/[0.05]" : s.taken ? "border-emerald-500/20 bg-emerald-500/[0.03]" : s.past ? "border-red-500/20 bg-red-500/[0.03]" : "border-white/[0.08]";
+  const by = (st: Status | undefined) => team.players.filter((p) => p.marks[s.date] === st);
+  return (
+    <div className={`rounded-xl border ${tone}`} data-testid="attendance-session">
+      <button onClick={() => setOpen(!open)} className="w-full px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-left cursor-pointer">
+        <span className="text-white font-medium">{l.wd} {l.day}{s.today && <span className="ml-2 text-[11px] font-semibold uppercase text-amber-400">Today</span>}</span>
+        <span className="text-[12.5px]">
+          {s.taken ? (
+            <span className="text-white/60"><span className="text-emerald-400">{s.present} here</span> · {s.absent} away{s.injured ? ` · ${s.injured} injured` : ""} · {team.players.length - s.present - s.absent - s.injured} not marked</span>
+          ) : s.past ? <span className="text-red-400">No roll taken</span> : <span className="text-white/35">{s.today ? "Roll not taken yet" : "Upcoming"}</span>}
+        </span>
+      </button>
+      {open && s.taken && (
+        <div className="px-4 pb-3 grid sm:grid-cols-3 gap-3 text-[12.5px]">
+          {([["present", "Here", "text-emerald-400"], ["absent", "Away", "text-red-400"], ["injured", "Injured", "text-amber-400"]] as const).map(([st, label, cls]) => {
+            const names = by(st);
+            return (
+              <div key={st}>
+                <div className={`text-[10.5px] uppercase tracking-wider font-semibold ${cls}`}>{label} · {names.length}</div>
+                <div className="mt-1 text-white/70 leading-relaxed">{names.length ? names.map((p) => p.name).join(", ") : <span className="text-white/30">—</span>}</div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

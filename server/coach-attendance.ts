@@ -133,6 +133,9 @@ export async function coachAttendance(opts: {
     // The old whole-programme mirrors carry no sessions; a team with neither a
     // planned training day nor a mark this term has nothing to show.
     .filter((t) => t.sessions.length > 0)
+    // 🔴 A term run in TRAINING GROUPS (Pre-Academy from Term 4) shows only
+    // them — the winter squads are last term's shape (Daniel, 2026-10-14).
+    .filter((t, _i, all) => !all.some((x) => x.kind === "training_group") || t.kind === "training_group")
     .sort((a, b) => (a.age ?? 99) - (b.age ?? 99) || a.name.localeCompare(b.name, undefined, { numeric: true }));
 
   return {

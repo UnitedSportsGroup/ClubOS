@@ -4064,7 +4064,9 @@ export async function registerRoutes(
       const players = await storage.getProgramPlayers(prog.id, term.id);
       // The squads its players are on across every term — so a term whose
       // registrations are not in ClubOS yet still finds its teams.
-      const extraSquadIds = Array.from(new Set((await storage.getProgramPlayers(prog.id, undefined))
+      // 🔴 ONLY when the term has nobody registered: kids who moved up keep
+      // their old squads, so for Pre-Academy this pulled in U13 Blue/White.
+      const extraSquadIds = players.length > 0 ? [] : Array.from(new Set((await storage.getProgramPlayers(prog.id, undefined))
         .map((p) => p.team?.id).filter((n): n is number => typeof n === "number")));
       const { coachAttendance } = await import("./coach-attendance");
       // The chips: every term that has started (or starts within a fortnight),

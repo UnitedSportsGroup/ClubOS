@@ -12,6 +12,7 @@ import { CoachOverview } from "@/components/coach-overview";
 import { CampHistoryTab } from "@/components/camp-history-tab";
 import { TermHistoryTab } from "@/components/term-history-tab";
 import { CoachAttendanceTab } from "@/components/coach-attendance-tab";
+import { streamForProgramme } from "@shared/term-programme-history";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
@@ -3078,16 +3079,25 @@ export default function AdminCampDetail() {
   });
 
   const isTermProgram = camp?.scheduleType === "term";
+  // Daniel, 2026-10-14: on U4–U8, Pre-Academy and Academy the Sessions tab IS
+  // attendance. U4–U8's roll is taken in ClubOS, so it keeps the sessions list
+  // under the new name; Pre-Academy and Academy are rolled by their coaches on
+  // coach.cufc.co.nz, so theirs reads that live. 🔴 The key stays "sessions" —
+  // the roll page's Back link and old bookmarks point at #sessions.
+  const stream = isTermProgram ? streamForProgramme(camp?.slug, camp?.name) : null;
+  const coachRolled = stream === "pre_academy" || stream === "academy";
+  const attendanceIsSessions = coachRolled || stream === "funino";
   const tabs = [
     { key: "players", label: "Players", icon: Users },
-    { key: "sessions", label: "Sessions", icon: BarChart3 },
-    // The coaches' own roll from coach.cufc.co.nz, read live (2026-10-14).
-    ...(isTermProgram ? [{ key: "attendance", label: "Attendance", icon: ClipboardCheck }] : []),
+    { key: "sessions", label: attendanceIsSessions ? "Attendance" : "Sessions", icon: attendanceIsSessions ? ClipboardCheck : BarChart3 },
+    // Other term programmes (Technification…) keep Sessions AND the coaches' roll.
+    ...(isTermProgram && !attendanceIsSessions ? [{ key: "attendance", label: "Attendance", icon: ClipboardCheck }] : []),
     ...(isTermProgram ? [{ key: "coaches", label: "Coaches", icon: UserCog }] : []),
-    { key: "content", label: "Content", icon: FileText },
+    // Content goes from the three core academy programmes (Daniel, 2026-10-14).
+    ...(attendanceIsSessions ? [] : [{ key: "content", label: "Content", icon: FileText }]),
     { key: "dates", label: isTermProgram ? "Schedule" : "Dates & Capacity", icon: Calendar },
     { key: "pricing", label: "Pricing", icon: DollarSign },
-    { key: "discounts", label: "Discounts", icon: Percent },
+    // No Discounts tab: discounts live in the sidebar's Discounts page, one place.
     { key: "email", label: "Email Template", icon: Settings },
     { key: "performance", label: "Performance", icon: FlaskConical },
     ...(camp?.type === "holiday_camp" ? [{ key: "history", label: "History", icon: TrendingUp }] : []),
@@ -3095,6 +3105,9 @@ export default function AdminCampDetail() {
     // History tab, grouped by term instead of school holiday.
     ...(camp?.scheduleType === "term" ? [{ key: "history", label: "History", icon: TrendingUp }] : []),
   ];
+  // A tab that no longer exists here (an old #attendance / #content / #discounts
+  // link) falls back to the one that replaced it.
+  const view = tabs.some((t) => t.key === tab) ? tab : tab === "attendance" ? "sessions" : "players";
 
   if (isLoading) {
     return (
@@ -3195,7 +3208,7 @@ export default function AdminCampDetail() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-all cursor-pointer whitespace-nowrap ${
-                tab === t.key
+                view === t.key
                   ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
                   : "text-white/35 hover:text-white/55 border border-transparent"
               }`}
@@ -3213,17 +3226,16 @@ export default function AdminCampDetail() {
       </div>
 
       <div className="rounded-2xl glass-card p-3 sm:p-5 animate-fade-in-up" style={{ animationDelay: '100ms', opacity: 0 }}>
-        {tab === "players" && <PlayersTab campId={campId} camp={camp} detailPath={detailPath} />}
-        {tab === "sessions" && <SessionsTab campId={campId} camp={camp} detailPath={detailPath} />}
-        {tab === "coaches" && <CoachOverview campId={campId} detailPath={detailPath} />}
-        {tab === "attendance" && <CoachAttendanceTab campId={campId} />}
-        {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
-        {tab === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
-        {tab === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}
-        {tab === "discounts" && <DiscountsTab campId={campId} />}
-        {tab === "email" && <EmailTab campId={campId} />}
-        {tab === "performance" && <PerformanceTab campId={campId} />}
-        {tab === "history" && (camp?.scheduleType === "term" ? <TermHistoryTab campId={campId} /> : <CampHistoryTab campId={campId} />)}
+        {view === "players" && <PlayersTab campId={campId} camp={camp} detailPath={detailPath} />}
+        {view === "sessions" && (coachRolled ? <CoachAttendanceTab campId={campId} teamFirst /> : <SessionsTab campId={campId} camp={camp} detailPath={detailPath} />)}
+        {view === "coaches" && <CoachOverview campId={campId} detailPath={detailPath} />}
+        {view === "attendance" && <CoachAttendanceTab campId={campId} />}
+        {view === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
+        {view === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
+        {view === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}
+        {view === "email" && <EmailTab campId={campId} />}
+        {view === "performance" && <PerformanceTab campId={campId} />}
+        {view === "history" && (camp?.scheduleType === "term" ? <TermHistoryTab campId={campId} /> : <CampHistoryTab campId={campId} />)}
       </div>
 
       {showEditModal && (

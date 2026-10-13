@@ -419,6 +419,13 @@ export default function AdminMailerHistory() {
                         data-testid={`link-message-${c.id}`}>
                         View Message
                       </button>
+                      {/* The Mailer's own history list is gone (Daniel, 2026-10-14);
+                          "use as a starting point" lives here now. */}
+                      <a href={`/admin/mailer?reuse=${c.id}`}
+                        className="ml-4 text-[13px] text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
+                        data-testid={`link-reuse-${c.id}`}>
+                        Reuse
+                      </a>
                     </td>
                   </tr>
                 );

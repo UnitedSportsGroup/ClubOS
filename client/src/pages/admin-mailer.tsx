@@ -186,7 +186,12 @@ export default function AdminMailer() {
   const [historySearch, setHistorySearch] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE);
-  const [openCampaignId, setOpenCampaignId] = useState<number | null>(null);
+  // ?reuse=<id> (the History page's Reuse link) opens that send, ready to copy.
+  const [openCampaignId, setOpenCampaignId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const n = Number(new URLSearchParams(window.location.search).get("reuse"));
+    return Number.isInteger(n) && n > 0 ? n : null;
+  });
 
   const { data: segments = [] } = useQuery<SegmentData[]>({
     queryKey: ["/api/admin/mailer/segments"],
@@ -631,81 +636,11 @@ export default function AdminMailer() {
             </div>
           </div>
 
-          {(historyTotal > 0 || historyQuery) && (
-            <div className="glass-card rounded-2xl p-6 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Send History</h2>
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-3.5 h-3.5 text-white/30 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <Input
-                    value={historySearch}
-                    onChange={e => setHistorySearch(e.target.value)}
-                    placeholder="Search subject or content..."
-                    className="premium-input text-white/80 pl-9 pr-8 h-9 text-sm"
-                    data-testid="input-search-campaigns"
-                  />
-                  {historySearch && (
-                    <button
-                      onClick={() => setHistorySearch("")}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                      title="Clear search"
-                      data-testid="button-clear-campaign-search"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="text-xs text-white/30">
-                {historyQuery
-                  ? `${historyTotal} ${historyTotal === 1 ? "email" : "emails"} matching "${historyQuery}"`
-                  : `${historyTotal} ${historyTotal === 1 ? "email" : "emails"} sent — click one to see what went out`}
-              </div>
-
-              {campaigns.length === 0 && !historyLoading && (
-                <div className="p-6 text-center text-sm text-white/30">No emails match that search.</div>
-              )}
-
-              <div className="space-y-2">
-                {campaigns.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setOpenCampaignId(c.id)}
-                    className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-left transition-all hover:bg-white/[0.05] hover:border-white/[0.12]"
-                    data-testid={`button-campaign-${c.id}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-white/70 truncate" data-testid={`text-campaign-subject-${c.id}`}>{c.subject}</div>
-                      <div className="text-xs text-white/30 mt-0.5 truncate">
-                        {formatSentAt(c)} · {segmentLabel(c.segmentType)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="outline" className={`text-xs ${c.status === "sent" ? "border-green-500/20 text-green-400" : c.status === "failed" ? "border-red-500/20 text-red-400" : "border-yellow-500/20 text-yellow-400"}`}>
-                        {c.status === "sent" ? <CheckCircle2 className="w-3 h-3 mr-1" /> : c.status === "failed" ? <AlertCircle className="w-3 h-3 mr-1" /> : null}
-                        {c.sentCount}/{c.recipientCount}
-                      </Badge>
-                      <ChevronRight className="w-4 h-4 text-white/20" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {campaigns.length < historyTotal && (
-                <Button
-                  onClick={() => setHistoryLimit(l => l + HISTORY_PAGE)}
-                  variant="outline"
-                  disabled={historyLoading}
-                  className="w-full border-white/10 text-white/50 hover:bg-white/5"
-                  data-testid="button-load-more-campaigns"
-                >
-                  {historyLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  Show older ({historyTotal - campaigns.length} more)
-                </Button>
-              )}
-            </div>
-          )}
+          {/* Send history lives on its own page (Mailer → History) — Daniel,
+              2026-10-14: "remove send history off main mailer page". */}
+          <a href="/admin/mailer/history" className="inline-flex items-center gap-1.5 text-[13px] text-blue-400 hover:underline" data-testid="link-send-history">
+            Send history →
+          </a>
         </div>
       )}
 
