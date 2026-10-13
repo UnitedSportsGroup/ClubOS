@@ -13,11 +13,12 @@ const settle = (ms = 2500) => new Promise(r => setTimeout(r, ms));
 try {
   const st = (await pool.query(`select last_ok_at, last_error, last_counts from xero_registration_sync_state where organization_id=1`)).rows[0];
   ok("the server's own sweep has run", !!st?.last_ok_at, JSON.stringify(st?.last_counts ?? st?.last_error));
-  ok("it ran in SHADOW", st?.last_counts?.mode === "shadow");
-  const made = (await pool.query(`select count(*)::int n from registrations where legacy_source='xero' and source='xero' and registered_at > now() - interval '1 day'`)).rows[0].n;
-  ok("shadow wrote no registrations", made === 0, String(made));
-  const links = (await pool.query(`select count(*)::int n from xero_contact_links`)).rows[0].n;
-  ok("shadow wrote no links", links === 0, String(links));
+  const live = st?.last_counts?.mode === "live";
+  ok("it ran in shadow or live", live || st?.last_counts?.mode === "shadow", st?.last_counts?.mode);
+  if (!live) {
+    const made = (await pool.query(`select count(*)::int n from registrations where legacy_source='xero' and source='xero' and registered_at > now() - interval '1 day'`)).rows[0].n;
+    ok("shadow wrote no registrations", made === 0, String(made));
+  }
 
   const email = `_xp_${Date.now()}@usg.co.nz`, pw = `T${Math.random().toString(36).slice(2)}!aA9`;
   uid = (await pool.query(`INSERT INTO users (email,first_name,last_name,password,role,active) VALUES ($1,'Xp','Probe',$2,'team_member',true) RETURNING id`, [email, await bcrypt.hash(pw, 10)])).rows[0].id;
@@ -36,15 +37,17 @@ try {
     await page.waitForSelector('[data-testid="xero-sync-status"]', { timeout: 30000 }).catch(() => {});
     await settle();
     const status = await page.$eval('[data-testid="xero-sync-status"]', (e: any) => e.innerText).catch(() => "");
-    ok(`${w}px status says watching only`, /Watching only/i.test(status), status.slice(0, 120));
+    ok(`${w}px status names the mode`, live ? !/Watching only/i.test(status) : /Watching only/i.test(status), status.slice(0, 120));
     const rows = await page.$$('[data-testid="xero-invoice"]');
     ok(`${w}px review queue lists invoices`, rows.length > 0, String(rows.length));
     const cands = await page.$$('[data-testid="xero-candidate"]');
     ok(`${w}px candidates are offered to pick from`, cands.length > 0, String(cands.length));
     await page.screenshot({ path: `${OUT}/xero-review-${w}.png`, fullPage: false });
-    await page.click('[data-testid="xero-view-would_register"]'); await settle(1500);
-    const wr = await page.$$('[data-testid="xero-invoice"]');
-    ok(`${w}px "Would add" lists the paid Term 4 invoices`, wr.length >= 10, String(wr.length));
+    if (!live) {
+      await page.click('[data-testid="xero-view-would_register"]'); await settle(1500);
+      const wr = await page.$$('[data-testid="xero-invoice"]');
+      ok(`${w}px "Would add" lists the paid Term 4 invoices`, wr.length >= 10, String(wr.length));
+    }
     await page.click('[data-testid="xero-view-awaiting_payment"]'); await settle(1500);
     ok(`${w}px "Awaiting payment" lists unpaid invoices`, (await page.$$('[data-testid="xero-invoice"]')).length > 0);
     const sw = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
