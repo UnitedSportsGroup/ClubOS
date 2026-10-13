@@ -4044,6 +4044,51 @@ export async function registerRoutes(
   // Every academy term this club has ever run — Friendly Manager, Xero and
   // ClubOS on one timeline (@shared/term-programme-history). Same gate as the
   // holiday camp history: the programme must be in the caller's scope.
+  // Attendance tab — the coaches' own marks from coach.cufc.co.nz, read live on
+  // every view (server/coach-attendance.ts). ?termId= picks the term; without
+  // it, the term today falls in, else the programme's term.
+  app.get("/api/admin/camps/:id/coach-attendance", requireAuth, async (req, res) => {
+    try {
+      const prog = await storage.getProgram(parseInt(String(req.params.id)));
+      if (!prog || prog.scheduleType !== "term") return res.status(404).json({ message: "Programme not found" });
+      const scope = await registrationOrgScope(req);
+      if (!inRegistrationScope(scope, prog.organizationId)) return res.status(404).json({ message: "Programme not found" });
+      const today = nzTodayIso();
+      const terms = await storage.getTerms(prog.organizationId!);
+      const asked = Number(req.query.termId);
+      const term =
+        (Number.isFinite(asked) && asked > 0 ? terms.find((t) => t.id === asked) : undefined) ??
+        terms.find((t) => String(t.startDate) <= today && today <= String(t.endDate)) ??
+        terms.find((t) => t.id === prog.termId);
+      if (!term) return res.status(404).json({ message: "No term found for this programme." });
+      const players = await storage.getProgramPlayers(prog.id, term.id);
+      // The squads its players are on across every term — so a term whose
+      // registrations are not in ClubOS yet still finds its teams.
+      const extraSquadIds = Array.from(new Set((await storage.getProgramPlayers(prog.id, undefined))
+        .map((p) => p.team?.id).filter((n): n is number => typeof n === "number")));
+      const { coachAttendance } = await import("./coach-attendance");
+      // The chips: every term that has started (or starts within a fortnight),
+      // newest first — NOT only terms with registrations, because a term whose
+      // fees are taken elsewhere still has a roll.
+      const soon = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+      const chips = terms
+        .filter((t) => String(t.startDate) <= soon)
+        .sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)))
+        .slice(0, 8)
+        .map((t) => ({ id: t.id, label: t.name || `Term ${t.termNumber} ${t.year}`, current: String(t.startDate) <= today && today <= String(t.endDate) }));
+      res.json({ terms: chips, ...(await coachAttendance({
+        programId: prog.id,
+        term: { id: term.id, name: term.name || `Term ${term.termNumber} ${term.year}`, startDate: String(term.startDate), endDate: String(term.endDate) },
+        players,
+        extraSquadIds,
+        today,
+      })) });
+    } catch (error: any) {
+      console.error("[coach-attendance]", error);
+      res.status(500).json({ message: "Couldn't load attendance." });
+    }
+  });
+
   app.get("/api/admin/camps/:id/term-history", requireAuth, async (req, res) => {
     try {
       const prog = await storage.getProgram(parseInt(String(req.params.id)));

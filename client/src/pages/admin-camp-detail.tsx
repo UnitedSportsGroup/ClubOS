@@ -11,6 +11,7 @@ import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { CoachOverview } from "@/components/coach-overview";
 import { CampHistoryTab } from "@/components/camp-history-tab";
 import { TermHistoryTab } from "@/components/term-history-tab";
+import { CoachAttendanceTab } from "@/components/coach-attendance-tab";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
@@ -20,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { withFrom, useBackTo } from "@/lib/back-to";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
-import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog, Check } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Settings, Percent, Tent, Trash2, Plus, X, Save, FileText, BarChart3, Users, TrendingUp, ChevronRight, ChevronUp, ChevronDown, UserCheck, UserX, AlertTriangle, Phone, Mail, Clock, User, FlaskConical, Trophy, Eye, Ban, Pencil, UserCog, Check, ClipboardCheck } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function OverviewTab({ camp, onUpdate }: { camp: any; onUpdate: (data: any) => void }) {
@@ -3080,6 +3081,8 @@ export default function AdminCampDetail() {
   const tabs = [
     { key: "players", label: "Players", icon: Users },
     { key: "sessions", label: "Sessions", icon: BarChart3 },
+    // The coaches' own roll from coach.cufc.co.nz, read live (2026-10-14).
+    ...(isTermProgram ? [{ key: "attendance", label: "Attendance", icon: ClipboardCheck }] : []),
     ...(isTermProgram ? [{ key: "coaches", label: "Coaches", icon: UserCog }] : []),
     { key: "content", label: "Content", icon: FileText },
     { key: "dates", label: isTermProgram ? "Schedule" : "Dates & Capacity", icon: Calendar },
@@ -3213,6 +3216,7 @@ export default function AdminCampDetail() {
         {tab === "players" && <PlayersTab campId={campId} camp={camp} detailPath={detailPath} />}
         {tab === "sessions" && <SessionsTab campId={campId} camp={camp} detailPath={detailPath} />}
         {tab === "coaches" && <CoachOverview campId={campId} detailPath={detailPath} />}
+        {tab === "attendance" && <CoachAttendanceTab campId={campId} />}
         {tab === "content" && <ContentTab camp={camp} onUpdate={(data) => updateMutation.mutate(data)} />}
         {tab === "dates" && (camp.scheduleType === "term" ? <ClassDatesTab campId={campId} camp={camp} /> : <DatesTab campId={campId} />)}
         {tab === "pricing" && (camp.scheduleType === "term" ? <ClassPricingTab campId={campId} camp={camp} /> : <PricingTab campId={campId} />)}
