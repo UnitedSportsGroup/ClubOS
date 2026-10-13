@@ -885,11 +885,11 @@ export default function ClubEventDetailAdmin() {
                 <Select value={settingsForm.stripeAccount} onValueChange={(v) => setSettingsForm((f) => f && { ...f, stripeAccount: v as StripeAccountKey })}>
                   <SelectTrigger className="h-11 mt-1" data-testid="select-settings-stripe"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {STRIPE_ACCOUNTS.map((s) => <SelectItem key={s} value={s}>{s === "club" ? "Club" : "Cross Street Football Trust"}</SelectItem>)}
+                    {STRIPE_ACCOUNTS.map((s) => <SelectItem key={s} value={s}>{s === "club" ? "Club (main account)" : "Grants & Sponsorship (ANZ 01-0635-0374823-02)"}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Trust = Cross Street Football Trust's own Stripe account; needs its keys configured.
+                  Grants & Sponsorship = the club's second Stripe account, paid out to the ring-fenced bank account. Tickets already sold keep their own account for refunds.
                 </p>
               </div>
               <div>
