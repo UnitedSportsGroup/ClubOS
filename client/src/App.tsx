@@ -178,7 +178,6 @@ const CugcAnalytics = lazy(() => import("@/pages/cugc-analytics"));
 const CugcMailer = lazy(() => import("@/pages/cugc-mailer"));
 const LeagueBuilderPage = lazy(() => import("@/pages/league-builder-page"));
 const LeagueSettings = lazy(() => import("@/pages/league-settings"));
-const GymnasticsDashboard = lazy(() => import("@/pages/gymnastics-dashboard"));
 const CugcPrograms = lazy(() => import("@/pages/cugc-programs"));
 const GymnasticsTerms = lazy(() => import("@/pages/gymnastics-terms"));
 const TournamentDashboard = lazy(() => import("@/pages/tournament-dashboard"));
@@ -475,7 +474,7 @@ function AdminRouter() {
   if (isGymnastics) {
     return (
       <Switch>
-        <Route path="/admin" component={GymnasticsDashboard} />
+        <Route path="/admin" component={AdminDashboard} />
         {/* The gymnastics Programs tab shows the live cugc.co.nz lineup (not the
             generic camp-style pipeline) — website enrolments land in Registrations. */}
         <Route path="/admin/programs" component={CugcPrograms} />
