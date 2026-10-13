@@ -53,15 +53,19 @@ const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g,
 
 // ── Stripe, per event ────────────────────────────────────────────────────────
 // 'club' is the club's own account (the one every other ClubOS checkout uses).
-// 'trust' is the Cross Street Football Trust's — Malcolm's ring-fence — keyed by
-// its own env so a club key can never be picked up by accident. If the trust
-// keys are missing, selling REFUSES rather than quietly charging the club.
+// 'trust' is the ring-fenced account — since 2026-10-14 the club's own second
+// Stripe account, which pays out to the Grants & Sponsorship bank account
+// (ANZ 01-0635-0374823-02) so event money is held aside. Keyed by its own env so
+// a club key can never be picked up by accident. If the keys are missing,
+// selling REFUSES rather than quietly charging the club.
+// 🔴 An ORDER remembers its account (`stripe_account`); every refund and
+// read-back uses the order's, never the event's current setting.
 let trustStripe: Stripe | null = null;
 export function stripeFor(account: string): { stripe: Stripe; publishableKey: string | null; ok: boolean; reason?: string } {
   if (account === "trust") {
     const sk = process.env.CLUB_EVENTS_TRUST_STRIPE_SECRET_KEY;
     const pk = process.env.CLUB_EVENTS_TRUST_STRIPE_PUBLISHABLE_KEY || null;
-    if (!sk || !pk) return { stripe: clubStripe, publishableKey: null, ok: false, reason: "Trust Stripe keys are not configured." };
+    if (!sk || !pk) return { stripe: clubStripe, publishableKey: null, ok: false, reason: "Grants & Sponsorship Stripe keys are not configured." };
     if (!trustStripe) trustStripe = new Stripe(sk, { apiVersion: "2025-04-30.basil" as any });
     return { stripe: trustStripe, publishableKey: pk, ok: true };
   }
@@ -69,6 +73,9 @@ export function stripeFor(account: string): { stripe: Stripe; publishableKey: st
   // is null at runtime, so both paths reach the same account.
   return { stripe: clubStripe, publishableKey: process.env.VITE_STRIPE_PUBLISHABLE_KEY || null, ok: !!process.env.STRIPE_SECRET_KEY, reason: "Stripe is not configured." };
 }
+
+/** The account an existing order was paid on. Legacy rows predate the column and are all club. */
+export function orderAccount(o: { stripeAccount?: string | null }) { return stripeFor(o.stripeAccount ?? "club"); }
 
 // ── reads ────────────────────────────────────────────────────────────────────
 export async function eventBySlug(slug: string): Promise<ClubEvent | undefined> {
@@ -185,7 +192,7 @@ export async function beginOrder(slug: string, body: BuyInput, meta: Meta): Prom
   if (existingToken) {
     const [prev] = await db.select().from(clubEventOrders).where(and(eq(clubEventOrders.token, existingToken), eq(clubEventOrders.eventId, e.id)));
     if (prev && prev.status === "paid") return { error: "already_paid" };
-    if (prev && prev.status === "pending" && prev.quantity === quantity && prev.stripePaymentIntentId) {
+    if (prev && prev.status === "pending" && prev.quantity === quantity && prev.stripePaymentIntentId && (prev.stripeAccount ?? "club") === e.stripeAccount) {
       const pi = await acct.stripe.paymentIntents.retrieve(prev.stripePaymentIntentId);
       if (pi.status === "succeeded") { await markPaidOnce(prev.id, pi.id, pi.amount_received || pi.amount, ONLINE_PAYMENT_METHOD); return { error: "already_paid" }; }
       if (pi.status !== "canceled") {
@@ -250,7 +257,7 @@ export async function beginOrder(slug: string, body: BuyInput, meta: Meta): Prom
     payment_method_types: ["card"],
   }, { idempotencyKey: `club-event-order-${order.id}-${total}` });
 
-  await db.update(clubEventOrders).set({ stripePaymentIntentId: pi.id, stripeCustomerId: customerId ?? null, updatedAt: new Date() }).where(eq(clubEventOrders.id, order.id));
+  await db.update(clubEventOrders).set({ stripePaymentIntentId: pi.id, stripeCustomerId: customerId ?? null, stripeAccount: e.stripeAccount, updatedAt: new Date() }).where(eq(clubEventOrders.id, order.id));
   return { clientSecret: pi.client_secret, orderToken: order.token, ref: order.ref, amountCents: total, publishableKey: acct.publishableKey };
 }
 
@@ -289,7 +296,7 @@ async function refundOverfill(orderId: number, paymentIntentId: string, amountCe
   if (!o || o.status !== "pending") return;
   const e = await eventById(o.eventId);
   if (!e) return;
-  const acct = stripeFor(e.stripeAccount);
+  const acct = orderAccount(o);
   let refundId: string | null = null;
   try {
     const rf = await acct.stripe.refunds.create({ payment_intent: paymentIntentId, metadata: { clubEventOrderId: String(o.id), ref: o.ref, why: "sold out while paying" } }, { idempotencyKey: `club-event-overfill-${o.id}` });
@@ -321,8 +328,7 @@ export async function confirmOrder(orderToken: string): Promise<{ error?: string
   if (!o) return { error: "not_found" };
   if (o.status === "paid") return { paid: true, ref: o.ref };
   if (!o.stripePaymentIntentId) return { error: "No payment to confirm." };
-  const e = await eventById(o.eventId);
-  const acct = stripeFor(e?.stripeAccount ?? "club");
+  const acct = orderAccount(o);
   const pi = await acct.stripe.paymentIntents.retrieve(o.stripePaymentIntentId);
   if (pi.status !== "succeeded") return { paid: false };
   await markPaidOnce(o.id, pi.id, pi.amount_received || pi.amount, ONLINE_PAYMENT_METHOD);
@@ -340,14 +346,13 @@ export async function markPaidByPaymentIntent(pi: any): Promise<boolean> {
 export async function reconcile(eventId: number): Promise<{ checked: number; paid: number }> {
   const e = await eventById(eventId);
   if (!e) return { checked: 0, paid: 0 };
-  const acct = stripeFor(e.stripeAccount);
   const pend = await db.select().from(clubEventOrders).where(and(eq(clubEventOrders.eventId, eventId), eq(clubEventOrders.status, "pending")));
   let paid = 0, checked = 0;
   for (const o of pend) {
     if (!o.stripePaymentIntentId) continue;
     checked++;
     try {
-      const pi = await acct.stripe.paymentIntents.retrieve(o.stripePaymentIntentId);
+      const pi = await orderAccount(o).stripe.paymentIntents.retrieve(o.stripePaymentIntentId);
       if (pi.status === "succeeded" && await markPaidOnce(o.id, pi.id, pi.amount_received || pi.amount, ONLINE_PAYMENT_METHOD)) paid++;
     } catch (err) { console.error("[club-events] reconcile failed for", o.ref, err); }
   }
@@ -546,8 +551,7 @@ export async function refundOrder(orderId: number, amountCents: number | null, r
   let stripeRefundId: string | null = null;
   if (o.paymentMethod === ONLINE_PAYMENT_METHOD) {
     if (!o.stripePaymentIntentId) return { error: "No Stripe payment on this order." };
-    const e = await eventById(o.eventId);
-    const acct = stripeFor(e?.stripeAccount ?? "club");
+    const acct = orderAccount(o);
     const refund = await acct.stripe.refunds.create(
       { payment_intent: o.stripePaymentIntentId, amount, reason: "requested_by_customer", metadata: { clubEventOrderId: String(o.id), ref: o.ref } },
       { idempotencyKey: `club-event-refund-${o.id}-${o.refundedCents + amount}` },

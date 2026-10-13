@@ -9731,6 +9731,10 @@ export const clubEventOrders = pgTable("club_event_orders", {
   status: text("status").notNull().default("pending"),
   paymentMethod: text("payment_method"),
   paymentReference: text("payment_reference"),
+  // Which Stripe account took THIS order's money ('club' | 'trust'). Stamped when the
+  // PaymentIntent is made, so an event switching accounts never strands the refunds
+  // and read-backs of what it already sold. NULL = no card payment (legacy rows: club).
+  stripeAccount: text("stripe_account"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   stripeCustomerId: text("stripe_customer_id"),
   paidAt: timestamp("paid_at", tz),
