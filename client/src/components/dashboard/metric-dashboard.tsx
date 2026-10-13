@@ -24,6 +24,7 @@
 import { useCallback, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useWorkspace } from "@/lib/workspace-context";
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -86,9 +87,10 @@ export function MetricDashboard({
     [navigate, custom, basePath],
   );
 
+  const slug = useWorkspace().currentOrg?.slug ?? "";
   const metricsUrl = `/api/admin/dashboard/metrics${view ? `?view=${encodeURIComponent(view)}` : ""}`;
   const { data, isLoading } = useQuery<{ metrics: MetricCard[] }>({
-    queryKey: [metricsUrl],
+    queryKey: [metricsUrl, slug],
     staleTime: 5 * 60_000, // the registry does not change between page views
   });
   const metrics = data?.metrics ?? [];
@@ -108,7 +110,8 @@ export function MetricDashboard({
         <PeriodPicker period={period} custom={custom} onChange={onChange} />
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
+      {/* Keyed by workspace: a switch mounts a fresh grid that fades in. */}
+      <div key={slug} className="grid grid-cols-1 gap-6 animate-fade-in-up">
         {isLoading ? (
           <Card>
             <CardContent className="py-10">

@@ -1,4 +1,5 @@
 import { setActiveWorkspaceSlug } from "./workspace-slug";
+import { queryClient } from "./queryClient";
 import { createContext, useContext, useState, useEffect } from "react";
 
 type Org = {
@@ -46,6 +47,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setCurrentOrg = (org: Org) => {
+    // 🔴 Every admin query is keyed by its URL alone, and the URL is the same in
+    // every workspace — so after a switch the cache served the OLD workspace's
+    // answer (Daniel, 2026-10-14: "switch from cufc to mfl and it still shows
+    // cufc graph until i refresh"). A switch drops every workspace-scoped answer;
+    // sign-in and the workspace list are not under /api/admin and survive.
+    if (currentOrg && currentOrg.slug !== org.slug) {
+      queryClient.removeQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/admin/") });
+    }
     setCurrentOrgState(org);
     setActiveWorkspaceSlug(org.slug);           // this tab's header, always
     localStorage.setItem("clubos_workspace", org.slug);  // the next tab's starting point

@@ -636,11 +636,8 @@ export default function AdminMailer() {
             </div>
           </div>
 
-          {/* Send history lives on its own page (Mailer → History) — Daniel,
-              2026-10-14: "remove send history off main mailer page". */}
-          <a href="/admin/mailer/history" className="inline-flex items-center gap-1.5 text-[13px] text-blue-400 hover:underline" data-testid="link-send-history">
-            Send history →
-          </a>
+          {/* Send history lives on its own page — sidebar Mailer → History
+              (Daniel, 2026-10-14: removed from here, link and all). */}
         </div>
       )}
 

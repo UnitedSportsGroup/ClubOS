@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
 import { useMeasuredWidth } from "@/lib/use-measured-width";
+import { useWorkspace } from "@/lib/workspace-context";
 import {
   PERIOD_LABELS,
   percentChange,
@@ -77,9 +78,10 @@ export function RevenueWidget({
     params.set("to", custom.to);
   }
   const url = `/api/admin/dashboard/metric?${params.toString()}`;
+  const slug = useWorkspace().currentOrg?.slug ?? "";
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<MetricResponse>({
-    queryKey: [url],
+    queryKey: [url, slug],
     // A wrong number is worse than a slightly stale one, but a slightly stale
     // one is worse than a spinner on every tab change.
     staleTime: 30_000,
@@ -298,10 +300,12 @@ function RevenueBody({ data }: { data: MetricResponse }) {
                 stroke="hsl(var(--primary))"
                 strokeWidth={2}
                 fill="url(#revenueFill)"
-                // The entry animation also draws from a zero-width layout.
-                // A revenue line does not need to swoosh; it needs to be right
-                // the instant it appears.
-                isAnimationActive={false}
+                // The chart only mounts once its width is measured (above), so
+                // the entry animation draws at the real size: a short ease-out
+                // rise when a workspace or period opens (Daniel, 2026-10-14).
+                isAnimationActive
+                animationDuration={650}
+                animationEasing="ease-out"
               />
             </AreaChart>
           )}
