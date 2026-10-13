@@ -18,6 +18,8 @@
 // by the coaching roster — a child on a coach's roll who has not paid for this
 // term is exactly who the office needs to follow up.
 import type { ProgramPlayer } from "./storage";
+import { sql } from "drizzle-orm";
+import { db } from "./db";
 
 const BASE = (process.env.COACHING_BASE_URL || "https://coach.cufc.co.nz").replace(/\/$/, "");
 
@@ -138,12 +140,65 @@ export async function coachAttendance(opts: {
     .filter((t, _i, all) => !all.some((x) => x.kind === "training_group") || t.kind === "training_group")
     .sort((a, b) => (a.age ?? 99) - (b.age ?? 99) || a.name.localeCompare(b.name, undefined, { numeric: true }));
 
+  // Kids ClubOS already knows (a past term, another programme) — the office
+  // calls the PARENT on their latest registration, else the contact itself.
+  const follow = Array.from(followUps.values());
+  // The coaching roster usually holds only a NAME. Resolve to a ClubOS player
+  // by exact full name — and 🔴 only when exactly one player has it; two
+  // children sharing a name get no details rather than the wrong parent's.
+  const unnamed = follow.filter((f) => f.contactId == null);
+  if (unnamed.length) {
+    const names = Array.from(new Set(unnamed.map((f) => norm(f.name)).filter(Boolean)));
+    const m: any = await db.execute(sql`
+      SELECT trim(regexp_replace(regexp_replace(lower(first_name || ' ' || last_name), '[^a-z ]', '', 'g'), ' +', ' ', 'g')) AS n, array_agg(id ORDER BY id DESC) AS ids,
+             count(DISTINCT date_of_birth) AS dobs, bool_and(date_of_birth IS NOT NULL) AS all_dob
+      FROM contacts
+      WHERE type = 'player' AND trim(regexp_replace(regexp_replace(lower(first_name || ' ' || last_name), '[^a-z ]', '', 'g'), ' +', ' ', 'g')) IN (${sql.join(names.map((n) => sql`${n}`), sql`, `)})
+      GROUP BY 1`);
+    const one = new Map<string, number>();
+    // Several records, ONE date of birth = the same child entered twice (175
+    // known duplicate groups) — use the newest. Different birthdays = siblings
+    // or strangers, and nobody gets a guessed parent.
+    for (const row of (m.rows ?? m)) {
+      const same = (row.ids ?? []).length === 1 || (row.all_dob && Number(row.dobs) === 1);
+      if (same) one.set(String(row.n), Number(row.ids[0]));
+    }
+    for (const f of unnamed) { const id = one.get(norm(f.name)); if (id) f.contactId = id; }
+  }
+  const ids = Array.from(new Set(follow.map((f) => f.contactId).filter((n: unknown): n is number => typeof n === "number")));
+  if (ids.length) {
+    const r: any = await db.execute(sql`
+      SELECT c.id,
+             COALESCE(g.first_name || ' ' || g.last_name, NULL) AS parent_name,
+             COALESCE(g.email, c.email) AS email, COALESCE(g.phone, c.phone) AS phone,
+             lr.program_name, lr.term_label
+      FROM contacts c
+      LEFT JOIN LATERAL (
+        SELECT r.guardian_id, p.name AS program_name,
+               CASE WHEN t.id IS NULL THEN NULL ELSE 'Term ' || t.term_number || ' ' || t.year END AS term_label
+        FROM registrations r JOIN programs p ON p.id = r.program_id LEFT JOIN terms t ON t.id = r.term_id
+        WHERE r.contact_id = c.id ORDER BY r.registered_at DESC LIMIT 1
+      ) lr ON true
+      LEFT JOIN contacts g ON g.id = lr.guardian_id
+      WHERE c.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
+    const by = new Map<number, any>((r.rows ?? r).map((x: any) => [Number(x.id), x]));
+    for (const f of follow) {
+      const x = f.contactId != null ? by.get(f.contactId) : undefined;
+      if (!x) continue;
+      f.parentName = x.parent_name ?? null;
+      f.email = f.email ?? x.email ?? null;
+      f.phone = f.phone ?? x.phone ?? null;
+      f.lastRegistered = x.program_name ? `${x.program_name}${x.term_label ? ` · ${x.term_label}` : ""}` : null;
+      f.profilePath = `/admin/people/contact-${f.contactId}`;
+    }
+  }
+
   return {
     connected: true as const,
     term: opts.term,
     today: opts.today,
     registrationsInClubos: canCheck,
     teams,
-    followUps: Array.from(followUps.values()).sort((a, b) => Number(b.openTraining) - Number(a.openTraining) || (b.lastSeen ?? "").localeCompare(a.lastSeen ?? "")),
+    followUps: follow.sort((a, b) => Number(b.openTraining) - Number(a.openTraining) || (b.lastSeen ?? "").localeCompare(a.lastSeen ?? "")),
   };
 }

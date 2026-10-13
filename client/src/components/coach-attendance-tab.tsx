@@ -16,7 +16,7 @@ type Status = "present" | "absent" | "injured";
 type Row = { id: string; name: string; openTraining: boolean; registered: boolean | null; profilePath: string | null; present: number; absent: number; injured: number; marks: Record<string, Status> };
 type Session = { date: string; present: number; absent: number; injured: number; taken: boolean; planned: boolean; past: boolean; today: boolean };
 type Team = { id: string; name: string; kind: string; age: number | null; sessions: Session[]; players: Row[] };
-type FollowUp = { name: string; openTraining: boolean; teams: string[]; sessionsAttended: number; lastSeen: string | null; email: string | null; phone: string | null; dob: string | null; notes: string | null; addedAt: string };
+type FollowUp = { parentName?: string | null; lastRegistered?: string | null; profilePath?: string; name: string; openTraining: boolean; teams: string[]; sessionsAttended: number; lastSeen: string | null; email: string | null; phone: string | null; dob: string | null; notes: string | null; addedAt: string };
 type Resp =
   | { terms: Array<{ id: number; label: string; current: boolean }>; connected: true; term: { id: number; name: string }; today: string; registrationsInClubos: boolean; teams: Team[]; followUps: FollowUp[] }
   | { terms: Array<{ id: number; label: string; current: boolean }>; connected: false; reason: string };
@@ -278,11 +278,15 @@ function FollowUps({ rows, term }: { rows: FollowUp[]; term: string }) {
         {rows.map((f, i) => (
           <div key={i} className="px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]" data-testid="attendance-followup">
             <div className="min-w-[180px] flex-1">
-              <span className="font-medium text-white">{f.name}</span>
+              {f.profilePath ? <Link href={f.profilePath} className="font-medium text-white hover:text-blue-400">{f.name}</Link> : <span className="font-medium text-white">{f.name}</span>}
               <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${f.openTraining ? "bg-violet-500/15 text-violet-400" : "bg-amber-500/15 text-amber-400"}`}>
                 {f.openTraining ? "Open training" : "Not registered"}
               </span>
-              <div className="text-[11.5px] text-white/40">{f.teams.join(" · ")}</div>
+              <div className="text-[11.5px] text-white/40">
+                {f.teams.join(" · ")}
+                {f.lastRegistered && <span> · last registered {f.lastRegistered}</span>}
+                {f.parentName && <span> · parent {f.parentName}</span>}
+              </div>
             </div>
             <div className="text-white/60 w-[150px]">
               {f.sessionsAttended} session{f.sessionsAttended === 1 ? "" : "s"}
