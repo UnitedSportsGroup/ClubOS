@@ -48,7 +48,28 @@ type Inv = {
   date?: string; updatedDateUTC?: string; fullyPaidOnDate?: string;
   contact: { contactID: string; name: string; emailAddress?: string };
   payments?: Array<{ date?: string; amount?: number }>;
+  /** When the money was recorded in Xero (latest payment's UpdatedDateUTC) — set by the sweep. */
+  paidAtUTC?: string | null; paymentRef?: string | null;
 };
+
+/** Every invoice payment recorded or changed since `since`: invoice id →
+ *  the moment it was recorded (UpdatedDateUTC — when the bank line was
+ *  reconciled) and its reference. Deleted payments are ignored. */
+export async function paymentTimes(xero: any, tenantId: string, since: Date): Promise<Map<string, { at: string; ref: string | null }>> {
+  const out = new Map<string, { at: string; ref: string | null }>();
+  for (let page = 1; page <= 60; page++) {
+    const r = await xero.accountingApi.getPayments(tenantId, since, 'PaymentType=="ACCRECPAYMENT"', "UpdatedDateUTC ASC", page, 100);
+    const got = (r.body.payments ?? []) as any[];
+    for (const p of got) {
+      const id = p.invoice?.invoiceID; if (!id || !p.updatedDateUTC || String(p.status) === "DELETED") continue;
+      const at = new Date(p.updatedDateUTC).toISOString();
+      const prev = out.get(id);
+      if (!prev || at > prev.at) out.set(id, { at, ref: p.reference ?? null });
+    }
+    if (got.length < 100) break;
+  }
+  return out;
+}
 
 type Decision = {
   decision: string; reason: string | null; programmeKey: string | null; programId: number | null; termId: number | null;
@@ -197,7 +218,12 @@ async function register(inv: Inv, d: Decision, parentEmail: string | null, decid
 
     const paid = cents(inv.amountPaid);
     const paidOn = isoDay(inv.fullyPaidOnDate) ?? isoDay(inv.payments?.[inv.payments.length - 1]?.date) ?? nzTodayIso();
-    const note = `Paid by bank transfer — Xero ${inv.invoiceNumber ?? inv.invoiceID} "${inv.reference ?? ""}", reconciled ${paidOn}. Registered by the Xero sync${decidedBy ? " on a staff decision" : ""}.`;
+    // The real moment it was reconciled when Xero told us; else the bank date (midnight NZ).
+    const paidAt = inv.paidAtUTC ?? `${paidOn}T00:00:00+13:00`;
+    const when = inv.paidAtUTC
+      ? new Date(inv.paidAtUTC).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })
+      : paidOn;
+    const note = `Paid by bank transfer — Xero ${inv.invoiceNumber ?? inv.invoiceID} "${inv.reference ?? ""}", reconciled ${when}. Registered by the Xero sync${decidedBy ? " on a staff decision" : ""}.`;
     const ins = rowsOf(await tx.execute(sql`
       INSERT INTO registrations (
         program_id, program_option_id, contact_id, guardian_id, status, term_id,
@@ -209,7 +235,7 @@ async function register(inv: Inv, d: Decision, parentEmail: string | null, decid
         'upfront', 'term', ${year},
         ${paid}, 0, ${paid}, 'NZD', ${(paid / 100).toFixed(2)},
         'cufc_office', 'xero', ${note}, 'bank_transfer', ${inv.invoiceNumber ?? inv.invoiceID},
-        NULL, ${paidOn + "T00:00:00+13:00"}::timestamptz, ${paidOn + "T00:00:00+13:00"}::timestamptz,
+        NULL, ${paidAt}::timestamptz, ${paidAt}::timestamptz,
         'xero', ${inv.invoiceNumber ?? inv.invoiceID}, (SELECT COALESCE(MAX(order_number), 0) + 1 FROM registrations))
       ON CONFLICT (legacy_source, legacy_external_id) WHERE legacy_external_id IS NOT NULL DO NOTHING
       RETURNING id`))[0];
@@ -232,12 +258,12 @@ async function record(inv: Inv, parentEmail: string | null, d: Decision, by: num
   await db.execute(sql`
     INSERT INTO xero_invoice_registrations (
       organization_id, invoice_id, invoice_number, xero_contact_id, xero_contact_name, parent_email, reference,
-      xero_status, payment_state, total_cents, amount_paid_cents, amount_due_cents, paid_on, invoice_date, xero_updated_at,
+      xero_status, payment_state, total_cents, amount_paid_cents, amount_due_cents, paid_on, paid_at, payment_reference, invoice_date, xero_updated_at,
       programme_key, program_id, term_id, child_contact_id, decision, reason, candidates, registration_id, registered_by_sync,
       decided_by_user_id)
     VALUES (${ORG}, ${inv.invoiceID}, ${inv.invoiceNumber ?? null}, ${inv.contact.contactID}, ${inv.contact.name}, ${parentEmail}, ${inv.reference ?? null},
       ${inv.status}, ${paymentState(inv)}, ${cents(inv.total)}, ${cents(inv.amountPaid)}, ${cents(inv.amountDue)},
-      ${isoDay(inv.fullyPaidOnDate)}, ${isoDay(inv.date)}, ${inv.updatedDateUTC ? new Date(inv.updatedDateUTC).toISOString() : null},
+      ${isoDay(inv.fullyPaidOnDate)}, ${inv.paidAtUTC ?? null}::timestamptz, ${inv.paymentRef ?? null}, ${isoDay(inv.date)}, ${inv.updatedDateUTC ? new Date(inv.updatedDateUTC).toISOString() : null},
       ${d.programmeKey}, ${d.programId}, ${d.termId}, ${d.childId}, ${d.decision}, ${d.reason},
       ${d.candidates && d.candidates.length ? sql`ARRAY[${sql.join(d.candidates.map((c) => sql`${c}`), sql`, `)}]::int[]` : sql`NULL`},
       ${d.registrationId}, ${d.registeredBySync}, ${by})
@@ -245,7 +271,11 @@ async function record(inv: Inv, parentEmail: string | null, d: Decision, by: num
       invoice_number = EXCLUDED.invoice_number, xero_contact_name = EXCLUDED.xero_contact_name, parent_email = EXCLUDED.parent_email,
       reference = EXCLUDED.reference, xero_status = EXCLUDED.xero_status, payment_state = EXCLUDED.payment_state,
       total_cents = EXCLUDED.total_cents, amount_paid_cents = EXCLUDED.amount_paid_cents, amount_due_cents = EXCLUDED.amount_due_cents,
-      paid_on = EXCLUDED.paid_on, invoice_date = EXCLUDED.invoice_date, xero_updated_at = EXCLUDED.xero_updated_at,
+      paid_on = EXCLUDED.paid_on,
+      -- a payment time is only learnt once (from the payment feed); kept while it is still paid
+      paid_at = CASE WHEN EXCLUDED.payment_state IN ('paid', 'part_paid') THEN COALESCE(EXCLUDED.paid_at, xero_invoice_registrations.paid_at) END,
+      payment_reference = CASE WHEN EXCLUDED.payment_state IN ('paid', 'part_paid') THEN COALESCE(EXCLUDED.payment_reference, xero_invoice_registrations.payment_reference) END,
+      invoice_date = EXCLUDED.invoice_date, xero_updated_at = EXCLUDED.xero_updated_at,
       programme_key = EXCLUDED.programme_key, program_id = EXCLUDED.program_id, term_id = EXCLUDED.term_id,
       child_contact_id = EXCLUDED.child_contact_id, decision = EXCLUDED.decision, reason = EXCLUDED.reason,
       candidates = EXCLUDED.candidates,
@@ -319,6 +349,8 @@ export async function runXeroRegistrationSync(opts: { mode?: SyncMode; since?: D
     }
     const family = invoices.filter((i) => isFamilyPrefix(splitContactName(i.contact?.name ?? "").prefix) && parseReference(i.reference).kind !== "not_registration");
     const emails = await contactEmails(xero, tenantId, Array.from(new Set(family.map((i) => i.contact.contactID))));
+    const pays = family.length ? await paymentTimes(xero, tenantId, since) : new Map();
+    for (const i of family) { const p = pays.get(i.invoiceID); if (p) { i.paidAtUTC = p.at; i.paymentRef = p.ref; } }
     let maxUpdated = since.getTime();
     for (const inv of invoices) {
       const t = inv.updatedDateUTC ? new Date(inv.updatedDateUTC).getTime() : 0;
@@ -358,4 +390,26 @@ export function startXeroRegistrationSync(): void {
     (e) => console.error("[xero-reg-sync] failed:", String(e?.message ?? "error").slice(0, 200)));
   setTimeout(tick, 90_000);
   setInterval(tick, EVERY_MS);
+}
+
+/** Fill in the reconciled time for invoices already on record (and the
+ *  registrations the sync made from them, which carried the bank date at
+ *  midnight). Only ever writes a time Xero gave us. */
+export async function backfillPaymentTimes(since: Date = START) {
+  const { xero, tenantId } = await getXeroForOrg(ORG);
+  const pays = await paymentTimes(xero, tenantId, since);
+  let rows = 0, regs = 0;
+  for (const [invoiceId, p] of Array.from(pays)) {
+    const r = rowsOf(await db.execute(sql`
+      UPDATE xero_invoice_registrations SET paid_at = ${p.at}::timestamptz, payment_reference = COALESCE(${p.ref}, payment_reference)
+       WHERE organization_id = ${ORG} AND invoice_id = ${invoiceId} AND payment_state IN ('paid', 'part_paid')
+       RETURNING registration_id, registered_by_sync`));
+    rows += r.length;
+    for (const x of r) if (x.registered_by_sync && x.registration_id) {
+      const u = rowsOf(await db.execute(sql`UPDATE registrations SET paid_at = ${p.at}::timestamptz
+         WHERE id = ${x.registration_id} AND legacy_source = 'xero' RETURNING id`));
+      regs += u.length;
+    }
+  }
+  return { payments: pays.size, invoices: rows, registrations: regs };
 }

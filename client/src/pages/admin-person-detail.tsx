@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useRoute, Link, useLocation } from "wouter";
 import {
   ArrowLeft, User, Users, Mail, Phone, Calendar, AlertTriangle, MapPin, School, Pencil,
-  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck, ArrowRightLeft,
+  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck, ArrowRightLeft, Receipt, FileText,
 } from "lucide-react";
 import { useBackTo } from "@/lib/back-to";
 import { Input } from "@/components/ui/input";
@@ -253,6 +253,100 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: "text-white/35 border-white/10 bg-white/[0.04]",
 };
 
+// ── Xero invoices ────────────────────────────────────────────────────────────
+// Families who pay Olga by bank transfer: the invoice, when it was paid, and
+// the PDF itself — so a registration made from Xero carries its own proof.
+
+/** "12 Oct 2026, 4:33pm" in NZ time. */
+function nzDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+  }).replace(/\s?([ap])\.?m\.?$/i, (_m, a) => `${a.toLowerCase()}m`);
+}
+function nzDay(d: string): string {
+  return new Date(d + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" });
+}
+/** The paid line, as exact as Xero lets us be. */
+export function xeroPaidLabel(x: any): string | null {
+  if (x.payment_state === "paid" || x.payment_state === "part_paid") {
+    const what = x.payment_state === "part_paid" ? "Part-paid" : "Paid";
+    if (x.paid_at) {
+      // The bank date and the moment Olga reconciled it can be weeks apart — say both when they differ.
+      const recDay = new Date(x.paid_at).toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+      if (x.paid_on && x.paid_on !== recDay) return `${what} ${nzDay(x.paid_on)} · reconciled ${nzDateTime(x.paid_at)}`;
+      return `${what} ${nzDateTime(x.paid_at)}`;
+    }
+    if (x.paid_on) return `${what} ${nzDay(x.paid_on)}`;
+    return what;
+  }
+  if (x.payment_state === "unpaid") return `Unpaid · ${formatCurrency((x.amount_due_cents ?? 0) / 100)} owing`;
+  if (x.payment_state === "void") return "Voided";
+  if (x.payment_state === "credited") return "Credited";
+  return null;
+}
+
+async function openXeroPdf(invoiceId: string) {
+  // Opened inside the click so the browser doesn't treat it as a pop-up.
+  const w = window.open("", "_blank");
+  try {
+    const res = await workspaceFetch(`/api/admin/xero-registrations/${invoiceId}/pdf`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Couldn't open the invoice");
+    const url = URL.createObjectURL(await res.blob());
+    if (w) w.location.href = url; else window.location.href = url;
+  } catch (e: any) {
+    w?.close();
+    alert(e?.message || "Couldn't open the invoice");
+  }
+}
+
+function useXeroInvoices(personKey: string) {
+  return useQuery<{ rows: any[] }>({
+    queryKey: ["/api/admin/xero-registrations/for-person", personKey],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/xero-registrations/for-person/${personKey}`);
+      // 🔴 Another workspace, or no Registrations access: the card simply isn't there.
+      if (!res.ok) return { rows: [] };
+      return res.json();
+    },
+    enabled: !!personKey,
+    staleTime: 60_000,
+  });
+}
+
+function XeroInvoiceRow({ x, showChild }: { x: any; showChild: boolean }) {
+  const paid = x.payment_state === "paid";
+  const term = x.term_number ? `Term ${x.term_number} ${x.year}` : null;
+  return (
+    <div className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-blue-500/[0.06]"
+      data-testid={`xero-invoice-${x.invoice_number ?? x.invoice_id}`}>
+      <div className="min-w-0">
+        <p className="text-[13px] text-white/75 truncate">
+          {x.invoice_number ?? "Invoice"}{x.reference ? <span className="text-white/35"> · {x.reference}</span> : null}
+        </p>
+        <p className="text-[11px] text-white/35 mt-0.5">
+          {[showChild ? x.child_name : null, x.programme, term].filter(Boolean).join(" · ") || x.xero_contact_name}
+        </p>
+        <p className={`text-[11px] mt-1 ${paid ? "text-emerald-400/70" : x.payment_state === "unpaid" ? "text-amber-400/70" : "text-white/35"}`}
+          data-testid="xero-paid-label">
+          {xeroPaidLabel(x)}
+          {x.registered_by_sync ? <span className="text-white/30"> · registered from Xero</span> : null}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-[12px] text-white/50">{formatCurrency((x.total_cents ?? 0) / 100)}</span>
+        <button
+          onClick={() => openXeroPdf(x.invoice_id)}
+          className="inline-flex items-center gap-1 text-[11px] text-blue-400/80 hover:text-blue-300 border border-blue-500/20 hover:border-blue-500/40 rounded-md px-2 py-1 transition-colors cursor-pointer"
+          title="Open the invoice PDF from Xero"
+          data-testid={`button-xero-pdf-${x.invoice_number ?? x.invoice_id}`}
+        >
+          <FileText className="w-3 h-3" /> Invoice PDF
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProgrammeBadge({ name, status }: { name: string; status: string }) {
   return (
     <Badge
@@ -472,6 +566,8 @@ export default function AdminPersonDetail() {
     enabled: !!personKeyParam,
   });
 
+  const xeroInvoices = useXeroInvoices(personKeyParam);
+
   const unlink = useMutation({
     mutationFn: (guardianKey: string) =>
       apiRequest("DELETE", `/api/admin/people/${personKeyParam}/guardians/${guardianKey}`),
@@ -688,6 +784,17 @@ export default function AdminPersonDetail() {
         }
       />
 
+      {/* ── Xero invoices (bank-transfer families) ─────────────────────────── */}
+      {(xeroInvoices.data?.rows?.length ?? 0) > 0 && (
+        <Card title="Xero invoices" count={xeroInvoices.data!.rows.length}>
+          <div className="space-y-2">
+            {xeroInvoices.data!.rows.map((x: any) => (
+              <XeroInvoiceRow key={x.invoice_id} x={x} showChild={!isPlayer} />
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* ── Children ─────────────────────────────────────────────────────────
           Always rendered for a parent, even when empty. A card that simply
           vanishes cannot be told apart from one that failed to load — which is
@@ -800,6 +907,21 @@ export default function AdminPersonDetail() {
                   <p className="text-[11px] text-white/25">
                     {r.registeredAt ? new Date(r.registeredAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                   </p>
+                  {(() => {
+                    const x = xeroInvoices.data?.rows?.find((i: any) => Number(i.registration_id) === Number(r.id));
+                    if (!x) return null;
+                    return (
+                      <button
+                        onClick={() => openXeroPdf(x.invoice_id)}
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] text-emerald-400/70 hover:underline cursor-pointer text-left"
+                        title="Open the invoice PDF from Xero"
+                        data-testid={`xero-label-${r.id}`}
+                      >
+                        <Receipt className="w-3 h-3 flex-shrink-0" />
+                        Xero {x.invoice_number} · {xeroPaidLabel(x)}
+                      </button>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-[12px] text-white/50">{formatCurrency(regValue(r))}</span>
