@@ -193,6 +193,23 @@ export async function coachAttendance(opts: {
     }
   }
 
+  // Already invoiced through Xero? Then the office isn't chasing a stranger —
+  // it's chasing an unpaid invoice, and says so.
+  const kidIds = Array.from(new Set(follow.map((f) => f.contactId).filter((n: unknown): n is number => typeof n === "number")));
+  if (kidIds.length) {
+    const x: any = await db.execute(sql`
+      SELECT DISTINCT ON (child_contact_id) child_contact_id, decision, payment_state, invoice_number, amount_due_cents, total_cents
+        FROM xero_invoice_registrations
+       WHERE term_id = ${opts.term.id} AND child_contact_id IN (${sql.join(kidIds.map((i) => sql`${i}`), sql`, `)})
+         AND decision NOT IN ('void', 'dismissed')
+       ORDER BY child_contact_id, decided_at DESC`).catch(() => ({ rows: [] }));
+    const by = new Map<number, any>((x.rows ?? x).map((r: any) => [Number(r.child_contact_id), r]));
+    for (const f of follow) {
+      const r = f.contactId != null ? by.get(f.contactId) : undefined;
+      if (r) f.invoice = { number: r.invoice_number, state: r.payment_state, dueCents: Number(r.amount_due_cents), totalCents: Number(r.total_cents) };
+    }
+  }
+
   return {
     connected: true as const,
     term: opts.term,

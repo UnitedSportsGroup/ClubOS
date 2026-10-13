@@ -36,6 +36,7 @@ const AdminContacts = lazy(() => import("@/pages/admin-contacts"));
 const AdminPersonDetail = lazy(() => import("@/pages/admin-person-detail"));
 const AdminMailer = lazy(() => import("@/pages/admin-mailer"));
 const AdminMailerHistory = lazy(() => import("@/pages/admin-mailer-history"));
+const AdminXeroPayments = lazy(() => import("@/pages/admin-xero-payments"));
 const Predictor = lazy(() => import("@/pages/predictor"));
 const FootballInstitute = lazy(() => import("@/pages/football-institute"));
 const AdminSettings = lazy(() => import("@/pages/admin-settings"));
@@ -675,6 +676,7 @@ function AdminRouter() {
       <Route path="/admin/squads" component={AdminSquads} />
       <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
+      <Route path="/admin/xero-payments" component={AdminXeroPayments} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />
       {/* One person page for both people tables, keyed `contact-{id}` /

@@ -201,7 +201,13 @@ const campsNav = [
   // Terms intentionally NOT in the sidebar — it's reachable as a sub-tab
   // from the Academy page (Programs / Term Dates), matching the gymnastics
   // workspace's All Programs / Term Dates pattern.
-  { tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
+  {
+    tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck,
+    // Bank-transfer families: paid Xero invoices → registrations, and Olga's queue.
+    children: [
+      { tab: "registrations", title: "Xero payments", url: "/admin/xero-payments", icon: Receipt },
+    ],
+  },
   { tab: "contacts", title: "Contacts", url: "/admin/contacts", icon: Users },
   { tab: "volunteers", title: "Volunteers", url: "/admin/volunteers", icon: HeartHandshake },
   {

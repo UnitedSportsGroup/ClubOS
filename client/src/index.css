@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 134 translucent white utilities → dark ink on light */
+/* 135 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -233,6 +233,7 @@ html:not(.dark) .border-white\/\[0\.05\] { border-color: rgb(15 23 42 / 0.063) !
 html:not(.dark) .border-white\/\[0\.06\] { border-color: rgb(15 23 42 / 0.067) !important; }
 html:not(.dark) .border-white\/\[0\.07\] { border-color: rgb(15 23 42 / 0.072) !important; }
 html:not(.dark) .border-white\/\[0\.08\] { border-color: rgb(15 23 42 / 0.076) !important; }
+html:not(.dark) .border-white\/\[0\.1\] { border-color: rgb(15 23 42 / 0.085) !important; }
 html:not(.dark) .border-white\/\[0\.10\] { border-color: rgb(15 23 42 / 0.085) !important; }
 html:not(.dark) .border-white\/\[0\.12\] { border-color: rgb(15 23 42 / 0.094) !important; }
 html:not(.dark) .border-white\/10 { border-color: rgb(15 23 42 / 0.085) !important; }

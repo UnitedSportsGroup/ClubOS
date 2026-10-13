@@ -16,7 +16,7 @@ type Status = "present" | "absent" | "injured";
 type Row = { id: string; name: string; openTraining: boolean; registered: boolean | null; profilePath: string | null; present: number; absent: number; injured: number; marks: Record<string, Status> };
 type Session = { date: string; present: number; absent: number; injured: number; taken: boolean; planned: boolean; past: boolean; today: boolean };
 type Team = { id: string; name: string; kind: string; age: number | null; sessions: Session[]; players: Row[] };
-type FollowUp = { parentName?: string | null; lastRegistered?: string | null; profilePath?: string; name: string; openTraining: boolean; teams: string[]; sessionsAttended: number; lastSeen: string | null; email: string | null; phone: string | null; dob: string | null; notes: string | null; addedAt: string };
+type FollowUp = { invoice?: { number: string | null; state: string; dueCents: number; totalCents: number }; parentName?: string | null; lastRegistered?: string | null; profilePath?: string; name: string; openTraining: boolean; teams: string[]; sessionsAttended: number; lastSeen: string | null; email: string | null; phone: string | null; dob: string | null; notes: string | null; addedAt: string };
 type Resp =
   | { terms: Array<{ id: number; label: string; current: boolean }>; connected: true; term: { id: number; name: string }; today: string; registrationsInClubos: boolean; teams: Team[]; followUps: FollowUp[] }
   | { terms: Array<{ id: number; label: string; current: boolean }>; connected: false; reason: string };
@@ -282,6 +282,13 @@ function FollowUps({ rows, term }: { rows: FollowUp[]; term: string }) {
               <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${f.openTraining ? "bg-violet-500/15 text-violet-400" : "bg-amber-500/15 text-amber-400"}`}>
                 {f.openTraining ? "Open training" : "Not registered"}
               </span>
+              {f.invoice && (
+                <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-blue-500/15 text-blue-400" data-testid="followup-invoice">
+                  {f.invoice.state === "paid" ? `Paid in Xero ${f.invoice.number ?? ""} — being added`
+                    : f.invoice.state === "part_paid" ? `Part-paid ${f.invoice.number ?? ""}`
+                    : `Invoiced ${f.invoice.number ?? ""} · $${(f.invoice.dueCents / 100).toFixed(2)} unpaid`}
+                </span>
+              )}
               <div className="text-[11.5px] text-white/40">
                 {f.teams.join(" · ")}
                 {f.lastRegistered && <span> · last registered {f.lastRegistered}</span>}

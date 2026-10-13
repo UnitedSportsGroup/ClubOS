@@ -297,6 +297,10 @@ app.use(attributionCookieMiddleware);
   const { registerEquipmentRoutes } = await import("./equipment-routes");
   registerEquipmentRoutes(app);
 
+  // Xero payments → registrations: the review queue + "check Xero now".
+  const { registerXeroRegistrationRoutes } = await import("./xero-registration-routes");
+  registerXeroRegistrationRoutes(app);
+
   // Fines — both directions (the club owes / owed to the club), with the notice
   // and the payment confirmation stored through the Club Drive storage adapter
   // and served by short-lived signed URL, never a public link.
@@ -480,6 +484,11 @@ app.use(attributionCookieMiddleware);
   // No-ops unless XERO_PAYOUT_AUTOPOST=1.
   const { startXeroPayoutCron } = await import("./xero-payout-cron");
   startXeroPayoutCron();
+
+  // Paid Xero invoices → registrations (Olga's bank-transfer families).
+  // XERO_REG_SYNC = off | shadow | live; off unless set.
+  const { startXeroRegistrationSync } = await import("./xero-registration-sync");
+  startXeroRegistrationSync();
 
   // Mailer: dispatch scheduled newsletter sends when their time arrives.
   const { startMflMailerScheduler } = await import("./routes");
