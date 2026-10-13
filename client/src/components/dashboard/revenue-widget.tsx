@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
 import { useMeasuredWidth } from "@/lib/use-measured-width";
 import { useWorkspace } from "@/lib/workspace-context";
+import { workspaceFetch } from "@/lib/queryClient";
 import {
   PERIOD_LABELS,
   percentChange,
@@ -81,7 +82,14 @@ export function RevenueWidget({
   const slug = useWorkspace().currentOrg?.slug ?? "";
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<MetricResponse>({
+    // 🔴 The default fetcher JOINS the key into the URL, so a key carrying the
+    // workspace needs its own queryFn or it calls ".../metrics/<slug>".
     queryKey: [url, slug],
+    queryFn: async () => {
+      const r = await workspaceFetch(url);
+      if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+      return r.json();
+    },
     // A wrong number is worse than a slightly stale one, but a slightly stale
     // one is worse than a spinner on every tab change.
     staleTime: 30_000,

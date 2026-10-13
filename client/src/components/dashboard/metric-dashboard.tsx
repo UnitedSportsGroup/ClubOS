@@ -25,6 +25,7 @@ import { useCallback, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
+import { workspaceFetch } from "@/lib/queryClient";
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,7 +91,14 @@ export function MetricDashboard({
   const slug = useWorkspace().currentOrg?.slug ?? "";
   const metricsUrl = `/api/admin/dashboard/metrics${view ? `?view=${encodeURIComponent(view)}` : ""}`;
   const { data, isLoading } = useQuery<{ metrics: MetricCard[] }>({
+    // 🔴 The default fetcher JOINS the key into the URL, so a key carrying the
+    // workspace needs its own queryFn or it calls ".../metrics/<slug>".
     queryKey: [metricsUrl, slug],
+    queryFn: async () => {
+      const r = await workspaceFetch(metricsUrl);
+      if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+      return r.json();
+    },
     staleTime: 5 * 60_000, // the registry does not change between page views
   });
   const metrics = data?.metrics ?? [];
