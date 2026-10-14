@@ -225,27 +225,33 @@ function safeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-/** Basic auth against GOOGLE_ADS_EXPORT_USER/PASSWORD. Unset env, missing or
- *  wrong credentials all answer the same 404 — the route does not exist to
- *  anybody without the password. */
+/** Basic auth against GOOGLE_ADS_EXPORT_USER/PASSWORD. Unset env answers 404
+ *  (the route does not exist). Missing or wrong credentials answer 401 with a
+ *  Basic challenge: Google Ads' HTTPS data connection first asks WITHOUT
+ *  credentials and only sends them after a challenge, so a 404 there read as
+ *  "Invalid credentials" (found 2026-10-14 connecting Data Manager). */
 export function googleAdsExportAuth(req: Request, res: Response, next: NextFunction) {
   const user = process.env.GOOGLE_ADS_EXPORT_USER;
   const pass = process.env.GOOGLE_ADS_EXPORT_PASSWORD;
   const notFound = () => res.status(404).json({ message: "Not found" });
   if (!user || !pass) return notFound();
+  const challenge = () => {
+    res.setHeader("WWW-Authenticate", 'Basic realm="ClubOS Google Ads export", charset="UTF-8"');
+    return res.status(401).json({ message: "Authentication required" });
+  };
   const h = String(req.headers.authorization || "");
-  if (!h.toLowerCase().startsWith("basic ")) return notFound();
+  if (!h.toLowerCase().startsWith("basic ")) return challenge();
   let decoded = "";
   try {
     decoded = Buffer.from(h.slice(6).trim(), "base64").toString("utf8");
   } catch {
-    return notFound();
+    return challenge();
   }
   const i = decoded.indexOf(":");
-  if (i < 0) return notFound();
+  if (i < 0) return challenge();
   const okUser = safeEqual(decoded.slice(0, i), user);
   const okPass = safeEqual(decoded.slice(i + 1), pass);
-  if (!okUser || !okPass) return notFound();
+  if (!okUser || !okPass) return challenge();
   next();
 }
 

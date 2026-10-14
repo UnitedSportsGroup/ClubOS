@@ -3,7 +3,7 @@
 //     npx tsx --env-file=.env script/_verify-google-ads-export-live.ts
 //
 // Read-only. Asserts:
-//   - the export 404s with no auth and with wrong auth (and with right user, wrong password)
+//   - the export answers 401 (Basic challenge) with no auth and with wrong auth (and with right user, wrong password)
 //   - with the real credentials it returns text/csv starting with the TimeZone
 //     parameter and Google's header row, and every data row has 6 cells
 //   - /t.js on join.cufc.co.nz (and the other funnel hosts) ships gbraid + wbraid
@@ -31,9 +31,9 @@ function curl(url: string, auth?: string): { status: number; type: string; body:
   return { status: Number(status), type: type.join(" "), body: out.slice(0, i) };
 }
 
-check(curl(URL_CSV).status === 404, "export: no auth → 404");
-check(curl(URL_CSV, "nobody:wrong").status === 404, "export: wrong auth → 404");
-if (user) check(curl(URL_CSV, `${user}:definitely-not-the-password`).status === 404, "export: right user, wrong password → 404");
+check(curl(URL_CSV).status === 401, "export: no auth → 401 challenge");
+check(curl(URL_CSV, "nobody:wrong").status === 401, "export: wrong auth → 401");
+if (user) check(curl(URL_CSV, `${user}:definitely-not-the-password`).status === 401, "export: right user, wrong password → 401");
 
 if (!user || !pass) {
   fails.push("GOOGLE_ADS_EXPORT_USER / GOOGLE_ADS_EXPORT_PASSWORD not set locally — authenticated checks skipped");
