@@ -17,7 +17,9 @@ import fs from "fs";
 import path from "path";
 
 const COMMIT = process.argv.includes("--commit");
-const ROOT = path.resolve(process.cwd(), "../..");
+// The workspace root holds .env + scripts/email — walk up until we find it (works from a worktree too).
+let ROOT = process.cwd();
+while (!fs.existsSync(path.join(ROOT, "scripts/email/send_email.py")) && ROOT !== "/") ROOT = path.dirname(ROOT);
 const rootEnv = Object.fromEntries(
   fs.readFileSync(path.join(ROOT, ".env"), "utf8").split("\n")
     .map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].replace(/^["']|["']$/g, "")]),
