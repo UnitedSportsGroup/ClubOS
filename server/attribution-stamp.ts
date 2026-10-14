@@ -29,8 +29,17 @@ import {
   VID_COOKIE,
   CID_COOKIE,
 } from "./attribution-cookies";
-import { classifyTouch, validExternalId, cleanMacroValue, type TouchInput } from "@shared/attribution";
+import {
+  classifyTouch,
+  validExternalId,
+  cleanMacroValue,
+  pickHistoryTouch,
+  HISTORY_WINDOW_DAYS,
+  type TouchInput,
+  type HistoryTouch,
+} from "@shared/attribution";
 import { getOrCreatePersonByEmail, bindVisitorToPerson } from "./identity";
+import { pool } from "./db";
 
 /** The exact set of AttributionOS columns present on every conversion table (T3). */
 export interface ConversionAttribution {
@@ -69,17 +78,32 @@ export interface ConversionIdentity {
 }
 
 /** First non-empty string among candidate keys, checked on the body then a nested
- *  `attribution` blob (cugc funnels ship one). Numbers are coerced. */
-function pick(body: any, keys: string[]): string | null {
+ *  `attribution` blob (cugc funnels ship one) then a nested `utm` blob. Numbers are
+ *  coerced.
+ *
+ *  `utmKeys` are read ONLY from the nested `utm` blob. The short names
+ *  (`source`, `medium`, `campaign`, `content`, `term`) collide with fields the
+ *  checkouts send for other reasons: the academy checkout sends a top-level
+ *  `source: "cufc-website"` (which page sold it), and reading THAT as utm_source
+ *  stamped 304 paid registrations in 90 days as channel `other` (2026-10-14). */
+export function pick(body: any, keys: string[], utmKeys: string[] = []): string | null {
   if (!body || typeof body !== "object") return null;
   const attr = body.attribution && typeof body.attribution === "object" ? body.attribution : null;
   const utm = body.utm && typeof body.utm === "object" ? body.utm : null;
-  for (const k of keys) {
-    let v = body[k];
-    if ((v === undefined || v === null) && attr) v = attr[k];
-    if ((v === undefined || v === null) && utm) v = utm[k];
+  const val = (v: unknown): string | null => {
     if (typeof v === "string" && v.trim()) return v.trim();
     if (typeof v === "number" && Number.isFinite(v)) return String(v);
+    return null;
+  };
+  for (const k of keys) {
+    const v = val(body[k]) ?? (attr ? val(attr[k]) : null) ?? (utm ? val(utm[k]) : null);
+    if (v) return v;
+  }
+  if (utm) {
+    for (const k of utmKeys) {
+      const v = val(utm[k]);
+      if (v) return v;
+    }
   }
   return null;
 }
@@ -116,15 +140,17 @@ export function readAttributionStamp(req: Request): StampOnly {
 
     // Derive the channel deterministically from whatever signals the form carried.
     const touch: TouchInput = {
-      utmSource: pick(body, ["utmSource", "utm_source", "source"]),
-      utmMedium: pick(body, ["utmMedium", "utm_medium", "medium"]),
-      utmCampaign: pick(body, ["utmCampaign", "utm_campaign", "campaign"]),
-      utmContent: pick(body, ["utmContent", "utm_content", "content"]),
-      utmTerm: pick(body, ["utmTerm", "utm_term", "term"]),
+      utmSource: pick(body, ["utmSource", "utm_source"], ["source"]),
+      utmMedium: pick(body, ["utmMedium", "utm_medium"], ["medium"]),
+      utmCampaign: pick(body, ["utmCampaign", "utm_campaign"], ["campaign"]),
+      utmContent: pick(body, ["utmContent", "utm_content"], ["content"]),
+      utmTerm: pick(body, ["utmTerm", "utm_term"], ["term"]),
       referralCode: pick(body, ["referralCode", "referral_code", "ref"]),
       clickId,
       fbclid: pick(body, ["fbclid"]),
       gclid: pick(body, ["gclid"]),
+      gbraid: pick(body, ["gbraid"]),
+      wbraid: pick(body, ["wbraid"]),
       metaAdId,
       metaAdsetId,
       metaCampaignId,
@@ -176,5 +202,58 @@ export async function buildConversionAttribution(
   } catch (e) {
     console.error("[attribution] identity resolution failed (non-blocking):", e);
   }
+
+  // The checkout request alone usually reads `direct` (the ad's UTMs were on the
+  // landing page, not on /book). Fall back to the visitor's own recorded touches.
+  if (!stamp.attributionChannel || stamp.attributionChannel === "direct") {
+    const fromHistory = await channelFromHistory(stamp.visitorId, personId);
+    if (fromHistory) stamp.attributionChannel = fromHistory;
+  }
   return { ...stamp, personId };
+}
+
+/** Hard ceiling on the history lookup — attribution must never slow a checkout. */
+const HISTORY_TIMEOUT_MS = 1500;
+
+/**
+ * The channel named by this visitor's (and this payer's stitched) touch history,
+ * per pickHistoryTouch: latest paid touch in the last 90 days, else latest
+ * non-direct touch. Null on no history, any error, or a slow DB. Never throws.
+ */
+export async function channelFromHistory(visitorId: string | null, personId: number | null): Promise<string | null> {
+  if (!visitorId && !personId) return null;
+  const lookup = (async () => {
+    const r = await pool.query(
+      `SELECT channel, utm_medium, gclid, metadata->>'gbraid' AS gbraid, metadata->>'wbraid' AS wbraid,
+              is_bot, EXTRACT(EPOCH FROM "timestamp") * 1000 AS ts_ms
+         FROM analytics_events
+        WHERE (visitor_id = $1 OR ($2::int IS NOT NULL AND person_id = $2::int))
+          AND "timestamp" > now() - make_interval(days => $3::int)
+          AND channel IS NOT NULL AND channel <> 'direct' AND NOT is_bot
+        ORDER BY "timestamp" DESC
+        LIMIT 200`,
+      [visitorId ?? "", personId, HISTORY_WINDOW_DAYS],
+    );
+    const touches: HistoryTouch[] = r.rows.map((x: any) => ({
+      channel: x.channel,
+      utmMedium: x.utm_medium,
+      gclid: x.gclid,
+      gbraid: x.gbraid,
+      wbraid: x.wbraid,
+      isBot: x.is_bot,
+      timestampMs: Number(x.ts_ms),
+    }));
+    return pickHistoryTouch(touches, Date.now())?.touch.channel ?? null;
+  })();
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), HISTORY_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([lookup.catch(() => null), timeout]);
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
