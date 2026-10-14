@@ -59,7 +59,7 @@ const videoAsk = {
       ["4", "Would you recommend it to another parent?"],
     ]),
     paragraph(b, `<strong style="color:${b.heading};">As a thank-you, we'll email you a personal code for 20% off</strong> a summer camp booking (21–23 Dec or 4–22 Jan). Upload it straight from your phone. It takes about two minutes.`, { padding: "20px 30px 0" }),
-    button(b, "Send my video", `https://cufc.co.nz/camp-stories?${utm("camp-stories")}`, { padding: "24px 30px 8px" }),
+    button(b, "Send my video", `https://cufc.co.nz/lp/camp-stories?${utm("camp-stories")}`, { padding: "24px 30px 8px" }),
     paragraph(b, "Thank you. It genuinely helps.<br/>Christchurch United FC", { padding: "16px 30px 8px" }),
     footer(b),
   ].join("\n"), "Record 20–30 seconds about camp and we'll send you 20% off a summer booking."),
