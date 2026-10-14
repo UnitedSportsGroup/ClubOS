@@ -296,6 +296,11 @@ export interface TouchInput {
   clickId?: string | null;
   fbclid?: string | null;
   gclid?: string | null;
+  /** Google's iOS click ids. An iOS Google Ads click often carries one of these
+   *  INSTEAD of a gclid (App Tracking Transparency): gbraid on app→web, wbraid
+   *  on web→web. Either one means a paid Google click, exactly like a gclid. */
+  gbraid?: string | null;
+  wbraid?: string | null;
   /** Meta ad-level params (may arrive as literal {{ad.id}} macros — cleaned here). */
   metaAdId?: string | null;
   metaAdsetId?: string | null;
@@ -352,6 +357,9 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
   const clickId = validExternalId(input.clickId);
   const fbclid = validExternalId(input.fbclid);
   const gclid = validExternalId(input.gclid);
+  const gbraid = validExternalId(input.gbraid);
+  const wbraid = validExternalId(input.wbraid);
+  const googleClick = gclid ? "gclid" : gbraid ? "gbraid" : wbraid ? "wbraid" : null;
   const referralCode = validExternalId(input.referralCode);
   const metaAdId = validExternalId(input.metaAdId);
   const metaAdsetId = validExternalId(input.metaAdsetId);
@@ -365,10 +373,11 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
     return { channel: "referral", channelRaw: rawSource ?? "referral", isPaid: false, tracked, matchedBy: "referral_code" };
   }
 
-  // 2. Paid — utm_medium paid, OR Meta ad params, OR gclid (gclid only appears on
-  //    Google Ads clicks, so it is safe to treat as paid google).
+  // 2. Paid — utm_medium paid, OR Meta ad params, OR a Google click id (gclid /
+  //    gbraid / wbraid only appear on Google Ads clicks, so they are safe to treat
+  //    as paid google).
   const isPaidMedium = !!medium && PAID_MEDIUMS.has(medium);
-  if (isPaidMedium || hasMetaAd || gclid) {
+  if (isPaidMedium || hasMetaAd || googleClick) {
     if (hasMetaAd || src === "facebook" || src === "instagram" || src === "messenger" || src === "audience_network") {
       return {
         channel: metaChannelFor(src, input.metaPlatform ?? null),
@@ -378,8 +387,8 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
         matchedBy: "paid_meta",
       };
     }
-    if (gclid || src === "google") {
-      return { channel: "google", channelRaw: rawSource ?? "gclid", isPaid: true, tracked, matchedBy: "paid_google" };
+    if (googleClick || src === "google") {
+      return { channel: "google", channelRaw: rawSource ?? googleClick ?? "google", isPaid: true, tracked, matchedBy: "paid_google" };
     }
     return { channel: src ?? "other", channelRaw: rawSource, isPaid: true, tracked, matchedBy: "paid_medium" };
   }
@@ -634,7 +643,12 @@ export function shapeAnalyticsEvent(raw: unknown, ctx?: ShapeContext): ShapedAna
 
   // External ids get the full hygiene pass (illegal-id blocklist + macro + length).
   const fbclid = validExternalId(raw.fbclid);
-  const gclid = validExternalId(raw.gclid);
+  // Google click ids: the payload field wins, else read them off the landing URL
+  // (a page whose tracker predates gbraid/wbraid still ships the full URL).
+  const fromUrl = googleClickIdsFromUrl(raw.landingUrl);
+  const gclid = validExternalId(raw.gclid) ?? fromUrl.gclid;
+  const gbraid = validExternalId(raw.gbraid) ?? fromUrl.gbraid;
+  const wbraid = validExternalId(raw.wbraid) ?? fromUrl.wbraid;
   const clickId = validExternalId(raw.clickId);
   const fbp = clampText(raw.fbp, 512);
   const fbc = clampText(raw.fbc, 512);
@@ -653,6 +667,8 @@ export function shapeAnalyticsEvent(raw: unknown, ctx?: ShapeContext): ShapedAna
       clickId,
       fbclid,
       gclid,
+      gbraid,
+      wbraid,
       referrer,
       landingUrl,
     });
@@ -669,6 +685,10 @@ export function shapeAnalyticsEvent(raw: unknown, ctx?: ShapeContext): ShapedAna
   if (legacyVid) extras.legacyVid = legacyVid;
   if (utmContent) extras.utmContent = utmContent;
   if (utmTerm) extras.utmTerm = utmTerm;
+  // No dedicated column for these (analytics_events has gclid only) — metadata is
+  // where the Google Ads resolver (server/google-ads-attribution.ts) reads them.
+  if (gbraid) extras.gbraid = gbraid;
+  if (wbraid) extras.wbraid = wbraid;
   if (Object.keys(extras).length > 0) metadata = { ...(metadata ?? {}), ...extras };
 
   return {
@@ -698,6 +718,25 @@ export function shapeAnalyticsEvent(raw: unknown, ctx?: ShapeContext): ShapedAna
 }
 
 /**
+ * Pull gclid / gbraid / wbraid off a landing URL's query string. Pure, never
+ * throws; each value goes through the same hygiene as every external id.
+ */
+export function googleClickIdsFromUrl(url: unknown): { gclid: string | null; gbraid: string | null; wbraid: string | null } {
+  const none = { gclid: null, gbraid: null, wbraid: null };
+  if (typeof url !== "string" || !url.includes("?")) return none;
+  try {
+    const sp = new URL(url, "https://x.invalid").searchParams;
+    return {
+      gclid: validExternalId(sp.get("gclid")),
+      gbraid: validExternalId(sp.get("gbraid")),
+      wbraid: validExternalId(sp.get("wbraid")),
+    };
+  } catch {
+    return none;
+  }
+}
+
+/**
  * Shape a batch of raw payloads, dropping malformed rows and capping at `limit`
  * (default 50). Non-array input → empty array.
  */
@@ -710,4 +749,67 @@ export function shapeAnalyticsEvents(rawEvents: unknown, ctx?: ShapeContext, lim
     if (shaped) out.push(shaped);
   }
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversion channel from the visitor's touch history (2026-10-14)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A conversion row is written by the CHECKOUT request. That request almost never
+// carries the ad's UTMs: the ad lands on cufc.co.nz or a programme page, the parent
+// clicks through to join.cufc.co.nz/…/book, and the query string is gone by then.
+// Classified alone, the checkout reads `direct` — measured 2026-10-14: of 945 online
+// paid registrations in 90 days, 636 were stamped `direct` and 112 of those visitors
+// had a PAID Meta touch (utm_medium=paid) earlier on the same visitor id.
+//
+// So when the checkout request itself is unattributed, the channel comes from the
+// visitor's own recorded touches: the LATEST PAID touch in the window wins (an ad
+// click is what we are paying to measure), else the latest non-direct touch. A
+// touch after the conversion, a bot touch, or one outside the window never counts.
+
+/** One stored analytics touch, reduced to what the history picker needs. */
+export interface HistoryTouch {
+  channel: string | null;
+  utmMedium?: string | null;
+  gclid?: string | null;
+  gbraid?: string | null;
+  wbraid?: string | null;
+  isBot?: boolean | null;
+  timestampMs: number;
+}
+
+export const HISTORY_WINDOW_DAYS = 90;
+
+/** True when a stored touch was a paid click (paid medium, or a Google click id). */
+export function isPaidHistoryTouch(t: HistoryTouch): boolean {
+  const medium = typeof t.utmMedium === "string" ? t.utmMedium.trim().toLowerCase() : "";
+  if (medium && PAID_MEDIUMS.has(medium)) return true;
+  return !!(validExternalId(t.gclid) || validExternalId(t.gbraid) || validExternalId(t.wbraid));
+}
+
+/**
+ * Pick the touch that should name a conversion's channel. Pure.
+ * Returns null when no eligible non-direct touch exists (caller keeps `direct`).
+ */
+export function pickHistoryTouch(
+  touches: readonly HistoryTouch[],
+  convertedAtMs: number,
+  windowDays: number = HISTORY_WINDOW_DAYS,
+): { touch: HistoryTouch; isPaid: boolean } | null {
+  const from = convertedAtMs - windowDays * 86_400_000;
+  let paid: HistoryTouch | null = null;
+  let any: HistoryTouch | null = null;
+  for (const t of touches) {
+    if (!t || t.isBot) continue;
+    if (!Number.isFinite(t.timestampMs) || t.timestampMs > convertedAtMs || t.timestampMs < from) continue;
+    if (!t.channel || t.channel === "direct") continue;
+    if (isPaidHistoryTouch(t)) {
+      if (!paid || t.timestampMs > paid.timestampMs) paid = t;
+    } else if (!any || t.timestampMs > any.timestampMs) {
+      any = t;
+    }
+  }
+  if (paid) return { touch: paid, isPaid: true };
+  if (any) return { touch: any, isPaid: false };
+  return null;
 }

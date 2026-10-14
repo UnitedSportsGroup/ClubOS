@@ -130,6 +130,9 @@
   var landingParams = new URLSearchParams(window.location.search);
   var fbclid = landingParams.get('fbclid') || null;
   var gclid = landingParams.get('gclid') || null;
+  // Google's iOS click ids — an iOS ad click often carries one of these and no gclid.
+  var gbraid = landingParams.get('gbraid') || null;
+  var wbraid = landingParams.get('wbraid') || null;
   var ciParam = landingParams.get('ci') || null;
   // Click id: the ?ci= on this landing wins; else the server-set usg_cid (last click).
   var clickId = ciParam || getCookie(CID_COOKIE) || null;
@@ -151,6 +154,8 @@
     evt.utmTerm = utm.utmTerm;
     evt.fbclid = fbclid;
     evt.gclid = gclid;
+    evt.gbraid = gbraid;
+    evt.wbraid = wbraid;
     evt.ci = ciParam;
     evt.clickId = clickId;
     evt.fbp = fbp;

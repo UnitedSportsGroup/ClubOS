@@ -12,7 +12,8 @@
 //      Set-Cookies a usg_vid scoped to the brand ROOT (Domain=minifootball.co.nz),
 //      so the marketing site and the funnel subdomain share ONE first-party visitor
 //      id, and echoes back { visitorId, clickId }.
-//   2. Sends a page_view touch (utm / fbclid / gclid / ci / fbp / fbc / landingUrl)
+//   2. Sends a page_view touch (utm / fbclid / gclid / gbraid / wbraid / ci / fbp /
+//      fbc / landingUrl)
 //      to the existing collector `/api/public/analytics/batch`.
 //   3. Decorates outbound <a> links that point at our OTHER brand roots with
 //      `?vi=<visitor>&ci=<click>` so a cross-root hop can be stitched (T13 accepts
@@ -48,12 +49,12 @@ function rootOf(h){h=(h||'').toLowerCase();for(var i=0;i<ROOTS.length;i++){var d
 function post(u,b,cb){try{var x=new XMLHttpRequest();x.open('POST',u,true);x.withCredentials=true;x.setRequestHeader('Content-Type','application/json');if(cb){x.onreadystatechange=function(){if(x.readyState===4)cb(x.responseText);};}x.send(JSON.stringify(b));}catch(e){if(cb)cb(null);}}
 var ci=qp('ci'),vi0=qp('vi');
 var vid=ck(VID),cid=ci||ck(CID)||null,s=sid();
-var landing={fbclid:qp('fbclid'),gclid:qp('gclid'),ci:ci,vi:vi0,utmSource:qp('utm_source'),utmMedium:qp('utm_medium'),utmCampaign:qp('utm_campaign'),utmContent:qp('utm_content'),utmTerm:qp('utm_term'),landingUrl:location.href,referrer:document.referrer||null,page:location.pathname};
+var landing={fbclid:qp('fbclid'),gclid:qp('gclid'),gbraid:qp('gbraid'),wbraid:qp('wbraid'),ci:ci,vi:vi0,utmSource:qp('utm_source'),utmMedium:qp('utm_medium'),utmCampaign:qp('utm_campaign'),utmContent:qp('utm_content'),utmTerm:qp('utm_term'),landingUrl:location.href,referrer:document.referrer||null,page:location.pathname};
 function decorate(){if(!vid&&!cid)return;var mine=rootOf(location.hostname);var as=document.getElementsByTagName('a');for(var i=0;i<as.length;i++){var a=as[i];var href=a.getAttribute('href');if(!href)continue;var u;try{u=new URL(href,location.href);}catch(e){continue;}if(u.protocol!=='http:'&&u.protocol!=='https:')continue;var r=rootOf(u.hostname);if(!r)continue;if(r===mine)continue;try{if(vid&&!u.searchParams.has('vi'))u.searchParams.set('vi',vid);if(cid&&!u.searchParams.has('ci'))u.searchParams.set('ci',cid);a.setAttribute('href',u.toString());}catch(e){}}}
-function touch(){if(!vid)return;var e={visitorId:vid,sessionId:s,eventType:'page_view',page:landing.page,referrer:landing.referrer,utmSource:landing.utmSource,utmMedium:landing.utmMedium,utmCampaign:landing.utmCampaign,utmContent:landing.utmContent,utmTerm:landing.utmTerm,fbclid:landing.fbclid,gclid:landing.gclid,ci:landing.ci,clickId:cid,fbp:ck('_fbp'),fbc:ck('_fbc'),landingUrl:landing.landingUrl,device:(window.innerWidth<768?'mobile':(window.innerWidth<1024?'tablet':'desktop')),webdriver:(navigator.webdriver===true),metadata:{trafficSource:'cross-site',crossSite:true}};post(BATCH,{events:[e]});}
+function touch(){if(!vid)return;var e={visitorId:vid,sessionId:s,eventType:'page_view',page:landing.page,referrer:landing.referrer,utmSource:landing.utmSource,utmMedium:landing.utmMedium,utmCampaign:landing.utmCampaign,utmContent:landing.utmContent,utmTerm:landing.utmTerm,fbclid:landing.fbclid,gclid:landing.gclid,gbraid:landing.gbraid,wbraid:landing.wbraid,ci:landing.ci,clickId:cid,fbp:ck('_fbp'),fbc:ck('_fbc'),landingUrl:landing.landingUrl,device:(window.innerWidth<768?'mobile':(window.innerWidth<1024?'tablet':'desktop')),webdriver:(navigator.webdriver===true),metadata:{trafficSource:'cross-site',crossSite:true}};post(BATCH,{events:[e]});}
 function ready(fn){if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',fn);}else{fn();}}
 function loadBehavior(){if(!vid)return;try{window.__usgB={base:BASE,vid:vid,sid:s};var sc=document.createElement('script');sc.src=BASE+'/t2.js';sc.async=true;(document.head||document.documentElement).appendChild(sc);}catch(e){}}
-post(HELLO,{ci:landing.ci,fbclid:landing.fbclid,gclid:landing.gclid,vi:landing.vi,landingUrl:landing.landingUrl,referrer:landing.referrer},function(txt){if(txt){try{var r=JSON.parse(txt);if(r){if(r.visitorId)vid=r.visitorId;if(r.clickId)cid=r.clickId;}}catch(e){}}if(!vid)vid=ck(VID);touch();ready(decorate);loadBehavior();});
+post(HELLO,{ci:landing.ci,fbclid:landing.fbclid,gclid:landing.gclid,gbraid:landing.gbraid,wbraid:landing.wbraid,vi:landing.vi,landingUrl:landing.landingUrl,referrer:landing.referrer},function(txt){if(txt){try{var r=JSON.parse(txt);if(r){if(r.visitorId)vid=r.visitorId;if(r.clickId)cid=r.clickId;}}catch(e){}}if(!vid)vid=ck(VID);touch();ready(decorate);loadBehavior();});
 })();
 `;
 }
