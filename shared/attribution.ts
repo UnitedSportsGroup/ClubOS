@@ -758,9 +758,10 @@ export function shapeAnalyticsEvents(rawEvents: unknown, ctx?: ShapeContext, lim
 // A conversion row is written by the CHECKOUT request. That request almost never
 // carries the ad's UTMs: the ad lands on cufc.co.nz or a programme page, the parent
 // clicks through to join.cufc.co.nz/…/book, and the query string is gone by then.
-// Classified alone, the checkout reads `direct` — measured 2026-10-14: of 945 online
-// paid registrations in 90 days, 636 were stamped `direct` and 112 of those visitors
-// had a PAID Meta touch (utm_medium=paid) earlier on the same visitor id.
+// Classified alone, the checkout reads `direct` — measured 2026-10-14: of 951 online
+// paid registrations in 90 days, 636 were stamped `direct`, and 147 of those had a
+// PAID Meta touch (utm_source=facebook, utm_medium=paid) earlier on the same visitor
+// or payer. Only 6 registrations in the whole window were stamped `facebook`.
 //
 // So when the checkout request itself is unattributed, the channel comes from the
 // visitor's own recorded touches: the LATEST PAID touch in the window wins (an ad
