@@ -149,6 +149,10 @@ const CANARIES: Canary[] = [
   // Marketing hub (2026-09-15): Daniel's one-stop marketing dashboard. A deploy
   // without it would leave a sidebar link to a page whose every section 404s.
   { feature: "marketing hub",        path: "/api/admin/marketing-hub/overview",         expect: [401] },
+  // Google Ads attribution (2026-10-14): the hub's attribution check. The public
+  // conversions CSV answers 404 by design when unauthenticated, so it cannot be
+  // its own canary — this route ships in the same file and stands in for it.
+  { feature: "google ads attribution", path: "/api/admin/google-ads/attribution-check", expect: [401] },
   // MFL captain's dashboard (2026-09-19): the league captain's squad, fee
   // position, ladder and fill-ins by night. A deploy without it would strand
   // every captain who set a password, and the Players page on minifootball.co.nz.
