@@ -142,6 +142,24 @@ export function formatNzDateTime(ms: number): string {
   return `${p.year}-${p.month}-${p.day} ${hour}:${p.minute}:${p.second}`;
 }
 
+/** An instant → ISO 8601 on the Pacific/Auckland wall clock WITH its offset,
+ *  e.g. "2026-10-14T17:05:09+13:00". Google Data Manager's HTTPS import reads the
+ *  first line as the header and wants the zone inside every timestamp — the legacy
+ *  `Parameters:TimeZone=` line became its only "column" (found 2026-10-14). */
+export function formatNzIsoWithOffset(ms: number): string {
+  const local = formatNzDateTime(ms); // yyyy-MM-dd HH:mm:ss, NZ wall clock
+  const [d, t] = local.split(" ");
+  const [Y, M, D] = d.split("-").map(Number);
+  const [h, m, sec] = t.split(":").map(Number);
+  const wallAsUtc = Date.UTC(Y, M - 1, D, h, m, sec);
+  const offMin = Math.round((wallAsUtc - Math.floor(ms / 1000) * 1000) / 60000);
+  const sign = offMin >= 0 ? "+" : "-";
+  const a = Math.abs(offMin);
+  const hh = String(Math.floor(a / 60)).padStart(2, "0");
+  const mm = String(a % 60).padStart(2, "0");
+  return `${d}T${t}${sign}${hh}:${mm}`;
+}
+
 /** RFC 4180 field quoting. */
 export function csvField(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
@@ -176,13 +194,17 @@ export interface GoogleConversionRow {
 /** The full CSV body Google fetches. Rows with no value are dropped. */
 export function buildGoogleAdsCsv(
   rows: readonly GoogleConversionRow[],
-  opts: { conversionName?: string; includeEmailHash?: boolean } = {},
+  opts: { conversionName?: string; includeEmailHash?: boolean; legacy?: boolean } = {},
 ): string {
   const name = opts.conversionName ?? GOOGLE_ADS_CONVERSION_NAME;
   const header: string[] = [...GOOGLE_ADS_CSV_HEADER];
   // UNVERIFIED column name — see the header comment. Off unless asked for.
   if (opts.includeEmailHash) header.push("Email");
-  const lines = [`Parameters:TimeZone=${GOOGLE_ADS_TIMEZONE}`, header.map(csvField).join(",")];
+  // Default = Data Manager shape (header first, zone inside each timestamp).
+  // `legacy` = the old file-upload shape with a Parameters:TimeZone line.
+  const lines = opts.legacy
+    ? [`Parameters:TimeZone=${GOOGLE_ADS_TIMEZONE}`, header.map(csvField).join(",")]
+    : [header.map(csvField).join(",")];
   const seen = new Set<string>();
   for (const r of rows) {
     if (!r || r.valueCents <= 0 || seen.has(r.orderId)) continue;
@@ -192,7 +214,7 @@ export function buildGoogleAdsCsv(
     const cells = [
       gclid,
       name,
-      formatNzDateTime(r.convertedAtMs),
+      opts.legacy ? formatNzDateTime(r.convertedAtMs) : formatNzIsoWithOffset(r.convertedAtMs),
       centsToDecimal(r.valueCents),
       (r.currency || "NZD").toUpperCase(),
       r.orderId,

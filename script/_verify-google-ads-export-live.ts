@@ -4,7 +4,7 @@
 //
 // Read-only. Asserts:
 //   - the export answers 401 (Basic challenge) with no auth and with wrong auth (and with right user, wrong password)
-//   - with the real credentials it returns text/csv starting with the TimeZone
+//   - with the real credentials it returns text/csv starting with the header (zone inside each time)
 //     parameter and Google's header row, and every data row has 6 cells
 //   - /t.js on join.cufc.co.nz (and the other funnel hosts) ships gbraid + wbraid
 //   - the admin attribution check is gated (401 without a session)
@@ -42,12 +42,11 @@ if (!user || !pass) {
   check(r.status === 200, `export: with auth → 200 (got ${r.status})`);
   check(/text\/csv/.test(r.type), `export: content-type text/csv (got ${r.type})`);
   const lines = r.body.split(/\r?\n/).filter((l) => l.length);
-  check(lines[0] === "Parameters:TimeZone=Pacific/Auckland", `export: first line is the TimeZone parameter (got ${lines[0]})`);
-  check(lines[1] === GOOGLE_ADS_CSV_HEADER.join(","), `export: header row (got ${lines[1]})`);
-  const bad = lines.slice(2).filter((l) => l.split(",").length !== 6 || !/,ClubOS Purchase,\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+\.\d\d,[A-Z]{3},(reg|shop)-\d+$/.test(l));
+  check(lines[0] === GOOGLE_ADS_CSV_HEADER.join(","), `export: header is the FIRST line, Data Manager shape (got ${lines[0]})`);
+  const bad = lines.slice(1).filter((l) => l.split(",").length !== 6 || !/,ClubOS Purchase,\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,\d+\.\d\d,[A-Z]{3},(reg|shop)-\d+$/.test(l));
   check(bad.length === 0, `export: every data row well-formed (bad: ${bad.slice(0, 3).join(" | ")})`);
   check(!r.body.includes("@"), "export: no email address in the default export");
-  console.log(`  export rows: ${Math.max(0, lines.length - 2)}`);
+  console.log(`  export rows: ${Math.max(0, lines.length - 1)}`);
 }
 
 for (const host of ["join.cufc.co.nz", "join.minifootball.co.nz"]) {

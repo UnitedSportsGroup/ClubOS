@@ -19,6 +19,7 @@ import {
   buildGoogleAdsCsv,
   centsToDecimal,
   formatNzDateTime,
+  formatNzIsoWithOffset,
   netPaidCents,
   normalizeEmailForGoogle,
   pickGoogleClick,
@@ -111,6 +112,17 @@ eq(formatNzDateTime(Date.UTC(2026, 0, 15, 2, 30, 0)), "2026-01-15 15:30:00", "NZ
 eq(formatNzDateTime(Date.UTC(2026, 5, 15, 2, 30, 0)), "2026-06-15 14:30:00", "NZST (+12) in June");
 eq(formatNzDateTime(Date.UTC(2026, 9, 13, 11, 5, 9)), "2026-10-14 00:05:09", "crosses midnight into the NZ date, 24h clock");
 
+// ── Data Manager shape (default) ──
+{
+  eq(formatNzIsoWithOffset(Date.UTC(2026, 0, 15, 2, 30, 0)), "2026-01-15T15:30:00+13:00", "ISO with NZDT offset");
+  eq(formatNzIsoWithOffset(Date.UTC(2026, 5, 15, 2, 30, 0)), "2026-06-15T14:30:00+12:00", "ISO with NZST offset");
+  const dm = buildGoogleAdsCsv([{ orderId: "reg-1", gclid: "Cj0KCQ", convertedAtMs: Date.UTC(2026, 0, 15, 2, 30, 0), valueCents: 11200, currency: "NZD" }]);
+  const l = dm.trimEnd().split("\r\n");
+  eq(l[0], GOOGLE_ADS_CSV_HEADER.join(","), "default: header is the FIRST line (no Parameters line)");
+  eq(l[1], "Cj0KCQ,ClubOS Purchase,2026-01-15T15:30:00+13:00,112.00,NZD,reg-1", "default row carries the zone in the time");
+  eq(buildGoogleAdsCsv([]).split("\r\n").length, 2, "empty default export = header only");
+}
+
 // ── CSV ────────────────────────────────────────────────────────────────────
 {
   const csv = buildGoogleAdsCsv([
@@ -118,7 +130,7 @@ eq(formatNzDateTime(Date.UTC(2026, 9, 13, 11, 5, 9)), "2026-10-14 00:05:09", "cr
     { orderId: "reg-1", gclid: "Cj0KCQ", convertedAtMs: Date.UTC(2026, 0, 15, 2, 30, 0), valueCents: 11200, currency: "NZD" },
     { orderId: "reg-2", gclid: "G2", convertedAtMs: Date.UTC(2026, 0, 15, 2, 30, 0), valueCents: 0, currency: "NZD" },
     { orderId: "reg-3", gclid: "undefined", convertedAtMs: Date.UTC(2026, 0, 15, 2, 30, 0), valueCents: 500, currency: "NZD" },
-  ]);
+  ], { legacy: true });
   const lines = csv.trimEnd().split("\r\n");
   eq(lines[0], "Parameters:TimeZone=Pacific/Auckland", "first line is the TimeZone parameter");
   eq(lines[1], GOOGLE_ADS_CSV_HEADER.join(","), "header row");
@@ -126,9 +138,9 @@ eq(formatNzDateTime(Date.UTC(2026, 9, 13, 11, 5, 9)), "2026-10-14 00:05:09", "cr
   eq(lines[2], "Cj0KCQ,ClubOS Purchase,2026-01-15 15:30:00,112.00,NZD,reg-1", "row: NZ time, net value, upper currency, order id");
   eq(lines.length, 3, "duplicate order id, zero value and junk gclid all dropped");
   check(!csv.includes("@"), "no email in the default export");
-  const withHash = buildGoogleAdsCsv([{ orderId: "reg-9", gclid: "G", convertedAtMs: 0, valueCents: 100, currency: "NZD", emailSha256: "ab" }], { includeEmailHash: true });
+  const withHash = buildGoogleAdsCsv([{ orderId: "reg-9", gclid: "G", convertedAtMs: 0, valueCents: 100, currency: "NZD", emailSha256: "ab" }], { includeEmailHash: true, legacy: true });
   check(withHash.split("\r\n")[1].endsWith(",Email") && withHash.includes(",reg-9,ab"), "opt-in hash column");
-  eq(buildGoogleAdsCsv([], {}).split("\r\n").length, 3, "empty export is still a valid file (param + header)");
+  eq(buildGoogleAdsCsv([], { legacy: true }).split("\r\n").length, 3, "empty legacy export is still a valid file (param + header)");
   const q = buildGoogleAdsCsv([{ orderId: 'x,"y', gclid: "G", convertedAtMs: 0, valueCents: 100, currency: "NZD" }]);
   check(q.includes('"x,""y"'), "CSV quoting");
 }

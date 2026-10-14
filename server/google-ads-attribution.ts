@@ -280,7 +280,7 @@ export function registerGoogleAdsRoutes(app: Express) {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("X-Robots-Tag", "noindex");
-      res.send(buildGoogleAdsCsv(rows, { includeEmailHash }));
+      res.send(buildGoogleAdsCsv(rows, { includeEmailHash, legacy: req.query.legacy === "1" }));
     } catch (e) {
       console.error("[google-ads] export failed:", e);
       res.status(500).type("text/plain").send("export failed");
