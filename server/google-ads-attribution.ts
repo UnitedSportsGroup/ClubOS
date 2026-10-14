@@ -280,6 +280,13 @@ export function registerGoogleAdsRoutes(app: Express) {
             emailSha256: email ? sha256(email) : null,
           };
         });
+      // Google Data Manager refuses to connect to a file with no data rows (it
+      // infers the schema from them). While GOOGLE_ADS_EXPORT_SCHEMA_ROW=1 AND the
+      // export is empty, emit ONE obviously-fake placeholder so the connection can be
+      // mapped; Google rejects its click id on import. Unset the flag once mapped.
+      if (rows.length === 0 && process.env.GOOGLE_ADS_EXPORT_SCHEMA_ROW === "1") {
+        rows.push({ orderId: "schema-check", gclid: "SCHEMA-CHECK-NOT-A-CLICK", convertedAtMs: Date.now(), valueCents: 1, currency: "NZD", emailSha256: null });
+      }
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("X-Robots-Tag", "noindex");
