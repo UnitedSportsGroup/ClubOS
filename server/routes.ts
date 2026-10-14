@@ -156,6 +156,7 @@ import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
+import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
   registerParentRoutes, resolveOwnedChildContactId, parentCheckoutCustomer, parentCustomerSessionSecret,
@@ -27139,6 +27140,8 @@ export async function registerRoutes(
   // across the group (websites, forms, ads, social) in one place; group
   // workspace only. See server/marketing-hub/ and shared/marketing-hub.ts.
   registerMarketingHubRoutes(app);
+  // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
+  registerGoogleAdsRoutes(app);
 
   // United Prints customer accounts — a print customer's own view of their
   // orders and their own prices, on join.unitedprints.co.nz/account. A CUSTOMER
