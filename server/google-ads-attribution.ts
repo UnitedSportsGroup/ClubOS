@@ -260,7 +260,10 @@ function sha256(s: string): string {
 }
 
 export function registerGoogleAdsRoutes(app: Express) {
-  app.get("/api/integrations/google-ads/conversions.csv", googleAdsExportAuth, async (req, res) => {
+  // Two paths, one handler: `clubos-purchases.csv` is the path Google Data Manager is
+  // connected to (it caches a file's columns per URL; the first connection cached the
+  // old legacy-shape header). `conversions.csv` stays for the verifier and legacy use.
+  app.get(["/api/integrations/google-ads/conversions.csv", "/api/integrations/google-ads/clubos-purchases.csv"], googleAdsExportAuth, async (req, res) => {
     try {
       const includeEmailHash = req.query.email_hash === "1";
       const resolved = await resolveGoogleClicks(await listPaidConversions());
