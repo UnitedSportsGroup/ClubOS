@@ -675,7 +675,7 @@ export default function MflLandingPage() {
       {/* Trust */}
       <section className="max-w-4xl mx-auto px-6 py-10 text-center">
         <div className="flex items-center justify-center gap-2 mb-2"><Stars /></div>
-        <p style={{ color: BRAND.muted }}>50+ teams already playing</p>
+        <p style={{ color: BRAND.muted }}>100+ teams already playing</p>
         <div className="flex items-center justify-center gap-6 mt-5 text-sm" style={{ color: BRAND.dim }}>
           <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> Social & competitive</span>
           <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" /> Qualified refs</span>
@@ -772,7 +772,7 @@ function Hero({ org, headline, sub, ctaHref, showCta, video }: { org: any; headl
           </Link>
         )}
         <div className="flex items-center justify-center gap-2 mt-6 text-sm" style={{ color: BRAND.dim }}>
-          <Stars /> <span>50+ teams playing</span>
+          <Stars /> <span>100+ teams playing</span>
         </div>
       </div>
     </header>

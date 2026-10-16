@@ -45,7 +45,7 @@ export const sampleMflPageDoc: PageDoc = {
       type: "stat_grid",
       id: "reach",
       stats: [
-        { value: "50+", label: "teams every season" },
+        { value: "100+", label: "teams every season" },
         { value: "600+", label: "kids on the ball weekly" },
         { value: "1,200+", label: "parents & whānau on the sideline" },
         { value: "4", label: "seasons a year — always on" },

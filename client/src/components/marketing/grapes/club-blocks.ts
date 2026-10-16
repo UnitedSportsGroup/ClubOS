@@ -266,7 +266,7 @@ function statStripBlock(b: BrandCanvas): EmailBlockDef {
     label: "Stat strip",
     category: CAT_CLUB,
     media: svgBars(),
-    content: `<mj-section background-color="${b.surface}" padding="22px 28px">${stat("50+", "Teams")}${stat("4", "Nights")}${stat("1", "Community")}
+    content: `<mj-section background-color="${b.surface}" padding="22px 28px">${stat("100+", "Teams")}${stat("4", "Nights")}${stat("1", "Community")}
 </mj-section>`,
   };
 }
