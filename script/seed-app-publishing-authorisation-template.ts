@@ -45,7 +45,7 @@ export const variables = [
 ];
 
 export const form = [
-  { key: "signatory_name", label: "Full name of the person signing for the rights holder", type: "text", required: true },
+  { key: "signatory_name", label: "Full name", type: "text", required: true },
   { key: "signatory_title", label: "Position", type: "text", required: true, placeholder: "e.g. President" },
 ];
 
