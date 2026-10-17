@@ -66,8 +66,9 @@ const COURIER_PLACEHOLDER_LABEL = "NZ Courier";
 
 const description = (team: string) =>
   `The official Christchurch United ${team} 2026 team photo, with every player named underneath.\n\n` +
-  `Printed 6×4 inch (15 × 10 cm). Collect it free from the club office at United Sports Centre, or have it posted.\n\n` +
-  `The "SAMPLE" watermark is only on this preview. Your print won't have it.`;
+  `Includes the full-resolution digital file, ready to download the moment you pay, plus a printed 6×4 inch (15 × 10 cm) copy. ` +
+  `Collect the print free from the club office at United Sports Centre, or have it posted.\n\n` +
+  `The "SAMPLE" watermark is only on this preview. Your download and print won't have it.`;
 
 async function main() {
   const commit = process.argv.includes("--commit");
@@ -118,7 +119,7 @@ async function main() {
       const p = await c.query(
         `INSERT INTO shop_products (organization_id, slug, title, subtitle, description, type, price_cents, status, sort_order)
          VALUES ($1,$2,$3,$4,$5,'photo',$6,'active',$7) RETURNING id`,
-        [CUFC_ORG_ID, slug, title, "Printed 6×4 team photo", description(t.team), PRICE_CENTS, i],
+        [CUFC_ORG_ID, slug, title, "Digital download + 6×4 print", description(t.team), PRICE_CENTS, i],
       );
       const productId = p.rows[0].id;
       const col = await c.query(
