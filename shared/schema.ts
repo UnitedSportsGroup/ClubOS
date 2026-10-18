@@ -5838,6 +5838,9 @@ export const shopOrders = pgTable("shop_orders", {
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   contactId: integer("contact_id").references(() => contacts.id),
   source: text("source").notNull().default("online"),   // POS-ready
+  // Set when the order came from a till sale (source "pos"); see
+  // migrations/2026-10-19_shop_orders_pos_sale.sql. FK lives in the DB.
+  posSaleId: integer("pos_sale_id"),
   utmSource: text("utm_source"),
   utmMedium: text("utm_medium"),
   utmCampaign: text("utm_campaign"),

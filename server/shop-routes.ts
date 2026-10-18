@@ -106,13 +106,9 @@ const SHOP_BRANDS: Record<string, ShopBrand> = {
       /^https:\/\/shop\.cufc\.co\.nz$/,
       /^https:\/\/(www\.)?cufcshop\.com$/,
     ],
-    // Player Pay / team-link building ONLY (coach + player-share pay links) —
-    // CUFC's retail shop has no team-kit-group-payment flow today. Points at
-    // the Shopify domain Daniel already owns so a stray link (nothing sends
-    // one today) at least resolves to a real, on-brand site instead of a
-    // storefront that doesn't exist yet.
-    // TODO cutover → replace with the real CUFC storefront once it's built.
-    storefrontBase: "https://cufcshop.com",
+    // The storefront (live since 17 Oct 2026; cufcshop.com redirects here).
+    // Also builds the team-photo download link on a counter receipt.
+    storefrontBase: "https://shop.cufc.co.nz",
   },
   siu: {
     brandKey: "siu",
@@ -556,6 +552,114 @@ async function priceCart(
   const totalCents = subtotalCents - discountCents + shippingCents;
 
   return { lines, subtotalCents, discountCents, discount, shipping, shippingCents, totalCents };
+}
+
+// ─── Till (POS) sales → Store orders ─────────────────────────────────────────
+// A shop item sold at the counter is a Store sale like any other: it shows in
+// Orders and Sales, and a team photo gets the same paid-order-gated download
+// link as one bought online. Called once per sale from POS fulfilment; the
+// unique (pos_sale_id, organization_id) index makes a repeat a no-op. Stock was
+// already taken by the till, so nothing here touches it. Money is the till's:
+// each order carries its variant lines and its pro-rata share of any discount.
+
+type PosSaleForShop = {
+  id: number; saleNumber: string; paidAt: Date | string | null; discountCents: number; subtotalCents: number;
+  customerName: string | null; customerEmail: string | null; customerPhone: string | null;
+  lines: { kind: string; organizationId: number; variantId: number | null; productId: number | null;
+    title: string; detail: string | null; unitCents: number; qty: number; lineCents: number }[];
+};
+
+export async function recordPosSaleAsShopOrders(sale: PosSaleForShop): Promise<void> {
+  const byOrg = new Map<number, PosSaleForShop["lines"]>();
+  for (const l of sale.lines) {
+    if (l.kind !== "variant" || !l.productId) continue;
+    if (!shopBrandByOrgId(l.organizationId)) continue; // only brands with a Store
+    byOrg.set(l.organizationId, [...(byOrg.get(l.organizationId) ?? []), l]);
+  }
+  for (const [orgId, lines] of Array.from(byOrg.entries())) {
+    const brand = shopBrandByOrgId(orgId)!;
+    const [existing] = await db.select({ id: shopOrders.id }).from(shopOrders)
+      .where(and(eq(shopOrders.posSaleId, sale.id), eq(shopOrders.organizationId, orgId)));
+    if (existing) continue;
+
+    const productIds = Array.from(new Set(lines.map((l) => l.productId!)));
+    const variantIds = lines.map((l) => l.variantId).filter((v): v is number => v != null);
+    const [products, variants, colours, images] = await Promise.all([
+      db.select().from(shopProducts).where(inArray(shopProducts.id, productIds)),
+      variantIds.length ? db.select().from(shopVariants).where(inArray(shopVariants.id, variantIds)) : Promise.resolve([]),
+      db.select().from(shopProductColours).where(inArray(shopProductColours.productId, productIds)),
+      db.select().from(shopProductImages).where(inArray(shopProductImages.productId, productIds)),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+    const colourById = new Map(colours.map((c) => [c.id, c]));
+    const imageFor = (productId: number, colourId: number | null) => {
+      const ims = images.filter((i) => i.productId === productId).sort((a, b) => a.sortOrder - b.sortOrder);
+      return (colourId != null ? ims.find((i) => i.colourId === colourId) : undefined)?.url ?? ims[0]?.url ?? null;
+    };
+
+    const subtotal = lines.reduce((s, l) => s + l.lineCents, 0);
+    const discount = sale.subtotalCents > 0
+      ? Math.min(subtotal, Math.round((sale.discountCents * subtotal) / sale.subtotalCents))
+      : 0;
+    const total = subtotal - discount;
+    const hasPhoto = lines.some((l) => productById.get(l.productId!)?.type === "photo");
+    const [first, ...rest] = (sale.customerName || "").trim().split(/\s+/).filter(Boolean);
+    const paidAt = sale.paidAt ? new Date(sale.paidAt) : new Date();
+
+    let orderId: number;
+    try {
+      const [order] = await db.insert(shopOrders).values({
+        organizationId: orgId,
+        // A photo still has to be printed and handed over, so it waits in
+        // Orders as Paid; kit leaves the counter in the customer's hands.
+        status: hasPhoto ? "paid" : "completed",
+        firstName: first || "Counter",
+        lastName: rest.join(" ") || "sale",
+        email: (sale.customerEmail || "").toLowerCase(),
+        phone: sale.customerPhone || "",
+        shippingLabel: "Office counter (POS)",
+        shippingCents: 0,
+        subtotalCents: subtotal,
+        discountCents: discount,
+        gstCents: Math.round((total * 3) / 23),
+        totalCents: total,
+        source: "pos",
+        posSaleId: sale.id,
+        notes: `Paid at the counter — POS ${sale.saleNumber}`,
+        paidAt,
+      } as any).returning({ id: shopOrders.id });
+      orderId = order.id;
+    } catch (e: any) {
+      if (e?.code === "23505") continue; // another fulfilment got there first
+      throw e;
+    }
+
+    await db.insert(shopOrderItems).values(lines.map((l) => {
+      const v = l.variantId != null ? variantById.get(l.variantId) : undefined;
+      return {
+        orderId, productId: l.productId, variantId: l.variantId,
+        title: productById.get(l.productId!)?.title ?? l.title,
+        colourName: v ? colourById.get(v.colourId)?.name ?? null : null,
+        size: v?.size ?? null,
+        imageUrl: imageFor(l.productId!, v?.colourId ?? null),
+        unitCents: l.unitCents, qty: l.qty, lineCents: l.lineCents,
+      };
+    }) as any);
+    await assignShopOrderNumber(orderId, orgId, brand.orderPrefix);
+  }
+}
+
+/** The page a buyer downloads a paid team photo from (null if the brand has no storefront). */
+export function shopDownloadPageUrl(orgId: number, orderToken: string): string | null {
+  const brand = shopBrandByOrgId(orgId);
+  return brand ? `${brand.storefrontBase}/success/${orderToken}` : null;
+}
+
+/** A fully refunded till sale takes its Store orders (and photo downloads) with it. */
+export async function markPosSaleShopOrdersRefunded(saleId: number): Promise<void> {
+  await db.update(shopOrders).set({ status: "refunded", updatedAt: new Date() } as any)
+    .where(and(eq(shopOrders.posSaleId, saleId), sql`${shopOrders.status} <> 'refunded'`));
 }
 
 // ─── Order-number claim (MFL-1001 incrementing per org) ─────────────────────

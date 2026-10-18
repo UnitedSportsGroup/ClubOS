@@ -242,6 +242,12 @@ export async function fulfilPaidSale(saleId: number): Promise<boolean> {
       console.error(`[POS] fulfil line ${line.id} (${line.kind}) failed:`, e);
     }
   }
+  // Shop items become Store orders (Orders + Sales see every sale; a team
+  // photo gets its download link). Never allowed to fail the sale.
+  // The receipt below reads the photo download links back from those orders.
+  try {
+    await (await import("./shop-routes")).recordPosSaleAsShopOrders(sale);
+  } catch (e) { console.error("[POS] store order failed:", e); }
   if (sale.customerEmail) {
     try { await sendReceipt(sale.id, sale.customerEmail); } catch (e) { console.error("[POS] receipt email failed:", e); }
   }
@@ -249,10 +255,23 @@ export async function fulfilPaidSale(saleId: number): Promise<boolean> {
 }
 
 export const sendPosReceiptForSale = (saleId: number, to: string) => sendReceipt(saleId, to);
+
+/** Team-photo download links for a till sale, read from the Store orders it made. */
+async function photoDownloadsForSale(saleId: number): Promise<{ title: string; url: string }[]> {
+  const rows = await db.execute(sql`
+    SELECT o.order_token AS token, i.title, o.organization_id AS org
+      FROM shop_orders o
+      JOIN shop_order_items i ON i.order_id = o.id
+      JOIN shop_products p ON p.id = i.product_id
+     WHERE o.pos_sale_id = ${saleId} AND o.status <> 'refunded' AND p.type = 'photo'`);
+  const shop = await import("./shop-routes");
+  return (rows.rows as any[]).map((r) => ({ title: r.title, url: shop.shopDownloadPageUrl(Number(r.org), String(r.token)) }))
+    .filter((d): d is { title: string; url: string } => !!d.url);
+}
 async function sendReceipt(saleId: number, to: string): Promise<boolean> {
   const sale = await loadSale(saleId);
   if (!sale) return false;
-  const ok = await sendPosReceiptEmail({ to, sale });
+  const ok = await sendPosReceiptEmail({ to, sale, downloads: await photoDownloadsForSale(sale.id) });
   if (ok) await db.update(posSales).set({ receiptSentAt: new Date() }).where(eq(posSales.id, saleId));
   return ok;
 }
@@ -965,7 +984,12 @@ export function registerPosRoutes(app: Express) {
       // Cash, EFTPOS and bank refunds are RECORDED; the money goes back over the counter.
       await db.insert(posRefunds).values({ saleId: sale.id, paymentId: payment.id, method: payment.method, amountCents: amount, reason, stripeRefundId, issuedByUserId: uid(req) });
       await storage.createAuditLog({ userId: uid(req), action: "refund", entity: "pos_sale", entityId: sale.id, details: `POS ${sale.saleNumber}: refunded ${(amount / 100).toFixed(2)} by ${payment.method} — ${reason}` } as any);
-      res.status(201).json(await loadSale(sale.id));
+      const after = await loadSale(sale.id);
+      // Fully refunded → its Store orders are too, which also ends any photo download.
+      if (after && after.refundableCents <= 0) {
+        try { (await import("./shop-routes")).markPosSaleShopOrdersRefunded(sale.id); } catch (e) { console.error("[POS] store refund mark", e); }
+      }
+      res.status(201).json(after);
     } catch (e: any) { if (!posError(res, e)) { console.error("[POS] refund", e); res.status(500).json({ message: e.message }); } }
   });
 
@@ -977,7 +1001,11 @@ export function registerPosRoutes(app: Express) {
       if (!sale.paidAt) return res.status(409).json({ message: "The sale isn't paid yet." });
       const to = str(req.body?.email, 200).toLowerCase() || sale.customerEmail || "";
       if (!to.includes("@")) return res.status(400).json({ message: "Enter an email address for the receipt." });
-      if (to !== sale.customerEmail) await db.update(posSales).set({ customerEmail: to }).where(eq(posSales.id, sale.id));
+      if (to !== sale.customerEmail) {
+        await db.update(posSales).set({ customerEmail: to }).where(eq(posSales.id, sale.id));
+        // The Store order made from this sale had no address to file under yet.
+        await db.execute(sql`UPDATE shop_orders SET email = ${to}, updated_at = now() WHERE pos_sale_id = ${sale.id} AND email = ''`);
+      }
       const ok = await sendReceipt(sale.id, to);
       res.json({ sent: ok, sale: await loadSale(sale.id) });
     } catch (e: any) { res.status(500).json({ message: e.message }); }

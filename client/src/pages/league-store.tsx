@@ -866,6 +866,12 @@ function OrdersSection({ orgId }: { orgId: number }) {
             {Object.entries(STATUS_META).map(([k, m]) => <SelectItem key={k} value={k}>{m.label}</SelectItem>)}
           </SelectContent>
         </Select>
+        {/* Counter sales go through the ONE till, which takes EFTPOS, the card
+            reader and cash, and can put a team photo in the same sale as a
+            registration. Once paid, the till files it here as a Store order. */}
+        <Link href="/admin/pos" data-testid="button-record-office-sale">
+          <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2"><Plus className="w-4 h-4" /> Record an office sale</Button>
+        </Link>
       </div>
 
       {isLoading ? (

@@ -3092,8 +3092,8 @@ export async function sendMflRefereeApprovedEmail(params: {
 // content, and a link to the web receipt. Sender follows the brand with the
 // biggest share of the sale so a family buying an SIU hoodie hears from SIU.
 // Fields follow IRD's taxable-supply-information tiers (shared/pos.ts).
-export async function sendPosReceiptEmail(params: { to: string; sale: import("./pos-routes").LoadedSale }): Promise<boolean> {
-  const { to, sale } = params;
+export async function sendPosReceiptEmail(params: { to: string; sale: import("./pos-routes").LoadedSale; downloads?: { title: string; url: string }[] }): Promise<boolean> {
+  const { to, sale, downloads = [] } = params;
   const { POS_SELLER, receiptTier } = await import("@shared/pos");
   const money = (c: number) => `$${(c / 100).toFixed(2)}`;
   const byOrg = new Map<number, number>();
@@ -3130,6 +3130,11 @@ export async function sendPosReceiptEmail(params: { to: string; sale: import("./
         ${tot("GST content included", sale.gstCents)}
         ${pays}${refunds}
       </table>
+      ${downloads.length ? `<div style="margin-top:22px;padding:16px;border-radius:12px;background:#f3f6ff;">
+        <div style="font-size:14px;font-weight:700;color:#161616;">Your team photo${downloads.length === 1 ? "" : "s"}</div>
+        <div style="font-size:13px;color:#4b4b4b;margin:4px 0 10px;">Download the full-resolution file here. Your print is collected from the club office.</div>
+        ${downloads.map((d) => `<div style="margin:6px 0;"><a href="${esc(d.url)}" style="color:#1d4ed8;font-size:14px;font-weight:600;">Download ${esc(d.title)}</a></div>`).join("")}
+      </div>` : ""}
       <p style="margin:20px 0 0;font-size:13px;"><a href="${sale.receiptUrl}" style="color:#1d4ed8;">View or print this receipt</a></p>
       <p style="color:#9a9a9a;font-size:11px;line-height:1.6;margin:18px 0 0;">${esc(POS_SELLER.address)}. Keep this receipt as your proof of purchase. Your rights under the Consumer Guarantees Act are not affected by anything here.</p>
     </div>
