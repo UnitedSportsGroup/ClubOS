@@ -34,7 +34,7 @@ import { sendServerEvent } from "./meta-capi";
 import {
   shopProducts, shopProductColours, shopProductImages, shopVariants,
   shopShippingOptions, shopDiscountCodes, shopOrders, shopOrderItems, shopOrderShares,
-  whItems,
+  whItems, inboxMessages,
   type ShopProduct, type ShopProductColour, type ShopProductImage,
   type ShopVariant, type ShopShippingOption, type ShopDiscountCode,
   type ShopOrder, type ShopOrderItem, type ShopOrderShare,
@@ -967,6 +967,55 @@ export function registerShopRoutes(app: Express) {
     console.error(`[Shop] ${context} error:`, e);
     return res.status(500).json({ message: "Something went wrong. Please try again." });
   };
+
+  // ── Public: newsletter + contact (the forms the old Shopify theme carried) ──
+  // Neither ever emails the address typed in (a form that mails the submitter is a spam relay):
+  // the newsletter only records the address on the brand's mailer list; contact stores the
+  // message in the workspace Inbox and tells staff at the brand's FIXED admin address.
+  // A filled honeypot ("website") is answered exactly like a success and stored nowhere.
+  const SHOP_LIST_KEY = "shopify-subscribers"; // the list the Shopify subscribers were migrated into
+  app.post("/api/public/shop/:brand/subscribe", async (req, res) => {
+    try {
+      const brand = shopBrand(String(req.params.brand));
+      if (!brand) return res.status(404).json({ message: "Store not found" });
+      if (String(req.body?.website || "").trim()) return res.json({ ok: true });
+      const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 254);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: "Please enter a valid email." });
+      await db.execute(sql`INSERT INTO mailer_list_contacts (organization_id, list_key, email, source)
+        VALUES (${brand.orgId}, ${SHOP_LIST_KEY}, ${email}, ${"shop-newsletter"}) ON CONFLICT DO NOTHING`);
+      res.json({ ok: true });
+    } catch (e) { handleShopError(res, e, "subscribe"); }
+  });
+  app.post("/api/public/shop/:brand/contact", async (req, res) => {
+    try {
+      const brand = shopBrand(String(req.params.brand));
+      if (!brand) return res.status(404).json({ message: "Store not found" });
+      if (String(req.body?.website || "").trim()) return res.json({ ok: true });
+      const name = String(req.body?.name || "").trim().slice(0, 120);
+      const email = String(req.body?.email || "").trim().slice(0, 254);
+      const message = String(req.body?.message || "").trim().slice(0, 5000);
+      if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !message) {
+        return res.status(400).json({ message: "Please add your name, a valid email and a message." });
+      }
+      await db.insert(inboxMessages).values({
+        organizationId: brand.orgId, channel: "web_form", name, email, subject: `${brand.storeName} enquiry`,
+        body: message, sourceUrl: String(req.body?.sourceUrl || brand.storefrontBase).slice(0, 500), status: "new",
+      });
+      try {
+        const { sendEmail } = await import("./email");
+        const { fromForOrg } = await import("@shared/org-domains");
+        const esc = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+        await sendEmail({
+          to: brand.adminEmail,
+          from: fromForOrg(brand.orgId, brand.storeName),
+          replyTo: email,
+          subject: `${brand.storeName}: message from ${name}`,
+          html: `<p><strong>${esc(name)}</strong> (${esc(email)}) sent this from the store's contact page:</p><p style="white-space:pre-wrap">${esc(message)}</p><p>It is also in the ClubOS Inbox. Reply to them directly.</p>`,
+        });
+      } catch (e) { console.error("[Shop] contact notify failed:", e); }
+      res.json({ ok: true });
+    } catch (e) { handleShopError(res, e, "contact"); }
+  });
 
   // ── Public: catalog ────────────────────────────────────────────────────────
   app.get("/api/public/shop/:brand/catalog", async (req, res) => {
