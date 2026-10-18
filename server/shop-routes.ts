@@ -549,7 +549,10 @@ async function priceCart(
   ));
   if (!shipping) throw new ShopError("That delivery option isn't available.");
 
-  const shippingCents = shipping.priceCents;
+  // Free over a threshold (SIU: "spend over $200 for free NZ shipping"), judged on what the
+  // customer actually pays for goods — after the discount, before delivery.
+  const shippingCents = shipping.freeOverCents != null && subtotalCents - discountCents >= shipping.freeOverCents
+    ? 0 : shipping.priceCents;
   const totalCents = subtotalCents - discountCents + shippingCents;
 
   return { lines, subtotalCents, discountCents, discount, shipping, shippingCents, totalCents };
@@ -1004,6 +1007,7 @@ export function registerShopRoutes(app: Express) {
             id: s.id,
             label: s.label,
             priceDollars: toDollars(s.priceCents),
+            freeOverDollars: s.freeOverCents != null ? toDollars(s.freeOverCents) : undefined,
             description: s.description || undefined,
             requiresAddress: s.requiresAddress,
           })),

@@ -5738,6 +5738,8 @@ export const shopShippingOptions = pgTable("shop_shipping_options", {
   label: text("label").notNull(),
   description: text("description"),
   priceCents: integer("price_cents").notNull().default(0),
+  // Delivery becomes free once the order (after discount) reaches this. NULL = never free.
+  freeOverCents: integer("free_over_cents"),
   requiresAddress: boolean("requires_address").notNull().default(false),
   active: boolean("active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
