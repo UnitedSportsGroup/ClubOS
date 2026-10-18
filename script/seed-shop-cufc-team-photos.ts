@@ -41,15 +41,18 @@ const TEAMS: { slug: string; team: string }[] = [
   { slug: "u9-fantails", team: "U9 Fantails" },
   { slug: "u9-kakapo", team: "U9 Kakapo" },
   { slug: "u9-magpies", team: "U9 Magpies" },
+  { slug: "u9-sparrows", team: "U9 Sparrows" }, // added 19 Oct
   { slug: "u10-blue", team: "U10 Blue" },
   { slug: "u10-royal", team: "U10 Royal" },
   { slug: "u10-gold", team: "U10 Gold" },
   { slug: "u10-yellow", team: "U10 Yellow" },
+  { slug: "u10-white", team: "U10 White" }, // added 19 Oct
   { slug: "u11-blue", team: "U11 Blue" },
   { slug: "u11-gold", team: "U11 Gold" },
   { slug: "u11-yellow", team: "U11 Yellow" },
   { slug: "u12-white", team: "U12 White" },
   { slug: "u13-blue", team: "U13 Blue" },
+  { slug: "u13-white", team: "U13 White" }, // added 19 Oct
   { slug: "u14", team: "U14" },
   { slug: "u15", team: "U15" },
   { slug: "u17", team: "U17" },
