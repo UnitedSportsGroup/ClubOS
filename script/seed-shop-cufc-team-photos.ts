@@ -33,9 +33,7 @@ const STOCK = 1000;
 const DEFAULT_LOG =
   "/Users/danielmeyn/Desktop/AIOS/DanielMeynOS/outputs/cufc-shop/2026-10-17-team-photos/drafted-kit-products.json";
 
-// Team names exactly as printed on each photo's own title. U12 Blue is
-// deliberately absent: the file Max supplied as U12 Blue carries the
-// U12 White title and the U12 White roster, so it goes back to him.
+// Team names exactly as printed on each photo's own title.
 const TEAMS: { slug: string; team: string }[] = [
   { slug: "u9-pukekos", team: "U9 Pukekos" },
   { slug: "u9-fantails", team: "U9 Fantails" },
@@ -51,6 +49,7 @@ const TEAMS: { slug: string; team: string }[] = [
   { slug: "u11-gold", team: "U11 Gold" },
   { slug: "u11-yellow", team: "U11 Yellow" },
   { slug: "u12-white", team: "U12 White" },
+  { slug: "u12-blue", team: "U12 Blue" }, // added 19 Oct (Max's resend)
   { slug: "u13-blue", team: "U13 Blue" },
   { slug: "u13-white", team: "U13 White" }, // added 19 Oct
   { slug: "u14", team: "U14" },
