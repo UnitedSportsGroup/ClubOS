@@ -53,6 +53,8 @@ const CANARIES: Canary[] = [
   // SIU — the fourth brand on the shop_* engine, added 2026-09-09. Same "not
   // yet on prod" note as the CUFC canary above.
   { feature: "shop (SIU)",          path: "/api/public/shop/siu/catalog",         expect: [200] },
+  // Store → Sales (sales by product, team photos by age group), 2026-10-19.
+  { feature: "store sales",         path: "/api/admin/shop/sales",                expect: [401] },
   { feature: "attribution /t.js",   path: "/t.js",                                expect: [200] },
   { feature: "CUGC mailer",         path: "/api/admin/cugc/mailer/contacts",      expect: [401] },
   // unitedprints.co.nz reads its whole price list from here. If a deploy drops

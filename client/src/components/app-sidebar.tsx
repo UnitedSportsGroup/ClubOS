@@ -185,6 +185,12 @@ type Org = {
 
 // Each nav item carries a `tab` slug matching shared/tabs.ts. The sidebar
 // filters items at render time based on the user's userTabs whitelist.
+const STORE_CHILDREN = [
+  { tab: "store", title: "Orders", url: "/admin/store/orders", icon: Receipt },
+  { tab: "store", title: "Sales", url: "/admin/store/sales", icon: BarChart3 },
+  { tab: "store", title: "Settings", url: "/admin/store/settings", icon: Tag },
+];
+
 const campsNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
@@ -235,7 +241,11 @@ const campsNav = [
   // Native retail shop (org 1) — the third brand on the shop_* engine after
   // MFL and CIC. Also reaches SIU: siuNav spreads campsNav without filtering
   // "store" out (SIU is the fourth brand, added 2026-09-09).
-  { tab: "store", title: "Store", url: "/admin/store", icon: ShoppingCart },
+  {
+    tab: "store", title: "Store", url: "/admin/store", icon: ShoppingCart,
+    // Shopify-style: Store opens Products; its sections each own a URL.
+    children: STORE_CHILDREN,
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 
@@ -312,7 +322,11 @@ const leagueNav = [
   // workspace server-side, so it shows MFL history and only MFL history.
   { tab: "fm-competitions", title: "Past Seasons", url: "/admin/fm-competitions", icon: HistoryIcon },
   { tab: "business-plan", title: "Business Plan", url: "/admin/business-plan", icon: FileText },
-  { tab: "store", title: "Store", url: "/admin/store", icon: ShoppingCart },
+  {
+    tab: "store", title: "Store", url: "/admin/store", icon: ShoppingCart,
+    // Shopify-style: Store opens Products; its sections each own a URL.
+    children: STORE_CHILDREN,
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 

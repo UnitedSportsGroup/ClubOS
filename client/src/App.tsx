@@ -596,7 +596,7 @@ function AdminRouter() {
         <Route path="/admin/loyalty" component={LeagueLoyalty} />
         <Route path="/admin/analytics" component={LeagueAnalytics} />
         <Route path="/admin/business-plan" component={LeagueBusinessPlan} />
-        <Route path="/admin/store" component={LeagueStore} />
+        <Route path="/admin/store/:section?" component={LeagueStore} />
         <Route path="/admin/inbox" component={LeagueInbox} />
         <Route path="/admin/discounts/new" component={AdminDiscountDetail} />
         <Route path="/admin/discounts/:id" component={AdminDiscountDetail} />
@@ -721,7 +721,7 @@ function AdminRouter() {
           MFL and CIC. Tab slug "store", CUFC-only (see cufcExtraTabs in
           shared/tabs.ts) — same route component the other two brands use,
           it's already org-aware via useWorkspace().currentOrg.id. */}
-      <Route path="/admin/store" component={LeagueStore} />
+      <Route path="/admin/store/:section?" component={LeagueStore} />
       <Route path="/admin/domains" component={AdminDomainSettings} />
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/team" component={AdminTeam} />

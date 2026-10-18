@@ -2453,4 +2453,85 @@ export function registerShopRoutes(app: Express) {
       handleShopError(res, e, "admin stats");
     }
   });
+
+  // ── Admin: sales by product ────────────────────────────────────────────────
+  // Every product with what it has sold (paid orders only), so a product with
+  // no sales shows as 0 rather than vanishing — "which team photos haven't
+  // sold" is the question. Item revenue is the line total (before delivery and
+  // discounts); the headline revenue is the orders' totals, same as /stats.
+  // "To fulfil" = units in orders still at paid/processing: not yet handed
+  // over or posted, so the office knows what to print and pack.
+  app.get("/api/admin/shop/sales", requireAuth, requireTab("store"), async (req, res) => {
+    try {
+      const orgId = adminOrgId(req);
+      const [orders, products, images] = await Promise.all([
+        db.select().from(shopOrders).where(eq(shopOrders.organizationId, orgId)),
+        db.select().from(shopProducts).where(eq(shopProducts.organizationId, orgId))
+          .orderBy(asc(shopProducts.sortOrder), asc(shopProducts.id)),
+        db.select({ productId: shopProductImages.productId, url: shopProductImages.url, sortOrder: shopProductImages.sortOrder })
+          .from(shopProductImages)
+          .innerJoin(shopProducts, eq(shopProducts.id, shopProductImages.productId))
+          .where(eq(shopProducts.organizationId, orgId)),
+      ]);
+      const paid = orders.filter((o) => PAID_STATUSES.includes(o.status));
+      const paidById = new Map(paid.map((o) => [o.id, o]));
+      const items = paid.length
+        ? await db.select().from(shopOrderItems).where(inArray(shopOrderItems.orderId, paid.map((o) => o.id)))
+        : [];
+
+      const firstImage = new Map<number, string>();
+      for (const im of [...images].sort((a, b) => a.sortOrder - b.sortOrder)) {
+        if (!firstImage.has(im.productId)) firstImage.set(im.productId, im.url);
+      }
+
+      type Row = {
+        productId: number | null; title: string; type: string; status: string; imageUrl: string | null;
+        priceCents: number; units: number; revenueCents: number; orders: number; toFulfil: number;
+        lastSoldAt: string | null;
+      };
+      const rows = new Map<string, Row & { orderIds: Set<number> }>();
+      for (const p of products) {
+        rows.set(`p${p.id}`, {
+          productId: p.id, title: p.title, type: p.type, status: p.status,
+          imageUrl: firstImage.get(p.id) ?? null, priceCents: p.priceCents,
+          units: 0, revenueCents: 0, orders: 0, toFulfil: 0, lastSoldAt: null, orderIds: new Set(),
+        });
+      }
+      for (const it of items) {
+        const order = paidById.get(it.orderId)!;
+        // A deleted product keeps its sales under the title it sold as.
+        const key = it.productId != null && rows.has(`p${it.productId}`) ? `p${it.productId}` : `t${it.title}`;
+        let r = rows.get(key);
+        if (!r) {
+          r = {
+            productId: null, title: it.title, type: "deleted", status: "deleted", imageUrl: it.imageUrl,
+            priceCents: it.unitCents, units: 0, revenueCents: 0, orders: 0, toFulfil: 0, lastSoldAt: null, orderIds: new Set(),
+          };
+          rows.set(key, r);
+        }
+        r.units += it.qty;
+        r.revenueCents += it.lineCents;
+        r.orderIds.add(it.orderId);
+        if (order.status === "paid" || order.status === "processing") r.toFulfil += it.qty;
+        const at = (order.paidAt ?? order.createdAt)?.toISOString?.() ?? null;
+        if (at && (!r.lastSoldAt || at > r.lastSoldAt)) r.lastSoldAt = at;
+      }
+
+      const toFulfilOrders = paid.filter((o) => o.status === "paid" || o.status === "processing");
+      res.json({
+        revenueCents: paid.reduce((s, o) => s + o.totalCents, 0),
+        ordersCount: paid.length,
+        unitsSold: items.reduce((s, i) => s + i.qty, 0),
+        unfinishedCheckouts: orders.filter((o) => o.status === "pending").length,
+        toFulfil: {
+          orders: toFulfilOrders.length,
+          pickup: toFulfilOrders.filter((o) => !o.addressLine1).length,
+          posted: toFulfilOrders.filter((o) => !!o.addressLine1).length,
+        },
+        products: Array.from(rows.values()).map(({ orderIds, ...r }) => ({ ...r, orders: orderIds.size })),
+      });
+    } catch (e: any) {
+      handleShopError(res, e, "admin sales");
+    }
+  });
 }

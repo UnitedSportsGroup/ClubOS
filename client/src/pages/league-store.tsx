@@ -13,12 +13,13 @@
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link, useRoute } from "wouter";
 import { useWorkspace } from "@/lib/workspace-context";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   ShoppingCart, Plus, Search, Pencil, Trash2, X, ArrowUp, ArrowDown,
-  ImagePlus, Package, Truck, Tag, RefreshCw, Copy, Mail, Phone, Printer, Users,
+  ImagePlus, Package, Truck, Tag, RefreshCw, Copy, Mail, Phone, Printer, Users, BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -140,10 +141,18 @@ const thCls = "text-left text-[10px] text-white/30 uppercase tracking-wider font
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+const STORE_SECTIONS = ["products", "orders", "sales", "settings"] as const;
+type StoreSection = (typeof STORE_SECTIONS)[number];
+
 export default function LeagueStore() {
   const { currentOrg } = useWorkspace();
   const orgId = currentOrg?.id;
-  const [section, setSection] = useState<"products" | "orders" | "settings">("products");
+  // The section lives in the URL (/admin/store, /admin/store/orders, …) so the
+  // sidebar can link to each one and Back returns you to where you were.
+  const [, params] = useRoute("/admin/store/:section");
+  const section: StoreSection = STORE_SECTIONS.includes(params?.section as StoreSection)
+    ? (params!.section as StoreSection)
+    : "products";
 
   const { data: stats } = useQuery<{ revenueCents: number; ordersCount: number; unitsSold: number; byStatus: Record<string, number> }>({
     queryKey: ["/api/admin/shop/stats", { orgId }],
@@ -156,6 +165,7 @@ export default function LeagueStore() {
   const sections = [
     { key: "products" as const, label: "Products", icon: Package },
     { key: "orders" as const, label: "Orders", icon: ShoppingCart },
+    { key: "sales" as const, label: "Sales", icon: BarChart3 },
     { key: "settings" as const, label: "Settings", icon: Tag },
   ];
 
@@ -180,11 +190,11 @@ export default function LeagueStore() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {sections.map((s) => (
-          <button
+          <Link
             key={s.key}
-            onClick={() => setSection(s.key)}
+            href={s.key === "products" ? "/admin/store" : `/admin/store/${s.key}`}
             data-testid={`tab-${s.key}`}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
               section === s.key
@@ -199,13 +209,172 @@ export default function LeagueStore() {
                 {stats!.byStatus.paid}
               </span>
             )}
-          </button>
+          </Link>
         ))}
       </div>
 
       {section === "products" && <ProductsSection orgId={orgId} />}
+      {section === "sales" && <SalesSection orgId={orgId} />}
       {section === "orders" && <OrdersSection orgId={orgId} />}
       {section === "settings" && <SettingsSection orgId={orgId} />}
+    </div>
+  );
+}
+
+// ═══ Sales ══════════════════════════════════════════════════════════════════
+
+type SalesRowT = {
+  productId: number | null; title: string; type: string; status: string; imageUrl: string | null;
+  priceCents: number; units: number; revenueCents: number; orders: number; toFulfil: number;
+  lastSoldAt: string | null;
+};
+type SalesT = {
+  revenueCents: number; ordersCount: number; unitsSold: number; unfinishedCheckouts: number;
+  toFulfil: { orders: number; pickup: number; posted: number };
+  products: SalesRowT[];
+};
+
+/** "U10 Blue Team Photo 2026" → "U10"; no age group → "Other". */
+function ageGroupOf(title: string): string {
+  return /^U(\d+)\b/i.exec(title.trim())?.[0].toUpperCase() ?? "Other";
+}
+const ageRank = (g: string) => (g === "Other" ? 999 : Number(g.slice(1)));
+
+function SalesSection({ orgId }: { orgId: number }) {
+  const { data, isLoading, isError } = useQuery<SalesT>({
+    queryKey: ["/api/admin/shop/sales", { orgId }],
+    queryFn: () => jget(`/api/admin/shop/sales?orgId=${orgId}`),
+    enabled: !!orgId,
+  });
+
+  if (isLoading) return <p className="text-sm text-white/40">Loading sales…</p>;
+  if (isError || !data) return <p className="text-sm text-red-400">Couldn't load sales. Refresh to try again.</p>;
+
+  // A draft product that never sold is just clutter here; one that sold stays.
+  const visible = data.products.filter((p) => p.status === "active" || p.units > 0);
+  const photos = visible.filter((p) => p.type === "photo");
+  const others = visible.filter((p) => p.type !== "photo").sort((a, b) => b.units - a.units || a.title.localeCompare(b.title));
+
+  const groups = new Map<string, SalesRowT[]>();
+  for (const p of photos) {
+    const g = ageGroupOf(p.title);
+    groups.set(g, [...(groups.get(g) ?? []), p]);
+  }
+  const ageGroups = Array.from(groups.entries()).sort((a, b) => ageRank(a[0]) - ageRank(b[0]));
+  const photoUnits = photos.reduce((s, p) => s + p.units, 0);
+  const photoRevenue = photos.reduce((s, p) => s + p.revenueCents, 0);
+  const photosToPrint = photos.reduce((s, p) => s + p.toFulfil, 0);
+  const unsoldPhotos = photos.filter((p) => p.units === 0);
+  const money = (c: number) => formatCurrency(c, { fromCents: true });
+
+  const tiles = [
+    { label: "Revenue", value: money(data.revenueCents), hint: `${data.ordersCount} paid order${data.ordersCount === 1 ? "" : "s"}` },
+    ...(photos.length ? [{ label: "Team photos sold", value: String(photoUnits), hint: money(photoRevenue) }] : []),
+    {
+      label: "To hand over or post", value: String(data.toFulfil.orders),
+      hint: `${data.toFulfil.pickup} pickup · ${data.toFulfil.posted} posted${photosToPrint ? ` · ${photosToPrint} print${photosToPrint === 1 ? "" : "s"} to make` : ""}`,
+    },
+    { label: "Unfinished checkouts", value: String(data.unfinishedCheckouts), hint: "Started, never paid" },
+  ];
+
+  return (
+    <div className="space-y-6" data-testid="section-sales">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {tiles.map((t) => (
+          <div key={t.label} className="rounded-xl border border-blue-500/10 bg-white/[0.02] px-4 py-3">
+            <p className="text-[10px] text-white/30 uppercase tracking-wider font-semibold">{t.label}</p>
+            <p className="text-xl font-bold text-white mt-1">{t.value}</p>
+            <p className="text-xs text-white/40 mt-0.5">{t.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {photos.length > 0 && (
+        <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="sales-photos">
+          <div className="px-5 py-4 border-b border-blue-500/10 flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="text-base font-semibold text-white">Team photos by age group</h2>
+            <p className="text-xs text-white/40">
+              {unsoldPhotos.length === 0
+                ? "Every team has sold at least one."
+                : `${unsoldPhotos.length} team${unsoldPhotos.length === 1 ? " hasn't" : "s haven't"} sold yet`}
+            </p>
+          </div>
+          {ageGroups.map(([age, rows]) => {
+            const units = rows.reduce((s, r) => s + r.units, 0);
+            return (
+              <div key={age} className="border-b border-blue-500/10 last:border-b-0">
+                <div className="px-5 py-2.5 bg-white/[0.02] flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">{age}</span>
+                  <span className="text-xs text-white/40">{units} sold · {money(rows.reduce((s, r) => s + r.revenueCents, 0))}</span>
+                </div>
+                {rows.map((r) => (
+                  <div key={r.productId ?? r.title} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                    <span className="flex-1 min-w-0 truncate text-white/80">{r.title.replace(/ Team Photo 2026$/i, "")}</span>
+                    {r.toFulfil > 0 && (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-blue-400/10 text-blue-400 border-blue-400/20 whitespace-nowrap">
+                        {r.toFulfil} to print
+                      </span>
+                    )}
+                    {r.units === 0 ? (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-400/10 text-amber-400 border-amber-400/20 whitespace-nowrap">
+                        No sales yet
+                      </span>
+                    ) : (
+                      <span className="w-24 text-right tabular-nums text-white font-semibold">
+                        {r.units} · {money(r.revenueCents)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="rounded-2xl border border-blue-500/10 bg-white/[0.02] overflow-hidden" data-testid="sales-products">
+          <div className="px-5 py-4 border-b border-blue-500/10">
+            <h2 className="text-base font-semibold text-white">{photos.length ? "Everything else" : "Sales by product"}</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-blue-500/10">
+                  <th className={thCls}>Product</th>
+                  <th className={`${thCls} text-right`}>Sold</th>
+                  <th className={`${thCls} text-right`}>Revenue</th>
+                  <th className={`${thCls} text-right hidden sm:table-cell`}>Last sale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {others.map((r) => (
+                  <tr key={r.productId ?? r.title} className="border-b border-blue-500/5 last:border-b-0">
+                    <td className="px-5 py-2.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {r.imageUrl
+                          ? <img src={r.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0 bg-white/5" />
+                          : <div className="w-9 h-9 rounded-lg shrink-0 bg-white/5" />}
+                        <span className="text-white/80 truncate">{r.title}</span>
+                        {r.status !== "active" && <span className="text-[10px] text-white/30 uppercase shrink-0">{r.status}</span>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-2.5 text-right tabular-nums text-white">{r.units || <span className="text-white/30">0</span>}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums text-white/80">{r.units ? money(r.revenueCents) : "—"}</td>
+                    <td className="px-5 py-2.5 text-right text-white/40 hidden sm:table-cell whitespace-nowrap">
+                      {r.lastSoldAt ? new Date(r.lastSoldAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-white/30">
+        Paid orders only. Product revenue is before delivery and discounts, so it can differ slightly from the total above.
+      </p>
     </div>
   );
 }
