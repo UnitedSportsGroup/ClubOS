@@ -39,7 +39,7 @@ import { createPaymentIntent, retrievePaymentIntent, constructWebhookEvent, crea
 import { sendPurchaseEvent, sendLeadEvent, sendVenuePurchaseEvent } from "./meta-capi";
 import { purchaseEventId } from "@shared/meta-events";
 import * as tp from "./teampay";
-import { teampayEntries, mailerListContacts, auditLogs } from "@shared/schema";
+import { teampayEntries, mailerListContacts, auditLogs, registrationRefunds } from "@shared/schema";
 import { sendEmail, sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueSignupNotification, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail, sendSplitTeamConfirmedEmail, sendLeagueBroadcastEmail, sendMflContactNotification, sendFootballInstituteApplicationNotification, sendCic7sRegistrationNotification, sendCicContactNotification, sendCugcContactNotification, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification, sendCugcFreeSessionConfirmation, sendCugcFreeSessionNotification, sendClubLogoConsentNotification, sendCicBroadcastEmail, sendMflWaitlistConfirmation, sendMflWaitlistNotification, sendLeaguePaymentReminderEmail, sendMembershipWelcomeEmail, sendMembershipNotificationEmail, sendChatNewConversationNotification, sendChatReplyNotification, sendCicInterestNotification, sendCufcContactNotification, sendCufcBroadcastEmail, sendCugcBroadcastEmail, sendCicVolunteerNotification, sendClubLogoLicenceCopy, sendRefundConfirmationEmail } from "./email";
 import { cugcStripe, constructCugcWebhookEvent } from "./cugc-stripe";
 import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
@@ -5109,6 +5109,33 @@ export async function registerRoutes(
     }
   });
 
+  // Refund history for one registration: every refund, who issued it, when.
+  app.get("/api/admin/registrations/:id/refunds", requireAuth, async (req, res) => {
+    try {
+      const reg = await storage.getRegistration(parseInt(String(req.params.id)));
+      if (!reg) return res.status(404).json({ message: "Registration not found" });
+      const program = await storage.getProgram(reg.programId);
+      if (!inRegistrationScope(await registrationOrgScope(req), program?.organizationId)) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+      const rows = await db.select().from(registrationRefunds)
+        .where(eq(registrationRefunds.registrationId, reg.id))
+        .orderBy(registrationRefunds.issuedAt);
+      const names = new Map<number, string>();
+      for (const id of Array.from(new Set(rows.map(r => r.issuedByUserId).filter((x): x is number => !!x)))) {
+        const u = await storage.getUser(id);
+        if (u) names.set(id, `${u.firstName} ${u.lastName}`.trim());
+      }
+      res.json(rows.map(r => ({
+        id: r.id, amountCents: r.amountCents, reason: r.reason, mode: r.mode,
+        issuedAt: r.issuedAt, issuedByName: r.issuedByUserId ? names.get(r.issuedByUserId) ?? null : null,
+        stripeRefundId: r.stripeRefundId, stripeRefundStatus: r.stripeRefundStatus, backfilled: r.backfilled,
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/registrations/:id", requireAuth, async (req, res) => {
     try {
       const reg = await storage.getRegistration(parseInt(req.params.id));
@@ -5401,6 +5428,24 @@ export async function registerRoutes(
         stripeRefundId: refund.id,
         stripeRefundStatus: refund.status,
       });
+
+      // The permanent record: one row per refund, never overwritten (the
+      // registration's refunded_by only remembers the LATEST one). Same
+      // reasoning as the email below — the money has moved, so a failed write
+      // here must not read as a failed refund; it is logged loudly instead.
+      try {
+        await db.insert(registrationRefunds).values({
+          registrationId: regId,
+          amountCents: refundAmount,
+          reason: reason || null,
+          mode: selectedItemIds.length > 0 ? "items" : (typeof amountCents === "number" && amountCents > 0 ? "amount" : "full"),
+          issuedByUserId: (req.session as any).userId || null,
+          stripeRefundId: refund.id,
+          stripeRefundStatus: refund.status,
+        }).onConflictDoNothing();
+      } catch (ledgerErr) {
+        console.error(`[Refund] reg#${regId} refunded OK (${refund.id}) but the refund ledger write FAILED:`, ledgerErr);
+      }
 
       // Tell the payer, best-effort.
       //

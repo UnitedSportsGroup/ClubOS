@@ -21,7 +21,11 @@ type LeagueReg = {
   depositCents: number | null; balanceCents: number | null; balanceDueDate: string | null;
   balanceStatus: string | null; paymentStatus: string; registeredAt: string;
   missedCount: number; missedCents: number;
+  refundedAmountCents?: number; refundedAt?: string | null; refundReason?: string | null; refundedByName?: string | null;
 };
+
+const isRefunded = (r: LeagueReg) => r.paymentStatus === "refunded" || r.paymentStatus === "partially_refunded" || (r.refundedAmountCents || 0) > 0;
+const fmtStamp = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString("en-NZ", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "date not recorded";
 
 const PAY_BADGE: Record<string, string> = {
   paid_in_full: "bg-green-500/15 text-green-400",
@@ -73,7 +77,10 @@ export default function LeaguePayments() {
 
   const paid = regs.filter(r => r.paymentStatus === "paid_in_full").length;
   const deposit = regs.filter(r => r.paymentStatus === "deposit_paid").length;
-  const collected = regs.reduce((s, r) => s + (parseFloat(r.amountPaid || "0") || 0), 0);
+  // Collected is NET of refunds — a refunded team's money went back.
+  const refundedCents = regs.reduce((s, r) => s + (r.refundedAmountCents || 0), 0);
+  const refundedTeams = regs.filter(r => r.paymentStatus === "refunded").length;
+  const collected = regs.reduce((s, r) => s + (parseFloat(r.amountPaid || "0") || 0), 0) - refundedCents / 100;
   const balanceOwed = regs.reduce((s, r) => s + (r.balanceStatus && r.balanceStatus !== "paid" ? (r.balanceCents || 0) : 0), 0);
   const missedTeams = regs.filter(r => (r.missedCount || 0) > 0);
   const missedCents = missedTeams.reduce((s, r) => s + (r.missedCents || 0), 0);
@@ -87,11 +94,12 @@ export default function LeaguePayments() {
   );
 
   const stats = [
-    { label: "Teams", value: regs.length },
+    { label: "Teams", value: regs.length - refundedTeams },
     { label: "Collected", value: `$${collected.toFixed(2)}` },
     { label: "Paid in full", value: paid },
     { label: "Deposit only", value: deposit },
     { label: "Balance owed", value: formatCurrency(balanceOwed, { fromCents: true }) },
+    ...(refundedCents > 0 ? [{ label: "Refunded", value: `${formatCurrency(refundedCents, { fromCents: true })}${refundedTeams ? ` · ${refundedTeams} team${refundedTeams === 1 ? "" : "s"}` : ""}`, klass: "text-red-400" }] : []),
     {
       label: "Missed payments",
       value: missedTeams.length > 0 ? `${missedTeams.length} team${missedTeams.length === 1 ? "" : "s"} · ${formatCurrency(missedCents, { fromCents: true })}` : "None",
@@ -167,10 +175,15 @@ export default function LeaguePayments() {
                 </thead>
                 <tbody>
                   {sortedRegs.map(r => (
-                    <tr key={r.id} onClick={() => setSelected(r)} className="border-b border-white/[0.02] hover:bg-white/[0.03] cursor-pointer transition-colors group" data-testid={`pay-row-${r.id}`}>
+                    <tr key={r.id} onClick={() => setSelected(r)} className={`border-b border-white/[0.02] hover:bg-white/[0.03] cursor-pointer transition-colors group ${r.paymentStatus === "refunded" ? "bg-red-500/[0.04] opacity-75" : ""}`} data-testid={`pay-row-${r.id}`}>
                       <td className="px-4 py-2.5 text-sm text-white/80 font-medium">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span>{r.teamName || `#${r.id}`}</span>
+                          <span className={r.paymentStatus === "refunded" ? "line-through decoration-red-400/60" : ""}>{r.teamName || `#${r.id}`}</span>
+                          {isRefunded(r) && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 whitespace-nowrap uppercase tracking-wide" data-testid={`refunded-badge-${r.id}`}>
+                              {r.paymentStatus === "refunded" ? "Refunded" : "Part refunded"}
+                            </span>
+                          )}
                           {(r.missedCount || 0) > 0 && (
                             <span
                               className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 whitespace-nowrap"
@@ -203,8 +216,16 @@ export default function LeaguePayments() {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full ${PAY_BADGE[r.paymentStatus] || PAY_BADGE.unpaid}`}>
                           {PAY_LABEL[r.paymentStatus] || "Unpaid"}
                         </span>
+                        {isRefunded(r) && (
+                          <div className="text-[10px] text-red-400/70 mt-1 whitespace-nowrap" data-testid={`refunded-by-${r.id}`}>
+                            by {r.refundedByName || "not recorded"} · {fmtStamp(r.refundedAt)}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-4 py-2.5 text-sm text-white/60">${r.amountPaid || "0.00"}</td>
+                      <td className="px-4 py-2.5 text-sm text-white/60">
+                        <div>${r.amountPaid || "0.00"}</div>
+                        {(r.refundedAmountCents || 0) > 0 && <div className="text-[11px] text-red-400/80">−{formatCurrency(r.refundedAmountCents || 0, { fromCents: true })} refunded</div>}
+                      </td>
                       <td className="px-4 py-2.5 text-sm">
                         {r.balanceStatus && r.balanceStatus !== "paid" && r.balanceStatus !== "none" && (r.balanceCents || 0) > 0 ? (
                           <div className="flex items-center justify-between gap-2">
@@ -315,6 +336,7 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
           <div className="p-10 text-center text-white/20 text-sm">Loading…</div>
         ) : (
           <div className="p-5 overflow-y-auto flex-1 space-y-5">
+            {isRefunded(reg) && <RefundHistory reg={reg} />}
             {reg.paymentMode === "split" && (
               <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.06] px-3 py-2.5 text-[11px] text-violet-200/80 leading-relaxed">
                 Funded via <span className="font-semibold">Player Pay</span> — each player paid their own share. Open the <span className="font-semibold">Player Pay</span> tab to see who's paid and chase anyone outstanding.
@@ -500,6 +522,41 @@ type MoveResult = { moved: boolean; from: string | null; to: string; totalCents:
    and refunding does not stop the subscription — so "Full" would ask Stripe for
    more than the charge holds and leave the weekly charges running. A Player Pay
    team has no single payment at all. Both are told where to go instead. */
+/* Who refunded this team, when, how much and why — every refund, from the
+   append-only registration_refunds ledger. A row with no name predates the
+   audit trail and says so rather than guessing. */
+type RefundRow = { id: number; amountCents: number; reason: string | null; issuedAt: string; issuedByName: string | null; stripeRefundId: string | null; backfilled: boolean };
+function RefundHistory({ reg }: { reg: LeagueReg }) {
+  const { data: rows = [], isLoading } = useQuery<RefundRow[]>({
+    queryKey: ["/api/admin/registrations", reg.id, "refunds"],
+    queryFn: () => workspaceFetch(`/api/admin/registrations/${reg.id}/refunds`).then(r => r.ok ? r.json() : []),
+  });
+  return (
+    <div className="rounded-xl border border-red-500/25 bg-red-500/[0.06] p-4 space-y-2" data-testid="refund-history">
+      <p className="text-sm font-semibold text-red-400 flex items-center gap-1.5">
+        <RotateCcw className="w-4 h-4" />
+        {reg.paymentStatus === "refunded" ? "Refunded" : "Part refunded"} — {formatCurrency(reg.refundedAmountCents || 0, { fromCents: true })} back to the payer
+      </p>
+      {isLoading ? <p className="text-[11px] text-white/30">Loading history…</p> : rows.length === 0 ? (
+        <p className="text-[11px] text-white/40">by {reg.refundedByName || "not recorded"} · {fmtStamp(reg.refundedAt)}{reg.refundReason ? ` — ${reg.refundReason}` : ""}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map(x => (
+            <div key={x.id} className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[12px] text-white/80">{x.issuedByName || "Not recorded"}</span>
+                <span className="text-[12px] font-semibold text-red-400">−{formatCurrency(x.amountCents, { fromCents: true })}</span>
+              </div>
+              <p className="text-[11px] text-white/40 mt-0.5">{fmtStamp(x.issuedAt)}{x.reason ? ` — ${x.reason}` : ""}</p>
+              {x.stripeRefundId && <p className="text-[10px] text-white/25 mt-0.5 font-mono">{x.stripeRefundId}{x.backfilled ? " · recorded before the refund log existed" : ""}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RefundSection({ reg }: { reg: LeagueReg }) {
   const [open, setOpen] = useState(false);
   const { data: me } = useQuery<{ canIssueRefunds?: boolean }>({ queryKey: ["/api/auth/me"] });

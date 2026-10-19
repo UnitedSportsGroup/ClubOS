@@ -2959,6 +2959,10 @@ export class DatabaseStorage implements IStorage {
       : [];
     const teamByReg = new Map(teams.map(t => [t.registrationId, t]));
 
+    const refunderIds = Array.from(new Set(rows.map(r => r.reg.refundedBy).filter((x): x is number => !!x)));
+    const refunders = refunderIds.length ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.id, refunderIds)) : [];
+    const refunderNames = new Map(refunders.map(u => [u.id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim()]));
+
     const nowMs = Date.now();
     return rows.map(r => {
       const missed = missedPayments({
@@ -2990,11 +2994,16 @@ export class DatabaseStorage implements IStorage {
         balanceCents: r.reg.balanceCents,
         balanceDueDate: r.reg.balanceDueDate,
         balanceStatus: r.reg.balanceStatus,
-        paymentStatus: teamByReg.get(r.reg.id)?.paymentStatus ?? (
-          r.reg.status === "confirmed" ? "deposit_paid"
-          : (r.reg.status === "refunded" || r.reg.status === "partially_refunded") ? r.reg.status
-          : "unpaid"
-        ),
+        // 🔴 A refund wins over the team's own payment flag. league_teams.payment_status
+        // still read "paid_in_full" after Brazukas FC's $300 refund, so a refunded
+        // team sat in Payments looking like a properly paid one.
+        paymentStatus: (r.reg.status === "refunded" || r.reg.status === "partially_refunded")
+          ? r.reg.status
+          : teamByReg.get(r.reg.id)?.paymentStatus ?? (r.reg.status === "confirmed" ? "deposit_paid" : "unpaid"),
+        refundedAmountCents: r.reg.refundedAmountCents ?? 0,
+        refundedAt: r.reg.refundedAt ?? null,
+        refundReason: r.reg.refundReason ?? null,
+        refundedByName: r.reg.refundedBy ? refunderNames.get(r.reg.refundedBy) ?? null : null,
         registeredAt: r.reg.registeredAt,
         missedCount: missed.missedCount,
         missedCents: missed.missedCents,

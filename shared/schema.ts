@@ -10077,3 +10077,20 @@ export const tbTasks = pgTable("tb_tasks", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
+
+// Every refund of a registration, one row each, append-only (trigger). See
+// migrations/2026-10-19_registration_refunds.sql. issued_by_user_id NULL = a
+// backfilled refund from before anyone recorded who did it.
+export const registrationRefunds = pgTable("registration_refunds", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  registrationId: integer("registration_id").notNull().references(() => registrations.id, { onDelete: "restrict" }),
+  amountCents: integer("amount_cents").notNull(),
+  reason: text("reason"),
+  mode: text("mode"),
+  issuedByUserId: integer("issued_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow().notNull(),
+  stripeRefundId: text("stripe_refund_id"),
+  stripeRefundStatus: text("stripe_refund_status"),
+  backfilled: boolean("backfilled").notNull().default(false),
+});
+export type RegistrationRefund = typeof registrationRefunds.$inferSelect;
