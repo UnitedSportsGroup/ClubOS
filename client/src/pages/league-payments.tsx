@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, workspaceFetch } from "@/lib/queryClient";
+import { RefundDialog, type Registration } from "@/pages/admin-registrations";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, Phone, Users, CreditCard, X, Check, AlertTriangle, ChevronRight, Crown, RotateCw, TrendingUp, Link2, Copy, Send, ArrowRightLeft } from "lucide-react";
+import { Mail, Phone, Users, CreditCard, X, Check, AlertTriangle, ChevronRight, Crown, RotateCw, TrendingUp, Link2, Copy, Send, ArrowRightLeft, RotateCcw } from "lucide-react";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { centsToDollarInput, dollarInputToCents } from "@/lib/format";
@@ -458,6 +459,7 @@ export function PaymentBreakdownModal({ reg, onClose }: { reg: LeagueReg; onClos
               </div>
             )}
 
+            <RefundSection reg={reg} />
             <MoveTeamSection reg={reg} />
 
             {bd.paymentMode === "deposit_weekly" && (
@@ -487,6 +489,77 @@ type MoveOptions = {
   divisions: { id: number; name: string; priceCents: number; maxTeams: number | null; teams: number }[];
 };
 type MoveResult = { moved: boolean; from: string | null; to: string; totalCents: number; paidCents: number; owedCents: number; payUrl: string | null; emailed: boolean };
+
+/* Refund from where Isaac actually works (Daniel, 2026-10-19: "how isaac can
+   refund himself i see no way in payments"). Opens the SAME RefundDialog the
+   Registrations page uses, against the same POST /registrations/:id/refund —
+   so the per-person can_issue_refunds gate, the Stripe idempotency key, the
+   confirmation email and the audit name all come with it.
+   🔴 Only a team that paid UP FRONT by card gets the button. A weekly-plan
+   team's PaymentIntent is the deposit alone while its total is the whole term,
+   and refunding does not stop the subscription — so "Full" would ask Stripe for
+   more than the charge holds and leave the weekly charges running. A Player Pay
+   team has no single payment at all. Both are told where to go instead. */
+function RefundSection({ reg }: { reg: LeagueReg }) {
+  const [open, setOpen] = useState(false);
+  const { data: me } = useQuery<{ canIssueRefunds?: boolean }>({ queryKey: ["/api/auth/me"] });
+  const kind = methodKey(reg.paymentMode);
+  const { data: full } = useQuery<Registration>({
+    queryKey: ["/api/admin/registrations", reg.id],
+    queryFn: () => workspaceFetch(`/api/admin/registrations/${reg.id}`).then(r => { if (!r.ok) throw new Error("not found"); return r.json(); }),
+    enabled: !!me?.canIssueRefunds && kind === "card",
+  });
+  if (!me?.canIssueRefunds) return null;
+
+  if (kind === "split") {
+    return (
+      <p className="text-[11px] text-white/40 leading-relaxed" data-testid="refund-split-note">
+        <span className="text-white/60 font-semibold">Refunding this team?</span> Each player paid their own share, so there's no single payment to refund. Use the <span className="text-violet-300 font-semibold">Player Pay</span> tab → open the team → <span className="font-semibold">Cancel &amp; refund</span>.
+      </p>
+    );
+  }
+  if (kind === "weekly") {
+    return (
+      <p className="text-[11px] text-white/40 leading-relaxed" data-testid="refund-weekly-note">
+        <span className="text-white/60 font-semibold">Refunding this team?</span> It's on a weekly plan — the weekly charges have to be stopped before anything is refunded, so ask Daniel or Olga to do this one.
+      </p>
+    );
+  }
+  if (!full) return null;
+  const remaining = (full.totalCents || 0) - (full.refundedAmountCents || 0);
+  if (full.status === "refunded" || remaining <= 0) {
+    return <p className="text-[11px] text-white/40" data-testid="refund-done-note">Refunded{full.refundedByName ? ` by ${full.refundedByName}` : ""}{full.refundReason ? ` — ${full.refundReason}` : ""}.</p>;
+  }
+  if (!full.stripePaymentIntentId) {
+    return (
+      <p className="text-[11px] text-white/40 leading-relaxed" data-testid="refund-offline-note">
+        <span className="text-white/60 font-semibold">Refunding this team?</span> It wasn't paid by card through the website, so there's no card to send money back to — ask Olga to refund it by bank transfer.
+      </p>
+    );
+  }
+  return (
+    <>
+      <button onClick={() => setOpen(true)} data-testid="refund-open"
+        className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 rounded-lg border border-red-500/20 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+        <RotateCcw className="w-3.5 h-3.5" /> {full.status === "partially_refunded" ? "Refund more" : "Refund this team"}
+      </button>
+      {open && (
+        <RefundDialog
+          reg={full}
+          open={open}
+          onOpenChange={(o) => {
+            setOpen(o);
+            if (!o) {
+              queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations", reg.id] });
+              queryClient.invalidateQueries({ queryKey: ["/api/admin/league/competitions"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/admin/league/registrations", reg.id] });
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 function MoveTeamSection({ reg }: { reg: LeagueReg }) {
   const { toast } = useToast();

@@ -135,7 +135,7 @@ function LiveActivityPanel() {
 }
 
 
-type Registration = {
+export type Registration = {
   /** Server-decided: this person's first registration ever, across ClubOS and
    *  ten years of Friendly Manager. Absent means "known to us, or unknown" —
    *  never a claim that they are returning. */
@@ -206,7 +206,9 @@ type CampDateOption = { id: number; date: string };
 
 type EditItem = { childId: number; campDateId: number; productType: string };
 
-function RefundDialog({
+// Exported so the MFL Payments popup opens THIS dialog — one refund screen,
+// one permission, one email, never a second copy of the money rules.
+export function RefundDialog({
   reg,
   open,
   onOpenChange,
