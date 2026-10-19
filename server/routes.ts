@@ -2904,8 +2904,13 @@ export async function registerRoutes(
    * real charge go through it, so the number a parent is shown is the number
    * they pay — by construction, not by two implementations agreeing.
    *
-   * Pro-rata: joining five weeks into a ten-week term buys five sessions.
-   * Returns null when the term has ended (nothing left to sell).
+   * 🔴 FULL PRICE BY DEFAULT (Daniel, 2026-10-19: "make sure pro rata is
+   * turned off for academy payments … full amount being default"). Every public
+   * checkout charges the full term fee whatever week it is. Pro-rata — joining
+   * five weeks into a ten-week term buys five sessions — is now something the
+   * OFFICE chooses per family (`priceMode: "prorata"`), never automatic.
+   * The term's progress is still read either way, because a FINISHED term must
+   * still refuse to sell. Returns null when the term has ended.
    */
   function academyQuoteFor(
     program: any,
@@ -2913,6 +2918,7 @@ export async function registerRoutes(
     section: "core" | "additional",
     termPriceCents: number,
     plan: "term" | "year",
+    priceMode: "full" | "prorata" = "full",
   ) {
     if (plan === "year") {
       // Buying the season, not a slice of the current term — no pro-rata.
@@ -2934,7 +2940,7 @@ export async function registerRoutes(
     // Price off chargeableSessions, NOT sessionsRemaining: inside the grace
     // period they differ, and sessionsRemaining is the one that must stay
     // honest for what the parent is told about the sessions themselves.
-    const payable = prorated
+    const payable = prorated && priceMode === "prorata"
       ? academyProrate(termPriceCents, prorated.chargeableSessions, prorated.totalSessions)
       : termPriceCents;
 
@@ -5625,9 +5631,16 @@ export async function registerRoutes(
         ? sellable.find((o: any) => o.id === optionId)
         : sellable.length === 1 ? sellable[0] : null;
 
+      const priceMode: "full" | "prorata" = req.query.priceMode === "prorata" ? "prorata" : "full";
       const quote =
         option && (plan === "term" || allowFullYear)
-          ? academyQuoteFor(program, term, section, option.fullPriceCents, plan)
+          ? academyQuoteFor(program, term, section, option.fullPriceCents, plan, priceMode)
+          : null;
+      // What pro-rata WOULD charge for this term, so the counter can show both
+      // choices with their amounts before anyone picks one.
+      const prorataQuote =
+        option && plan === "term"
+          ? academyQuoteFor(program, term, section, option.fullPriceCents, "term", "prorata")
           : null;
 
       res.json({
@@ -5651,6 +5664,7 @@ export async function registerRoutes(
         terms: (await academyTermsFor(program))
           .map((t: any) => {
             const q = option ? academyQuoteFor(program, t, section, option.fullPriceCents, "term") : null;
+            const qp = option ? academyQuoteFor(program, t, section, option.fullPriceCents, "term", "prorata") : null;
             return {
               id: t.id,
               year: t.year,
@@ -5670,6 +5684,7 @@ export async function registerRoutes(
               // null = not priced yet (no option chosen) OR the term has ended;
               // `ended` says which.
               totalCents: q ? q.totalCents : null,
+              prorataCents: qp ? qp.totalCents : null,
               sessionsRemaining: q ? q.sessionsRemaining ?? null : null,
               // `totalSessions` is what academyQuoteFor calls it. Reading
               // `sessionsTotal` here returned undefined on every term and the
@@ -5681,6 +5696,10 @@ export async function registerRoutes(
         allowFullYear,
         options: sellable.map((o: any) => ({ id: o.id, name: o.name, fullPriceCents: o.fullPriceCents, scheduleText: o.scheduleText })),
         quote,
+        priceMode,
+        prorata: prorataQuote
+          ? { totalCents: prorataQuote.totalCents, sessionsRemaining: prorataQuote.sessionsRemaining ?? null, totalSessions: prorataQuote.totalSessions ?? null }
+          : null,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -5885,9 +5904,11 @@ export async function registerRoutes(
           return res.status(400).json({ message: "The full-year plan isn't available for this programme right now — it's charged per term." });
         }
 
-        // Same quoting function as the public checkout, so an office price and
-        // an online price for the same child on the same day cannot differ.
-        const quote = academyQuoteFor(program, term, section, option.fullPriceCents, plan);
+        // Same quoting function as the public checkout. Full price unless the
+        // office chose pro-rata for this family (the browser names the MODE,
+        // never an amount — the server prices it).
+        const priceMode: "full" | "prorata" = body.priceMode === "prorata" ? "prorata" : "full";
+        const quote = academyQuoteFor(program, term, section, option.fullPriceCents, plan, priceMode);
         if (!quote) {
           return res.status(409).json({ message: "This term has finished — there's nothing left to sell." });
         }

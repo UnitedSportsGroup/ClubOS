@@ -81,6 +81,23 @@ export function quoteProgram(
   const sessionsRemaining = weeksBetween(today, term.endDate);
   const cappedRemaining = Math.min(sessionsRemaining, totalSessions);
 
+  // 🔴 Academy programmes never pro-rate on a public checkout (Daniel,
+  // 2026-10-19: "make sure pro rata is turned off for academy payments"). Same
+  // rule as academyQuoteFor in routes.ts — the full term fee, whatever the week;
+  // the office can still choose pro-rata for a family. A finished term still
+  // refuses above.
+  if ((program as any).type === "academy") {
+    return {
+      fullPriceCents,
+      payNowCents: fullPriceCents,
+      discountCents: 0,
+      sessionsRemaining: cappedRemaining,
+      totalSessions,
+      reason: "Full term price",
+      model: "term_prorated",
+    };
+  }
+
   // Grace weeks — full term price for the first N weeks, pro-rata after.
   // Same column, same rule as the academy engine (shared/academy.ts), so no
   // route can quote this programme at a price another route disagrees with.

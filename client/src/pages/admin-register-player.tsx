@@ -71,6 +71,8 @@ interface AcademyQuote {
     ended: boolean;
     /** null = not priced yet (no option chosen) or the term has ended — `ended` says which. */
     totalCents: number | null; sessionsRemaining: number | null; sessionsTotal: number | null;
+    /** What pro-rata would charge for this term (only if the office picks it). */
+    prorataCents?: number | null;
   }[];
   allowFullYear: boolean;
   options: { id: number; name: string; fullPriceCents: number; scheduleText?: string | null }[];
@@ -78,6 +80,9 @@ interface AcademyQuote {
     plan: string; subtotalCents: number; discountCents: number; totalCents: number;
     reason?: string; sessionsRemaining?: number | null; totalSessions?: number | null;
   } | null;
+  priceMode?: "full" | "prorata";
+  /** What pro-rata would charge for the chosen term, shown on the choice. */
+  prorata?: { totalCents: number; sessionsRemaining: number | null; totalSessions: number | null } | null;
 }
 
 function formatDate(dateStr: string) {
@@ -329,6 +334,10 @@ export function RegisterPlayerModal({
   const [priceOverride, setPriceOverride] = useState("");
   const [priceReason, setPriceReason] = useState("");
   const [editingPrice, setEditingPrice] = useState(false);
+  // How an ACADEMY term is priced at the counter (Daniel, 2026-10-19): the full
+  // fee by default, pro-rata only when staff pick it, or a custom agreed price.
+  // The browser names the MODE; the server prices it.
+  const [priceMode, setPriceMode] = useState<"full" | "prorata" | "custom">("full");
   const [emergencyContact, setEmergencyContact] = useState("");
   const [emergencyPhone, setEmergencyPhone] = useState("");
   const [children, setChildren] = useState<ChildData[]>([
@@ -413,9 +422,9 @@ export function RegisterPlayerModal({
 
   // ── Academy pricing: quoted by the server, never computed here ────────────
   const { data: academyData, isFetching: quoting } = useQuery<AcademyQuote>({
-    queryKey: ["/api/admin/registrations/manual/quote", selectedProgramId, optionId, plan, termId],
+    queryKey: ["/api/admin/registrations/manual/quote", selectedProgramId, optionId, plan, termId, priceMode === "prorata" ? "prorata" : "full"],
     queryFn: async () => {
-      const qs = new URLSearchParams({ programId: String(selectedProgramId), plan });
+      const qs = new URLSearchParams({ programId: String(selectedProgramId), plan, priceMode: priceMode === "prorata" ? "prorata" : "full" });
       if (optionId) qs.set("programOptionId", String(optionId));
       if (termId) qs.set("termId", String(termId));
       // 🔴 workspaceFetch, never a bare fetch(). This endpoint is tab-gated, and
@@ -528,6 +537,7 @@ export function RegisterPlayerModal({
           // Which term they paid for. Omitted = the programme's own current
           // term, which the server resolves; it re-prices either way.
           termId: plan === "term" ? termId : null,
+          priceMode: plan === "term" && priceMode === "prorata" ? "prorata" : "full",
           guardian: {
             firstName: parentFirst, lastName: parentLast,
             email: parentEmail, phone: parentPhone, relationship,
@@ -851,7 +861,7 @@ export function RegisterPlayerModal({
     setSelectedProgramId(null);
     setOptionId(null); setPlan("term");
     setItems([]);
-    setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
+    setPriceOverride(""); setPriceReason(""); setEditingPrice(false); setPriceMode("full");
     setAckAgeWarning(false);
   };
 
@@ -863,7 +873,7 @@ export function RegisterPlayerModal({
     setEditingDetails(false);
     setParentFirst(""); setParentLast(""); setParentEmail(""); setParentPhone("");
     setEmergencyContact(""); setEmergencyPhone("");
-    setPriceOverride(""); setPriceReason(""); setEditingPrice(false);
+    setPriceOverride(""); setPriceReason(""); setEditingPrice(false); setPriceMode("full");
     setChildren([{ firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "" }]);
     setItems([]);
     setOptionId(null); setPlan("term");
@@ -1345,7 +1355,7 @@ export function RegisterPlayerModal({
                                         {" · "}
                                         {t.sessionsRemaining === t.sessionsTotal
                                           ? `full term, ${t.sessionsTotal} sessions`
-                                          : `pro rata · ${t.sessionsRemaining} of ${t.sessionsTotal} sessions left`}
+                                          : `full term · ${t.sessionsRemaining} of ${t.sessionsTotal} sessions left`}
                                       </span>
                                     )}
                                   </>
@@ -1712,7 +1722,41 @@ export function RegisterPlayerModal({
                     programme's PUBLISHED fee, not today's pro-rated quote:
                     measuring against the quote is what silently threw away the
                     $135 she typed on 15 September. */}
-                {!editingPrice ? (
+                {shape === "academy" && plan === "term" && (
+                  <div className="mt-3 pt-3 border-t border-white/[0.10]" data-testid="price-mode">
+                    <p className="text-[12px] text-foreground/60 mb-2">Price</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([
+                        { key: "full", label: "Full price", sub: academyData?.quote ? formatCurrency(academyData.quote.subtotalCents, { fromCents: true }) : "" },
+                        { key: "prorata", label: "Pro rata", sub: academyData?.prorata ? `${formatCurrency(academyData.prorata.totalCents, { fromCents: true })}${academyData.prorata.sessionsRemaining != null && academyData.prorata.totalSessions != null ? ` · ${academyData.prorata.sessionsRemaining} of ${academyData.prorata.totalSessions} sessions left` : ""}` : "" },
+                        { key: "custom", label: "Custom price", sub: "Type an amount and why" },
+                      ] as const).map((o) => (
+                        <button
+                          key={o.key}
+                          type="button"
+                          onClick={() => {
+                            setPriceMode(o.key);
+                            setAmountTouched(false);
+                            if (o.key === "custom") setEditingPrice(true);
+                            else { setPriceOverride(""); setPriceReason(""); setEditingPrice(false); }
+                          }}
+                          className={`px-3 py-2.5 rounded-lg border text-left transition-colors min-w-0 ${
+                            priceMode === o.key ? "bg-blue-500/10 border-blue-500/40" : "bg-background border-input hover:bg-muted"
+                          }`}
+                          data-testid={`price-mode-${o.key}`}
+                        >
+                          <div className="text-[13px] font-medium text-foreground/90">{o.label}{o.key === "full" ? " (default)" : ""}</div>
+                          {o.sub && <div className="text-[11.5px] text-foreground/55 mt-0.5 break-words">{o.sub}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Academy term: the Custom price card opens this panel and it
+                    stays open while Custom is chosen. Camps and full-year keep
+                    the original link. */}
+                {(shape === "academy" && plan === "term" ? priceMode !== "custom" : !editingPrice) ? (
+                  shape === "academy" && plan === "term" ? null : (
                   <button
                     onClick={() => setEditingPrice(true)}
                     className="text-[12.5px] text-blue-600 hover:underline mt-1"
@@ -1720,6 +1764,7 @@ export function RegisterPlayerModal({
                   >
                     {agreedCents != null ? "Change the agreed price" : "Agree a different price"}
                   </button>
+                  )
                 ) : (
                   <div className="mt-3 pt-3 border-t border-white/[0.10] grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field
@@ -1736,7 +1781,7 @@ export function RegisterPlayerModal({
                       <Input value={priceReason} onChange={(e) => setPriceReason(e.target.value)} className={FIELD} placeholder="Sibling discount, hardship, part term…" data-testid="input-price-reason" />
                     </Field>
                     <div className="sm:col-span-2 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setPriceOverride(""); setPriceReason(""); setEditingPrice(false); }} data-testid="button-price-cancel">
+                      <Button size="sm" variant="outline" onClick={() => { setPriceOverride(""); setPriceReason(""); setEditingPrice(false); setPriceMode("full"); }} data-testid="button-price-cancel">
                         Use the programme's price
                       </Button>
                       {/* 🔴 Apply is refused while the price cannot be used. It
