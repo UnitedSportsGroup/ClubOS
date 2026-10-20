@@ -48,6 +48,16 @@ export default function AttributionSurvey() {
   const [otherText, setOtherText] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  // Answered BEFORE paying (booking-page sets this): don't ask twice. The
+  // success page confirms the payment itself, so nothing is skipped by going
+  // straight there.
+  useEffect(() => {
+    let answered = false;
+    try { answered = !!registrationId && sessionStorage.getItem(`usg_hdyhau_answered_${registrationId}`) === "1"; } catch { /* noop */ }
+    if (answered) setLocation(`/${slug}/success?registrationId=${registrationId}`, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrationId, slug]);
+
   useEffect(() => {
     if (registrationId) {
       fetch("/api/public/confirm-payment", {

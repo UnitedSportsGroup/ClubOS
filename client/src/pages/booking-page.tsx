@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/format";
@@ -242,6 +243,9 @@ export default function BookingPage() {
   const [appliedPromo, setAppliedPromo] = useState<{ id: number; code: string; type: string; valueType: string; value: string; title: string } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
+  // "How did you hear about us?" — required of a family new to this club.
+  const [hdyhau, setHdyhau] = useState<HdyhauAnswer>(EMPTY_HDYHAU);
+  const { required: hdyhauRequired } = useHdyhauRequired({ slug, email: parentEmail, phone: parentPhone });
 
   const { data, isLoading } = useQuery<{ camp: any; organization?: { slug: string; name: string; logoUrl: string | null }; pricing: any[]; dates: any[]; discounts: any[] }>({
     queryKey: ["/api/public/camps", slug],
@@ -280,6 +284,7 @@ export default function BookingPage() {
           return expandedItems;
         })(),
         discountCode: appliedPromo?.code || null,
+        ...hdyhauPayload(hdyhau),
         utmSource: urlParams.get("utm_source"),
         utmMedium: urlParams.get("utm_medium"),
         utmCampaign: urlParams.get("utm_campaign"),
@@ -292,6 +297,11 @@ export default function BookingPage() {
     },
     onSuccess: async (result: any) => {
       setBookingResult(result);
+      // Answered up front, so the post-payment survey (/:slug/feedback) steps
+      // aside instead of asking the same question twice.
+      if (hdyhau.source && result?.registrationId) {
+        try { sessionStorage.setItem(`usg_hdyhau_answered_${result.registrationId}`, "1"); } catch { /* private mode */ }
+      }
 
       if (result.totalCents === 0) {
         fetch("/api/public/book/confirm-free", {
@@ -450,7 +460,8 @@ export default function BookingPage() {
   const stepIcons = [Calendar, User, Heart, CreditCard];
 
   const canProceedStep1 = items.length > 0;
-  const canProceedStep2 = parentFirst.trim() && parentLast.trim() && parentEmail.trim() && parentEmail.includes("@");
+  const canProceedStep2 = parentFirst.trim() && parentLast.trim() && parentEmail.trim() && parentEmail.includes("@")
+    && hdyhauError(hdyhauRequired, hdyhau) === null;
   const canProceedStep3 = children.some(c => c.firstName.trim() && c.lastName.trim());
 
   return (
@@ -699,6 +710,16 @@ export default function BookingPage() {
                 <Input value={parentPhone} onChange={e => setParentPhone(e.target.value)} className="rounded-xl border-slate-200 focus:border-blue-400 focus:ring-blue-400/20 h-11" placeholder="021 123 4567" data-testid="input-parent-phone" />
               </div>
             </div>
+
+            <HdyhauField
+              value={hdyhau}
+              onChange={setHdyhau}
+              required={hdyhauRequired}
+              error={hdyhau.source === "other" && !hdyhau.detail.trim() ? "Tell us where — a few words is fine." : null}
+              labelClassName="block text-[12px] text-slate-500 font-semibold mb-1.5"
+              fieldClassName="w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+              mutedClassName="text-[12px] text-slate-400 mt-1.5"
+            />
 
             <div className="rounded-xl px-4 py-3 flex items-start gap-2.5" style={{ background: `${BRAND.blue}06` }}>
               <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: BRAND.blue }} />

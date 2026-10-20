@@ -19694,7 +19694,12 @@ export async function registerRoutes(
       }
       const reg = await storage.getRegistration(regId);
       if (!reg) return res.status(404).json({ message: "Registration not found" });
-      await storage.updateRegistration(regId, { referralSource });
+      // Write-once. The answer is now asked BEFORE payment on every checkout
+      // (server/hdyhau.ts); this unauthenticated survey must never overwrite it,
+      // and must never let a stranger rewrite another family's answer by id.
+      if (!reg.referralSource) {
+        await storage.updateRegistration(regId, { referralSource: String(referralSource).slice(0, 200) });
+      }
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
