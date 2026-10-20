@@ -121,3 +121,53 @@ export function breweryValue(
     knowable,
   };
 }
+
+/**
+ * The partner form emails every answer as ONE run-on paragraph ("Company X Contact Y
+ * Email … Notes: …"). This cuts it at the form's own field labels so it reads as the
+ * form they filled in. It never edits a word: each answer is the exact slice of the
+ * email between two labels, and the pieces rejoin to the original (checked by
+ * script/_test-brewery-submission-split.ts). Anything it cannot place — a submission
+ * that is not a form email (DB's covering letter), or a shape it does not recognise —
+ * returns null and the caller shows the raw text instead.
+ */
+export const SUBMISSION_FIELDS: { label: string; title: string }[] = [
+  { label: "Company ", title: "Company" },
+  { label: "Contact ", title: "Contact" },
+  { label: "Email ", title: "Email" },
+  { label: "Phone ", title: "Phone" },
+  { label: "Sponsorship ", title: "Sponsorship" },
+  { label: "Volume rebate ", title: "Volume rebate" },
+  { label: "Notes: ", title: "Notes" },
+  { label: "Supply terms ", title: "Supply terms" },
+  { label: "Discounted stocking price: ", title: "Discounted stocking price" },
+  { label: "Timing & delivery: ", title: "Timing & delivery" },
+  { label: "Service: ", title: "Service" },
+  { label: "Build loan ", title: "Build loan" },
+  { label: "Proposed terms: ", title: "Proposed terms" },
+  { label: "Term ", title: "Term" },
+  { label: "In their words ", title: "In their words" },
+];
+
+export interface SubmissionSection { title: string; text: string }
+
+export function splitSubmission(raw: string): { preamble: string; sections: SubmissionSection[] } | null {
+  const text = raw.replace(/\r\n/g, "\n");
+  if (!/^New partner submission\b/.test(text)) return null;
+  const hits: { at: number; end: number; title: string }[] = [];
+  let cursor = 0;
+  for (const f of SUBMISSION_FIELDS) {
+    const at = text.indexOf(f.label, cursor);
+    if (at < 0) continue;                       // an optional field this form did not have
+    hits.push({ at, end: at + f.label.length, title: f.title });
+    cursor = at + f.label.length;
+  }
+  // The first five are always on the form; without them this is not the email we know.
+  const must = ["Company", "Contact", "Email", "Sponsorship", "Term"];
+  if (!must.every(t => hits.some(h => h.title === t))) return null;
+  const sections = hits.map((h, i) => ({
+    title: h.title,
+    text: text.slice(h.end, i + 1 < hits.length ? hits[i + 1].at : text.length).trim(),
+  }));
+  return { preamble: text.slice(0, hits[0].at).trim(), sections };
+}

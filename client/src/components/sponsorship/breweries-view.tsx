@@ -9,11 +9,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceFetch } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   LayoutGrid, Table2, Calculator, BarChart3, Scale, FileText, History, AlertCircle, Mail, Phone, Lock,
-  CheckCircle2, XCircle, HelpCircle,
+  CheckCircle2, XCircle, HelpCircle, ChevronRight,
 } from "lucide-react";
-import { breweryValue, rebateRateCents, type BreweryBoard, type BreweryOffer } from "@shared/brewery-offers";
+import { breweryValue, rebateRateCents, splitSubmission, type BreweryBoard, type BreweryOffer } from "@shared/brewery-offers";
 
 type View = "overview" | "compare" | "value" | "volume" | "terms" | "submissions" | "timeline" | "issues";
 const VIEWS: { key: View; label: string; icon: typeof LayoutGrid }[] = [
@@ -108,8 +109,21 @@ function LoanBadge({ answer }: { answer: BreweryOffer["loan"]["answer"] }) {
 function Overview({ data }: { data: BreweryBoard }) {
   const inWriting = data.offers.filter(o => o.hasWrittenOffer).length;
   const club = data.volumes.find(v => v.key === "club-y1")?.hlPerYear ?? 200;
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const opened = openKey ? data.offers.find(o => o.key === openKey) : undefined;
   return (
     <div className="space-y-4">
+      <Dialog open={!!opened} onOpenChange={o => { if (!o) setOpenKey(null); }}>
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto" data-testid="brewery-submission-dialog">
+          {opened && <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Dot colour={opened.colour} />{opened.brewery} — their submission</DialogTitle>
+              <DialogDescription>Word for word, as they sent it. {opened.channel}</DialogDescription>
+            </DialogHeader>
+            <SubmissionBody data={data} offer={opened} />
+          </>}
+        </DialogContent>
+      </Dialog>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="Offers in writing" value={`${inWriting} of ${data.offers.length}`} />
         <Stat label="Largest cash ask" value="$30–50k" sub="Renaissance band — period not stated" />
@@ -120,7 +134,11 @@ function Overview({ data }: { data: BreweryBoard }) {
         {data.offers.map(o => {
           const v = breweryValue(o, club, 1, data.assumedPurchaseCentsPerHl, false);
           return (
-            <div key={o.key} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3" style={{ borderLeft: `3px solid ${o.colour}` }} data-testid={`brewery-card-${o.key}`}>
+            <div key={o.key} role="button" tabIndex={0} title="Open their full submission"
+              onClick={e => { if (!(e.target as HTMLElement).closest("a,button")) setOpenKey(o.key); }}
+              onKeyDown={e => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); setOpenKey(o.key); } }}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3 cursor-pointer transition hover:border-blue-500/40 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              style={{ borderLeft: `3px solid ${o.colour}` }} data-testid={`brewery-card-${o.key}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-base font-semibold text-white"><Dot colour={o.colour} />{o.brewery}</div>
@@ -147,6 +165,11 @@ function Overview({ data }: { data: BreweryBoard }) {
                 <List title="Watch out" items={o.watchOuts} tone="text-orange-300" />
               </div>
               <div className="text-xs"><span className="font-semibold text-white">Next: </span><span className="text-white/70">{o.nextAction}</span></div>
+              <button type="button" onClick={() => setOpenKey(o.key)} data-testid={`brewery-open-${o.key}`}
+                className="w-full flex items-center justify-between gap-2 text-xs font-semibold px-3 min-h-[40px] rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-400 hover:bg-blue-500/15">
+                <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />{data.submissions[o.key] ? "Read their full submission" : "No written submission yet"}</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
               <Contact o={o} />
             </div>
           );
@@ -440,7 +463,6 @@ function KV({ rows }: { rows: { label: string; value: string }[] }) {
 function Submissions({ data }: { data: BreweryBoard }) {
   const [key, setKey] = useState(data.offers[0]?.key ?? "moa");
   const offer = data.offers.find(o => o.key === key)!;
-  const sub = data.submissions[key];
   return (
     <div className="space-y-3" data-testid="breweries-submissions">
       <div className="flex gap-1.5 flex-wrap">
@@ -453,17 +475,50 @@ function Submissions({ data }: { data: BreweryBoard }) {
       </div>
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
         <div className="text-sm font-semibold text-white">{offer.brewery}</div>
-        <div className="text-[11px] text-white/40">{offer.channel}{sub ? ` · ${sub.subject}` : ""}</div>
-        {key === "db" && (
-          <div className="rounded-lg border border-white/[0.06] p-3">
-            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1">The offer page of the PDF</div>
-            <KV rows={data.dbOfferPage} />
-          </div>
-        )}
-        {sub
-          ? <div className="text-xs text-white/80 whitespace-pre-wrap leading-relaxed break-words" data-testid="breweries-sub-text">{sub.text}</div>
-          : <div className="text-xs text-white/50">No written offer from {offer.brewery} has reached any inbox ClubOS reads. {offer.nextAction}</div>}
+        <div className="text-[11px] text-white/40">{offer.channel}</div>
+        <SubmissionBody data={data} offer={offer} />
       </div>
+    </div>
+  );
+}
+
+/** One brewery's submission, word for word: the form's own fields, or the raw text. */
+function SubmissionBody({ data, offer }: { data: BreweryBoard; offer: BreweryOffer }) {
+  const sub = data.submissions[offer.key];
+  const [raw, setRaw] = useState(false);
+  if (!sub) {
+    return <div className="text-xs text-white/60" data-testid="breweries-sub-none">No written submission from {offer.brewery} has reached any inbox ClubOS reads. {offer.nextAction}</div>;
+  }
+  const split = splitSubmission(sub.text);
+  return (
+    <div className="space-y-3" data-testid="breweries-sub-body">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[11px] text-white/40 min-w-0 break-words">{offer.receivedOn ? <>Received {nzDate(offer.receivedOn)} · </> : null}{sub.subject}</div>
+        {split && (
+          <button type="button" onClick={() => setRaw(r => !r)} data-testid="breweries-sub-raw-toggle"
+            className="text-[11px] font-semibold px-2.5 min-h-[32px] rounded-md border border-white/10 text-white/60 hover:text-white">
+            {raw ? "Show by field" : "Show as received"}
+          </button>
+        )}
+      </div>
+      {offer.key === "db" && (
+        <div className="rounded-lg border border-white/[0.06] p-3">
+          <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1">The offer page of the PDF</div>
+          <KV rows={data.dbOfferPage} />
+        </div>
+      )}
+      {split && !raw
+        ? <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]" data-testid="breweries-sub-fields">
+            {split.sections.map((f, i) => (
+              <div key={i} className="px-3 py-2.5">
+                <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1">{f.title}</div>
+                {f.text
+                  ? <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed break-words">{f.text}</div>
+                  : <div className="text-xs text-white/35 italic">Left blank</div>}
+              </div>
+            ))}
+          </div>
+        : <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed break-words" data-testid="breweries-sub-text">{sub.text.replace(/\r\n/g, "\n")}</div>}
     </div>
   );
 }
