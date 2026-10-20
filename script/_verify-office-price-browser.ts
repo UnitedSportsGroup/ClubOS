@@ -10,6 +10,7 @@
  *   npx tsx --env-file=.env script/_verify-office-price-browser.ts
  */
 import pg from "pg";
+import { pickHdyhau } from "./_hdyhau-pick";
 import bcrypt from "bcryptjs";
 import puppeteer from "puppeteer-core";
 
@@ -228,6 +229,11 @@ async function main() {
   await settle(1800);
 
   // ── The payment step: the bug ─────────────────────────────────────────────
+  // A new family: "How did they hear about us?" is required on this step
+  // (server/hdyhau.ts). Answer it so the only thing blocking Next below is
+  // the price this probe is about.
+  try { ok(`answered "How did they hear about us?" → ${await pickHdyhau(page, "website", MODAL)}`, true); }
+  catch (e: any) { ok(`answered "How did they hear about us?"`, false, e.message); }
   const onPayment = (await page.$(`${MODAL} [data-testid="text-total-owing"]`)) !== null;
   ok("the payment step is reached", onPayment);
   if (!onPayment) {

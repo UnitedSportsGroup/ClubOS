@@ -48,6 +48,8 @@ const reg = await (await fetch(`${API}/api/public/league/register`, {
     teams: [{ teamName: "ZZ Checkout Probe FC", divisionId: night.id, upsells: [] }],
     captain: { firstName: "ZZCHECKOUT", lastName: "PROBE", email: `${MARK}@example.com`, phone: "+64200000000" },
     utmSource: "verify", utmMedium: "probe", utmCampaign: "checkout-verify",
+    // A new captain, so "How did you hear about us?" is required (server/hdyhau.ts).
+    referralSource: "website",
   }),
 })).json();
 if (!reg.registrationId) { console.log("could not create a probe registration:", reg); process.exit(1); }

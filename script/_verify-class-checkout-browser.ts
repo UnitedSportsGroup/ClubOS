@@ -19,6 +19,7 @@
 import puppeteer from "puppeteer-core";
 import pg from "pg";
 import { mkdirSync } from "fs";
+import { pickHdyhau } from "./_hdyhau-pick";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BASE = process.env.CHECKOUT_BASE || "https://join.minifootball.co.nz";
@@ -63,6 +64,9 @@ for (const [label, w, h] of [["phone", 390, 844], ["desktop", 1440, 900]] as con
   await (await page.$('input[placeholder="Mobile"]'))!.type("+64200000000");
   await firsts[1].type("ZZCHILD"); await lasts[1].type("PROBE");
   // Date of birth is optional client-side here (formValid does not require it) — left blank on purpose.
+  // A new buyer must say how they heard about us (server/hdyhau.ts).
+  try { ok(`answered "How did you hear about us?" → ${await pickHdyhau(page)}`); }
+  catch (e: any) { bad(`could not answer "How did you hear about us?": ${e.message}`); }
 
   // CLASS_PLAN=deposit: pick the "Pay $X now" (deposit-weekly) option and assert
   // the summary promises the deposit + the weekly schedule before paying.

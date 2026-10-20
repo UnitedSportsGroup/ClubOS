@@ -97,6 +97,8 @@ function payload(
     ...(overrideCents == null ? {} : { priceOverrideCents: overrideCents, priceOverrideReason: reason }),
     payment: { isPaid: true, method: "eftpos", reference: "verify", amountPaidCents },
     servedByUserId: tempUserId,
+    // A new family, so "How did they hear about us?" is required (server/hdyhau.ts).
+    referralSource: "website",
   };
 }
 

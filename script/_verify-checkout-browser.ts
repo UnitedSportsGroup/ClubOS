@@ -35,6 +35,8 @@ const book = await fetch("https://app.usg.co.nz/api/public/book", {
     parent: { firstName: "ZZCHECKOUT", lastName: "PROBE", email: `${MARK}@example.com`, phone: "+64200000000" },
     children: [{ firstName: "ZZCHECKOUT", lastName: "PROBE", dateOfBirth: "2015-03-18" }],
     items: [{ childIndex: 0, campDateId: dateId, productType: "FULL_DAY" }],
+    // A new family, so "How did you hear about us?" is required (server/hdyhau.ts).
+    referralSource: "website",
   }),
 });
 const reg = await book.json();

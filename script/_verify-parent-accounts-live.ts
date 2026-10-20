@@ -130,6 +130,8 @@ try {
       emergency: { name: "Test Parent", phone: "0210000000" },
       consents: { policy: true, medical: true, photo: false, newsletter: false },
       source: "verify-parent-accounts",
+      // "How did you hear about us?" — required of a new buyer (server/hdyhau.ts).
+      referralSource: "website",
     });
     const signed = await fetch(`${JOIN}/api/public/academy/register`, { method: "POST", headers: withCookie(jar), body: JSON.stringify(body(EMAIL)) });
     const sb: any = await signed.json();
