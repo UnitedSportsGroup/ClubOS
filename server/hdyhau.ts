@@ -72,7 +72,7 @@ export async function isReturningBuyer(opts: {
        JOIN programs p ON p.id = r.program_id
        JOIN contacts c ON c.id IN (r.contact_id, r.guardian_id)
       WHERE COALESCE(p.organization_id, 1) = $1
-        AND r.status = ANY($2::text[])
+        AND r.status::text = ANY($2::text[])   -- an enum: compare as text or Postgres refuses the operator
         AND ( lower(trim(c.email)) = ANY($3::text[])
               OR ($4::text IS NOT NULL AND ${PHONE_SQL} = $4::text) )
       LIMIT 1`,
