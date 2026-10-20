@@ -13,6 +13,7 @@
 // redirect to checkout.stripe.com or a Payment Link.
 
 import { useEffect, useMemo, useState } from "react";
+import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 import { useRoute } from "wouter";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -747,6 +748,9 @@ export default function AcademyRegisterPage() {
   const [emergency, setEmergency] = useState<EmergencyForm>(EMPTY_EMERGENCY);
   const [consents, setConsents] = useState<ConsentsForm>(EMPTY_CONSENTS);
   const [notes, setNotes] = useState("");
+  // "How did you hear about us?" — required of a family new to this club.
+  const [hdyhau, setHdyhau] = useState<HdyhauAnswer>(EMPTY_HDYHAU);
+  const { required: hdyhauRequired } = useHdyhauRequired({ slug, email: guardian.email, phone: guardian.phone });
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -1000,7 +1004,8 @@ export default function AcademyRegisterPage() {
     guardian.relationship.trim() !== "" &&
     addressValid &&
     emergency.name.trim() !== "" &&
-    isPhone(emergency.phone);
+    isPhone(emergency.phone) &&
+    hdyhauError(hdyhauRequired, hdyhau) === null;
   const consentsValid = consents.policy === true && consents.medical === true;
 
   const applyDiscount = async () => {
@@ -1059,6 +1064,7 @@ export default function AcademyRegisterPage() {
           // describes that child.
           childKey: childKey || undefined,
           utm,
+          ...hdyhauPayload(hdyhau),
           source: sp.get("source") || undefined,
           sourceUrl: window.location.href.split("#")[0],
           child: {
@@ -1497,6 +1503,21 @@ export default function AcademyRegisterPage() {
                     <Label required>Your relationship to the player</Label>
                     <TextInput value={guardian.relationship} onChange={(e) => setGuardian((g) => ({ ...g, relationship: e.target.value }))} placeholder="e.g. Mother, Father, Guardian" data-testid="input-guardian-relationship" />
                   </div>
+
+                  <HdyhauField
+                    value={hdyhau}
+                    onChange={setHdyhau}
+                    required={hdyhauRequired}
+                    error={hdyhau.source === "other" && !hdyhau.detail.trim() ? "Tell us where — a few words is fine." : null}
+                    labelClassName={FIELD_THEME.labelCls}
+                    labelStyle={FIELD_THEME.labelStyle}
+                    fieldClassName={fieldCls}
+                    fieldStyle={fieldStyle}
+                    contentStyle={{ background: BRAND.ink, color: BRAND.white, borderColor: BRAND.line }}
+                    itemClassName="focus:bg-white/10 focus:text-white"
+                    mutedStyle={{ color: BRAND.mute }}
+                    errorStyle={{ color: BRAND.goldBright }}
+                  />
 
                   <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${BRAND.line}` }}>
                     <NzfAddressFields

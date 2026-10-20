@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 import { useRoute, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { loadStripe, type Appearance } from "@stripe/stripe-js";
@@ -282,6 +283,10 @@ export default function ClassBookingPage() {
   const [childLast, setChildLast] = useState("");
   const [childDob, setChildDob] = useState("");
   const [notes, setNotes] = useState("");
+  // "How did you hear about us?" — required of a family new to this club.
+  const [hdyhau, setHdyhau] = useState<HdyhauAnswer>(EMPTY_HDYHAU);
+  const [hdyhauErr, setHdyhauErr] = useState<string | null>(null);
+  const { required: hdyhauRequired } = useHdyhauRequired({ slug, email: parentEmail, phone: parentPhone });
 
   // Promo code. Checked against the server (same decider as the charge); the
   // page only ever shows what the server said the code does.
@@ -367,6 +372,9 @@ export default function ClassBookingPage() {
     childFirst && childLast;
 
   const proceedToPayment = async () => {
+    const hErr = hdyhauError(hdyhauRequired, hdyhau);
+    if (hErr) { setHdyhauErr(hErr); setError(hErr); return; }
+    setHdyhauErr(null);
     setSubmitting(true);
     setError(null);
     try {
@@ -394,6 +402,7 @@ export default function ClassBookingPage() {
           notes,
           utm,
           discountCode: promo?.code ?? null,
+          ...hdyhauPayload(hdyhau),
         }),
       });
       const data = await res.json();
@@ -596,6 +605,18 @@ export default function ClassBookingPage() {
                     <Input value={parentPhone} onChange={e => setParentPhone(e.target.value)} placeholder="Mobile" className={`col-span-2 ${T.input}`} />
                   </div>
                 </div>
+
+                <HdyhauField
+                  value={hdyhau}
+                  onChange={(v) => { setHdyhau(v); setHdyhauErr(null); }}
+                  required={hdyhauRequired}
+                  error={hdyhauErr}
+                  labelClassName={T.label + " block"}
+                  fieldClassName={`w-full rounded-md border px-3 text-sm ${MFL ? "border-white/10 bg-white/[0.04] text-white placeholder:text-white/40" : "border-input bg-background"}`}
+                  contentStyle={MFL ? { background: "#141414", color: "#ffffff", borderColor: "rgba(255,255,255,0.1)" } : undefined}
+                  itemClassName={MFL ? "focus:bg-white/10 focus:text-white" : ""}
+                  mutedClassName={`text-xs mt-1.5 ${T.muted}`}
+                />
 
                 <div>
                   <h2 className={T.label}>Your child</h2>

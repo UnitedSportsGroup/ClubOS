@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/format";
 import { initPixel, trackEvent, getFbp, getFbc, generateEventId } from "@/lib/meta-pixel";
 import { stashSetupSecret, saveSplitTokens } from "@/lib/split-pay";
 import { ArrowLeft, ArrowRight, Loader2, Flame, Plus, Minus, X, Tag, Users } from "lucide-react";
+import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 
 const BRAND = {
   black: "#000000", bg: "#0a0a0a", card: "#141414", cardSoft: "#1c1c1c", border: "#2a2a2a",
@@ -60,6 +61,10 @@ export default function MflRegisterPage() {
   // the live "each ≈ $X" preview; the live share is recalculated server-side as
   // cards are saved).
   const [targetCount, setTargetCount] = useState(8);
+  // "How did you hear about us?" — required of a captain new to Mini Football.
+  const [hdyhau, setHdyhau] = useState<HdyhauAnswer>(EMPTY_HDYHAU);
+  const [hdyhauErr, setHdyhauErr] = useState<string | null>(null);
+  const { required: hdyhauRequired } = useHdyhauRequired({ slug, email, phone });
 
   useEffect(() => {
     const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
@@ -180,6 +185,9 @@ export default function MflRegisterPage() {
       setError("Please give every team a name and night, and fill in your contact details.");
       return;
     }
+    const hErr = hdyhauError(hdyhauRequired, hdyhau);
+    if (hErr) { setHdyhauErr(hErr); setError(hErr); return; }
+    setHdyhauErr(null);
     setSubmitting(true);
     setError(null);
 
@@ -205,6 +213,7 @@ export default function MflRegisterPage() {
         ? {
             slug,
             captain: { firstName, lastName, email, phone },
+            ...hdyhauPayload(hdyhau),
             teamName: teams[0].teamName,
             divisionId: teams[0].divisionId,
             upsells: [],
@@ -219,6 +228,7 @@ export default function MflRegisterPage() {
             discountCodes: codes,
             paymentChoice,
             captain: { firstName, lastName, email, phone },
+            ...hdyhauPayload(hdyhau),
             ...tracking,
           };
 
@@ -360,6 +370,20 @@ export default function MflRegisterPage() {
               <input className={inputCls} style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} data-testid="input-phone" />
             </div>
           </div>
+
+          <HdyhauField
+            value={hdyhau}
+            onChange={(v) => { setHdyhau(v); setHdyhauErr(null); }}
+            required={hdyhauRequired}
+            error={hdyhauErr}
+            labelClassName="block text-sm font-semibold mb-2"
+            fieldClassName={inputCls}
+            fieldStyle={inputStyle}
+            contentStyle={{ background: BRAND.card, color: BRAND.white, borderColor: BRAND.border }}
+            itemClassName="focus:bg-white/10 focus:text-white"
+            mutedStyle={{ color: BRAND.muted }}
+            errorStyle={{ color: BRAND.red }}
+          />
 
           {/* Promo code — discount codes are handed out privately; never list or
               hint the actual codes here, so only people who qualify can use them. */}
