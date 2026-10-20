@@ -422,6 +422,9 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
 export function mapHdyhauToChannel(answer: unknown): string {
   const s = typeof answer === "string" ? answer.trim().toLowerCase() : "";
   if (!s) return "other";
+  // shared/hdyhau.ts key "website" (the club's own site) — the /web/ pattern
+  // below would otherwise file it under Google search.
+  if (s === "website") return "organic";
   if (/(friend|teammate|word|referr|family|someone)/.test(s)) return "referral";
   if (/(instagram|insta|\big\b)/.test(s)) return "instagram";
   if (/(facebook|\bfb\b|meta)/.test(s)) return "facebook";

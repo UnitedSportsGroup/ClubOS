@@ -163,6 +163,7 @@ import {
   type OpenAcademyProgramme,
 } from "./parent-routes";
 import { registerPrintAccountRoutes, registerPrintAccountAdminRoutes } from "./print-account-routes";
+import { decideHdyhau, saveReferralDetail, registerHdyhauRoutes } from "./hdyhau";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2261,6 +2262,13 @@ export async function registerRoutes(
       const planWeeklyChargeCents = promo?.ok && promo.weeklyCents != null ? promo.weeklyCents : planWeeklyCents;
       const upfrontChargeCents = promo?.ok && !isDepositWeekly ? promo.payTodayCents : quote.payNowCents;
 
+      // "How did you hear about us?" — required of a family new to this club,
+      // checked before any contact, registration or Stripe object is written.
+      const hdyhau = await decideHdyhau(req, {
+        orgId: (program as any).organizationId ?? 1, email, phone, useParentSession: true,
+      });
+      if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
+
       // Create / find guardian + child contacts.
       // NB (2026-07-09): these two calls used to read `storage.getContactByEmail?.()`
       // and `storage.createContactRelationship?.()`. Neither method has ever existed
@@ -2348,7 +2356,9 @@ export async function registerRoutes(
         gclid: utm?.gclid || null,
         registrationLocation: "online",
         ...attribution,
+        referralSource: hdyhau.source,
       } as any);
+      await saveReferralDetail(reg.id, hdyhau.detail);
 
       const sharedMetadata = {
         registrationId: String(reg.id),
@@ -3342,6 +3352,14 @@ export async function registerRoutes(
       const chargeCents = quote.totalCents - promoCents;
       const totalDiscountCents = quote.discountCents + promoCents;
 
+      // ── 5b. "How did you hear about us?" ───────────────────────────────────
+      // Required of a family new to this club, checked before the guardian,
+      // the player, the registration or the PaymentIntent is written.
+      const hdyhau = await decideHdyhau(req, {
+        orgId: program.organizationId ?? 1, email, phone: guardianIn.phone, useParentSession: true,
+      });
+      if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
+
       // ── 6. Guardian: find, don't duplicate. Enrich, never overwrite. ────────
       // NOT storage.findContactByEmail — that does an exact, case-sensitive match
       // on any contact type. A parent stored as "Daniel@CUFC.co.nz" by an older
@@ -3582,7 +3600,9 @@ export async function registerRoutes(
         fbclid: utmVal("fbclid"),
         gclid: utmVal("gclid"),
         ...attribution,
+        referralSource: hdyhau.source,
       } as any);
+      await saveReferralDetail(reg.id, hdyhau.detail);
 
       // ── 9. Our own checkout: a PaymentIntent, never a hosted Stripe page. ───
       // A signed-in family registering under their OWN address gets their
@@ -5828,6 +5848,16 @@ export async function registerRoutes(
         };
       };
 
+      // ── "How did you hear about us?" ──────────────────────────────────────
+      // Same rule as every online checkout: a family new to this club must
+      // answer (staff ask them at the counter), a returning family may skip it.
+      // The staff member's own session never counts — `useParentSession: false`.
+      const hdyhauWho = body.guardian ?? body.parent ?? {};
+      const hdyhau = await decideHdyhau(req, {
+        orgId: program.organizationId ?? 1, email: hdyhauWho.email, phone: hdyhauWho.phone, useParentSession: false,
+      });
+      if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
+
       // ── Academy shape ─────────────────────────────────────────────────────
       if (program.type === "academy") {
         const playerIn = body.player ?? {};
@@ -6174,7 +6204,9 @@ export async function registerRoutes(
           nzfConsentAt: policyAccepted ? now : null,
           ...fields,
           ...posLink,
+          referralSource: hdyhau.source,
         } as any);
+        await saveReferralDetail(reg.id, hdyhau.detail);
 
         if (fullyPaid) await storage.assignOrderNumber(reg.id);
 
@@ -6346,7 +6378,9 @@ export async function registerRoutes(
           .filter(Boolean).join(" · ") || null,
         ...fields,
         ...posLink,
+        referralSource: hdyhau.source,
       } as any);
+      await saveReferralDetail(registration.id, hdyhau.detail);
 
       if (fullyPaid) {
         await storage.assignOrderNumber(registration.id);
@@ -19035,6 +19069,13 @@ export async function registerRoutes(
       const camp = await storage.getProgramBySlug(campSlug);
       if (!camp) return res.status(404).json({ message: "Camp not found" });
 
+      // "How did you hear about us?" — required of a family new to this club,
+      // checked before a contact, a child or a PaymentIntent is written.
+      const hdyhau = await decideHdyhau(req, {
+        orgId: (camp as any).organizationId ?? 1, email: parent?.email, phone: parent?.phone, useParentSession: true,
+      });
+      if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
+
       let parentContact = await storage.findContactByEmail(parent.email);
       if (!parentContact) {
         parentContact = await storage.createContact({
@@ -19151,7 +19192,9 @@ export async function registerRoutes(
         utmCampaign: utmCampaign || null,
         fbclid: fbclid || null,
         ...campAttribution,
+        referralSource: hdyhau.source,
       });
+      await saveReferralDetail(registration.id, hdyhau.detail);
 
       await storage.createRegistrationItems(registrationItems.map(item => ({
         registrationId: registration.id,
@@ -19716,6 +19759,9 @@ export async function registerRoutes(
       res.status(200).json({ ok: false });
     }
   });
+
+  // "Do I have to answer?" — asked by every checkout once an email/phone is typed.
+  registerHdyhauRoutes(app);
 
   app.get("/api/admin/analytics/attribution", requireAuth, async (req, res) => {
     try {
@@ -23624,6 +23670,14 @@ export async function registerRoutes(
       const appliedCodes = discountLines.map((l) => l.code).join(",") || null;
       const teamDiscounts = distributeDiscountAcrossTeams(teamsResolved.map((t) => t.subtotalCents), discountTotalCents);
 
+      // "How did you hear about us?" — required of a captain new to Mini
+      // Football (an academy family is still new HERE), checked before the
+      // captain contact, any team registration or a PaymentIntent is written.
+      const hdyhau = await decideHdyhau(req, {
+        orgId: MFL_ORG_ID, email: captain.email, phone: captain.phone, useParentSession: true,
+      });
+      if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
+
       // Captain contact (reuse contacts).
       let captainContact = await storage.findContactByEmail(captain.email);
       if (!captainContact) {
@@ -23688,7 +23742,9 @@ export async function registerRoutes(
           utmCampaign: utmCampaign || null,
           fbclid: fbclid || null,
           ...leagueAttribution,
+          referralSource: hdyhau.source,
         } as any);
+        await saveReferralDetail(registration.id, hdyhau.detail);
 
         await storage.createRegistrationItems(lineItems.map((li) => ({
           registrationId: registration.id,
