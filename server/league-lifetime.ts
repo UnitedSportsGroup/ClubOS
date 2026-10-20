@@ -1057,7 +1057,7 @@ function computeAcquisition(
         label: termLabel(t),
         newTeams,
         spendCents,
-        spendBasis: spendCents == null ? `No spend data before ${hubFrom ? new Date(hubFrom + "T00:00:00Z").toLocaleDateString("en-NZ", { month: "short", year: "numeric", timeZone: "UTC" }) : "the hub's first pull"}` : partial ? "Meta via the hub — its first day falls inside this term's 8-week window, so earlier spend may be missing" : "Meta, via the Marketing hub",
+        spendBasis: spendCents == null ? `No spend data before ${hubFrom ? new Date(hubFrom + "T00:00:00Z").toLocaleDateString("en-NZ", { month: "short", year: "numeric", timeZone: "UTC" }) : "the hub's first pull"}` : partial ? "Meta via the hub — its first day falls inside this term's 8-week window, so earlier spend may be missing" : spendCents === 0 ? "No MFL ads ran for this term" : "Meta, via the Marketing hub",
         campaigns: camps.sort((a, b) => b.spendCents - a.spendCents),
         ballersSpendCents: ballersSpend,
         metaPurchases: spendCents != null ? purchases : null,

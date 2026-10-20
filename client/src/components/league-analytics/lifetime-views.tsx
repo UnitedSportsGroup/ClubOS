@@ -32,7 +32,7 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 const GstTag = ({ kind }: { kind: "incl" | "excl" }) => (
-  <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{kind} GST</span>
+  <span className="ml-1 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{kind} GST</span>
 );
 
 function Stat({ title, value, sub, icon: Icon, gst, testId, badge }: { title: string; value: string; sub?: string; icon: any; gst?: "incl" | "excl"; testId: string; badge?: string }) {
@@ -45,7 +45,7 @@ function Stat({ title, value, sub, icon: Icon, gst, testId, badge }: { title: st
             <p className="text-xs text-muted-foreground">{title}{gst && <GstTag kind={gst} />}</p>
             <p className="text-xl font-bold tabular-nums" data-testid={`${testId}-value`}>{value}</p>
             {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-            {badge && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-[10px] text-amber-800">{badge}</Badge>}
+            {badge && <Badge variant="outline" className="mt-1 whitespace-normal border-amber-300 bg-amber-50 text-[10px] text-amber-800">{badge}</Badge>}
           </div>
         </div>
       </CardContent>
@@ -297,6 +297,9 @@ export function AcquisitionView({ term }: { term: string }) {
   const t = data.trend;
   const withSpend = data.rows.filter((r) => r.spendCents != null);
   const chart = withSpend.map((r) => ({ term: r.term.replace("-", " "), ratio: r.ltgpCacRatio, cac: r.cacCents != null ? r.cacCents / 100 : null }));
+  // A term with almost no spend reads 80:1 and would flatten the floor line to nothing.
+  const Y_CAP = 30;
+  const offScale = withSpend.filter((r) => (r.ltgpCacRatio ?? 0) > Y_CAP);
   const hubMonth = data.hubFrom ? new Date(data.hubFrom + "T00:00:00Z").toLocaleDateString("en-NZ", { month: "short", year: "numeric", timeZone: "UTC" }) : DASH;
   const ft = data.firstTouch;
 
@@ -317,13 +320,14 @@ export function AcquisitionView({ term }: { term: string }) {
               <LineChart data={chart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="term" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis domain={[0, Y_CAP]} allowDataOverflow tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
                 <Tooltip formatter={(v: number) => [`${v} : 1`, "LTGP : CAC"]} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                 <ReferenceLine y={LTGP_CAC_FLOOR} stroke="#dc2626" strokeDasharray="4 4" label={{ value: `${LTGP_CAC_FLOOR}:1 floor`, position: "insideTopLeft", fontSize: 11, fill: "#dc2626" }} />
                 <Line type="monotone" dataKey="ratio" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           )}
+          {offScale.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Off the top of the chart: {offScale.map((r) => `${r.label} ${ratio(r.ltgpCacRatio)} (only ${money(r.spendCents)} of ads)`).join(" · ")}.</p>}
         </CardContent>
       </Card>
 
