@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { hdyhauLabel } from "@shared/hdyhau";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -818,7 +819,8 @@ function AttributionTab({ dateRange, campSlug, orgId }: { dateRange: string; cam
   const getSourceInfo = (source: string) => {
     if (sourceLabels[source]) return sourceLabels[source];
     if (source.startsWith("Other:")) return { label: source, color: "#6B7280", emoji: "💬" };
-    return { label: source, color: "#6B7280", emoji: "📊" };
+    // Keys from the up-front checkout question (shared/hdyhau.ts).
+    return { label: hdyhauLabel(source) ?? source, color: "#6B7280", emoji: "📊" };
   };
 
   return (

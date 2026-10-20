@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { hdyhauLabel } from "@shared/hdyhau";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { queryClient, apiRequest, workspaceFetch } from "@/lib/queryClient";
@@ -17,6 +18,7 @@ type AdminView = "registrations" | "splits" | "cashflow";
 type LeagueReg = {
   id: number; teamName: string | null; status: string; divisionName: string | null;
   captainName: string; captainEmail: string | null; captainPhone: string | null;
+  referralSource?: string | null;
   totalCents: number | null; amountPaid: string | null; paymentMode: string | null;
   depositCents: number | null; balanceCents: number | null; balanceDueDate: string | null;
   balanceStatus: string | null; paymentStatus: string; registeredAt: string;
@@ -165,10 +167,10 @@ export default function LeaguePayments() {
             </div>
           ) : (
             <div className="rounded-xl border border-white/5 bg-white/[0.02] overflow-x-auto">
-              <table className="w-full min-w-[760px]">
+              <table className="w-full min-w-[880px]">
                 <thead>
                   <tr className="border-b border-white/5">
-                    {["Team", "League", "Signed up", "Captain", "Method", "Status", "Paid", "Balance"].map(h => (
+                    {["Team", "League", "Signed up", "Captain", "Heard via", "Method", "Status", "Paid", "Balance"].map(h => (
                       <th key={h} className="text-left text-[10px] text-white/30 uppercase px-4 py-2 font-semibold">{h}</th>
                     ))}
                   </tr>
@@ -207,6 +209,7 @@ export default function LeaguePayments() {
                           {r.captainPhone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{r.captainPhone}</span>}
                         </div>
                       </td>
+                      <td className="px-4 py-2.5 text-sm text-white/50" data-testid={`heard-via-${r.id}`}>{hdyhauLabel(r.referralSource) ?? "—"}</td>
                       <td className="px-4 py-2.5">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full ${METHOD_BADGE[methodKey(r.paymentMode)]}`}>
                           {METHOD_LABEL[methodKey(r.paymentMode)]}

@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { hdyhauLabel } from "@shared/hdyhau";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -151,6 +152,7 @@ export type Registration = {
   registeredAt: string;
   registrationLocation?: string | null;
   referralSource?: string | null;
+  referralDetail?: string | null;
   refundedAt?: string | null;
   refundedAmountCents?: number | null;
   refundReason?: string | null;
@@ -1408,7 +1410,7 @@ export default function AdminRegistrations() {
                               <div className="flex items-center gap-1.5" data-testid={`referral-source-${reg.id}`}>
                                 <span className="text-[10px] text-white/20">Heard via:</span>
                                 <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-violet-500/25 text-violet-400/70 bg-violet-500/5">
-                                  {reg.referralSource.startsWith("Other:") ? reg.referralSource : reg.referralSource.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                                  {hdyhauLabel(reg.referralSource, reg.referralDetail)}
                                 </Badge>
                               </div>
                             )}

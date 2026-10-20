@@ -2987,6 +2987,8 @@ export class DatabaseStorage implements IStorage {
         captainName: r.captain ? `${r.captain.firstName} ${r.captain.lastName}` : "",
         captainEmail: r.captain?.email ?? null,
         captainPhone: r.captain?.phone ?? null,
+        // "How did you hear about us?" (shared/hdyhau.ts) — labelled client-side.
+        referralSource: r.reg.referralSource ?? null,
         totalCents: r.reg.totalCents,
         amountPaid: r.reg.amountPaid,
         paymentMode: r.reg.paymentMode,

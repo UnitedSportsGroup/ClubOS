@@ -163,7 +163,7 @@ import {
   type OpenAcademyProgramme,
 } from "./parent-routes";
 import { registerPrintAccountRoutes, registerPrintAccountAdminRoutes } from "./print-account-routes";
-import { decideHdyhau, saveReferralDetail, registerHdyhauRoutes } from "./hdyhau";
+import { decideHdyhau, saveReferralDetail, registerHdyhauRoutes, referralDetailsFor } from "./hdyhau";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -5129,7 +5129,10 @@ export async function registerRoutes(
       // Fail closed: a row whose programme has no organisation is nobody's to
       // see, and a workspace the caller is not a member of yields nothing.
       regs = regs.filter((r: any) => inRegistrationScope(scope, r.program?.organizationId));
-      res.json(regs);
+      // "Other" free text for "How did you hear about us?" — one batched read,
+      // tolerant of the column not existing yet (server/hdyhau.ts).
+      const details = await referralDetailsFor(regs.filter((r: any) => r.referralSource === "other").map((r: any) => r.id));
+      res.json(details.size ? regs.map((r: any) => (details.has(r.id) ? { ...r, referralDetail: details.get(r.id) } : r)) : regs);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
