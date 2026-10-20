@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
+import { hdyhauLabel } from "@shared/hdyhau";
 import { Badge } from "@/components/ui/badge";
 import { OFFICE_PAYMENT_METHODS } from "@shared/payments";
 import { agreedPriceError } from "@shared/office-price";
@@ -326,6 +328,11 @@ export function RegisterPlayerModal({
   const [parentLast, setParentLast] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  // "How did they hear about us?" — the same rule as every online checkout:
+  // required for a family new to this club, optional for a returning one.
+  // Kept across every line of one visit (same family), cleared on reset.
+  const [hdyhau, setHdyhau] = useState<HdyhauAnswer>(EMPTY_HDYHAU);
+  const { required: hdyhauRequired } = useHdyhauRequired({ programId: selectedProgramId, email: parentEmail, phone: parentPhone });
   // Set when Next is pressed with something missing (item 5), and when a stray
   // click on the backdrop would have thrown the form away (item 7).
   const [showErrors, setShowErrors] = useState(false);
@@ -578,6 +585,7 @@ export function RegisterPlayerModal({
           priceOverrideReason: priceApplies ? priceReason.trim() : undefined,
           payment,
           servedByUserId: servedById,
+          ...hdyhauPayload(hdyhau),
           ...posLink,
         });
         return res.json();
@@ -606,6 +614,7 @@ export function RegisterPlayerModal({
         priceOverrideReason: priceApplies ? priceReason.trim() : undefined,
         payment,
         servedByUserId: servedById,
+        ...hdyhauPayload(hdyhau),
         ...posLink,
       });
       return res.json();
@@ -837,6 +846,7 @@ export function RegisterPlayerModal({
             <Row label="Name" value={`${dash(parentFirst)} ${dash(parentLast)}`} strong />
             <Row label="Email" value={dash(parentEmail)} />
             <Row label="Phone" value={dash(parentPhone)} />
+            <Row label="Heard via" value={hdyhauLabel(hdyhau.source, hdyhau.detail) ?? (hdyhauRequired ? "—" : "Returning — not asked")} />
             <Row label="Emergency" value={emergencyContact ? `${emergencyContact}${emergencyPhone ? ` · ${emergencyPhone}` : ""}` : "—"} />
             {assumedShape === "academy" && (
               <>
@@ -872,6 +882,7 @@ export function RegisterPlayerModal({
     setWhoChoice(null); setPickedKey(null); setPickedLabel(""); setPrefillApplied(false);
     setEditingDetails(false);
     setParentFirst(""); setParentLast(""); setParentEmail(""); setParentPhone("");
+    setHdyhau(EMPTY_HDYHAU);
     setEmergencyContact(""); setEmergencyPhone("");
     setPriceOverride(""); setPriceReason(""); setEditingPrice(false); setPriceMode("full");
     setChildren([{ firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "" }]);
@@ -1018,6 +1029,7 @@ export function RegisterPlayerModal({
       // exact failure Olga hit: she entered $135, Apply accepted it, and the
       // registration was written at $30 with nothing said.
       if (agreedCents != null && priceProblem) out.push(priceProblem);
+      { const h = hdyhauError(hdyhauRequired, hdyhau); if (h) out.push("how they heard about us"); }
       if (isPaid) {
         need(!!method, "how they paid");
         need(paidCents > 0, "the amount taken");
@@ -1046,6 +1058,7 @@ export function RegisterPlayerModal({
       // changed hands — the number on the registration has to be the number
       // the person at the counter meant.
       if (agreedCents != null && priceProblem) return false;
+      if (hdyhauError(hdyhauRequired, hdyhau)) return false;
       if (!isPaid) return true;
       return !!method && paidCents > 0;
     }
@@ -1698,6 +1711,17 @@ export function RegisterPlayerModal({
           {/* ── Payment ──────────────────────────────────────────────────── */}
           {stepName === "Payment" && (
             <div className="space-y-4">
+              <HdyhauField
+                value={hdyhau}
+                onChange={setHdyhau}
+                required={hdyhauRequired}
+                audience="staff"
+                error={hdyhau.source === "other" && !hdyhau.detail.trim() ? "Add a few words about where." : null}
+                labelClassName={LABEL}
+                fieldClassName={`w-full rounded-md border px-3 ${FIELD}`}
+                mutedClassName="text-[11px] text-foreground/55 mt-1 leading-snug"
+                idPrefix="office-hdyhau"
+              />
               <div className="px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.10]">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] text-foreground/70">Total owing</span>
