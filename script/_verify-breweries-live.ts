@@ -117,6 +117,40 @@ try {
       if (v === "value") is(/\$22,520/.test(seen.text) && /\$45,330/.test(seen.text), `[${size.label}] the calculator prices the offers`);
       await page.screenshot({ path: `../../../../outputs/ui-preflight/breweries-${v}-${size.label}.png`, fullPage: size.label === "desktop" });
     }
+    // ── a card opens their full submission, word for word ──
+    await page.evaluate(() => (document.querySelector('[data-testid="breweries-view-overview"]') as HTMLElement)?.click());
+    await new Promise(r => setTimeout(r, 400));
+    for (const key of ["moa", "renaissance", "db", "cassels"]) {
+      // Click the card's body (the status line), the way a person taps the card.
+      await page.evaluate((k: string) => {
+        const card = document.querySelector(`[data-testid="brewery-card-${k}"]`) as HTMLElement | null;
+        (card?.querySelector(".text-xs") as HTMLElement | null)?.click();
+      }, key);
+      const dlg = await page.waitForSelector('[data-testid="brewery-submission-dialog"]', { timeout: 5000 }).catch(() => null);
+      is(!!dlg, `[${size.label}] tapping the ${key} card opens its submission`);
+      const d = await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="brewery-submission-dialog"]') as HTMLElement | null;
+        const r = el?.getBoundingClientRect();
+        return { text: el?.innerText || "", fields: !!el?.querySelector('[data-testid="breweries-sub-fields"]'),
+                 none: !!el?.querySelector('[data-testid="breweries-sub-none"]'),
+                 fits: r ? r.left >= 0 && r.right <= window.innerWidth + 1 : false };
+      });
+      is(d.fits, `[${size.label}] ${key} dialog fits the screen`);
+      if (key === "moa") {
+        is(d.fields && /0\.80c per litre/.test(d.text) && /Southern Alps Brewing & Moa Brewing/.test(d.text), `[${size.label}] Moa reads by field, word for word`);
+        await page.screenshot({ path: `../../../../outputs/ui-preflight/breweries-dialog-moa-fields-${size.label}.png` });
+        await page.evaluate(() => (document.querySelector('[data-testid="breweries-sub-raw-toggle"]') as HTMLElement)?.click());
+        await new Promise(r => setTimeout(r, 200));
+        const raw = await page.evaluate(() => document.querySelector('[data-testid="brewery-submission-dialog"] [data-testid="breweries-sub-text"]')?.textContent || "");
+        is(/^New partner submission/.test(raw), `[${size.label}] "Show as received" shows the raw email`);
+        await page.screenshot({ path: `../../../../outputs/ui-preflight/breweries-dialog-moa-${size.label}.png` });
+      }
+      if (key === "renaissance") is(d.fields && /\$30,000 – \$50,000/.test(d.text), `[${size.label}] Renaissance reads by field`);
+      if (key === "db") is(!d.fields && /Rosie O'Sullivan/.test(d.text), `[${size.label}] DB shows its covering email as written`);
+      if (key === "cassels") is(d.none, `[${size.label}] Cassels says nothing in writing yet`);
+      await page.keyboard.press("Escape");
+      await new Promise(r => setTimeout(r, 300));
+    }
     is(errors.length === 0, `[${size.label}] no runtime errors`, errors.join(" | "));
     await page.close();
   }
