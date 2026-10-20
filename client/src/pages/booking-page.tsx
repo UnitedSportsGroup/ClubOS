@@ -709,17 +709,16 @@ export default function BookingPage() {
                 <label className="text-[12px] text-slate-500 font-semibold">Phone</label>
                 <Input value={parentPhone} onChange={e => setParentPhone(e.target.value)} className="rounded-xl border-slate-200 focus:border-blue-400 focus:ring-blue-400/20 h-11" placeholder="021 123 4567" data-testid="input-parent-phone" />
               </div>
+              <HdyhauField
+                value={hdyhau}
+                onChange={setHdyhau}
+                required={hdyhauRequired}
+                error={hdyhau.source === "other" && !hdyhau.detail.trim() ? "Tell us where — a few words is fine." : null}
+                labelClassName="block text-[12px] text-slate-500 font-semibold mb-1.5"
+                fieldClassName="w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                mutedClassName="text-[12px] text-slate-400 mt-1.5"
+              />
             </div>
-
-            <HdyhauField
-              value={hdyhau}
-              onChange={setHdyhau}
-              required={hdyhauRequired}
-              error={hdyhau.source === "other" && !hdyhau.detail.trim() ? "Tell us where — a few words is fine." : null}
-              labelClassName="block text-[12px] text-slate-500 font-semibold mb-1.5"
-              fieldClassName="w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
-              mutedClassName="text-[12px] text-slate-400 mt-1.5"
-            />
 
             <div className="rounded-xl px-4 py-3 flex items-start gap-2.5" style={{ background: `${BRAND.blue}06` }}>
               <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: BRAND.blue }} />

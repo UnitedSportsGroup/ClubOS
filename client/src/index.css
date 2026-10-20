@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 135 translucent white utilities → dark ink on light */
+/* 136 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -254,6 +254,7 @@ html:not(.dark) .divide-white\/\[0\.06\] { border-color: rgb(15 23 42 / 0.067) !
 html:not(.dark) .divide-white\/\[0\.08\] { border-color: rgb(15 23 42 / 0.076) !important; }
 html:not(.dark) .divide-white\/5 { border-color: rgb(15 23 42 / 0.063) !important; }
 html:not(.dark) .focus-within\:border-white\/25:focus-within { border-color: rgb(15 23 42 / 0.152) !important; }
+html:not(.dark) .focus\:bg-white\/10:focus { background-color: rgb(15 23 42 / 0.06) !important; }
 html:not(.dark) .focus\:border-white\/15:focus { border-color: rgb(15 23 42 / 0.108) !important; }
 html:not(.dark) .focus\:border-white\/20:focus { border-color: rgb(15 23 42 / 0.13) !important; }
 html:not(.dark) .focus\:border-white\/25:focus { border-color: rgb(15 23 42 / 0.152) !important; }
