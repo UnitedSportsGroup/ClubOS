@@ -10266,6 +10266,38 @@ export async function registerRoutes(
     } catch (e: any) { console.error("[League analytics] error:", e); res.status(500).json({ message: e.message }); }
   });
 
+  // ── MFL Analytics — Lifetime (LTV / retention) and Acquisition (CAC) ─────────
+  // Computed on read from five sources (server/league-lifetime.ts) and cached
+  // for 6h, refreshed early by any new registration or league team.
+  //
+  // 🔴 requireTab("analytics") alone is not a workspace boundary: canAccessTab
+  // passes every slug for an admin/manager, so an admin of another workspace
+  // sending their own header would pass. These numbers are MFL's customers, so
+  // they answer only from the MFL workspace — 404 anywhere else.
+  const requireMflWorkspace = (req: Request, res: Response, next: NextFunction) => {
+    if (req.headers["x-workspace-slug"] !== "mini-football-leagues") return res.status(404).json({ message: "Not found" });
+    next();
+  };
+  app.get("/api/admin/league/analytics/lifetime", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
+    try {
+      const { getLeagueDataset, computeLifetime, isKnownTerm } = await import("./league-lifetime");
+      const scenario = req.query.scenario === "backbone" ? "backbone" : "all";
+      const termQ = typeof req.query.term === "string" && req.query.term !== "all" ? req.query.term : null;
+      if (termQ && !isKnownTerm(termQ)) return res.status(400).json({ message: "Unknown term" });
+      const ds = await getLeagueDataset();
+      res.json(computeLifetime(ds, { scenario, term: termQ }));
+    } catch (e: any) { console.error("[League lifetime] error:", e); res.status(500).json({ message: "Could not build the lifetime view" }); }
+  });
+  app.get("/api/admin/league/analytics/acquisition", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
+    try {
+      const { getLeagueDataset, getAcquisition, isKnownTerm } = await import("./league-lifetime");
+      const termQ = typeof req.query.term === "string" && req.query.term !== "all" ? req.query.term : null;
+      if (termQ && !isKnownTerm(termQ)) return res.status(400).json({ message: "Unknown term" });
+      const ds = await getLeagueDataset();
+      res.json(await getAcquisition(ds, termQ));
+    } catch (e: any) { console.error("[League acquisition] error:", e); res.status(500).json({ message: "Could not build the acquisition view" }); }
+  });
+
   app.get("/api/admin/league/competitions/:id/standings", requireAuth, async (req, res) => {
     try {
       const divisionId = req.query.divisionId ? parseInt(req.query.divisionId as string) : undefined;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -6,6 +6,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Users, DollarSign, TrendingUp, UserCheck, Percent, RefreshCw, BarChart3, CreditCard, Trophy, CalendarDays, Wallet } from "lucide-react";
 import { formatCurrency as _fc } from "@/lib/format";
+import { workspaceFetch } from "@/lib/queryClient";
+import { LifetimeView, AcquisitionView } from "@/components/league-analytics/lifetime-views";
+import type { LifetimeResponse } from "@shared/league-economics";
+
+const TABS = ["overview", "revenue", "divisions", "rewards", "lifetime", "acquisition"] as const;
+type Tab = (typeof TABS)[number];
+const tabFromHash = (): Tab => {
+  const h = (typeof window !== "undefined" ? window.location.hash : "").replace("#", "");
+  return (TABS as readonly string[]).includes(h) ? (h as Tab) : "overview";
+};
 
 const fc = (cents: number) => _fc(cents || 0, { fromCents: true });
 
@@ -52,6 +62,32 @@ const Loading = () => <div className="flex items-center justify-center py-16"><R
 
 export default function LeagueAnalytics() {
   const [term, setTerm] = useState<string>("all");
+  // Lifetime / Acquisition span every league term since 2021, not just the
+  // ClubOS competitions, so they carry their own term choice.
+  const [ltvTerm, setLtvTerm] = useState<string>("all");
+  // The sub-tab lives in the URL hash, so Back and a shared link land on it.
+  const [tab, setTabState] = useState<Tab>(tabFromHash);
+  const setTab = (v: string) => {
+    const next = (TABS as readonly string[]).includes(v) ? (v as Tab) : "overview";
+    setTabState(next);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
+  };
+  useEffect(() => {
+    const onHash = () => setTabState(tabFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const isLtvTab = tab === "lifetime" || tab === "acquisition";
+  const { data: ltvTerms } = useQuery<LifetimeResponse>({
+    queryKey: ["/api/admin/league/analytics/lifetime", "all", "all"],
+    queryFn: async () => {
+      const r = await workspaceFetch("/api/admin/league/analytics/lifetime?scenario=all&term=all");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    enabled: isLtvTab,
+    staleTime: 5 * 60_000,
+  });
   const params = new URLSearchParams();
   if (term !== "all") params.set("competitionId", term);
 
@@ -71,23 +107,40 @@ export default function LeagueAnalytics() {
             <p className="text-sm text-muted-foreground">Key business metrics across the leagues</p>
           </div>
         </div>
-        <Select value={term} onValueChange={setTerm}>
-          <SelectTrigger className="w-[220px]" data-testid="analytics-term"><SelectValue placeholder="Term" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All terms</SelectItem>
-            {terms.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {isLtvTab ? (
+          <Select value={ltvTerm} onValueChange={setLtvTerm}>
+            <SelectTrigger className="min-h-11 w-[220px]" data-testid="analytics-ltv-term"><SelectValue placeholder="Term" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All terms</SelectItem>
+              {(ltvTerms?.terms || []).filter((t) => t.hasData).slice().reverse().map((t) => <SelectItem key={t.term} value={t.term}>{t.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select value={term} onValueChange={setTerm}>
+            <SelectTrigger className="w-[220px]" data-testid="analytics-term"><SelectValue placeholder="Term" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All terms</SelectItem>
+              {terms.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
-      {isLoading || !data ? <Loading /> : (
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-            <TabsTrigger value="revenue" data-testid="tab-revenue">Revenue</TabsTrigger>
-            <TabsTrigger value="divisions" data-testid="tab-divisions">Divisions</TabsTrigger>
-            <TabsTrigger value="rewards" data-testid="tab-rewards">Rewards</TabsTrigger>
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto">
+            <TabsTrigger value="overview" className="min-h-11" data-testid="tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="revenue" className="min-h-11" data-testid="tab-revenue">Revenue</TabsTrigger>
+            <TabsTrigger value="divisions" className="min-h-11" data-testid="tab-divisions">Divisions</TabsTrigger>
+            <TabsTrigger value="rewards" className="min-h-11" data-testid="tab-rewards">Rewards</TabsTrigger>
+            <TabsTrigger value="lifetime" className="min-h-11" data-testid="tab-lifetime">Lifetime</TabsTrigger>
+            <TabsTrigger value="acquisition" className="min-h-11" data-testid="tab-acquisition">Acquisition</TabsTrigger>
           </TabsList>
+
+          {/* Lifetime + Acquisition load on their own, so they never wait on the views above. */}
+          <TabsContent value="lifetime" className="mt-4">{tab === "lifetime" && <LifetimeView term={ltvTerm} />}</TabsContent>
+          <TabsContent value="acquisition" className="mt-4">{tab === "acquisition" && <AcquisitionView term={ltvTerm} />}</TabsContent>
+
+          {isLoading || !data ? (!isLtvTab && <Loading />) : (<>
 
           {/* Overview */}
           <TabsContent value="overview" className="space-y-6 mt-4">
@@ -183,8 +236,8 @@ export default function LeagueAnalytics() {
             </div>
             <p className="text-xs text-muted-foreground">Full detail in the <span className="font-medium">Rewards</span> tab.</p>
           </TabsContent>
+          </>)}
         </Tabs>
-      )}
     </div>
   );
 }
