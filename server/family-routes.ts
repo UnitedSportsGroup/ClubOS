@@ -36,6 +36,7 @@ import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import { nzTodayIso } from "@shared/housing";
+import { KIT_SIZE_FIELDS, cleanKitSize } from "@shared/kit-sizes";
 import {
   personKey, parsePersonKey, mergeChildRecords, relationshipLabel,
   type PersonKey, type PersonKind, type LinkSource,
@@ -152,7 +153,17 @@ type PersonRow = {
   ethnicity2GroupId?: number | null; ethnicity2SelectionIds?: number[] | null;
   addressStreet?: string | null; addressSuburb?: string | null; addressCity?: string | null;
   addressRegion?: string | null; addressPostcode?: string | null; addressCountry?: string | null;
+  // Kit sizes (shared/kit-sizes.ts) — optional; null = nobody told us.
+  shirtSize?: string | null; shortsSize?: string | null; bootSize?: string | null;
+  kitSizesUpdatedAt?: string | null;
 };
+
+function kitSizesOf(row: any) {
+  return {
+    shirtSize: row.shirt_size ?? null, shortsSize: row.shorts_size ?? null, bootSize: row.boot_size ?? null,
+    kitSizesUpdatedAt: row.kit_sizes_updated_at ? new Date(row.kit_sizes_updated_at).toISOString() : null,
+  };
+}
 
 function contactRowToPerson(row: any): PersonRow {
   return {
@@ -169,6 +180,7 @@ function contactRowToPerson(row: any): PersonRow {
     ethnicity2GroupId: row.ethnicity2_group_id ?? null, ethnicity2SelectionIds: row.ethnicity2_selection_ids ?? null,
     addressStreet: row.address_street ?? null, addressSuburb: row.address_suburb ?? null, addressCity: row.address_city ?? null,
     addressRegion: row.address_region ?? null, addressPostcode: row.address_postcode ?? null, addressCountry: row.address_country ?? null,
+    ...kitSizesOf(row),
   };
 }
 
@@ -180,6 +192,7 @@ function childRowToPerson(row: any): PersonRow {
     dateOfBirth: isoDate(row.date_of_birth),
     gender: row.gender,
     allergies: row.allergies, medicalNotes: row.notes, epiPen: row.epi_pen === true,
+    ...kitSizesOf(row),
   };
 }
 
@@ -644,6 +657,16 @@ export function registerFamilyRoutes(app: Express) {
       const emailRaw = clean(body.email, 200);
       const phone = clean(body.phone, 40);
       const school = clean(body.school, 120);
+      // Kit sizes: only values from the list, or blank to clear (shared/kit-sizes.ts).
+      const kit: { column: string; value: string | null }[] = [];
+      try {
+        for (const f of KIT_SIZE_FIELDS) {
+          const v = cleanKitSize(f, body[f.key]);
+          if (v !== undefined) kit.push({ column: f.column, value: v });
+        }
+      } catch (e: any) {
+        return res.status(400).json({ message: e.message });
+      }
 
       if (firstName !== undefined && !firstName) {
         return res.status(400).json({ message: "A first name can't be blank." });
@@ -676,6 +699,8 @@ export function registerFamilyRoutes(app: Express) {
         if (lastName !== undefined)  { sets.push("last_name");  vals.push(lastName); }
         if (email !== undefined)     { sets.push("email");      vals.push(email); }
         if (phone !== undefined)     { sets.push("phone");      vals.push(phone || null); }
+        for (const k of kit) { sets.push(k.column); vals.push(k.value); }
+        if (kit.length) { sets.push("kit_sizes_updated_at"); vals.push(new Date()); }
         if (!sets.length) return res.status(400).json({ message: "Nothing to change." });
         const assignments = sql.join(sets.map((col, i) => sql`${sql.raw(col)} = ${vals[i]}`), sql`, `);
         await db.execute(sql`UPDATE contacts SET ${assignments} WHERE id = ${parsed.id}`);
@@ -685,6 +710,8 @@ export function registerFamilyRoutes(app: Express) {
         if (firstName !== undefined) { sets.push("first_name"); vals.push(firstName); }
         if (lastName !== undefined)  { sets.push("last_name");  vals.push(lastName); }
         if (school !== undefined)    { sets.push("school");     vals.push(school || null); }
+        for (const k of kit) { sets.push(k.column); vals.push(k.value); }
+        if (kit.length) { sets.push("kit_sizes_updated_at"); vals.push(new Date()); }
         if (!sets.length) return res.status(400).json({ message: "Nothing to change." });
         const assignments = sql.join(sets.map((col, i) => sql`${sql.raw(col)} = ${vals[i]}`), sql`, `);
         await db.execute(sql`UPDATE children SET ${assignments} WHERE id = ${parsed.id}`);

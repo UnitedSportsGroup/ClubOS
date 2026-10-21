@@ -11,8 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { useRoute, Link, useLocation } from "wouter";
 import {
   ArrowLeft, User, Users, Mail, Phone, Calendar, AlertTriangle, MapPin, School, Pencil,
-  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck, ArrowRightLeft, Receipt, FileText,
+  Link2, Unlink, Plus, Search, X, Copy, ClipboardCheck, ArrowRightLeft, Receipt, FileText, Shirt,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { KIT_SIZE_FIELDS, socksFromBoot, type KitSizes } from "@shared/kit-sizes";
 import { useBackTo } from "@/lib/back-to";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -199,6 +201,39 @@ function HistorySection({ history, household, title, emptyNote }: {
         </>
       )}
     </Card>
+  );
+}
+
+// ── Kit sizes ────────────────────────────────────────────────────────────────
+// Three stored sizes; everything else is read off them (shared/kit-sizes.ts).
+// A blank reads "Not recorded", never a size — an order sheet must see the gap.
+const NO_SIZE = "__none";
+
+function KitSizesBlock({ p }: { p: any }) {
+  const socks = socksFromBoot(p.bootSize);
+  const cells: { label: string; value: string | null; hint: string }[] = [
+    ...KIT_SIZE_FIELDS.map(f => ({ label: f.label.replace(" size", ""), value: p[f.key] as string | null, hint: f.covers })),
+    { label: "Socks", value: socks, hint: "Suggested from the boot size" },
+  ];
+  return (
+    <div className="pt-3" data-testid="block-kit-sizes">
+      <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-2">
+        <Shirt className="w-3.5 h-3.5 text-white/20" /> Kit sizes
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {cells.map(c => (
+          <div key={c.label} className="rounded-xl bg-white/[0.03] border border-blue-500/[0.08] px-3 py-2" title={c.hint}>
+            <div className="text-[10px] uppercase tracking-wider text-white/30">{c.label}</div>
+            <div className={`text-[14px] mt-0.5 ${c.value ? "font-semibold text-white/90" : "text-white/30"}`} data-testid={`text-kit-${c.label.toLowerCase()}`}>
+              {c.value || "Not recorded"}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10.5px] text-white/25 mt-2 leading-relaxed">
+        Shirt covers every top (training tee, sweatshirt, compression top, rain jacket) · shorts cover trackpants · socks follow the boot.
+      </p>
+    </div>
   );
 }
 
@@ -551,6 +586,7 @@ export default function AdminPersonDetail() {
   // Correcting details taken over the phone (Daniel, 2026-09-04).
   const [editing, setEditing] = useState(false);
   const [eFirst, setEFirst] = useState(""); const [eLast, setELast] = useState("");
+  const [eKit, setEKit] = useState<KitSizes>({ shirtSize: null, shortsSize: null, bootSize: null });
   const [eEmail, setEEmail] = useState(""); const [ePhone, setEPhone] = useState("");
   const [eSchool, setESchool] = useState(""); const [saveErr, setSaveErr] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
@@ -582,7 +618,11 @@ export default function AdminPersonDetail() {
   const saveEdits = useMutation({
     mutationFn: async (vars: { isPlayer: boolean }) => {
       const payload: Record<string, string> = { firstName: eFirst, lastName: eLast };
-      if (vars.isPlayer) payload.school = eSchool;
+      if (vars.isPlayer) {
+        payload.school = eSchool;
+        // "" clears a size; the server only accepts sizes from the shared list.
+        for (const f of KIT_SIZE_FIELDS) payload[f.key] = eKit[f.key] ?? "";
+      }
       else { payload.email = eEmail; payload.phone = ePhone; }
       const res = await apiRequest("PATCH", `/api/admin/people/${personKeyParam}`, payload);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not save");
@@ -626,6 +666,7 @@ export default function AdminPersonDetail() {
   const startEditing = () => {
     setEFirst(p.firstName || ""); setELast(p.lastName || "");
     setEEmail(p.email || ""); setEPhone(p.phone || ""); setESchool(p.school || "");
+    setEKit({ shirtSize: p.shirtSize ?? null, shortsSize: p.shortsSize ?? null, bootSize: p.bootSize ?? null });
     setSaveErr(null); setEditing(true);
   };
   const age = ageFromDob(p.dateOfBirth, today);
@@ -705,10 +746,32 @@ export default function AdminPersonDetail() {
               <Input value={eLast} onChange={(e) => setELast(e.target.value)} data-testid="input-edit-last" />
             </div>
             {isPlayer ? (
+              <>
               <div className="sm:col-span-2">
                 <label className="text-[11px] uppercase tracking-wide text-foreground/60 mb-1 block">School</label>
                 <Input value={eSchool} onChange={(e) => setESchool(e.target.value)} data-testid="input-edit-school" />
               </div>
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {KIT_SIZE_FIELDS.map(f => (
+                  <div key={f.key}>
+                    <label className="text-[11px] uppercase tracking-wide text-foreground/60 mb-1 block">
+                      {f.label} <span className="normal-case tracking-normal text-foreground/40">(optional)</span>
+                    </label>
+                    <Select
+                      value={eKit[f.key] ?? NO_SIZE}
+                      onValueChange={(v) => setEKit(k => ({ ...k, [f.key]: v === NO_SIZE ? null : v }))}
+                    >
+                      <SelectTrigger data-testid={`select-edit-${f.key}`}><SelectValue placeholder="Not recorded" /></SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        <SelectItem value={NO_SIZE}>Not recorded</SelectItem>
+                        {f.options.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-foreground/45 mt-1 leading-snug">{f.covers}</p>
+                  </div>
+                ))}
+              </div>
+              </>
             ) : (
               <>
                 <div>
@@ -744,6 +807,7 @@ export default function AdminPersonDetail() {
           {p.school && <DetailRow label="School" value={p.schoolYear ? `${p.school} · ${p.schoolYear}` : p.school} icon={School} />}
           {p.email && <DetailRow label="Email" value={p.email} icon={Mail} />}
           {p.phone && <DetailRow label="Phone" value={p.phone} icon={Phone} />}
+          <KitSizesBlock p={p} />
         </Card>
       ) : (
         <Card title="Contact Details" onEdit={startEditing}>
