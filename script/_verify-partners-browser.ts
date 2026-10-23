@@ -66,7 +66,7 @@ async function main() {
       var small = [];
       var root = document.querySelector('[data-testid="partners-view"]') || document.querySelector('main');
       var els = root.querySelectorAll('button, a[href], [role="tab"], [role="combobox"]');
-      for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); if (r.width > 0 && r.height > 0 && r.height < 44 && r.top < window.innerHeight) small.push((els[i].innerText || els[i].getAttribute('data-testid') || els[i].tagName).trim().slice(0,30) + ' ' + Math.round(r.height) + 'px'); }
+      for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); var lab = els[i].closest('label'); var h = Math.max(r.height, lab ? lab.getBoundingClientRect().height : 0); if (r.width > 0 && r.height > 0 && h < 44 && r.top < window.innerHeight) small.push((els[i].innerText || els[i].getAttribute('data-testid') || els[i].tagName).trim().slice(0,30) + ' ' + Math.round(r.height) + 'px'); }
       var wide = [];
       var all = document.querySelectorAll('main *');
       for (var j = 0; j < all.length; j++) { var b = all[j].getBoundingClientRect(); if (b.right > WIDTH + 1 && !all[j].closest('.overflow-x-auto')) { wide.push(all[j].tagName + '.' + String(all[j].className).slice(0,40) + ' ' + Math.round(b.right)); if (wide.length > 4) break; } }

@@ -273,7 +273,7 @@ export function PartnersView() {
         <div className="flex flex-wrap gap-1.5">
           {STATUS_FILTERS.map(f => (
             <button key={f.key} onClick={() => setStatusF(f.key)} data-testid={`partners-status-${f.key}`}
-              className={`text-xs font-semibold px-3 py-2 md:py-1.5 min-h-[36px] rounded-md border transition ${statusF === f.key ? "bg-blue-600 border-blue-600 text-white" : "border-white/10 text-white/60 hover:text-white bg-white/[0.02]"}`}>{f.label}</button>
+              className={`text-xs font-semibold px-3 py-2 md:py-1.5 min-h-[44px] md:min-h-[32px] rounded-md border transition ${statusF === f.key ? "bg-blue-600 border-blue-600 text-white" : "border-white/10 text-white/60 hover:text-white bg-white/[0.02]"}`}>{f.label}</button>
           ))}
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -281,7 +281,7 @@ export function PartnersView() {
             const on = brandF.includes(b.slug);
             return (
               <button key={b.slug} onClick={() => setBrandF(on ? brandF.filter(x => x !== b.slug) : [...brandF, b.slug])} data-testid={`partners-brand-${b.slug}`}
-                className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md border transition"
+                className="text-[11px] font-semibold px-2.5 py-1.5 min-h-[44px] md:min-h-0 rounded-md border transition"
                 style={{ borderColor: on ? b.color : "hsl(var(--foreground) / 0.085)", background: on ? `${b.color}25` : "transparent", color: "hsl(var(--foreground) / 0.85)" }}>{b.label}</button>
             );
           })}
@@ -303,20 +303,20 @@ export function PartnersView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-white/40 border-b border-white/[0.06]">
-                  {["Company", "Contract", "Main contact", "Signed on", "Renews / ends", "Annual value", "Next payment", "Status", "Flags"].map(h => <th key={h} className="px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+                  {["Company", "Contract", "Main contact", "Signed on", "Renews / ends", "Annual value", "Status", "Flags"].map(h => <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {rows.map(p => (
                   <tr key={p.id} onClick={() => open(p.id)} data-testid={`partner-row-${p.id}`}
                     className={`border-b border-white/[0.04] cursor-pointer hover:bg-white/[0.03] align-top ${p.archivedAt ? "opacity-50" : ""}`}>
-                    <td className="px-3 py-2.5 min-w-[160px] max-w-[220px]">
+                    <td className="px-2.5 py-2.5 min-w-[150px] max-w-[200px]">
                       <div className="font-semibold text-white break-words">{p.company}</div>
                       <BrandChips tags={p.brandTags} />
                     </td>
                     {/* Signed is king: the file sits beside the name, never off the right edge */}
-                    <td className="px-3 py-2.5 whitespace-nowrap"><OpenButton node={p.current?.node} /></td>
-                    <td className="px-3 py-2.5 min-w-[190px] max-w-[260px]">
+                    <td className="px-2.5 py-2.5 whitespace-nowrap"><OpenButton node={p.current?.node} /></td>
+                    <td className="px-2.5 py-2.5 min-w-[170px] max-w-[210px]">
                       <div className="text-white/90 break-words">{p.primaryContactName || "—"}</div>
                       {p.primaryContactRole && <div className="text-[11px] text-white/45 break-words">{p.primaryContactRole}</div>}
                       <div className="flex flex-wrap gap-x-2 text-[11px]" onClick={e => e.stopPropagation()}>
@@ -324,22 +324,14 @@ export function PartnersView() {
                         {p.primaryContactPhone && <a className="text-blue-400 hover:underline" href={`tel:${p.primaryContactPhone}`}>{p.primaryContactPhone}</a>}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-white/80">{fmtDateNz(p.since)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-white/80">{p.current?.openEnded ? "Ongoing" : fmtDateNz(p.renewalOn)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">
+                    <td className="px-2.5 py-2.5 whitespace-nowrap text-white/80">{fmtDateNz(p.since)}</td>
+                    <td className="px-2.5 py-2.5 whitespace-nowrap text-white/80">{p.current?.openEnded ? "Ongoing" : fmtDateNz(p.renewalOn)}</td>
+                    <td className="px-2.5 py-2.5 whitespace-nowrap tabular-nums">
                       <div className="text-white font-semibold">{fmtMoneyFull(p.cashPerYearCents)}</div>
                       {p.contraPerYearCents > 0 && <div className="text-[11px] text-white/50">+ {fmtMoneyFull(p.contraPerYearCents)} contra</div>}
                     </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">
-                      {p.nextPayment ? (
-                        <div className={PAY_TEXT[p.nextPayment.state]}>
-                          <div className="font-semibold">{fmtMoneyFull(p.nextPayment.amountCents)}</div>
-                          <div className="text-[11px]">{fmtDateNz(p.nextPayment.dueOn)}</div>
-                        </div>
-                      ) : <span className="text-white/30">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5"><StatusPill status={p.status} /></td>
-                    <td className="px-3 py-2.5 min-w-[180px] max-w-[260px]"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></td>
+                    <td className="px-2.5 py-2.5"><StatusPill status={p.status} /></td>
+                    <td className="px-2.5 py-2.5 min-w-[170px]"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></td>
                   </tr>
                 ))}
               </tbody>
