@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, X, Handshake, TrendingUp, DollarSign, Award, Filter, Check, Trash2,
@@ -1075,7 +1076,7 @@ function DeliverableForm({ team, onSubmit, onCancel }: {
 // Every contract deliverable across every active deal in one scrollable list.
 // "Are we delivering everything we promised across all sponsors right now?"
 type PartnerRef = { id: number; company: string; brandTags: string[] };
-type ContractRef = { id: number; title: string; isCurrent: boolean; state: string };
+type ContractRef = { id: number; title: string; isCurrent: boolean; state: string; signatureStatus?: string };
 type DeliverableRow = SponsorshipDeliverable & { deal: SponsorshipDeal | null; partner?: PartnerRef; contract?: ContractRef };
 
 function invalidateDeliverables() {
@@ -1106,7 +1107,15 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
     },
     enabled: source === "partners",
   });
-  const rows = source === "partners" ? partnerRows : dealRows;
+  const [showAll, setShowAll] = useState(false);
+  // What we PROMISED means a signed document whose term has not ended. An
+  // expired or unsigned contract's promises are history or a draft; the switch
+  // shows them.
+  const rows = useMemo(() => {
+    if (source !== "partners") return dealRows;
+    return showAll ? partnerRows : partnerRows.filter(r => r.contract?.state !== "expired" && r.contract?.signatureStatus === "both_parties");
+  }, [source, dealRows, partnerRows, showAll]);
+  const hiddenCount = source === "partners" ? partnerRows.length - rows.length : 0;
   const isLoading = source === "partners" ? partnersLoading : dealsLoading;
 
   const update = useMutation({
@@ -1167,6 +1176,11 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
             >{t.label}</button>
           );
         })}
+        {source === "partners" && (
+          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0 ml-auto" data-testid="deliverables-show-all">
+            <Switch checked={showAll} onCheckedChange={setShowAll} /> Include expired and unsigned{hiddenCount > 0 && !showAll ? ` (${hiddenCount} hidden)` : ""}
+          </label>
+        )}
       </div>
 
       {isLoading ? (
@@ -1606,7 +1620,8 @@ function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId:
     enabled: isPartners,
   });
 
-  const { data: partnerList } = useQuery<{ partners: Array<{ id: number; company: string; brandTags: string[]; archivedAt?: string | null }> }>({
+  const [showAllPartners, setShowAllPartners] = useState(false);
+  const { data: partnerList } = useQuery<{ partners: Array<{ id: number; company: string; brandTags: string[]; archivedAt?: string | null; status?: string; current?: { signatureStatus?: string } | null }> }>({
     queryKey: ["/api/admin/sponsorship/partners", { archived: false }],
     queryFn: async () => {
       const r = await workspaceFetch(`/api/admin/sponsorship/partners`);
@@ -1656,10 +1671,15 @@ function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId:
   // Rows of the matrix: partners (signed contracts) or won deals.
   const matrixRows = useMemo(() => {
     if (isPartners) {
-      return (partnerList?.partners ?? []).filter(p => !p.archivedAt).map(p => ({ id: p.id, company: p.company, sub: "", brandTags: p.brandTags ?? [] }));
+      // Onboarding is for partners we actually have: a term that has not ended
+      // and a document both sides signed. The switch shows the rest.
+      return (partnerList?.partners ?? [])
+        .filter(p => !p.archivedAt)
+        .filter(p => showAllPartners || (p.status !== "expired" && p.status !== "no_contract" && p.current?.signatureStatus === "both_parties"))
+        .map(p => ({ id: p.id, company: p.company, sub: "", brandTags: p.brandTags ?? [] }));
     }
     return wonDeals.map(d => ({ id: d.id, company: d.sponsorCompany, sub: d.title, brandTags: [] as string[] }));
-  }, [isPartners, partnerList, wonDeals]);
+  }, [isPartners, partnerList, wonDeals, showAllPartners]);
 
   // Index deliverables by (owner id, title) so the cells can look up status quickly
   const cells = useMemo(() => {
@@ -1694,6 +1714,11 @@ function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId:
         <div className="text-[11px] text-white/40">
           {matrixRows.length} {isPartners ? "partner" : "signed sponsor"}{matrixRows.length === 1 ? "" : "s"} · {templates.length} onboarding step{templates.length === 1 ? "" : "s"} · click any cell to advance status
         </div>
+        {isPartners && (
+          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0" data-testid="onboarding-show-all">
+            <Switch checked={showAllPartners} onCheckedChange={setShowAllPartners} /> Include expired and unsigned
+          </label>
+        )}
         {isPartners && (
           <Button size="sm" variant="outline" onClick={() => applyAll.mutate()} disabled={applyAll.isPending} className="ml-auto min-h-[44px] md:min-h-0" data-testid="button-apply-onboarding-all">
             <ListChecks className="w-3.5 h-3.5 mr-1.5" /> {applyAll.isPending ? "Applying…" : "Apply template to every partner"}

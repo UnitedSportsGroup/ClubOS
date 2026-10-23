@@ -202,7 +202,7 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       const currentByPartner = new Map(partners.map(p => [p.id, currentContract(contracts.filter(c => c.partnerId === p.id), today)?.id ?? null]));
       res.json(rows.map(r => {
         const c = cMap.get(r.partnerContractId!)!; const p = pMap.get(c.partnerId)!;
-        return { ...r, deal: null, partner: { id: p.id, company: p.company, brandTags: p.brandTags }, contract: { id: c.id, title: c.title, isCurrent: currentByPartner.get(p.id) === c.id, state: contractState(c, today) } };
+        return { ...r, deal: null, partner: { id: p.id, company: p.company, brandTags: p.brandTags }, contract: { id: c.id, title: c.title, isCurrent: currentByPartner.get(p.id) === c.id, state: contractState(c, today), signatureStatus: c.signatureStatus } };
       }));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
