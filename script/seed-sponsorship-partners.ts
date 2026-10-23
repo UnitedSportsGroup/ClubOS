@@ -82,11 +82,15 @@ const META: Record<string, { company: string; keywords: string[]; deal?: number;
 };
 
 const phone = (v: unknown): string | null => {
-  const raw = v == null ? "" : typeof v === "object" ? String((v as any).number ?? (v as any).PhoneNumber ?? "") : String(v);
-  const d = raw.replace(/[^\d+]/g, "");
+  // Xero gives {type, number, area, country}; the contracts give free text. Out: "+64 22 050 6945" / "03 366 2644".
+  let raw = "";
+  if (v && typeof v === "object") { const o = v as any; raw = [o.country ? `+${String(o.country).replace(/\D/g, "")}` : "", o.area ?? o.PhoneAreaCode ?? "", o.number ?? o.PhoneNumber ?? ""].join(" "); }
+  else raw = v == null ? "" : String(v);
+  let d = raw.replace(/[^\d+]/g, "");
   if (!d) return null;
-  if (/^64\d{8,10}$/.test(d)) return `+64 ${d.slice(2, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
-  if (/^0\d{8,9}$/.test(d)) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  const nz = (rest: string) => rest.startsWith("2") ? `${rest.slice(0, 2)} ${rest.slice(2, 5)} ${rest.slice(5)}` : `${rest.slice(0, 1)} ${rest.slice(1, 4)} ${rest.slice(4)}`;
+  if (/^\+?64\d{8,10}$/.test(d)) { const rest = d.replace(/^\+?64/, "").replace(/^0/, ""); return rest.length >= 8 && rest.length <= 10 ? `+64 ${nz(rest)}` : raw.trim(); }
+  if (/^0\d{8,9}$/.test(d)) return `0${nz(d.slice(1))}`;
   return raw.trim().slice(0, 60) || null;
 };
 const BRANDS = new Set(["cufc", "siu", "mfl", "cic", "usc", "gymnastics", "academy", "print", "usg"]);
@@ -277,7 +281,7 @@ async function main() {
       // accounts files them under. The signatory stays on the contract row.
       ...(deal?.primaryContactEmail
         ? { primaryContactName: deal.primaryContactName, primaryContactRole: text(contact.name, 200) && lower(contact.name) !== lower(deal.primaryContactName) ? `Signatory: ${text(contact.name, 120)}` : text(contact.role, 200), primaryContactEmail: deal.primaryContactEmail, primaryContactPhone: deal.primaryContactPhone ?? phone(xc?.phones?.[0]) }
-        : { primaryContactName: text(contact.name, 200) ?? (xc?.people?.[0] ? `${xc.people[0].first ?? ""} ${xc.people[0].last ?? ""}`.trim() || null : null), primaryContactRole: text(contact.role, 200), primaryContactEmail: text(contact.email, 200) ?? (xc?.email ? String(xc.email) : null), primaryContactPhone: phone(text(contact.phone, 60) ?? xc?.phones?.[0]) }),
+        : { primaryContactName: text(contact.name, 200) ?? deal?.primaryContactName ?? (xc?.people?.[0] ? `${xc.people[0].first ?? ""} ${xc.people[0].last ?? ""}`.trim() || null : null), primaryContactRole: text(contact.role, 200), primaryContactEmail: text(contact.email, 200) ?? (xc?.email ? String(xc.email) : null), primaryContactPhone: phone(text(contact.phone, 60) ?? deal?.primaryContactPhone ?? xc?.phones?.[0]) }),
       dealId: deal?.id ?? null,
       sponsorLinkId: link?.id ?? null,
       xeroContactName: xr?.sponsor ?? (xc?.name && String(xc.name).startsWith("(S)") ? xc.name : null),

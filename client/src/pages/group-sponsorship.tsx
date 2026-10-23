@@ -190,7 +190,7 @@ export default function GroupSponsorship() {
             <h1 className="text-xl font-semibold flex items-center gap-2"><Handshake className="w-5 h-5 text-blue-400" /> Sponsorship</h1>
             <p className="text-xs text-white/40 mt-0.5">Pipeline · revenue · deliverables across {currentOrg?.name}</p>
           </div>
-          <Button onClick={() => setDealModal({ mode: "create" })} data-testid="button-new-deal" className="bg-blue-600 hover:bg-blue-700 text-white">
+          <Button onClick={() => setDealModal({ mode: "create" })} data-testid="button-new-deal" className="bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-0">
             <Plus className="w-4 h-4 mr-1.5" /> New deal
           </Button>
         </div>
@@ -219,7 +219,7 @@ export default function GroupSponsorship() {
                   else if (window.location.hash.startsWith("#breweries") || window.location.hash.startsWith("#partners")) window.history.replaceState(null, "", window.location.pathname + window.location.search);
                 }}
                 data-testid={`tab-${t.key}`}
-                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] md:min-h-0 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? "text-white border-blue-500"
                     : "text-white/50 hover:text-white/80 border-transparent"

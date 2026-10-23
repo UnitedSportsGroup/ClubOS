@@ -60,7 +60,7 @@ async function main() {
   const foreign = await api(cufc, "GET", "/api/admin/sponsorship/partners", USG);
   ok("CUFC-only admin asking for USG → 403", foreign.status === 403, `HTTP ${foreign.status}`);
   const foreignHdr = await api(cufc, "GET", "/api/admin/sponsorship/partners", "christchurch-united");
-  ok("CUFC-only admin in their own workspace → 403 (the tab is not there)", foreignHdr.status === 403 || foreignHdr.status === 404, `HTTP ${foreignHdr.status}`);
+  ok("CUFC-only admin in their own workspace → 404 (Partners is a USG tab)", foreignHdr.status === 404, `HTTP ${foreignHdr.status}`);
 
   // ── probe partner: the flags the list must show ──
   const mk = await api(staff, "POST", "/api/admin/sponsorship/partners", USG, { company: `_Probe Sponsor ${Date.now()}`, brandTags: ["cufc"], primaryContactName: "Probe Person", primaryContactEmail: "probe@example.invalid" });

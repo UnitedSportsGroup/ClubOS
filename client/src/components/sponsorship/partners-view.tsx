@@ -303,7 +303,7 @@ export function PartnersView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-white/40 border-b border-white/[0.06]">
-                  {["Company", "Main contact", "Signed on", "Renews / ends", "Annual value", "Next payment", "Status", "Flags", "Contract"].map(h => <th key={h} className="px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+                  {["Company", "Contract", "Main contact", "Signed on", "Renews / ends", "Annual value", "Next payment", "Status", "Flags"].map(h => <th key={h} className="px-3 py-2 font-semibold whitespace-nowrap">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -314,11 +314,13 @@ export function PartnersView() {
                       <div className="font-semibold text-white break-words">{p.company}</div>
                       <BrandChips tags={p.brandTags} />
                     </td>
-                    <td className="px-3 py-2.5 min-w-[150px] max-w-[220px]">
+                    {/* Signed is king: the file sits beside the name, never off the right edge */}
+                    <td className="px-3 py-2.5 whitespace-nowrap"><OpenButton node={p.current?.node} /></td>
+                    <td className="px-3 py-2.5 min-w-[190px] max-w-[260px]">
                       <div className="text-white/90 break-words">{p.primaryContactName || "—"}</div>
                       {p.primaryContactRole && <div className="text-[11px] text-white/45 break-words">{p.primaryContactRole}</div>}
                       <div className="flex flex-wrap gap-x-2 text-[11px]" onClick={e => e.stopPropagation()}>
-                        {p.primaryContactEmail && <a className="text-blue-400 hover:underline break-all" href={`mailto:${p.primaryContactEmail}`}>{p.primaryContactEmail}</a>}
+                        {p.primaryContactEmail && <a className="text-blue-400 hover:underline [overflow-wrap:anywhere]" href={`mailto:${p.primaryContactEmail}`}>{p.primaryContactEmail}</a>}
                         {p.primaryContactPhone && <a className="text-blue-400 hover:underline" href={`tel:${p.primaryContactPhone}`}>{p.primaryContactPhone}</a>}
                       </div>
                     </td>
@@ -337,8 +339,7 @@ export function PartnersView() {
                       ) : <span className="text-white/30">—</span>}
                     </td>
                     <td className="px-3 py-2.5"><StatusPill status={p.status} /></td>
-                    <td className="px-3 py-2.5 min-w-[200px] max-w-[300px]"><FlagList flags={p.flags} max={3} /></td>
-                    <td className="px-3 py-2.5"><OpenButton node={p.current?.node} /></td>
+                    <td className="px-3 py-2.5 min-w-[180px] max-w-[260px]"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -361,7 +362,7 @@ export function PartnersView() {
                   <div className="text-white tabular-nums font-semibold">{fmtMoneyFull(p.cashPerYearCents)}{p.contraPerYearCents > 0 && <span className="text-white/50 font-normal"> + {fmtMoneyFull(p.contraPerYearCents)} contra</span>}</div>
                   <div className="text-white/50 whitespace-nowrap">{p.current?.openEnded ? "Ongoing" : `Ends ${fmtDateNz(p.renewalOn)}`}</div>
                 </div>
-                {p.flags[0] && <div className="mt-2"><FlagList flags={p.flags} max={1} /></div>}
+                {p.flags.some(f => f.severity !== "grey") && <div className="mt-2"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></div>}
                 <div className="mt-2.5"><OpenButton node={p.current?.node} size="md" /></div>
               </div>
             ))}
@@ -569,7 +570,7 @@ function ContractCard({ c, people, today, onEdit }: { c: Contract; people: { id:
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 sm:p-4 space-y-3 min-w-0" data-testid={`contract-${c.id}`}>
       <div className="flex items-start gap-2 flex-wrap">
-        <div className="font-semibold text-white break-words min-w-0">{c.title || "Sponsorship agreement"}</div>
+        <div className="text-sm font-semibold leading-snug text-white break-words min-w-0 flex-1">{c.title || "Sponsorship agreement"}</div>
         {c.isCurrent && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">Current</span>}
         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${CONTRACT_STATE_STYLE[c.state]}`}>{CONTRACT_STATE_LABEL[c.state]}</span>
       </div>

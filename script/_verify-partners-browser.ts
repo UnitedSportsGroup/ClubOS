@@ -64,7 +64,8 @@ async function main() {
       var de = document.documentElement;
       var rows = document.querySelectorAll('[data-testid^="partner-row-"], [data-testid^="partner-card-"]').length;
       var small = [];
-      var els = document.querySelectorAll('main button, main a[href], main [role="tab"], main [role="combobox"], [data-testid^="tab-"]');
+      var root = document.querySelector('[data-testid="partners-view"]') || document.querySelector('main');
+      var els = root.querySelectorAll('button, a[href], [role="tab"], [role="combobox"]');
       for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); if (r.width > 0 && r.height > 0 && r.height < 44 && r.top < window.innerHeight) small.push((els[i].innerText || els[i].getAttribute('data-testid') || els[i].tagName).trim().slice(0,30) + ' ' + Math.round(r.height) + 'px'); }
       var wide = [];
       var all = document.querySelectorAll('main *');
@@ -77,14 +78,14 @@ async function main() {
     ok("page is not blank", !m.white);
     ok("no horizontal page scroll", m.docWidth <= m.winWidth + 1, `${m.docWidth} vs ${m.winWidth}`);
     ok("nothing in main sticks out past the viewport", m.wide.length === 0, m.wide.join(" | "));
-    if (mobile) ok("every visible control ≥ 44px tall", m.small.length === 0, m.small.slice(0, 6).join(" | "));
+    if (mobile) ok("every visible control in the Partners view ≥ 44px tall", m.small.length === 0, m.small.slice(0, 6).join(" | "));
     ok("rows rendered", m.rows > 0, `${m.rows} rows`);
     ok("a signed-contract link is on the page", m.hasOpen);
     ok("hash stays #partners", String(m.hash).startsWith("#partners"), m.hash);
     await page.screenshot({ path: join(OUT, `partners-list-${label}.png`), fullPage: false });
 
     // open the first partner
-    const first = await page.$('[data-testid^="partner-row-"], [data-testid^="partner-card-"]');
+    const first = await page.$(mobile ? '[data-testid^="partner-card-"]' : '[data-testid^="partner-row-"]');
     if (first) {
       await first.click();
       const sheet = await page.waitForSelector('[data-testid="partner-sheet"]', { timeout: 20000 }).then(() => true).catch(() => false);

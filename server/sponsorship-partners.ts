@@ -34,6 +34,7 @@ import {
 } from "@shared/sponsorship-partners";
 import { storeContractFile } from "./sponsorship-partner-files";
 
+const PARTNERS_WORKSPACE = "united-sports-group";
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
 
 const DELIVERABLE_CATEGORIES = new Set(["contract", "activation", "idea", "onboarding", "other"]);
@@ -46,6 +47,11 @@ async function scope(req: Request, res: Response): Promise<Scope | null> {
   const userId = req.session.userId!;
   const slug = String(req.headers["x-workspace-slug"] || "");
   if (!slug) { res.status(400).json({ message: "X-Workspace-Slug header required" }); return null; }
+  // 🔴 Partners lives in the United Sports Group workspace only. requireTab
+  // lets an admin/manager of ANY workspace through (canAccessTab grants every
+  // tab to that role), so without this a CUFC admin reads the list from their
+  // own workspace — empty, but 200. Same guard as the Breweries routes.
+  if (slug !== PARTNERS_WORKSPACE) { res.status(404).json({ message: "Not found" }); return null; }
   const [org] = await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations).where(eq(organizations.slug, slug));
   if (!org) { res.status(404).json({ message: "Not found" }); return null; }
   const mine = await storage.getUserOrganizations(userId);
