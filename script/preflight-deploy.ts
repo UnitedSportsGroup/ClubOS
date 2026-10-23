@@ -170,6 +170,10 @@ const CANARIES: Canary[] = [
   // Parent accounts v2 (2026-09-28): password sign-in + saved cards. 401 = live.
   { feature: "parent saved cards",   path: "/api/public/parent/payment-methods",        expect: [401] },
   { feature: "mailer templates",     path: "/api/admin/mailer/templates",               expect: [401] },
+  // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
+  // cancel & refund. A deploy without it also brings back the sweep that released
+  // paid Player Pay bookings — the same tree carries both.
+  { feature: "venue player pay",     path: "/api/admin/venue/splits",                   expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree
@@ -183,6 +187,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/public/parent/me":                { file: "server/parent-routes.ts",       needle: "/me" },
   "/api/public/parent/payment-methods":   { file: "server/parent-routes.ts",       needle: "/payment-methods" },
   "/api/admin/mailer/templates":          { file: "server/mailer-templates-routes.ts", needle: "/api/admin/mailer/templates" },
+  "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },
   "/api/admin/chat/bootstrap":            { file: "server/staff-chat-routes.ts",   needle: "/api/admin/chat/bootstrap" },

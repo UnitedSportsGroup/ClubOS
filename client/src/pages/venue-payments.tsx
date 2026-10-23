@@ -6,8 +6,20 @@ import { Input } from "@/components/ui/input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FacilityBooking, Facility } from "@shared/schema";
+import { describeVenuePayment, type VenueSplitSummary, type VenuePaymentTone } from "@shared/venue-booking-truth";
 
-type BookingWithFacility = FacilityBooking & { facility?: Facility };
+type BookingWithFacility = FacilityBooking & { facility?: Facility; split?: VenueSplitSummary | null };
+
+// One decider for what a row means in money terms (shared/venue-booking-truth.ts)
+// — the bare status read CANCELLED over paid Player Pay bookings (2026-10-22).
+const TONE_CLS: Record<VenuePaymentTone, string> = {
+  green: "bg-green-500/20 text-green-400 border-green-500/20",
+  blue: "bg-blue-500/20 text-blue-400 border-blue-500/20",
+  amber: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
+  slate: "bg-white/[0.06] text-white/50 border-white/15",
+  red: "bg-red-500/20 text-red-400 border-red-500/20",
+  violet: "bg-violet-500/20 text-violet-300 border-violet-500/20",
+};
 
 import { formatCurrency as _formatCurrency } from "@/lib/format";
 function formatCurrency(v: number) {
@@ -141,9 +153,14 @@ export default function VenuePayments() {
                       <p className="text-[10px] text-white/25">ex GST: {formatCurrency(exGst)}</p>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-block text-[10px] font-semibold uppercase tracking-wider rounded px-2 py-0.5 border ${statusBadge[b.status]}`}>
-                        {b.status}
-                      </span>
+                      {(() => { const t = describeVenuePayment(b); return (
+                        <>
+                          <span className={`inline-block text-[10px] font-semibold uppercase tracking-wider rounded px-2 py-0.5 border ${TONE_CLS[t.tone]}`} data-testid={`payment-state-${b.id}`}>
+                            {t.headline}
+                          </span>
+                          <p className="text-[10px] text-white/35 mt-1 max-w-[220px] mx-auto truncate" title={t.detail}>{t.detail}</p>
+                        </>
+                      ); })()}
                     </td>
                     <td className="px-4 py-3">
                       {b.stripePaymentId ? (

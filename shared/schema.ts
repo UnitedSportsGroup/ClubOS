@@ -1173,6 +1173,12 @@ export const facilityBookings = pgTable("facility_bookings", {
   // `source` (the manual|public|member_request channel) so that audit taxonomy
   // is untouched.
   attributionSource: text("attribution_source"),
+  // Why a released slot was released — the vocabulary lives in
+  // shared/venue-booking-truth.ts (abandoned · card_declined ·
+  // player_pay_expired · player_pay_cancelled · paid_slot_conflict). NULL on
+  // live rows and on rows released before 2026-10-22; never a default,
+  // because a default is a claim about why a customer did not pay.
+  cancelReason: text("cancel_reason"),
   // Waiver acceptance for bookings made through the public booking site —
   // stamped at checkout (see shared/usc-waiver.ts). Admin-created and
   // member-request bookings leave these at their defaults (the member flow

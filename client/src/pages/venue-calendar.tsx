@@ -12,6 +12,7 @@ import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FacilityBooking, Facility } from "@shared/schema";
 import { QUARTER_POSITIONS, cellsOverlap, type FieldSize } from "@shared/field-cells";
+import { describeVenuePayment } from "@shared/venue-booking-truth";
 
 type BookingWithFacility = FacilityBooking & { facility?: Facility };
 
@@ -903,6 +904,16 @@ export default function VenueCalendar() {
                 <DetailRow label="Amount">
                   {amount > 0 ? `$${amount.toFixed(2)} incl. GST` : "No charge"}
                   {b.discountCode && <span className="block text-white/50">Code: {b.discountCode}</span>}
+                </DetailRow>
+                {Array.isArray((b as any).addonsJson) && (b as any).addonsJson.length > 0 && (
+                  <DetailRow label="Add-ons">
+                    {((b as any).addonsJson as { name: string; qty?: number; priceCents?: number }[]).map((a, i) => (
+                      <span key={i} className="block">{a.name}{a.qty && a.qty > 1 ? ` ×${a.qty}` : ""}{typeof a.priceCents === "number" ? ` · $${(a.priceCents / 100).toFixed(2)}` : ""}</span>
+                    ))}
+                  </DetailRow>
+                )}
+                <DetailRow label="Payment">
+                  {(() => { const t = describeVenuePayment(b as any); return <><span className="font-medium">{t.headline}</span><span className="block text-white/50">{t.detail}</span></>; })()}
                 </DetailRow>
                 {b.paidAt && (
                   <DetailRow label="Paid">{new Date(b.paidAt).toLocaleString("en-NZ", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</DetailRow>

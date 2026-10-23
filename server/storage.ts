@@ -2,6 +2,8 @@ import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { normalizeEmail } from "@shared/identity";
 import { trainingGroupFor } from "@shared/training-groups";
 import { nzTodayIso } from "@shared/academy";
+import { cellsOverlap } from "@shared/field-cells";
+import type { VenueSplitSummary } from "@shared/venue-booking-truth";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
 import { resolveMailerAudience } from "./mailer-audience";
@@ -9,6 +11,7 @@ import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
 import { contentHashOf } from "./studio/hash";
+import { splitSessions, splitMembers } from "@shared/schema";
 import {
   blockWordCount, expectedReadMs as studioExpectedReadMs, readRatio as studioReadRatio,
   classifyRead, collectBlockStrings,
@@ -352,6 +355,8 @@ export interface IStorage {
   cancelFacilityBookingsByGroup(groupId: string): Promise<void>;
   cancelPendingFacilityBookingsByGroup(groupId: string): Promise<FacilityBooking[]>;
   getStalePendingFacilityBookings(olderThanMinutes: number): Promise<FacilityBooking[]>;
+  getVenueSplitSummaries(orgId: number): Promise<Record<string, VenueSplitSummary>>;
+  reviveSweptFacilityBookings(where: { groupId?: string; paymentIntentId?: string }): Promise<{ paid: FacilityBooking[]; conflicts: FacilityBooking[] }>;
 
   getLeagueCompetitions(orgId: number): Promise<LeagueCompetition[]>;
   getLeagueCompetition(id: number): Promise<LeagueCompetition | undefined>;
@@ -2735,6 +2740,13 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(facilityBookings.status, "pending"),
         sql`${facilityBookings.createdAt} < ${cutoff}`,
+        // A Player Pay hold is not an abandoned cart. Each squad member pays
+        // their own PaymentIntent over up to 48 hours and the booking row never
+        // carries one, so this sweep used to release EVERY split booking at 30
+        // minutes — including James Na's on 2026-10-19, whose five players all
+        // paid into a slot ClubOS had already given away. The split's own
+        // deadline (split-pay.ts sweepAllExpiredBookingSplits) releases those.
+        sql`NOT EXISTS (SELECT 1 FROM split_sessions s WHERE s.facility_booking_group_id = ${facilityBookings.bookingGroupId})`,
       ));
   }
 
@@ -2766,10 +2778,82 @@ export class DatabaseStorage implements IStorage {
       .returning();
   }
 
-  async cancelPendingFacilityBookingsByGroup(groupId: string): Promise<FacilityBooking[]> {
+  // Every Player Pay split that funds a booking in this venue, keyed by the
+  // booking group it holds, with the money position read off split_members.
+  // Attached to every booking the admin list serves so each surface reads one
+  // truth (shared/venue-booking-truth.ts) instead of the bare row status.
+  async getVenueSplitSummaries(orgId: number): Promise<Record<string, VenueSplitSummary>> {
+    const sessions = await db.select().from(splitSessions).where(and(
+      eq(splitSessions.organizationId, orgId),
+      eq(splitSessions.fundingType, "booking"),
+      isNotNull(splitSessions.facilityBookingGroupId),
+    ));
+    if (sessions.length === 0) return {};
+    const members = await db.select().from(splitMembers).where(inArray(splitMembers.splitSessionId, sessions.map((s) => s.id)));
+    const out: Record<string, VenueSplitSummary> = {};
+    for (const s of sessions) {
+      const active = members.filter((m) => m.splitSessionId === s.id && m.status !== "removed");
+      const paid = active.filter((m) => m.status === "paid");
+      const target = s.targetCount && s.targetCount > 0 ? s.targetCount : 1;
+      out[s.facilityBookingGroupId!] = {
+        id: s.id, status: s.status, shareCode: s.shareCode, targetCount: s.targetCount,
+        joinedCount: active.length, paidCount: paid.length,
+        collectedCents: paid.reduce((a, m) => a + (m.chargedCents ?? 0), 0),
+        shareCents: Math.round(s.totalCents / target), totalCents: s.totalCents,
+        deadlineAt: s.deadlineAt ? new Date(s.deadlineAt as any).toISOString() : null,
+        settledAt: s.settledAt ? new Date(s.settledAt as any).toISOString() : null,
+        createdAt: new Date(s.createdAt as any).toISOString(),
+      };
+    }
+    return out;
+  }
+
+  // A payment that lands AFTER the slot was released. The abandoned-cart sweep
+  // (or, before 2026-10-22, a declined first attempt) cancelled the rows, and
+  // then the customer paid anyway — a retry on the same PaymentIntent, or the
+  // last Player Pay share. The money is on the club's account, so the booking
+  // IS paid; the only open question is whether the slot is still free. Each
+  // row is re-checked for a clash under the same advisory lock the checkout
+  // takes: a free slot flips cancelled → paid, a taken one is stamped
+  // paid_slot_conflict for a human to refund or move. Never touches a row
+  // that already has paid_at.
+  async reviveSweptFacilityBookings(where: { groupId?: string; paymentIntentId?: string }): Promise<{ paid: FacilityBooking[]; conflicts: FacilityBooking[] }> {
+    const cond = where.groupId ? eq(facilityBookings.bookingGroupId, where.groupId)
+      : where.paymentIntentId ? eq(facilityBookings.stripePaymentIntentId, where.paymentIntentId)
+      : null;
+    if (!cond) return { paid: [], conflicts: [] };
+    const rows = await db.select().from(facilityBookings).where(and(cond, eq(facilityBookings.status, "cancelled"), isNull(facilityBookings.paidAt)));
+    if (rows.length === 0) return { paid: [], conflicts: [] };
+    return db.transaction(async (tx) => {
+      const paid: FacilityBooking[] = [];
+      const conflicts: FacilityBooking[] = [];
+      const facilityIds = Array.from(new Set(rows.map((r) => r.facilityId))).sort((a, b) => a - b);
+      for (const fid of facilityIds) await tx.execute(sql`SELECT pg_advisory_xact_lock(${fid})`);
+      for (const r of rows) {
+        const live = await tx.select().from(facilityBookings).where(and(
+          eq(facilityBookings.facilityId, r.facilityId),
+          eq(facilityBookings.bookingDate, r.bookingDate),
+          inArray(facilityBookings.status, ["pending", "confirmed", "paid"]),
+          ne(facilityBookings.id, r.id),
+        ));
+        const clash = live.find((e) => e.startTime < r.endTime && e.endTime > r.startTime && cellsOverlap(e.halfFull, e.halfPosition, r.halfFull, r.halfPosition));
+        if (clash) {
+          const [u] = await tx.update(facilityBookings).set({ cancelReason: "paid_slot_conflict" }).where(eq(facilityBookings.id, r.id)).returning();
+          if (u) conflicts.push(u);
+        } else {
+          const [u] = await tx.update(facilityBookings).set({ status: "paid", paidAt: new Date(), cancelReason: null })
+            .where(and(eq(facilityBookings.id, r.id), eq(facilityBookings.status, "cancelled"))).returning();
+          if (u) paid.push(u);
+        }
+      }
+      return { paid, conflicts };
+    });
+  }
+
+  async cancelPendingFacilityBookingsByGroup(groupId: string, reason: string = "abandoned"): Promise<FacilityBooking[]> {
     // Only cancel rows that are still pending — never override a paid/confirmed booking
     return db.update(facilityBookings)
-      .set({ status: "cancelled" })
+      .set({ status: "cancelled", cancelReason: reason })
       .where(and(
         eq(facilityBookings.bookingGroupId, groupId),
         eq(facilityBookings.status, "pending"),
@@ -2777,10 +2861,11 @@ export class DatabaseStorage implements IStorage {
       .returning();
   }
 
-  async cancelFacilityBookingsByGroup(groupId: string): Promise<void> {
-    // Used by the payment_intent.payment_failed webhook to fully cancel a group
+  async cancelFacilityBookingsByGroup(groupId: string, reason: string = "card_declined"): Promise<void> {
+    // Releases a whole group. No longer called by the payment_failed webhook
+    // (a declined attempt is retried on the same PaymentIntent — see routes.ts).
     await db.update(facilityBookings)
-      .set({ status: "cancelled" })
+      .set({ status: "cancelled", cancelReason: reason })
       .where(and(
         eq(facilityBookings.bookingGroupId, groupId),
         eq(facilityBookings.status, "pending"),

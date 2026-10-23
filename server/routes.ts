@@ -7966,7 +7966,11 @@ export async function registerRoutes(
       if (!orgId) return res.status(400).json({ message: "orgId required" });
       if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
       const bookings = await storage.getFacilityBookings(orgId);
-      res.json(bookings);
+      // A Player Pay booking's money lives on split_members, not the row, so
+      // every booking carries its split summary and each surface reads ONE
+      // truth (shared/venue-booking-truth.ts), never the bare status.
+      const splits = await storage.getVenueSplitSummaries(orgId);
+      res.json(bookings.map((b) => ({ ...b, split: (b.bookingGroupId && splits[b.bookingGroupId]) || null })));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -9965,6 +9969,72 @@ export async function registerRoutes(
       const r = await splitPay.adminSendShareLink(parseInt(req.params.id));
       if (r.error) return res.status(400).json({ message: r.error });
       res.json(r);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // ── USC Player Pay — venue booking splits ──────────────────────────────────
+  // The Bookings tab's Player Pay view: every split that funds a booking in this
+  // venue, who has paid, and the staff actions. Org-checked (unlike the league
+  // twins above): a booking split belongs to ONE venue workspace.
+  const venueSplitForUser = async (req: any, id: number) => {
+    if (!id) return null;
+    const detail = await splitPay.getSplitDetail(id);
+    if (!detail || detail.session.fundingType !== "booking") return null;
+    if (!(await checkUserOrg(req.session.userId!, detail.session.organizationId))) return null;
+    return detail;
+  };
+  app.get("/api/admin/venue/splits", requireAuth, async (req, res) => {
+    try {
+      const orgId = parseInt(String(req.query.orgId));
+      if (!orgId) return res.status(400).json({ message: "orgId required" });
+      if (!(await checkUserOrg(req.session.userId!, orgId))) return res.status(403).json({ message: "Forbidden" });
+      res.json(await splitPay.listSplitsForVenue(orgId));
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+  app.get("/api/admin/venue/splits/:id", requireAuth, async (req, res) => {
+    try {
+      const detail = await venueSplitForUser(req, parseInt(req.params.id));
+      if (!detail) return res.status(404).json({ message: "Split not found" });
+      res.json(detail);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+  // Cancel & refund: every paid share is refunded and the slot is released
+  // (cancel_reason player_pay_cancelled). Refused once the split has settled.
+  app.post("/api/admin/venue/splits/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const detail = await venueSplitForUser(req, parseInt(req.params.id));
+      if (!detail) return res.status(404).json({ message: "Split not found" });
+      const r = await splitPay.adminCancelSplit(detail.session.id);
+      if (r.error) return res.status(400).json({ message: r.error });
+      res.json(r);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+  // "Needs attention" → confirm it: a booking whose money landed after the slot
+  // was released. Re-checks the slot is free (reviveSweptFacilityBookings) and
+  // flips it to paid; a clash answers with the rows still in conflict.
+  app.post("/api/admin/venue/bookings/:id/confirm-paid", requireAuth, async (req, res) => {
+    try {
+      const existing = await storage.getFacilityBooking(parseInt(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!(await checkUserOrg(req.session.userId!, existing.organizationId))) return res.status(403).json({ message: "Forbidden" });
+      // Only a booking the money has actually reached: a settled split, or a
+      // PaymentIntent Stripe reports succeeded. Never on a staff member's word.
+      const splits = existing.bookingGroupId ? await storage.getVenueSplitSummaries(existing.organizationId) : {};
+      const sp = existing.bookingGroupId ? splits[existing.bookingGroupId] : undefined;
+      let where: { groupId?: string; paymentIntentId?: string };
+      if (sp) {
+        if (sp.status !== "settled") return res.status(400).json({ message: "The squad has not finished paying" });
+        where = { groupId: existing.bookingGroupId! };
+      } else if (existing.stripePaymentIntentId) {
+        const { stripe } = await import("./stripe");
+        const pi = await stripe.paymentIntents.retrieve(existing.stripePaymentIntentId);
+        if (pi.status !== "succeeded") return res.status(400).json({ message: `Stripe says this payment is ${pi.status}, not succeeded` });
+        where = { paymentIntentId: existing.stripePaymentIntentId };
+      } else {
+        return res.status(400).json({ message: "No payment reference on this booking" });
+      }
+      const r = await storage.reviveSweptFacilityBookings(where);
+      res.json({ paid: r.paid.map((b) => b.id), conflicts: r.conflicts.map((b) => b.id) });
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
@@ -19416,10 +19486,14 @@ export async function registerRoutes(
           // hub prompts a retry (or the captain resolves). Never re-splits others.
           await splitPay.markFailedByPaymentIntent(paymentIntent);
         }
+        // A declined attempt is NOT the end of a checkout: the customer retries
+        // on the SAME PaymentIntent (adib ahlami on 24 Jul and James Burns on
+        // 15 Aug both paid within three minutes of a decline). Cancelling the
+        // rows here left both charged for a booking that read CANCELLED for
+        // months. The slot stays held; the abandoned-cart sweep releases it if
+        // they never do pay.
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
-        if (facilityGroupId) {
-          try { await storage.cancelFacilityBookingsByGroup(facilityGroupId); } catch (e) { console.error(e); }
-        }
+        if (facilityGroupId) console.log(`[Stripe Webhook] Venue group ${facilityGroupId}: card attempt declined, slot held for a retry`);
       }
 
       // Print order branch — fires for both `payment_intent.succeeded` (above
@@ -27502,8 +27576,16 @@ async function sendForgotPasswordEmail(params: {
 // confirmFacilityBookingsByPaymentIntent only flips pending→paid and returns
 // rows on the FIRST flip, so whichever caller wins sends exactly one email.
 async function confirmAndEmailVenueBookings(paymentIntentId: string) {
-  const updated = await storage.confirmFacilityBookingsByPaymentIntent(paymentIntentId);
-  if (updated.length === 0) return updated;
+  let updated = await storage.confirmFacilityBookingsByPaymentIntent(paymentIntentId);
+  if (updated.length === 0) {
+    // Already confirmed (idempotent), or released before the payment landed —
+    // a retry after a decline, or a late webhook after the abandoned-cart
+    // sweep. Stripe has the money, so re-take the slot if it is still free.
+    const revived = await storage.reviveSweptFacilityBookings({ paymentIntentId });
+    if (revived.conflicts.length > 0) console.error(`[Venue] ${paymentIntentId} paid but ${revived.conflicts.length} slot(s) are now taken — marked paid_slot_conflict`);
+    updated = revived.paid;
+    if (updated.length === 0) return updated;
+  }
 
   const fmtTime = (t: string) => {
     const [h, m] = t.split(":").map(Number);
@@ -27568,8 +27650,16 @@ async function confirmAndEmailVenueBookings(paymentIntentId: string) {
 // their own PI, so there's no single group PI). Mirrors confirmAndEmailVenueBookings
 // but flips by bookingGroupId. Idempotent — only the first flip emails.
 async function confirmAndEmailVenueBookingGroup(groupId: string) {
-  const updated = await storage.confirmFacilityBookingsByGroup(groupId);
-  if (updated.length === 0) return updated;
+  let updated = await storage.confirmFacilityBookingsByGroup(groupId);
+  if (updated.length === 0) {
+    // Nothing pending: either already confirmed (idempotent — stay quiet) or
+    // the rows were released before the last share landed. The money is on the
+    // club's account either way, so re-take the slot if it is still free.
+    const revived = await storage.reviveSweptFacilityBookings({ groupId });
+    if (revived.conflicts.length > 0) console.error(`[SplitPay] group ${groupId} settled but ${revived.conflicts.length} slot(s) are now taken — marked paid_slot_conflict`);
+    updated = revived.paid;
+    if (updated.length === 0) return updated;
+  }
   const fmtTime = (t: string) => {
     const [h, m] = t.split(":").map(Number);
     const ampm = h >= 12 ? "pm" : "am";

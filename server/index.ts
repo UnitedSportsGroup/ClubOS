@@ -381,9 +381,22 @@ app.use(attributionCookieMiddleware);
   // Periodically sweep abandoned facility-booking carts: cancel any pending bookings older
   // than 30 minutes and cancel their Stripe PaymentIntent so a late webhook can never flip
   // them back to paid (which would otherwise risk double-booking the slot).
+  //
+  // 🔴 Player Pay bookings are NOT carts (2026-10-22). getStalePendingFacilityBookings
+  // excludes any row whose group has a split session — those slots are held for the
+  // split's own deadline (48h) and released by sweepAllExpiredBookingSplits below.
+  // Before this, every split booking was released at 30 minutes while the squad kept
+  // paying into it (James Na, 19 Oct: $186.90 collected on a CANCELLED pitch).
   const sweepAbandonedFacilityBookings = async () => {
     try {
       const { storage } = await import("./storage");
+      try {
+        const { sweepAllExpiredBookingSplits } = await import("./split-pay");
+        const released = await sweepAllExpiredBookingSplits();
+        if (released > 0) console.log(`[Sweeper] Released ${released} expired Player Pay hold(s)`);
+      } catch (e) {
+        console.error("[Sweeper] Player Pay sweep failed:", e);
+      }
       const stale = await storage.getStalePendingFacilityBookings(30);
       if (stale.length === 0) return;
       const groups = new Map<string, typeof stale>();
@@ -443,7 +456,7 @@ app.use(attributionCookieMiddleware);
 
         if (groupId) {
           try {
-            const out = await storage.cancelPendingFacilityBookingsByGroup(groupId);
+            const out = await storage.cancelPendingFacilityBookingsByGroup(groupId, "abandoned");
             cancelledCount += out.length;
           } catch (e) {
             console.error("[Sweeper] cancel group failed", e);

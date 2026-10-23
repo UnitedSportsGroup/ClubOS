@@ -681,7 +681,7 @@ export async function adminCancelSplit(sessionId: number): Promise<{ ok?: boolea
   return doCancel(s);
 }
 
-async function doCancel(s: SplitSession): Promise<{ ok?: boolean; error?: string; refunded?: number }> {
+async function doCancel(s: SplitSession, reason: "player_pay_cancelled" | "player_pay_expired" = "player_pay_cancelled"): Promise<{ ok?: boolean; error?: string; refunded?: number }> {
   if (s.status === "settled") return { error: "already_settled" };
   const members = await membersOf(s.id);
   let refunded = 0;
@@ -705,7 +705,7 @@ async function doCancel(s: SplitSession): Promise<{ ok?: boolean; error?: string
   if ((s as any).fundingType === "booking" && (s as any).facilityBookingGroupId) {
     // Release the held venue slots — only the still-pending rows (never a paid one).
     try {
-      await db.update(facilityBookings).set({ status: "cancelled" })
+      await db.update(facilityBookings).set({ status: "cancelled", cancelReason: reason })
         .where(and(eq(facilityBookings.bookingGroupId, (s as any).facilityBookingGroupId), eq(facilityBookings.status, "pending")));
     } catch (e: any) { console.error(`[SplitPay] release booking group failed:`, e?.message); }
   } else if (s.registrationId) {
@@ -727,7 +727,25 @@ export async function sweepExpiredBookingSplits(organizationId: number): Promise
   let released = 0;
   for (const s of expired) {
     if (!s.deadlineAt || new Date(s.deadlineAt) > now) continue;
-    try { await doCancel(s); released++; } catch (e: any) { console.error(`[SplitPay] sweep cancel failed session=${s.id}:`, e?.message); }
+    try { await doCancel(s, "player_pay_expired"); released++; } catch (e: any) { console.error(`[SplitPay] sweep cancel failed session=${s.id}:`, e?.message); }
+  }
+  return released;
+}
+
+// The same release, every venue, on a clock: run by the server's periodic
+// sweeper (index.ts) so a Player Pay hold whose deadline has passed is released
+// even when nobody is looking at the booking site. The 30-minute abandoned-cart
+// sweep deliberately leaves split bookings alone — THIS is their clock.
+export async function sweepAllExpiredBookingSplits(): Promise<number> {
+  const now = new Date();
+  const open = await db.select().from(splitSessions).where(and(
+    eq(splitSessions.fundingType, "booking"),
+    eq(splitSessions.status, "open"),
+  ));
+  let released = 0;
+  for (const s of open) {
+    if (!s.deadlineAt || new Date(s.deadlineAt) > now) continue;
+    try { await doCancel(s, "player_pay_expired"); released++; } catch (e: any) { console.error(`[SplitPay] venue sweep cancel failed session=${s.id}:`, e?.message); }
   }
   return released;
 }
@@ -784,6 +802,32 @@ export async function listSplitsForCompetition(competitionId: number) {
       paidCount: paid.length,
       collectedCents: paid.reduce((a, m) => a + (m.chargedCents ?? 0), 0),
       createdAt: s.createdAt, lockedAt: s.lockedAt, settledAt: s.settledAt,
+    });
+  }
+  return out;
+}
+
+// Every Player Pay split that funds a booking in one venue — the Bookings
+// tab's Player Pay view (the venue twin of listSplitsForCompetition).
+export async function listSplitsForVenue(organizationId: number) {
+  const rows = await db.select().from(splitSessions)
+    .where(and(eq(splitSessions.organizationId, organizationId), eq(splitSessions.fundingType, "booking")))
+    .orderBy(desc(splitSessions.createdAt));
+  const out = [] as any[];
+  for (const s of rows) {
+    const members = await membersOf(s.id);
+    const active = members.filter((m) => m.status !== "removed");
+    const paid = active.filter((m) => m.status === "paid");
+    const organiser = active.find((m) => m.role === "organiser") ?? null;
+    out.push({
+      id: s.id, shareCode: s.shareCode, label: s.teamName, bookingGroupId: s.facilityBookingGroupId,
+      organiserName: organiser?.name ?? null, organiserEmail: organiser?.email ?? null,
+      status: s.status, totalCents: s.totalCents, targetCount: s.targetCount,
+      shareCents: memberShareCents(s),
+      joinedCount: active.length,
+      paidCount: paid.length,
+      collectedCents: paid.reduce((a, m) => a + (m.chargedCents ?? 0), 0),
+      createdAt: s.createdAt, deadlineAt: s.deadlineAt, settledAt: s.settledAt,
     });
   }
   return out;
