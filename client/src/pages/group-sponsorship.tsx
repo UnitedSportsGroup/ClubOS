@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspace } from "@/lib/workspace-context";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
@@ -86,6 +86,40 @@ interface PipelineSummary {
 }
 interface TeamMember { id: number; first_name: string; last_name: string; email: string; }
 
+type ViewKey = "partners" | "deliverables" | "onboarding" | "pipeline" | "prospects" | "billboards" | "breweries";
+const PARTNER_VIEWS: ViewKey[] = ["partners", "deliverables", "onboarding"];
+const HASH_FOR: Record<ViewKey, string> = {
+  partners: "#partners", deliverables: "#partners-deliverables", onboarding: "#partners-onboarding",
+  pipeline: "#prospects", prospects: "#prospects-leads", billboards: "#prospects-billboards", breweries: "#breweries-overview",
+};
+function viewFromHash(h: string): ViewKey {
+  if (h.startsWith("#breweries")) return "breweries";
+  if (h.startsWith("#partners-deliverables")) return "deliverables";
+  if (h.startsWith("#partners-onboarding")) return "onboarding";
+  if (h.startsWith("#prospects-leads")) return "prospects";
+  if (h.startsWith("#prospects-billboards")) return "billboards";
+  if (h.startsWith("#prospects")) return "pipeline";
+  return "partners";
+}
+const SIGNED_STAGES: string[] = ["won", "contract_sent", "invoice_sent", "invoice_paid", "onboarded", "active"];
+const TABS: { key: "partners" | "prospects"; label: string; icon: any; first: ViewKey }[] = [
+  { key: "partners", label: "Partners", icon: BadgeCheck, first: "partners" },
+  { key: "prospects", label: "Prospects", icon: Target, first: "pipeline" },
+];
+const SUBMENU: Record<"partners" | "prospects", { key: ViewKey; label: string; testid: string }[]> = {
+  partners: [
+    { key: "partners", label: "Partners", testid: "submenu-partners" },
+    { key: "deliverables", label: "Deliverables", testid: "submenu-deliverables" },
+    { key: "onboarding", label: "Onboarding", testid: "submenu-onboarding" },
+  ],
+  prospects: [
+    { key: "pipeline", label: "Pipeline", testid: "submenu-pipeline" },
+    { key: "prospects", label: "Lead database", testid: "submenu-leads" },
+    { key: "billboards", label: "Billboards", testid: "submenu-billboards" },
+    { key: "breweries", label: "Breweries", testid: "submenu-breweries" },
+  ],
+};
+
 const fmtMoney = (cents: number) => {
   if (!cents) return "$0";
   if (cents >= 1_000_000_00) return `$${(cents / 1_000_000_00).toFixed(2)}M`;
@@ -105,9 +139,26 @@ export default function GroupSponsorship() {
   const [dealModal, setDealModal] = useState<{ mode: "create" | "edit"; deal?: Partial<SponsorshipDeal> } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<StageKey | null>(null);
-  const [view, setView] = useState<"partners" | "pipeline" | "prospects" | "deliverables" | "onboarding" | "billboards" | "breweries">(
-    () => (typeof window === "undefined" ? "pipeline" : window.location.hash.startsWith("#breweries") ? "breweries" : window.location.hash.startsWith("#partners") ? "partners" : "pipeline"),
-  );
+  const [view, setView] = useState<ViewKey>(() => (typeof window === "undefined" ? "partners" : viewFromHash(window.location.hash)));
+
+  // The URL is the state: first load reads the hash (none -> #partners); Back/forward and
+  // programmatic hash changes (Make partner) re-read it.
+  useEffect(() => {
+    if (!window.location.hash) { try { window.history.replaceState(null, "", "#partners"); } catch { /* ignore */ } }
+    const onHash = () => setView(viewFromHash(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    window.addEventListener("popstate", onHash);
+    return () => { window.removeEventListener("hashchange", onHash); window.removeEventListener("popstate", onHash); };
+  }, []);
+
+  const goView = (v: ViewKey) => {
+    // Breweries keeps its own sub-view in the hash; keep it if we are already inside it.
+    const keep = v === "breweries" && window.location.hash.startsWith("#breweries");
+    if (!keep) { try { window.history.replaceState(null, "", HASH_FOR[v]); } catch { /* ignore */ } }
+    setView(v);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  };
+  const tab: "partners" | "prospects" = PARTNER_VIEWS.includes(view) ? "partners" : "prospects";
 
   const { data: me } = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
 
@@ -173,6 +224,22 @@ export default function GroupSponsorship() {
     },
   });
 
+  const makePartner = useMutation({
+    mutationFn: async (dealId: number) => {
+      const r = await apiRequest("POST", `/api/admin/sponsorship/partners/from-deal/${dealId}`, {});
+      return r.json() as Promise<{ partner: { id: number }; created: boolean }>;
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners"] });
+      toast(res.created ? { title: "Partner created — attach the signed contract" } : { title: "Already a partner" });
+      setDealModal(null);
+      try { window.history.replaceState(null, "", `#partners/${res.partner.id}`); } catch { /* ignore */ }
+      setView("partners");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    },
+    onError: (e: any) => toast({ title: "Couldn't make partner", description: e.message, variant: "destructive" }),
+  });
+
   const dealsByStage = useMemo(() => {
     const m = new Map<StageKey, SponsorshipDeal[]>();
     for (const s of STAGES) m.set(s.key, []);
@@ -190,44 +257,47 @@ export default function GroupSponsorship() {
             <h1 className="text-xl font-semibold flex items-center gap-2"><Handshake className="w-5 h-5 text-blue-400" /> Sponsorship</h1>
             <p className="text-xs text-white/40 mt-0.5">Pipeline · revenue · deliverables across {currentOrg?.name}</p>
           </div>
+          {tab === "prospects" && (
           <Button onClick={() => setDealModal({ mode: "create" })} data-testid="button-new-deal" className="bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-0">
             <Plus className="w-4 h-4 mr-1.5" /> New deal
           </Button>
+          )}
         </div>
 
-        {/* Sub-nav */}
-        <div className="flex items-center gap-1 mt-4 border-b border-white/[0.06] -mb-4 overflow-x-auto">
-          {([
-            { key: "partners",     label: "Partners",     icon: BadgeCheck },
-            { key: "pipeline",     label: "Pipeline",     icon: TrendingUp },
-            { key: "prospects",    label: "Prospects",    icon: Target },
-            { key: "deliverables", label: "Deliverables", icon: ListChecks },
-            { key: "onboarding",   label: "Onboarding",   icon: CheckCircle2 },
-            { key: "billboards",   label: "Billboards",   icon: DollarSign },
-            { key: "breweries",    label: "Breweries",    icon: Beer },
-          ] as const).map(t => {
+        {/* Two tabs: Partners (signed) · Prospects (everything pre-signature) */}
+        <div className="flex items-center gap-1 mt-4 border-b border-white/[0.06]">
+          {TABS.map(t => {
             const Icon = t.icon;
-            const active = view === t.key;
+            const active = tab === t.key;
             return (
               <button
                 key={t.key}
-                onClick={() => {
-                  setView(t.key);
-                  // Breweries keeps its own sub-view in the hash; leaving it clears that.
-                  if (t.key === "breweries") { if (!window.location.hash.startsWith("#breweries")) window.history.replaceState(null, "", "#breweries-overview"); }
-                  else if (t.key === "partners") { if (!window.location.hash.startsWith("#partners")) window.history.replaceState(null, "", "#partners"); }
-                  else if (window.location.hash.startsWith("#breweries") || window.location.hash.startsWith("#partners")) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-                }}
+                onClick={() => { if (!active) goView(t.first); }}
                 data-testid={`tab-${t.key}`}
-                className={`flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] md:min-h-0 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-                  active
-                    ? "text-white border-blue-500"
-                    : "text-white/50 hover:text-white/80 border-transparent"
+                className={`flex items-center gap-1.5 px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
+                  active ? "text-white border-blue-500" : "text-white/50 hover:text-white/80 border-transparent"
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-4 h-4" />
                 {t.label}
               </button>
+            );
+          })}
+        </div>
+
+        {/* Mini-menu for the active tab */}
+        <div className="flex items-center gap-1.5 mt-3 flex-wrap" data-testid="submenu">
+          {SUBMENU[tab].map(m => {
+            const active = view === m.key;
+            return (
+              <button
+                key={m.key}
+                onClick={() => goView(m.key)}
+                data-testid={m.testid}
+                className={`text-xs font-semibold px-3 py-2 min-h-[44px] md:min-h-[32px] rounded-md border transition ${
+                  active ? "bg-blue-600 border-blue-600 text-white" : "border-white/10 text-white/60 hover:text-white bg-white/[0.02]"
+                }`}
+              >{m.label}</button>
             );
           })}
         </div>
@@ -283,8 +353,8 @@ export default function GroupSponsorship() {
 
       <div className="flex-1 overflow-x-auto overflow-y-auto">
         {view === "prospects" && orgId && <ProspectsView orgId={orgId} />}
-        {view === "deliverables" && orgId && <CrossDeliverablesView orgId={orgId} team={team} category="contract" />}
-        {view === "onboarding" && orgId && <OnboardingMatrixView orgId={orgId} team={team} deals={deals} />}
+        {view === "deliverables" && orgId && <CrossDeliverablesView source="partners" orgId={orgId} team={team} category="contract" />}
+        {view === "onboarding" && orgId && <OnboardingMatrixView source="partners" orgId={orgId} team={team} deals={deals} />}
         {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
         {view === "breweries" && <BreweriesView />}
         {view === "partners" && <PartnersView />}
@@ -342,7 +412,7 @@ export default function GroupSponsorship() {
                         onDragEnd={() => { setDraggingId(null); setDropTarget(null); }}
                         style={{ opacity: draggingId === d.id ? 0.4 : 1 }}
                       >
-                        <DealCard deal={d} team={team} onClick={() => setDealModal({ mode: "edit", deal: d })} highlightMine={d.ownerId === me?.id} />
+                        <DealCard deal={d} team={team} onClick={() => setDealModal({ mode: "edit", deal: d })} highlightMine={d.ownerId === me?.id} onMakePartner={() => makePartner.mutate(d.id)} makingPartner={makePartner.isPending} />
                       </div>
                     ))}
                   </div>
@@ -361,6 +431,8 @@ export default function GroupSponsorship() {
           onClose={() => setDealModal(null)}
           onSave={(payload) => saveDeal.mutate({ id: dealModal.deal?.id, payload })}
           onDelete={dealModal.deal?.id ? () => deleteDeal.mutate(dealModal.deal!.id!) : undefined}
+          onMakePartner={dealModal.deal?.id ? () => makePartner.mutate(dealModal.deal!.id!) : undefined}
+          makingPartner={makePartner.isPending}
         />
       )}
     </div>
@@ -380,13 +452,14 @@ function Kpi({ label, value, icon, accent, sub }: { label: string; value: string
   );
 }
 
-function DealCard({ deal, team, onClick, highlightMine }: { deal: SponsorshipDeal; team: TeamMember[]; onClick: () => void; highlightMine?: boolean }) {
+function DealCard({ deal, team, onClick, highlightMine, onMakePartner, makingPartner }: { deal: SponsorshipDeal; team: TeamMember[]; onClick: () => void; highlightMine?: boolean; onMakePartner?: () => void; makingPartner?: boolean }) {
   const owner = team.find(m => m.id === deal.ownerId);
   const closeDate = deal.expectedCloseDate ? new Date(deal.expectedCloseDate + "T00:00:00") : null;
   const today = new Date(); today.setHours(0,0,0,0);
   const daysToClose = closeDate ? Math.ceil((closeDate.getTime() - today.getTime()) / (1000*60*60*24)) : null;
 
   return (
+    <div>
     <button
       onClick={onClick}
       data-testid={`card-deal-${deal.id}`}
@@ -431,16 +504,27 @@ function DealCard({ deal, team, onClick, highlightMine }: { deal: SponsorshipDea
         )}
       </div>
     </button>
+    {onMakePartner && SIGNED_STAGES.includes(deal.stage) && (
+      <button
+        onClick={onMakePartner}
+        disabled={makingPartner}
+        data-testid={`button-make-partner-${deal.id}`}
+        className="mt-1 w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold rounded-md border border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20 min-h-[44px] md:min-h-[30px] transition disabled:opacity-50"
+      ><BadgeCheck className="w-3.5 h-3.5" /> Make partner</button>
+    )}
+    </div>
   );
 }
 
-function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
+function DealModal({ mode, deal, team, onClose, onSave, onDelete, onMakePartner, makingPartner }: {
   mode: "create" | "edit";
   deal?: Partial<SponsorshipDeal>;
   team: TeamMember[];
   onClose: () => void;
   onSave: (payload: any) => void;
   onDelete?: () => void;
+  onMakePartner?: () => void;
+  makingPartner?: boolean;
 }) {
   const [title, setTitle] = useState(deal?.title || "");
   const [sponsorCompany, setSponsorCompany] = useState(deal?.sponsorCompany || "");
@@ -681,7 +765,12 @@ function DealModal({ mode, deal, team, onClose, onSave, onDelete }: {
             )}
           </div>
           {!confirmDelete && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap justify-end">
+              {mode === "edit" && onMakePartner && deal?.stage && SIGNED_STAGES.includes(deal.stage) && (
+                <Button size="sm" variant="outline" onClick={onMakePartner} disabled={makingPartner} className="border-green-500/40 text-green-300 min-h-[44px] md:min-h-0" data-testid="button-make-partner">
+                  <BadgeCheck className="w-3.5 h-3.5 mr-1" /> Make partner
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50">Cancel</Button>
               <Button size="sm" onClick={submit} disabled={!sponsorCompany.trim()} className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-save-deal">
                 <Check className="w-3.5 h-3.5 mr-1" /> {mode === "create" ? "Create deal" : "Save"}
@@ -985,28 +1074,52 @@ function DeliverableForm({ team, onSubmit, onCancel }: {
 // ── Cross-deal deliverables view ────────────────────────────────────────────
 // Every contract deliverable across every active deal in one scrollable list.
 // "Are we delivering everything we promised across all sponsors right now?"
-function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team: TeamMember[]; category: string }) {
+type PartnerRef = { id: number; company: string; brandTags: string[] };
+type ContractRef = { id: number; title: string; isCurrent: boolean; state: string };
+type DeliverableRow = SponsorshipDeliverable & { deal: SponsorshipDeal | null; partner?: PartnerRef; contract?: ContractRef };
+
+function invalidateDeliverables() {
+  queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners/deliverables"] });
+  queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners"] });
+}
+
+function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { orgId: number; team: TeamMember[]; category: string; source?: "deals" | "partners" }) {
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "overdue" | "delivered">("open");
-  const { data: rows = [], isLoading } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
+  const { data: dealRows = [], isLoading: dealsLoading } = useQuery<DeliverableRow[]>({
     queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, category],
     queryFn: async () => {
       const r = await workspaceFetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=${category}`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
+    enabled: source === "deals",
   });
+  // Signed-contract deliverables: contract + activation items for every partner.
+  const { data: partnerRows = [], isLoading: partnersLoading } = useQuery<DeliverableRow[]>({
+    queryKey: ["/api/admin/sponsorship/partners/deliverables", "contract"],
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/sponsorship/partners/deliverables`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      const all = (await r.json()) as Array<DeliverableRow & { category?: string }>;
+      return all.filter(x => x.category === "contract" || x.category === "activation");
+    },
+    enabled: source === "partners",
+  });
+  const rows = source === "partners" ? partnerRows : dealRows;
+  const isLoading = source === "partners" ? partnersLoading : dealsLoading;
 
   const update = useMutation({
     mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
       const r = await apiRequest("PATCH", `/api/admin/sponsorship/deliverables/${id}`, patch);
       return r.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] }),
+    onSuccess: () => invalidateDeliverables(),
   });
 
   const remove = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/sponsorship/deliverables/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all"] }),
+    onSuccess: () => invalidateDeliverables(),
   });
 
   const today = new Date(); today.setHours(0,0,0,0);
@@ -1062,15 +1175,18 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
           <ListChecks className="w-10 h-10 text-white/15 mx-auto mb-3" />
           <p className="text-sm text-white/40 mb-1">
-            {category === "contract" ? "No contract deliverables yet" : "No items"}
+            {source === "partners" ? "No partner deliverables to show" : category === "contract" ? "No contract deliverables yet" : "No items"}
           </p>
           <p className="text-xs text-white/30">
-            Open any deal and add what you've promised — front-of-shirt, social posts, hospitality seats, signage, etc. They'll show up here.
+            {source === "partners"
+              ? "Deliverables come from each partner's signed contract. Open a partner under Partners and add the contract to populate this list."
+              : "Open any deal and add what you've promised — front-of-shirt, social posts, hospitality seats, signage, etc. They'll show up here."}
           </p>
         </div>
       ) : (
         <DeliverablesGroupedBySponsor
           rows={filtered}
+          source={source}
           team={team}
           today={today}
           onUpdate={(id, patch) => update.mutate({ id, patch })}
@@ -1085,9 +1201,10 @@ function CrossDeliverablesView({ orgId, team, category }: { orgId: number; team:
 // like the Onboarding tab — one row per sponsor with a colour-coded
 // completion %. Click a row to expand and edit the deliverables underneath.
 function DeliverablesGroupedBySponsor({
-  rows, team, today, onUpdate, onDelete,
+  rows, team, today, onUpdate, onDelete, source = "deals",
 }: {
-  rows: Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>;
+  rows: DeliverableRow[];
+  source?: "deals" | "partners";
   team: TeamMember[];
   today: Date;
   onUpdate: (id: number, patch: any) => void;
@@ -1110,6 +1227,19 @@ function DeliverablesGroupedBySponsor({
   const groups = useMemo(() => {
     const m = new Map<number, { deal: SponsorshipDeal | null; items: typeof rows }>();
     for (const r of rows) {
+      if (source === "partners" && r.partner) {
+        if (!m.has(r.partner.id)) {
+          // A pseudo-deal so the shared row renderer works: company as header, contract title as sub-line.
+          m.set(r.partner.id, { deal: { id: r.partner.id, sponsorCompany: r.partner.company, title: r.contract?.title ?? "", brandTags: r.partner.brandTags ?? [], stage: "active" } as SponsorshipDeal, items: [] });
+        }
+        const g = m.get(r.partner.id)!;
+        g.items.push(r);
+        if (r.contract?.isCurrent) {
+          (g.deal as any)._current = true;
+          g.deal!.title = r.contract.title;
+        }
+        continue;
+      }
       if (!m.has(r.dealId)) m.set(r.dealId, { deal: r.deal, items: [] });
       m.get(r.dealId)!.items.push(r);
     }
@@ -1133,7 +1263,7 @@ function DeliverablesGroupedBySponsor({
           <tr>
             <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold w-8"></th>
             <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Sponsor</th>
-            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Stage</th>
+            <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">{source === "partners" ? "Contract" : "Stage"}</th>
             <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Brand</th>
             <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Done</th>
             <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold">Overdue</th>
@@ -1154,7 +1284,7 @@ function DeliverablesGroupedBySponsor({
             // Red <40% · Amber 40-79% · Green 80%+
             const pctColor = pct >= 80 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
             const pctBg    = pct >= 80 ? "rgba(34,197,94,0.15)" : pct >= 40 ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)";
-            const stage = STAGES.find(s => s.key === g.deal!.stage);
+            const stage = source === "partners" ? undefined : STAGES.find(s => s.key === g.deal!.stage);
             const isExpanded = expanded.has(g.deal.id);
 
             return (
@@ -1167,6 +1297,8 @@ function DeliverablesGroupedBySponsor({
                 isExpanded={isExpanded}
                 isAdding={adding === g.deal.id}
                 stage={stage}
+                partnerMode={source === "partners"}
+                isCurrent={!!(g.deal as any)._current}
                 pct={pct}
                 pctColor={pctColor}
                 pctBg={pctBg}
@@ -1189,7 +1321,7 @@ function DeliverablesGroupedBySponsor({
 }
 
 function FragmentRows({
-  deal, items, team, today, isExpanded, isAdding, stage, pct, pctColor, pctBg,
+  deal, items, team, today, isExpanded, isAdding, stage, partnerMode, isCurrent, pct, pctColor, pctBg,
   delivered, total, overdueCount, onToggle, onUpdate, onDelete,
   onAddRequested, onAddCancelled, onAddSubmit,
 }: any) {
@@ -1211,6 +1343,9 @@ function FragmentRows({
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: stage.color }} />
               {stage.label}
             </span>
+          )}
+          {partnerMode && isCurrent && (
+            <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-300" data-testid="chip-current">Current</span>
           )}
         </td>
         <td className="px-3 py-2.5 border-b border-white/[0.04]">
@@ -1250,7 +1385,7 @@ function FragmentRows({
                   onDelete={onDelete ? () => onDelete(d.id) : undefined}
                 />
               ))}
-              {isAdding ? (
+              {partnerMode ? null : isAdding ? (
                 <DeliverableForm team={team} onCancel={onAddCancelled} onSubmit={onAddSubmit} />
               ) : (
                 <button
@@ -1439,7 +1574,9 @@ interface OnboardingTemplate {
   isActive: boolean;
 }
 
-function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: TeamMember[]; deals: SponsorshipDeal[] }) {
+function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId: number; team: TeamMember[]; deals: SponsorshipDeal[]; source?: "deals" | "partners" }) {
+  const { toast } = useToast();
+  const isPartners = source === "partners";
   const { data: templates = [] } = useQuery<OnboardingTemplate[]>({
     queryKey: ["/api/admin/sponsorship/onboarding-templates", orgId],
     queryFn: async () => {
@@ -1449,40 +1586,87 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
     },
   });
 
-  const { data: allDeliverables = [] } = useQuery<Array<SponsorshipDeliverable & { deal: SponsorshipDeal | null }>>({
+  const { data: dealDeliverables = [] } = useQuery<DeliverableRow[]>({
     queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"],
     queryFn: async () => {
       const r = await workspaceFetch(`/api/admin/sponsorship/deliverables-all?organizationId=${orgId}&category=onboarding`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
+    enabled: !isPartners,
   });
+
+  const { data: partnerDeliverables = [] } = useQuery<DeliverableRow[]>({
+    queryKey: ["/api/admin/sponsorship/partners/deliverables", "onboarding"],
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/sponsorship/partners/deliverables?category=onboarding`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: isPartners,
+  });
+
+  const { data: partnerList } = useQuery<{ partners: Array<{ id: number; company: string; brandTags: string[]; archivedAt?: string | null }> }>({
+    queryKey: ["/api/admin/sponsorship/partners", { archived: false }],
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/sponsorship/partners`);
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: isPartners,
+  });
+
+  const allDeliverables = isPartners ? partnerDeliverables : dealDeliverables;
 
   const update = useMutation({
     mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
       const r = await apiRequest("PATCH", `/api/admin/sponsorship/deliverables/${id}`, patch);
       return r.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"] }),
+    onSuccess: () => invalidateDeliverables(),
   });
 
   const applyOnboarding = useMutation({
-    mutationFn: async (dealId: number) => {
-      const r = await apiRequest("POST", `/api/admin/sponsorship/deals/${dealId}/apply-onboarding`, {});
-      return r.json();
+    mutationFn: async (id: number) => {
+      const url = isPartners ? `/api/admin/sponsorship/partners/${id}/apply-onboarding` : `/api/admin/sponsorship/deals/${id}/apply-onboarding`;
+      const r = await apiRequest("POST", url, {});
+      return r.json() as Promise<{ added?: number }>;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, "onboarding"] }),
+    onSuccess: (res) => {
+      invalidateDeliverables();
+      if (isPartners) toast({ title: `Template applied — ${res.added ?? 0} step${res.added === 1 ? "" : "s"} added` });
+    },
+    onError: (e: any) => toast({ title: "Couldn't apply template", description: e.message, variant: "destructive" }),
   });
 
-  const wonStages = ["won", "contract_sent", "invoice_sent", "invoice_paid", "onboarded", "active"];
-  const wonDeals = useMemo(() => deals.filter(d => wonStages.includes(d.stage)), [deals]);
+  const applyAll = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", `/api/admin/sponsorship/partners/apply-onboarding-all`, {});
+      return r.json() as Promise<{ partners: number; added: number }>;
+    },
+    onSuccess: (res) => {
+      invalidateDeliverables();
+      toast({ title: `Added ${res.added} onboarding step${res.added === 1 ? "" : "s"} across ${res.partners} partner${res.partners === 1 ? "" : "s"}` });
+    },
+    onError: (e: any) => toast({ title: "Couldn't apply template", description: e.message, variant: "destructive" }),
+  });
 
-  // Index deliverables by (dealId, title) so the cells can look up status quickly
+  const wonDeals = useMemo(() => deals.filter(d => SIGNED_STAGES.includes(d.stage)), [deals]);
+
+  // Rows of the matrix: partners (signed contracts) or won deals.
+  const matrixRows = useMemo(() => {
+    if (isPartners) {
+      return (partnerList?.partners ?? []).filter(p => !p.archivedAt).map(p => ({ id: p.id, company: p.company, sub: "", brandTags: p.brandTags ?? [] }));
+    }
+    return wonDeals.map(d => ({ id: d.id, company: d.sponsorCompany, sub: d.title, brandTags: [] as string[] }));
+  }, [isPartners, partnerList, wonDeals]);
+
+  // Index deliverables by (owner id, title) so the cells can look up status quickly
   const cells = useMemo(() => {
     const m = new Map<string, SponsorshipDeliverable>();
-    for (const d of allDeliverables) m.set(`${d.dealId}|${d.title}`, d);
+    for (const d of allDeliverables) m.set(`${isPartners ? d.partner?.id : d.dealId}|${d.title}`, d);
     return m;
-  }, [allDeliverables]);
+  }, [allDeliverables, isPartners]);
 
   if (templates.length === 0) {
     return (
@@ -1494,26 +1678,33 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
     );
   }
 
-  if (wonDeals.length === 0) {
+  if (matrixRows.length === 0) {
     return (
       <div className="p-12 text-center">
         <Handshake className="w-10 h-10 text-white/15 mx-auto mb-3" />
-        <p className="text-sm text-white/40 mb-1">No signed sponsors yet</p>
-        <p className="text-xs text-white/30">When a deal moves to Won, it'll appear here with the onboarding checklist auto-populated.</p>
+        <p className="text-sm text-white/40 mb-1">{isPartners ? "No partners yet" : "No signed sponsors yet"}</p>
+        <p className="text-xs text-white/30">{isPartners ? "Add a partner under Partners and its onboarding checklist will appear here." : "When a deal moves to Won, it'll appear here with the onboarding checklist auto-populated."}</p>
       </div>
     );
   }
 
   return (
     <div className="p-4 sm:p-6">
-      <div className="text-[11px] text-white/40 mb-3">
-        {wonDeals.length} signed sponsor{wonDeals.length === 1 ? "" : "s"} · {templates.length} onboarding step{templates.length === 1 ? "" : "s"} · click any cell to advance status
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <div className="text-[11px] text-white/40">
+          {matrixRows.length} {isPartners ? "partner" : "signed sponsor"}{matrixRows.length === 1 ? "" : "s"} · {templates.length} onboarding step{templates.length === 1 ? "" : "s"} · click any cell to advance status
+        </div>
+        {isPartners && (
+          <Button size="sm" variant="outline" onClick={() => applyAll.mutate()} disabled={applyAll.isPending} className="ml-auto min-h-[44px] md:min-h-0" data-testid="button-apply-onboarding-all">
+            <ListChecks className="w-3.5 h-3.5 mr-1.5" /> {applyAll.isPending ? "Applying…" : "Apply template to every partner"}
+          </Button>
+        )}
       </div>
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-x-auto">
         <table className="min-w-full text-xs border-collapse">
           <thead>
             <tr>
-              <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold sticky left-0 bg-[#0a0e1a] z-10 min-w-[200px]">Sponsor</th>
+              <th className="text-left px-3 py-2 border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold sticky left-0 bg-[#0a0e1a] z-10 min-w-[200px]">{isPartners ? "Partner" : "Sponsor"}</th>
               {templates.map(t => (
                 <th key={t.id} className="px-2 py-2 border-b border-l border-white/[0.06] text-[10px] uppercase tracking-wider text-white/40 font-semibold text-center min-w-[120px]" title={t.description || ""}>
                   {t.title}
@@ -1522,20 +1713,30 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
             </tr>
           </thead>
           <tbody>
-            {wonDeals.map(d => {
-              const dealOnboardingCount = allDeliverables.filter(dl => dl.dealId === d.id).length;
-              const needsApply = dealOnboardingCount === 0;
+            {matrixRows.map(d => {
+              const ownCount = allDeliverables.filter(dl => (isPartners ? dl.partner?.id : dl.dealId) === d.id).length;
+              const needsApply = ownCount === 0;
               return (
-                <tr key={d.id} className="hover:bg-white/[0.02]">
+                <tr key={d.id} className="hover:bg-white/[0.02]" data-testid={`onboarding-row-${d.id}`}>
                   <td className="px-3 py-2 border-b border-white/[0.04] sticky left-0 bg-[#0a0e1a] z-10">
-                    <div className="text-xs font-semibold text-white truncate">{d.sponsorCompany}</div>
-                    <div className="text-[10px] text-white/40 truncate">{d.title}</div>
-                    {needsApply && (
+                    <div className="text-xs font-semibold text-white truncate">{d.company}</div>
+                    {d.sub && <div className="text-[10px] text-white/40 truncate">{d.sub}</div>}
+                    {d.brandTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {d.brandTags.slice(0, 3).map(slug => {
+                          const b = BRANDS.find(x => x.slug === slug);
+                          return <span key={slug} className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${b?.color || "#64748b"}20`, color: b?.color || "#64748b" }}>{b?.label || slug}</span>;
+                        })}
+                      </div>
+                    )}
+                    {(needsApply || isPartners) && (
                       <button
                         onClick={() => applyOnboarding.mutate(d.id)}
-                        className="mt-1 text-[10px] text-blue-300 hover:text-blue-200 underline"
+                        disabled={applyOnboarding.isPending}
+                        data-testid={`button-apply-onboarding-${d.id}`}
+                        className="mt-1 text-[10px] text-blue-300 hover:text-blue-200 underline min-h-[44px] md:min-h-0 block"
                       >
-                        Apply onboarding template
+                        {isPartners ? "Apply template" : "Apply onboarding template"}
                       </button>
                     )}
                   </td>
@@ -1554,7 +1755,7 @@ function OnboardingMatrixView({ orgId, team, deals }: { orgId: number; team: Tea
                             const i = order.indexOf(cell.status);
                             update.mutate({ id: cell.id, patch: { status: order[(i + 1) % order.length] } });
                           }}
-                          className="w-7 h-7 rounded-md flex items-center justify-center transition hover:bg-white/[0.06]"
+                          className="w-11 h-11 md:w-7 md:h-7 rounded-md inline-flex items-center justify-center transition hover:bg-white/[0.06]"
                           style={{ color: cfg.color }}
                           title={cfg.label + (cell.deliveredAt ? ` · ${new Date(cell.deliveredAt).toLocaleDateString("en-NZ")}` : "")}
                         >

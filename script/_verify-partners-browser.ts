@@ -113,6 +113,38 @@ async function main() {
     } else {
       ok("a partner row to click", false, "none rendered");
     }
+
+    // ── the two tabs and their mini-menus ──
+    const walk: Array<[string, string, string, string]> = [
+      ["partners", "deliverables", "#partners-deliverables", "deliverable|promised"],
+      ["partners", "onboarding", "#partners-onboarding", "onboarding|template"],
+      ["prospects", "pipeline", "#prospects", "new lead|negotiating|won"],
+      ["prospects", "leads", "#prospects-leads", "tier|prospect"],
+      ["prospects", "billboards", "#prospects-billboards", "billboard"],
+      ["prospects", "breweries", "#breweries", "brewer"],
+      ["partners", "partners", "#partners", "annual cash|partners"],
+    ];
+    for (const [tab, item, hash, words] of walk) {
+      const tabEl = await page.$(`[data-testid="tab-${tab}"]`);
+      if (!tabEl) { ok(`tab ${tab} exists`, false); continue; }
+      await tabEl.click(); await sleep(500);
+      const sub = await page.$(`[data-testid="submenu-${item}"]`);
+      if (!sub) { ok(`mini-menu item ${item} exists under ${tab}`, false); continue; }
+      await sub.click(); await sleep(2200);
+      const r: any = await page.evaluate(`(function(){
+        var WIDTH = ${width};
+        var main = document.querySelector('main') || document.body;
+        var txt = main.innerText.toLowerCase();
+        var wide = []; var all = main.querySelectorAll('*');
+        for (var j = 0; j < all.length; j++) { var b = all[j].getBoundingClientRect(); if (b.right > WIDTH + 1 && !all[j].closest('.overflow-x-auto')) { wide.push(all[j].tagName + '.' + String(all[j].className).slice(0,40) + ' ' + Math.round(b.right)); if (wide.length > 3) break; } }
+        return { hash: location.hash, matches: new RegExp(${JSON.stringify(words)}, 'i').test(txt), docWidth: document.documentElement.scrollWidth, winWidth: window.innerWidth, wide: wide, len: txt.length };
+      })()`);
+      ok(`${tab} → ${item}: hash ${hash}`, String(r.hash).startsWith(hash), r.hash);
+      ok(`${tab} → ${item}: view renders its own content`, r.matches && r.len > 200, `${r.len} chars`);
+      ok(`${tab} → ${item}: no horizontal overflow`, r.docWidth <= r.winWidth + 1 && r.wide.length === 0, r.wide.join(" | "));
+      await page.screenshot({ path: join(OUT, `view-${tab}-${item}-${label}.png`), fullPage: false });
+    }
+    // Back from a mini-menu item must not leave the page (replaceState), but a partner sheet still pushes.
     await page.close();
   }
 }

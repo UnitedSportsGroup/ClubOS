@@ -23,6 +23,8 @@ let pass = 0, fail = 0;
 const ok = (label: string, good: boolean, detail = "") => { console.log(`  ${good ? "ok  " : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`); good ? pass++ : fail++; };
 const created: number[] = [];
 let probePartnerId: number | null = null;
+const probePartnerIds: number[] = [];
+let probeDealId: number | null = null;
 
 async function account(tag: string, workspace: string, role: string, tabs: string[] | null): Promise<string> {
   const email = `_partners_${tag}_${Date.now()}@usg.co.nz`;
@@ -123,6 +125,34 @@ async function main() {
   const dAll: any = await (await api(staff, "GET", `/api/admin/sponsorship/deliverables-all?organizationId=${(await pool.query(`select id from organizations where slug=$1`, [USG])).rows[0].id}&category=contract`, USG)).json();
   ok("Deliverables tab is untouched by partner rows", Array.isArray(dAll) && !dAll.some((d: any) => d.id === deliverable.id));
 
+  // ── the cross-partner deliverables feed, onboarding, and the won-deal door ──
+  const feed = await api(staff, "GET", "/api/admin/sponsorship/partners/deliverables?category=contract", USG);
+  ok("partners/deliverables is a static route (not parsed as an id)", feed.status === 200, `HTTP ${feed.status}`);
+  const feedRows: any[] = feed.status === 200 ? await feed.json() : [];
+  ok("…and carries the partner and contract on every row", feedRows.length > 0 && feedRows.every(r => r.partner?.company && r.contract?.id), `${feedRows.length} rows`);
+  ok("…including the probe's contract deliverable", feedRows.some(r => r.id === deliverable.id));
+  const ob = await api(staff, "POST", `/api/admin/sponsorship/partners/${partner.id}/apply-onboarding`, USG, {});
+  const obj: any = ob.status === 200 ? await ob.json() : {};
+  ok("apply onboarding to the probe → 200 with the template items added", ob.status === 200 && obj.added >= 1, `HTTP ${ob.status}, added ${obj.added}`);
+  const ob2: any = await (await api(staff, "POST", `/api/admin/sponsorship/partners/${partner.id}/apply-onboarding`, USG, {})).json();
+  ok("…and is idempotent", ob2.added === 0, `second run added ${ob2.added}`);
+  const obFeed: any[] = await (await api(staff, "GET", "/api/admin/sponsorship/partners/deliverables?category=onboarding", USG)).json();
+  ok("onboarding feed lists the probe's checklist", obFeed.filter(r => r.partner?.id === partner.id).length === obj.added);
+  const mkDeal = await api(staff, "POST", "/api/admin/sponsorship/deals", USG, { organizationId: (await pool.query(`select id from organizations where slug=$1`, [USG])).rows[0].id, title: "Probe deal", sponsorCompany: `_Probe Won ${Date.now()}`, stage: "won", dealValueCents: 250000, brandTags: ["siu"], primaryContactName: "Won Person", primaryContactEmail: "won@example.invalid" });
+  ok("create a won pipeline deal → 200", mkDeal.status === 200, `HTTP ${mkDeal.status}`);
+  const deal: any = mkDeal.status === 200 ? await mkDeal.json() : null;
+  if (deal) {
+    probeDealId = deal.id;
+    const fd = await api(staff, "POST", `/api/admin/sponsorship/partners/from-deal/${deal.id}`, USG, {});
+    const fdj: any = fd.status === 200 ? await fd.json() : {};
+    ok("Make partner from the won deal → created, linked, with a first contract", fd.status === 200 && fdj.created === true && fdj.partner?.dealId === deal.id && fdj.contract?.cashPerYearCents === 250000, `HTTP ${fd.status} created=${fdj.created}`);
+    probePartnerIds.push(fdj.partner?.id);
+    const fd2: any = await (await api(staff, "POST", `/api/admin/sponsorship/partners/from-deal/${deal.id}`, USG, {})).json();
+    ok("…a second press returns the same partner, no duplicate", fd2.created === false && fd2.partner?.id === fdj.partner?.id);
+    const fdOther = await api(cufc, "POST", `/api/admin/sponsorship/partners/from-deal/${deal.id}`, "christchurch-united", {});
+    ok("…and another workspace cannot do it", fdOther.status === 404 || fdOther.status === 403, `HTTP ${fdOther.status}`);
+  }
+
   const arch = await api(staff, "DELETE", `/api/admin/sponsorship/partners/${partner.id}`, USG);
   ok("delete archives (soft)", arch.status === 200, `HTTP ${arch.status}`);
   const after: any = await (await api(staff, "GET", "/api/admin/sponsorship/partners", USG)).json();
@@ -145,10 +175,11 @@ async function main() {
 }
 
 main().catch(e => { console.error("\n  ✗", e.message); fail++; }).finally(async () => {
-  if (probePartnerId) {
-    await pool.query(`DELETE FROM sponsorship_partner_contracts WHERE partner_id = $1`, [probePartnerId]).catch(() => {});
-    await pool.query(`DELETE FROM sponsorship_partners WHERE id = $1`, [probePartnerId]).catch(() => {});
+  for (const id of [probePartnerId, ...probePartnerIds].filter((x): x is number => !!x)) {
+    await pool.query(`DELETE FROM sponsorship_partner_contracts WHERE partner_id = $1`, [id]).catch(() => {});
+    await pool.query(`DELETE FROM sponsorship_partners WHERE id = $1`, [id]).catch(() => {});
   }
+  if (probeDealId) await pool.query(`DELETE FROM sponsorship_deals WHERE id = $1`, [probeDealId]).catch(() => {});
   for (const id of created) {
     await pool.query(`DELETE FROM user_organizations WHERE user_id=$1`, [id]).catch(() => {});
     await pool.query(`DELETE FROM users WHERE id=$1`, [id]).catch(() => {});

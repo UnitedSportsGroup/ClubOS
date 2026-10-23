@@ -270,6 +270,7 @@ export function PartnersView() {
           </label>
           <Button onClick={() => setCreating(true)} className="bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-0 ml-auto" data-testid="partners-new"><Plus className="w-4 h-4 mr-1.5" />New partner</Button>
         </div>
+        <p className="text-[11px] text-white/40" data-testid="partners-hint">New sponsor signed? New partner → Add contract → upload the signed PDF, or press Make partner on the won deal in Prospects → Pipeline.</p>
         <div className="flex flex-wrap gap-1.5">
           {STATUS_FILTERS.map(f => (
             <button key={f.key} onClick={() => setStatusF(f.key)} data-testid={`partners-status-${f.key}`}
@@ -293,6 +294,7 @@ export function PartnersView() {
       {!isLoading && !error && data && rows.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-white/50" data-testid="partners-empty">
           {data.partners.length === 0 ? "No partners yet — add the first one or run the contracts import." : "No partners match these filters."}
+          {data.partners.length === 0 && <div className="text-xs text-white/40 mt-2">New sponsor signed? New partner → Add contract → upload the signed PDF, or press Make partner on the won deal in Prospects → Pipeline.</div>}
         </div>
       )}
 

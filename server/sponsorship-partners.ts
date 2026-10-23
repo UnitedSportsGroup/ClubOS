@@ -18,18 +18,18 @@
 // no workspace header, and Drive's node gate is the same rule as this tab's.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import multer from "multer";
 import { db } from "./db";
 import { storage } from "./storage";
 import { requireAuth, requireTab } from "./auth";
 import {
-  organizations, driveNodes, sponsorshipDeals, sponsorshipDeliverables,
+  organizations, driveNodes, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates,
   sponsorshipPartners, sponsorshipPartnerContracts, sponsorshipPartnerPayments, users as usersTable,
 } from "@shared/schema";
 import { nzTodayIso } from "@shared/dashboard";
 import {
-  SIGNATURE_STATUSES, annualValueCents, contractState, currentContract, isIsoDate, nextPayment,
+  SIGNATURE_STATUSES, annualValueCents, contractState, currentContract, daysBetween, isIsoDate, nextPayment,
   partnerFlags, partnerSince, partnerStatus, paymentState,
 } from "@shared/sponsorship-partners";
 import { storeContractFile } from "./sponsorship-partner-files";
@@ -178,6 +178,120 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       if (String(e?.message ?? "").includes("sponsorship_partners_company_live_idx")) return res.status(409).json({ message: "That company is already a partner here" });
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // ── Deliverables across every partner (the Partners → Deliverables and
+  //    Onboarding views). Static path: registered BEFORE /partners/:id, or
+  //    Express parses "deliverables" as an id. ─────────────────────────────
+  app.get("/api/admin/sponsorship/partners/deliverables", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const today = nzTodayIso();
+      const category = str(req.query.category, 40);
+      const partners = await db.select().from(sponsorshipPartners).where(and(eq(sponsorshipPartners.organizationId, s.orgId), isNull(sponsorshipPartners.archivedAt)));
+      const ids = partners.map(p => p.id);
+      if (!ids.length) return res.json([]);
+      const contracts = await db.select().from(sponsorshipPartnerContracts).where(inArray(sponsorshipPartnerContracts.partnerId, ids));
+      const cids = contracts.map(c => c.id);
+      if (!cids.length) return res.json([]);
+      const rows = await db.select().from(sponsorshipDeliverables)
+        .where(category ? and(inArray(sponsorshipDeliverables.partnerContractId, cids), eq(sponsorshipDeliverables.category, category)) : inArray(sponsorshipDeliverables.partnerContractId, cids))
+        .orderBy(asc(sponsorshipDeliverables.partnerContractId), asc(sponsorshipDeliverables.displayOrder), asc(sponsorshipDeliverables.id));
+      const pMap = new Map(partners.map(p => [p.id, p]));
+      const cMap = new Map(contracts.map(c => [c.id, c]));
+      const currentByPartner = new Map(partners.map(p => [p.id, currentContract(contracts.filter(c => c.partnerId === p.id), today)?.id ?? null]));
+      res.json(rows.map(r => {
+        const c = cMap.get(r.partnerContractId!)!; const p = pMap.get(c.partnerId)!;
+        return { ...r, deal: null, partner: { id: p.id, company: p.company, brandTags: p.brandTags }, contract: { id: c.id, title: c.title, isCurrent: currentByPartner.get(p.id) === c.id, state: contractState(c, today) } };
+      }));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // The org's onboarding template, applied to a partner: one 'onboarding'
+  // deliverable per active template item on the CURRENT contract, skipping
+  // titles the partner already has on any contract. A partner with no
+  // contract row (Go Media) gets a placeholder contract so the checklist has
+  // somewhere to live — signature status says there is no document.
+  async function applyOnboardingToPartner(s: Scope, partnerId: number) {
+    const today = nzTodayIso();
+    const contracts = await db.select().from(sponsorshipPartnerContracts).where(eq(sponsorshipPartnerContracts.partnerId, partnerId));
+    let cur = currentContract(contracts, today);
+    if (!cur) {
+      const [made] = await db.insert(sponsorshipPartnerContracts).values({ partnerId, title: "Partnership (no document on file)", signatureStatus: "unsigned", flags: ["Created by the onboarding checklist — no agreement on file. Attach the signed document when it exists."], createdBy: s.userId }).returning();
+      cur = made;
+    }
+    const cids = contracts.map(c => c.id).concat(cur.id);
+    const have = new Set((await db.select({ title: sponsorshipDeliverables.title }).from(sponsorshipDeliverables).where(and(inArray(sponsorshipDeliverables.partnerContractId, cids), eq(sponsorshipDeliverables.category, "onboarding")))).map(x => x.title));
+    const templates = await db.select().from(sponsorshipOnboardingTemplates)
+      .where(and(eq(sponsorshipOnboardingTemplates.organizationId, s.orgId), eq(sponsorshipOnboardingTemplates.isActive, true)))
+      .orderBy(asc(sponsorshipOnboardingTemplates.displayOrder));
+    const toInsert = templates.filter(t => !have.has(t.title));
+    if (toInsert.length) {
+      await db.insert(sponsorshipDeliverables).values(toInsert.map(t => ({
+        partnerContractId: cur!.id, title: t.title, type: "onboarding", category: "onboarding", triggerType: "once" as const,
+        status: "pending" as const, ownerId: t.defaultOwnerId, notes: t.description, displayOrder: t.displayOrder, createdBy: s.userId,
+      })) as any);
+    }
+    return { contractId: cur.id, added: toInsert.length, alreadyHad: have.size };
+  }
+
+  app.post("/api/admin/sponsorship/partners/apply-onboarding-all", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const partners = await db.select({ id: sponsorshipPartners.id, company: sponsorshipPartners.company }).from(sponsorshipPartners).where(and(eq(sponsorshipPartners.organizationId, s.orgId), isNull(sponsorshipPartners.archivedAt)));
+      const out = [] as any[];
+      for (const p of partners) out.push({ partnerId: p.id, company: p.company, ...(await applyOnboardingToPartner(s, p.id)) });
+      res.json({ ok: true, partners: out.length, added: out.reduce((n, x) => n + x.added, 0), detail: out });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // A won deal becomes a partner in one click: the company, the person, the
+  // brands and the deal's own dates and value become the partner and its first
+  // contract (signature "not checked" until somebody attaches the signed file).
+  // Idempotent: a partner already linked to the deal, or a live partner with the
+  // same company name, is returned (and linked) rather than duplicated.
+  app.post("/api/admin/sponsorship/partners/from-deal/:dealId", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const dealId = Number(req.params.dealId);
+      const [deal] = await db.select().from(sponsorshipDeals).where(and(eq(sponsorshipDeals.id, dealId), eq(sponsorshipDeals.organizationId, s.orgId)));
+      if (!deal) return res.status(404).json({ message: "Not found" });
+      const [linked] = await db.select().from(sponsorshipPartners).where(and(eq(sponsorshipPartners.dealId, dealId), isNull(sponsorshipPartners.archivedAt)));
+      if (linked) return res.json({ partner: linked, created: false, linked: true });
+      const [same] = await db.select().from(sponsorshipPartners).where(and(eq(sponsorshipPartners.organizationId, s.orgId), isNull(sponsorshipPartners.archivedAt), sql`lower(${sponsorshipPartners.company}) = lower(${deal.sponsorCompany})`));
+      if (same) {
+        const [upd] = await db.update(sponsorshipPartners).set({ dealId, updatedAt: new Date() }).where(eq(sponsorshipPartners.id, same.id)).returning();
+        return res.json({ partner: upd, created: false, linked: true });
+      }
+      const [partner] = await db.insert(sponsorshipPartners).values({
+        organizationId: s.orgId, company: deal.sponsorCompany, brandTags: deal.brandTags ?? [],
+        primaryContactName: deal.primaryContactName, primaryContactEmail: deal.primaryContactEmail, primaryContactPhone: deal.primaryContactPhone,
+        dealId, ownerId: deal.ownerId, createdBy: s.userId, notes: `Created from pipeline deal "${deal.title}" on ${nzTodayIso()}.`,
+      }).returning();
+      const termMonths = deal.termMonths ?? (deal.startDate && deal.endDate ? Math.max(1, Math.round(daysBetween(deal.startDate, deal.endDate) / 30.4375)) : null);
+      const [contract] = await db.insert(sponsorshipPartnerContracts).values({
+        partnerId: partner.id, title: deal.title || deal.assetCategory || "Sponsorship agreement",
+        startDate: deal.startDate ?? null, endDate: deal.endDate ?? null, termMonths,
+        cashPerYearCents: deal.dealValueCents || null, contraPerYearCents: deal.contraValueCents || null,
+        exclusivity: deal.exclusivity, signatureStatus: "not_checked",
+        flags: ["Created from the pipeline deal — attach the signed document and check the signature, term and money against it."],
+        createdBy: s.userId,
+      }).returning();
+      res.json({ partner, contract, created: true, linked: true });
+    } catch (e: any) {
+      if (String(e?.message ?? "").includes("sponsorship_partners_company_live_idx")) return res.status(409).json({ message: "That company is already a partner here" });
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/sponsorship/partners/:id/apply-onboarding", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const p = await partnerInScope(s, id);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true, ...(await applyOnboardingToPartner(s, id)) });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
   // ── One partner, in full ─────────────────────────────────────────────────
