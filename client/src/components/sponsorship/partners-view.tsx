@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { TickButton, DoneStamp, StatusMenu, ProofControls, isDone } from "@/components/sponsorship/deliverable-controls";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   BadgeCheck, Plus, Search, FileText, Download, ExternalLink, Upload, Pencil, Trash2, Mail, Phone,
@@ -56,6 +57,7 @@ interface Payment {
 interface Deliverable {
   id: number; title: string; category: string; triggerType: string; status: string; scheduledDate: string | null;
   ownerId: number | null; proofUrl: string | null; notes: string | null; entitlementQty?: number | null;
+  deliveredAt?: string | null; proof?: { url: string; name: string; isFile: boolean } | null;
 }
 interface Contract {
   id: number; title: string | null; clubEntity: string | null; signedOn: string | null; startDate: string | null; endDate: string | null;
@@ -131,7 +133,7 @@ const SORTS: { key: PartnerSortKey; label: string }[] = [
 async function readError(r: Response, fallback: string): Promise<string> {
   try { const j = await r.json(); return j?.message || fallback; } catch { return fallback; }
 }
-const invalidateAll = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners"] });
+const invalidateAll = () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners"] }); queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners/deliverables"] }); };
 
 // ── Small pieces ─────────────────────────────────────────────────────────────
 function StatusPill({ status }: { status: PartnerStatus }) {
@@ -805,11 +807,6 @@ function PaymentDialog({ contractId, payment, mode, today, onClose }: { contract
 }
 
 // ── Deliverables (promised) and ideas ────────────────────────────────────────
-const DELIV_STATUSES = [
-  { key: "pending", label: "Pending" }, { key: "in_progress", label: "In progress" },
-  { key: "delivered", label: "Delivered" }, { key: "waived", label: "Waived" },
-];
-
 function Deliverables({ contract, people, kind }: { contract: Contract; people: { id: number; name: string }[]; kind: "promised" | "idea" }) {
   const { toast } = useToast();
   const isIdea = kind === "idea";
@@ -846,24 +843,23 @@ function Deliverables({ contract, people, kind }: { contract: Contract; people: 
       {items.length === 0 && <div className="text-xs text-white/40">{isIdea ? "No ideas yet." : "Nothing recorded yet."}</div>}
       <div className="space-y-1.5">
         {items.map(d => (
-          <div key={d.id} className="rounded-lg border border-white/[0.06] p-2 space-y-1.5 text-xs" data-testid={`deliverable-${d.id}`}>
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1 text-white/90 font-medium break-words">{d.title}{!isIdea && d.category === "activation" && <span className="ml-1.5 text-[10px] text-white/40">activation</span>}</div>
+          <div key={d.id} className={`rounded-lg border border-white/[0.06] p-2 space-y-1.5 text-xs ${!isIdea && isDone(d.status) ? "opacity-70" : ""}`} data-testid={`deliverable-${d.id}`}>
+            <div className="flex items-start gap-1">
+              {!isIdea && <TickButton id={d.id} status={d.status} onToggle={() => patch.mutate({ id: d.id, body: { status: isDone(d.status) ? "pending" : "delivered" } })} />}
+              <div className={`min-w-0 flex-1 font-medium break-words self-center ${!isIdea && isDone(d.status) ? "line-through text-white/40" : "text-white/90"}`}>{d.title}{!isIdea && d.category === "activation" && <span className="ml-1.5 text-[10px] text-white/40">activation</span>}</div>
               <Button size="icon" variant="ghost" className="h-11 w-11 md:h-8 md:w-8 flex-shrink-0" onClick={() => del.mutate(d.id)} title="Remove"><Trash2 className="w-3.5 h-3.5" /></Button>
             </div>
             {d.notes && <div className="text-white/50 break-words">{d.notes}</div>}
             {!isIdea && (
               <div className="flex flex-wrap items-center gap-2">
-                <Select value={d.status === "overdue" ? "pending" : d.status} onValueChange={v => patch.mutate({ id: d.id, body: { status: v } })}>
-                  <SelectTrigger className="h-11 md:h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{DELIV_STATUSES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}</SelectContent>
-                </Select>
+                <DoneStamp status={d.status} deliveredAt={d.deliveredAt} onUndo={() => patch.mutate({ id: d.id, body: { status: "pending" } })} />
+                <StatusMenu id={d.id} status={d.status} onSet={st => patch.mutate({ id: d.id, body: { status: st } })} />
                 <div className="w-[150px]"><DatePickerInput value={d.scheduledDate ?? ""} placeholder="Scheduled" onChange={e => patch.mutate({ id: d.id, body: { scheduledDate: e.target.value || null } })} fromYear={2015} toYear={2045} /></div>
                 <Select value={d.ownerId ? String(d.ownerId) : "none"} onValueChange={v => patch.mutate({ id: d.id, body: { ownerId: v === "none" ? null : Number(v) } })}>
                   <SelectTrigger className="h-11 md:h-8 w-[140px] text-xs"><SelectValue placeholder="Owner" /></SelectTrigger>
                   <SelectContent><SelectItem value="none">No owner</SelectItem>{people.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}</SelectContent>
                 </Select>
-                <ProofLink d={d} onSave={url => patch.mutate({ id: d.id, body: { proofUrl: url || null } })} />
+                <ProofControls id={d.id} proof={d.proof} proofUrl={d.proofUrl} />
               </div>
             )}
           </div>
@@ -893,24 +889,5 @@ function Deliverables({ contract, people, kind }: { contract: Contract; people: 
         </Button>
       )}
     </div>
-  );
-}
-
-function ProofLink({ d, onSave }: { d: Deliverable; onSave: (url: string) => void }) {
-  const [edit, setEdit] = useState(false);
-  const [v, setV] = useState(d.proofUrl ?? "");
-  if (edit) {
-    return (
-      <div className="flex items-center gap-1">
-        <Input value={v} onChange={e => setV(e.target.value)} placeholder="Proof link" className="h-11 md:h-8 w-[160px] text-xs" />
-        <Button size="sm" className="min-h-[44px] md:min-h-0" onClick={() => { onSave(v.trim()); setEdit(false); }}>Save</Button>
-      </div>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      {d.proofUrl && <a href={d.proofUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" />Proof</a>}
-      <button className="text-white/50 hover:text-white underline min-h-[44px] md:min-h-0 px-1" onClick={() => setEdit(true)}>{d.proofUrl ? "Edit" : "Add proof link"}</button>
-    </span>
   );
 }

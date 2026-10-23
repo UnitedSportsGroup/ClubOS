@@ -25,6 +25,7 @@ const created: number[] = [];
 let probePartnerId: number | null = null;
 const probePartnerIds: number[] = [];
 let probeDealId: number | null = null;
+const probeNodeIds: number[] = [];
 
 async function account(tag: string, workspace: string, role: string, tabs: string[] | null): Promise<string> {
   const email = `_partners_${tag}_${Date.now()}@usg.co.nz`;
@@ -153,6 +154,23 @@ async function main() {
     ok("…and another workspace cannot do it", fdOther.status === 404 || fdOther.status === 403, `HTTP ${fdOther.status}`);
   }
 
+  // ── proof of a deliverable: a real file, as staff; refused for another workspace ──
+  const pdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\nxref\n0 4\n0000000000 65535 f \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n0\n%%EOF");
+  const form = new FormData(); form.append("file", new Blob([pdf], { type: "application/pdf" }), "probe-proof.pdf");
+  const up = await fetch(`${BASE}/api/admin/sponsorship/partners/deliverables/${deliverable.id}/proof`, { method: "POST", headers: { cookie: staff, "X-Workspace-Slug": USG }, body: form });
+  const upj: any = up.status === 200 ? await up.json() : {};
+  ok("attach proof (multipart) → 200 with a Drive file", up.status === 200 && upj.deliverable?.proof?.isFile === true && /\/api\/admin\/drive\/file\/\d+\/open/.test(upj.deliverable?.proof?.url ?? ""), `HTTP ${up.status} ${upj.deliverable?.proof?.name ?? ""}`);
+  if (upj.node?.id) probeNodeIds.push(upj.node.id);
+  const feedP: any[] = await (await api(staff, "GET", "/api/admin/sponsorship/partners/deliverables?category=contract", USG)).json();
+  ok("the feed names the proof file", feedP.find(r => r.id === deliverable.id)?.proof?.name?.includes("probe-proof"), feedP.find(r => r.id === deliverable.id)?.proof?.name ?? "none");
+  const openP = await api(staff, "GET", upj.deliverable?.proof?.url ?? "/nope", null);
+  ok("…and the proof opens for sponsorship staff (302 to a signed URL)", openP.status === 302, `HTTP ${openP.status}`);
+  const form2 = new FormData(); form2.append("file", new Blob([pdf], { type: "application/pdf" }), "x.pdf");
+  const upOther = await fetch(`${BASE}/api/admin/sponsorship/partners/deliverables/${deliverable.id}/proof`, { method: "POST", headers: { cookie: cufc, "X-Workspace-Slug": "christchurch-united" }, body: form2 });
+  ok("…and another workspace cannot attach proof", upOther.status === 404 || upOther.status === 403, `HTTP ${upOther.status}`);
+  const clear = await api(staff, "PATCH", `/api/admin/sponsorship/deliverables/${deliverable.id}`, USG, { proofUrl: "" });
+  ok("removing proof → 200", clear.status === 200, `HTTP ${clear.status}`);
+
   const arch = await api(staff, "DELETE", `/api/admin/sponsorship/partners/${partner.id}`, USG);
   ok("delete archives (soft)", arch.status === 200, `HTTP ${arch.status}`);
   const after: any = await (await api(staff, "GET", "/api/admin/sponsorship/partners", USG)).json();
@@ -180,6 +198,8 @@ main().catch(e => { console.error("\n  ✗", e.message); fail++; }).finally(asyn
     await pool.query(`DELETE FROM sponsorship_partners WHERE id = $1`, [id]).catch(() => {});
   }
   if (probeDealId) await pool.query(`DELETE FROM sponsorship_deals WHERE id = $1`, [probeDealId]).catch(() => {});
+  // the probe's proof file: trash the Drive row (soft delete, the house rule) so it never shows in the partner's folder
+  for (const id of probeNodeIds) await pool.query(`UPDATE drive_nodes SET trashed_at = now(), name = name || ' (probe)' WHERE id = $1`, [id]).catch(() => {});
   for (const id of created) {
     await pool.query(`DELETE FROM user_organizations WHERE user_id=$1`, [id]).catch(() => {});
     await pool.query(`DELETE FROM users WHERE id=$1`, [id]).catch(() => {});

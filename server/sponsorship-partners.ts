@@ -93,6 +93,22 @@ function nodeView(n: any | null) {
   };
 }
 
+/** A deliverable's proof is either a pasted link or a file we stored in Club
+ *  Drive (proof_url = /api/admin/drive/file/<id>/open). Give the client the
+ *  file's name so the chip can say what it is. */
+async function withProof<T extends { proofUrl: string | null }>(rows: T[]): Promise<(T & { proof: { url: string; name: string; isFile: boolean } | null })[]> {
+  const ids = rows.map(r => /\/api\/admin\/drive\/file\/(\d+)\//.exec(r.proofUrl ?? "")?.[1]).filter((x): x is string => !!x).map(Number);
+  const nodes = ids.length ? ((await db.select({ id: driveNodes.id, name: driveNodes.name }).from(driveNodes).where(inArray(driveNodes.id, ids))) as any[]) : [];
+  const names = new Map(nodes.map(n => [n.id, n.name]));
+  return rows.map(r => {
+    if (!r.proofUrl) return { ...r, proof: null };
+    const id = /\/api\/admin\/drive\/file\/(\d+)\//.exec(r.proofUrl)?.[1];
+    if (id) return { ...r, proof: { url: r.proofUrl, name: names.get(Number(id)) ?? "Proof file", isFile: true } };
+    let host = r.proofUrl; try { host = new URL(r.proofUrl).hostname; } catch { /* keep as typed */ }
+    return { ...r, proof: { url: r.proofUrl, name: host, isFile: false } };
+  });
+}
+
 export function registerSponsorshipPartnerRoutes(app: Express) {
   const gate = [requireAuth, requireTab("sponsorship")] as const;
 
@@ -200,12 +216,45 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       const pMap = new Map(partners.map(p => [p.id, p]));
       const cMap = new Map(contracts.map(c => [c.id, c]));
       const currentByPartner = new Map(partners.map(p => [p.id, currentContract(contracts.filter(c => c.partnerId === p.id), today)?.id ?? null]));
-      res.json(rows.map(r => {
+      const withP = await withProof(rows);
+      res.json(withP.map(r => {
         const c = cMap.get(r.partnerContractId!)!; const p = pMap.get(c.partnerId)!;
         return { ...r, deal: null, partner: { id: p.id, company: p.company, brandTags: p.brandTags }, contract: { id: c.id, title: c.title, isCurrent: currentByPartner.get(p.id) === c.id, state: contractState(c, today), signatureStatus: c.signatureStatus } };
       }));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
+
+  // Proof that a promise was kept: a photo, a PDF, a clip. Into Club Drive
+  // beside the partner's contract (same gated folder), and the deliverable's
+  // proof_url points at Drive's own open route. Status is NOT changed here —
+  // ticking done is the person's call, the proof is the evidence for it.
+  app.post(
+    "/api/admin/sponsorship/partners/deliverables/:id/proof",
+    ...gate,
+    (req, res, next) => upload.single("file")(req, res, (err: any) => (err ? res.status(400).json({ message: err.message ?? "Upload failed" }) : next())),
+    async (req, res) => {
+      try {
+        const s = await scope(req, res); if (!s) return;
+        const id = Number(req.params.id);
+        const [d] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
+        if (!d || !d.partnerContractId) return res.status(404).json({ message: "Not found" });
+        const row = await contractInScope(s, d.partnerContractId);
+        if (!row) return res.status(404).json({ message: "Not found" });
+        const file = (req as any).file as { buffer: Buffer; mimetype: string; originalname: string } | undefined;
+        if (!file) return res.status(400).json({ message: "No file" });
+        const node = await storeContractFile({
+          buffer: file.buffer, name: `Proof — ${(d.title || "deliverable").slice(0, 80)} — ${file.originalname || "file"}`.slice(0, 240),
+          contentType: file.mimetype, company: row.p.company, userId: s.userId,
+          description: `Proof for "${d.title}" (${row.p.company})`,
+        });
+        const [updated] = await db.update(sponsorshipDeliverables)
+          .set({ proofUrl: `/api/admin/drive/file/${node.id}/open`, updatedAt: new Date() })
+          .where(eq(sponsorshipDeliverables.id, id)).returning();
+        const [withP] = await withProof([updated]);
+        res.json({ deliverable: withP, node: nodeView(node) });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    },
+  );
 
   // The org's onboarding template, applied to a partner: one 'onboarding'
   // deliverable per active template item on the CURRENT contract, skipping
@@ -306,7 +355,7 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       const contracts = await db.select().from(sponsorshipPartnerContracts).where(eq(sponsorshipPartnerContracts.partnerId, id)).orderBy(desc(sponsorshipPartnerContracts.startDate), desc(sponsorshipPartnerContracts.id));
       const cids = contracts.map(c => c.id);
       const payments = cids.length ? await db.select().from(sponsorshipPartnerPayments).where(inArray(sponsorshipPartnerPayments.contractId, cids)).orderBy(asc(sponsorshipPartnerPayments.dueOn), asc(sponsorshipPartnerPayments.id)) : [];
-      const deliverables = cids.length ? await db.select().from(sponsorshipDeliverables).where(inArray(sponsorshipDeliverables.partnerContractId, cids)).orderBy(asc(sponsorshipDeliverables.displayOrder), asc(sponsorshipDeliverables.id)) : [];
+      const deliverables = cids.length ? await withProof(await db.select().from(sponsorshipDeliverables).where(inArray(sponsorshipDeliverables.partnerContractId, cids)).orderBy(asc(sponsorshipDeliverables.displayOrder), asc(sponsorshipDeliverables.id))) : [];
       const nodeIds = contracts.map(c => c.contractNodeId).filter((x): x is number => !!x);
       const nodes = nodeIds.length ? ((await db.select().from(driveNodes).where(inArray(driveNodes.id, nodeIds))) as any[]) : [];
       const nodeMap = new Map(nodes.map(n => [n.id, n]));

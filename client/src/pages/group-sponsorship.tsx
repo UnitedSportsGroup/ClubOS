@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { BreweriesView } from "@/components/sponsorship/breweries-view";
 import { PartnersView } from "@/components/sponsorship/partners-view";
+import { TickButton, DoneStamp, StatusMenu, ProofControls, isDone, type ProofView } from "@/components/sponsorship/deliverable-controls";
+import { fmtDateNz } from "@shared/sponsorship-partners";
 
 // Stages mirror Daniel's existing Pipedrive flow exactly so muscle memory carries over.
 const STAGES = [
@@ -1085,8 +1087,16 @@ function invalidateDeliverables() {
   queryClient.invalidateQueries({ queryKey: ["/api/admin/sponsorship/partners"] });
 }
 
+function matchesStatus(r: { status: string; scheduledDate: string | null }, filter: "all" | "open" | "overdue" | "delivered", today: Date): boolean {
+  const done = isDone(r.status);
+  if (filter === "all") return true;
+  if (filter === "delivered") return done;
+  if (filter === "overdue") return !done && !!r.scheduledDate && new Date(r.scheduledDate + "T00:00:00") < today;
+  return !done;
+}
+
 function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { orgId: number; team: TeamMember[]; category: string; source?: "deals" | "partners" }) {
-  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "overdue" | "delivered">("open");
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "overdue" | "delivered">(source === "partners" ? "all" : "open");
   const { data: dealRows = [], isLoading: dealsLoading } = useQuery<DeliverableRow[]>({
     queryKey: ["/api/admin/sponsorship/deliverables-all", orgId, category],
     queryFn: async () => {
@@ -1108,12 +1118,12 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
     enabled: source === "partners",
   });
   const [showAll, setShowAll] = useState(false);
-  // What we PROMISED means a signed document whose term has not ended. An
-  // expired or unsigned contract's promises are history or a draft; the switch
-  // shows them.
+  // Every non-archived partner whose current contract has not expired is shown,
+  // signed or not (an unsigned partner still needs delivering for). An expired
+  // contract's promises are history; "Include expired" shows them.
   const rows = useMemo(() => {
     if (source !== "partners") return dealRows;
-    return showAll ? partnerRows : partnerRows.filter(r => r.contract?.state !== "expired" && r.contract?.signatureStatus === "both_parties");
+    return showAll ? partnerRows : partnerRows.filter(r => r.contract?.state !== "expired");
   }, [source, dealRows, partnerRows, showAll]);
   const hiddenCount = source === "partners" ? partnerRows.length - rows.length : 0;
   const isLoading = source === "partners" ? partnersLoading : dealsLoading;
@@ -1132,19 +1142,7 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
   });
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const filtered = useMemo(() => {
-    return rows.filter(r => {
-      if (statusFilter === "all") return true;
-      if (statusFilter === "delivered") return r.status === "delivered" || r.status === "waived";
-      if (statusFilter === "overdue") {
-        if (r.status === "delivered" || r.status === "waived") return false;
-        if (!r.scheduledDate) return false;
-        return new Date(r.scheduledDate + "T00:00:00") < today;
-      }
-      // open
-      return r.status !== "delivered" && r.status !== "waived";
-    });
-  }, [rows, statusFilter]);
+  const filtered = useMemo(() => rows.filter(r => matchesStatus(r, statusFilter, today)), [rows, statusFilter]);
 
   const counts = useMemo(() => {
     const open = rows.filter(r => r.status !== "delivered" && r.status !== "waived").length;
@@ -1177,15 +1175,15 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
           );
         })}
         {source === "partners" && (
-          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0 ml-auto" data-testid="deliverables-show-all">
-            <Switch checked={showAll} onCheckedChange={setShowAll} /> Include expired and unsigned{hiddenCount > 0 && !showAll ? ` (${hiddenCount} hidden)` : ""}
+          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0 ml-auto" data-testid="deliverables-show-expired">
+            <Switch checked={showAll} onCheckedChange={setShowAll} /> Include expired{hiddenCount > 0 && !showAll ? ` (${hiddenCount} hidden)` : ""}
           </label>
         )}
       </div>
 
       {isLoading ? (
         <div className="text-sm text-white/30 py-12 text-center">Loading…</div>
-      ) : filtered.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
           <ListChecks className="w-10 h-10 text-white/15 mx-auto mb-3" />
           <p className="text-sm text-white/40 mb-1">
@@ -1199,7 +1197,8 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
         </div>
       ) : (
         <DeliverablesGroupedBySponsor
-          rows={filtered}
+          rows={rows}
+          statusFilter={statusFilter}
           source={source}
           team={team}
           today={today}
@@ -1215,9 +1214,10 @@ function CrossDeliverablesView({ orgId, team, category, source = "deals" }: { or
 // like the Onboarding tab — one row per sponsor with a colour-coded
 // completion %. Click a row to expand and edit the deliverables underneath.
 function DeliverablesGroupedBySponsor({
-  rows, team, today, onUpdate, onDelete, source = "deals",
+  rows, statusFilter = "all", team, today, onUpdate, onDelete, source = "deals",
 }: {
   rows: DeliverableRow[];
+  statusFilter?: "all" | "open" | "overdue" | "delivered";
   source?: "deals" | "partners";
   team: TeamMember[];
   today: Date;
@@ -1251,6 +1251,9 @@ function DeliverablesGroupedBySponsor({
         if (r.contract?.isCurrent) {
           (g.deal as any)._current = true;
           g.deal!.title = r.contract.title;
+          (g.deal as any)._unsigned = r.contract.signatureStatus !== "both_parties";
+        } else if ((g.deal as any)._unsigned === undefined) {
+          (g.deal as any)._unsigned = r.contract?.signatureStatus !== undefined && r.contract.signatureStatus !== "both_parties";
         }
         continue;
       }
@@ -1287,6 +1290,9 @@ function DeliverablesGroupedBySponsor({
         <tbody>
           {groups.map(g => {
             if (!g.deal) return null;
+            // Header figures always come from the group's FULL set; a chip only trims what an expanded group lists.
+            const visibleItems = g.items.filter(i => matchesStatus(i, statusFilter, today));
+            if (visibleItems.length === 0) return null;
             const total = g.items.length;
             const delivered = g.items.filter(i => i.status === "delivered" || i.status === "waived").length;
             const overdueCount = g.items.filter(i => {
@@ -1305,7 +1311,8 @@ function DeliverablesGroupedBySponsor({
               <FragmentRows
                 key={g.deal.id}
                 deal={g.deal}
-                items={g.items}
+                items={visibleItems}
+                unsigned={!!(g.deal as any)._unsigned}
                 team={team}
                 today={today}
                 isExpanded={isExpanded}
@@ -1335,7 +1342,7 @@ function DeliverablesGroupedBySponsor({
 }
 
 function FragmentRows({
-  deal, items, team, today, isExpanded, isAdding, stage, partnerMode, isCurrent, pct, pctColor, pctBg,
+  deal, items, unsigned, team, today, isExpanded, isAdding, stage, partnerMode, isCurrent, pct, pctColor, pctBg,
   delivered, total, overdueCount, onToggle, onUpdate, onDelete,
   onAddRequested, onAddCancelled, onAddSubmit,
 }: any) {
@@ -1360,6 +1367,9 @@ function FragmentRows({
           )}
           {partnerMode && isCurrent && (
             <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-300" data-testid="chip-current">Current</span>
+          )}
+          {partnerMode && unsigned && (
+            <span className="inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded bg-white/[0.06] text-white/50 ml-1" data-testid="chip-unsigned">Not signed</span>
           )}
         </td>
         <td className="px-3 py-2.5 border-b border-white/[0.04]">
@@ -1395,6 +1405,7 @@ function FragmentRows({
                   item={d}
                   team={team}
                   today={today}
+                  partnerMode={partnerMode}
                   onUpdate={(patch) => onUpdate(d.id, patch)}
                   onDelete={onDelete ? () => onDelete(d.id) : undefined}
                 />
@@ -1426,8 +1437,9 @@ function ChevronRightInline() {
 
 // Fully editable deliverable row used inside the grouped Deliverables tab.
 // Click anywhere to expand; status icon click cycles status without expanding.
-function DeliverableEditableRow({ item, team, today, onUpdate, onDelete }: {
-  item: SponsorshipDeliverable;
+function DeliverableEditableRow({ item, team, today, onUpdate, onDelete, partnerMode = false }: {
+  item: SponsorshipDeliverable & { proof?: ProofView };
+  partnerMode?: boolean;
   team: TeamMember[];
   today: Date;
   onUpdate: (patch: any) => void;
@@ -1450,18 +1462,22 @@ function DeliverableEditableRow({ item, team, today, onUpdate, onDelete }: {
     onUpdate({ status: order[(i + 1) % order.length] });
   };
 
+  const done = isDone(item.status);
+  const setStatus = (status: string) => onUpdate({ status });
+
   return (
-    <div className="rounded-md border border-white/[0.04] bg-white/[0.02]">
-      <div className="flex items-center gap-2 px-2 py-1.5">
-        <button
+    <div className={`rounded-md border border-white/[0.04] bg-white/[0.02] ${partnerMode && done ? "opacity-70" : ""}`} data-testid={partnerMode ? `deliverable-row-${item.id}` : undefined}>
+      <div className="flex items-center gap-1 sm:gap-2 px-1 sm:px-2 py-1">
+        {partnerMode && <TickButton id={item.id} status={item.status} onToggle={() => setStatus(done ? "pending" : "delivered")} />}
+        {!partnerMode && <button
           onClick={cycleStatus}
           className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition hover:bg-white/[0.06]"
           style={{ color: cfg.color }}
           title={cfg.label}
         >
           <StatusIcon className="w-4 h-4" />
-        </button>
-        <button onClick={() => setExpanded(v => !v)} className="flex-1 text-left min-w-0">
+        </button>}
+        <button onClick={() => setExpanded(v => !v)} className="flex-1 text-left min-w-0 py-1">
           <div className={`text-xs font-medium truncate ${item.status === "delivered" || item.status === "waived" ? "line-through text-white/40" : "text-white"}`}>
             {item.title}
           </div>
@@ -1471,18 +1487,26 @@ function DeliverableEditableRow({ item, team, today, onUpdate, onDelete }: {
               <span>· {item.usedQty || 0}/{item.entitlementQty}</span>
             )}
             {sched && (
-              <span className={isOverdue ? "text-red-400" : ""}>· {sched.toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "2-digit" })}</span>
+              <span className={isOverdue ? "text-red-400" : ""}>· {fmtDateNz(item.scheduledDate)}</span>
             )}
             {owner && <span>· {owner.first_name}</span>}
-            {item.proofUrl && <LinkIcon className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+            {item.proofUrl && !partnerMode && <LinkIcon className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
           </div>
         </button>
+        {partnerMode && <DoneStamp status={item.status} deliveredAt={item.deliveredAt} onUndo={() => setStatus("pending")} />}
+        {partnerMode && <StatusMenu id={item.id} status={item.status} onSet={setStatus} />}
         {onDelete && (
           <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete deliverable "${item.title}"?`)) onDelete(); }} className="w-5 h-5 rounded text-white/20 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" title="Delete">
             <X className="w-3 h-3" />
           </button>
         )}
       </div>
+
+      {partnerMode && (
+        <div className="px-2 sm:pl-11 pb-1.5 -mt-1">
+          <ProofControls id={item.id} proof={item.proof} proofUrl={item.proofUrl} />
+        </div>
+      )}
 
       {expanded && (
         <div className="px-2 pb-2 pt-1 border-t border-white/[0.04] space-y-2">
@@ -1675,7 +1699,7 @@ function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId:
       // and a document both sides signed. The switch shows the rest.
       return (partnerList?.partners ?? [])
         .filter(p => !p.archivedAt)
-        .filter(p => showAllPartners || (p.status !== "expired" && p.status !== "no_contract" && p.current?.signatureStatus === "both_parties"))
+        .filter(p => showAllPartners || (p.status !== "expired" && p.status !== "no_contract"))
         .map(p => ({ id: p.id, company: p.company, sub: "", brandTags: p.brandTags ?? [] }));
     }
     return wonDeals.map(d => ({ id: d.id, company: d.sponsorCompany, sub: d.title, brandTags: [] as string[] }));
@@ -1715,8 +1739,8 @@ function OnboardingMatrixView({ orgId, team, deals, source = "deals" }: { orgId:
           {matrixRows.length} {isPartners ? "partner" : "signed sponsor"}{matrixRows.length === 1 ? "" : "s"} · {templates.length} onboarding step{templates.length === 1 ? "" : "s"} · click any cell to advance status
         </div>
         {isPartners && (
-          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0" data-testid="onboarding-show-all">
-            <Switch checked={showAllPartners} onCheckedChange={setShowAllPartners} /> Include expired and unsigned
+          <label className="flex items-center gap-2 text-[11px] text-white/60 min-h-[44px] md:min-h-0" data-testid="onboarding-show-expired">
+            <Switch checked={showAllPartners} onCheckedChange={setShowAllPartners} /> Include expired
           </label>
         )}
         {isPartners && (
