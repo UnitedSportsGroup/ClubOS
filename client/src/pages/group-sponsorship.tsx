@@ -1353,9 +1353,10 @@ function FragmentRows({
           {isExpanded ? <ChevronDownInline /> : <ChevronRightInline />}
         </td>
         <td className="px-3 py-2.5 border-b border-white/[0.04]">
-          <div className="font-semibold text-white truncate">{deal.sponsorCompany}</div>
+          {/* A block with its own max-width: `truncate` alone cannot shorten a cell in an auto-layout table, and a long contract title pushed DONE and PROGRESS off the right edge. */}
+          <div className="font-semibold text-white truncate max-w-[440px] xl:max-w-[560px]">{deal.sponsorCompany}</div>
           {deal.title && deal.title !== deal.sponsorCompany && (
-            <div className="text-[10px] text-white/40 truncate">{deal.title}</div>
+            <div className="text-[10px] text-white/40 truncate max-w-[440px] xl:max-w-[560px]">{deal.title}</div>
           )}
         </td>
         <td className="px-3 py-2.5 border-b border-white/[0.04]">

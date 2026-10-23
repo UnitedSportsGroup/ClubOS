@@ -142,6 +142,34 @@ async function main() {
       ok(`${tab} → ${item}: hash ${hash}`, String(r.hash).startsWith(hash), r.hash);
       ok(`${tab} → ${item}: view renders its own content`, r.matches && r.len > 200, `${r.len} chars`);
       ok(`${tab} → ${item}: no horizontal overflow`, r.docWidth <= r.winWidth + 1 && r.wide.length === 0, r.wide.join(" | "));
+      if (item === "deliverables") {
+        // A ticked promise must STAY: expand the first sponsor and look for the tick, the proof control and the Include expired switch.
+        const sw = await page.$('[data-testid="deliverables-show-expired"]');
+        ok("deliverables: the switch is 'Include expired' (unsigned partners show by default)", !!sw);
+        // A sponsor group is a <tr onClick>; open Happy Helper's (the one Daniel was working in).
+        const opened = await page.evaluate(`(function(){
+          var rows = document.querySelectorAll('table tbody tr');
+          for (var i = 0; i < rows.length; i++) { if (/happy helper/i.test(rows[i].innerText)) { rows[i].click(); return true; } }
+          if (rows[0]) { rows[0].click(); return true; }
+          return false;
+        })()`);
+        ok("deliverables: a sponsor group can be opened", !!opened);
+        await sleep(900);
+        const d: any = await page.evaluate(`(function(){
+          var ticks = document.querySelectorAll('[data-testid^="deliverable-tick-"]').length;
+          var attach = document.querySelectorAll('[data-testid^="deliverable-attach-"], [data-testid^="deliverable-proof-"]').length;
+          var done = Array.prototype.filter.call(document.querySelectorAll('[data-testid^="deliverable-row-"]'), function(e){ return /line-through/.test(getComputedStyle(e.querySelector('.line-through') || e).textDecorationLine) || !!e.querySelector('.line-through'); }).length;
+          var small = []; var els = document.querySelectorAll('[data-testid^="deliverable-tick-"]');
+          for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); if (r.height > 0 && r.height < ${mobile ? 44 : 24}) small.push(Math.round(r.height)); }
+          var happyRow = Array.prototype.find.call(document.querySelectorAll('table tbody tr'), function(tr){ return /happy helper/i.test(tr.innerText || ''); });
+          return { ticks: ticks, attach: attach, done: done, small: small, happyText: happyRow ? happyRow.innerText.replace(/\s+/g, ' ').slice(0, 200) : null };
+        })()`);
+        ok("deliverables: an expanded sponsor shows tick controls", d.ticks > 0, `${d.ticks} ticks`);
+        ok("deliverables: proof controls are on the rows", d.attach > 0, `${d.attach}`);
+        ok("deliverables: tick controls meet the tap size", d.small.length === 0, d.small.join(","));
+        ok("deliverables: Happy Helper is listed", !!d.happyText, d.happyText ?? "not found");
+        if (d.happyText) ok("deliverables: Happy Helper reads 3 done of 6", /3\s*\/\s*6/.test(d.happyText), d.happyText);
+      }
       await page.screenshot({ path: join(OUT, `view-${tab}-${item}-${label}.png`), fullPage: false });
     }
     // Back from a mini-menu item must not leave the page (replaceState), but a partner sheet still pushes.
