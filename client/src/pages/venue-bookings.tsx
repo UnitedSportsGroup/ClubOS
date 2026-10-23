@@ -49,7 +49,10 @@ const SOURCE_STYLES: Record<string, { label: string; cls: string }> = {
   member_request: { label: "Member",   cls: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" },
 };
 
-const SPLIT_LABEL: Record<string, string> = { open: "Collecting", settling: "Collecting", settled: "Settled", cancelled: "Cancelled", failed: "Failed" };
+// A split that did not complete is "Released" — the slot went back on sale and
+// anyone who paid was refunded. Never "Cancelled": that word reads as a verdict
+// on the customer, and it is the word that had Daniel worried paid bookings were not.
+const SPLIT_LABEL: Record<string, string> = { open: "Collecting", settling: "Collecting", settled: "Settled", cancelled: "Released", failed: "Failed" };
 const SPLIT_BADGE: Record<string, string> = {
   open: TONE_CLS.amber, settling: TONE_CLS.amber, settled: TONE_CLS.green, cancelled: TONE_CLS.slate, failed: TONE_CLS.red,
 };
