@@ -126,7 +126,9 @@ export async function storeContractFile(a: StoreContractArgs): Promise<any> {
     extractedText: extracted.text,
     extractStatus: extracted.status,
     extractError: extracted.error,
-    source: a.sourceId ? "google_drive" : "clubos",
+    // A copy made by the Partners tab is ours ("clubos"); the Google id rides in
+    // source_id prefixed "contract:" because the August import owns the bare id.
+    source: "clubos",
     sourceId: a.sourceId ?? undefined,
     sourceUrl: a.sourceUrl ?? undefined,
     sourceModifiedAt: a.sourceModifiedAt ?? undefined,

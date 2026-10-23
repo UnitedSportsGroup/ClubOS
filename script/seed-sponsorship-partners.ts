@@ -46,6 +46,8 @@ const COMMIT = flag("--commit");
 const REPLACE = flag("--replace");
 const SRC = opt("--src");
 const XERO = opt("--xero") ?? "/Users/danielmeyn/Desktop/AIOS/DanielMeynOS/outputs/club-finance-2026/sponsors.json";
+const XERO_LIVE = opt("--xero-live");
+const TODAY = new Date(Date.now() + 13 * 3600 * 1000).toISOString().slice(0, 10); // NZDT
 const XERO_CONTACTS = opt("--xero-contacts") ?? "/Users/danielmeyn/Desktop/AIOS/DanielMeynOS/outputs/club-finance-2026/xero_contacts.json";
 if (!SRC) { console.error("--src <dir> required"); process.exit(2); }
 
@@ -79,6 +81,14 @@ const META: Record<string, { company: string; keywords: string[]; deal?: number;
   "Your Local Services":    { company: "Your Local Services",               keywords: ["your local", "pongracz"], deal: 31 },
 };
 
+const phone = (v: unknown): string | null => {
+  const raw = v == null ? "" : typeof v === "object" ? String((v as any).number ?? (v as any).PhoneNumber ?? "") : String(v);
+  const d = raw.replace(/[^\d+]/g, "");
+  if (!d) return null;
+  if (/^64\d{8,10}$/.test(d)) return `+64 ${d.slice(2, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+  if (/^0\d{8,9}$/.test(d)) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  return raw.trim().slice(0, 60) || null;
+};
 const BRANDS = new Set(["cufc", "siu", "mfl", "cic", "usc", "gymnastics", "academy", "print", "usg"]);
 const lower = (s: unknown) => String(s ?? "").toLowerCase();
 const iso = (v: unknown): string | null => (typeof v === "string" && isIsoDate(v.slice(0, 10)) ? v.slice(0, 10) : null);
@@ -90,6 +100,7 @@ const inventory: any = JSON.parse(readFileSync(join(SRC, "drive_inventory.json")
 const manifest: any[] = JSON.parse(readFileSync(join(SRC, "manifest.json"), "utf8"));
 const prepped: any[] = JSON.parse(readFileSync(join(SRC, "prepped.json"), "utf8"));
 const xero: any = existsSync(XERO) ? JSON.parse(readFileSync(XERO, "utf8")) : null;
+const xeroLive: Record<string, any> | null = XERO_LIVE && existsSync(XERO_LIVE) ? JSON.parse(readFileSync(XERO_LIVE, "utf8")) : null;
 const xeroContacts: any[] = existsSync(XERO_CONTACTS) ? JSON.parse(readFileSync(XERO_CONTACTS, "utf8")) : [];
 const byId = new Map<string, any>(inventory.files.map((f: any) => [f.id, f]));
 const localById = new Map<string, any>(manifest.map((m: any) => [m.id, m]));
@@ -128,9 +139,9 @@ function expandSchedule(k: any, start: string | null, termMonths: number | null,
     const t = `${p.due ?? ""} ${p.note ?? ""}`;
     const amt = int(p.amount_cents)!;
     if (/option ?(b|2)|alternative|variant/i.test(t) && !/upfront/i.test(t)) continue; // "or 6 monthly payments" — the alternative, not the deal
-    const m1 = /(\d+|twelve|six|five|four|three|two)\s+(?:separate\s+|monthly\s+)?(?:payments|instal?lments)[^\d]{0,40}?(\d{1,2})\/(\d{1,2})\/(\d{4})/i.exec(t);
+    const m1 = /(\d+|twelve|six|five|four|three|two)\s+['"]?(?:separate|monthly)?['"]?\s*(?:payments|instal?lments)[^\d]{0,40}?(\d{1,2})\/(\d{1,2})\/(\d{4})/i.exec(t);
     const monthlyWord = /monthly/i.test(t);
-    const perYear = /(\d+|twelve|six|five|four|three|two)\s+(?:separate\s+|monthly\s+)?(?:payments|instal?lments)/i.exec(t);
+    const perYear = /(\d+|twelve|six|five|four|three|two)\s+['"]?(?:separate|monthly)?['"]?\s*(?:payments|instal?lments)/i.exec(t);
     if (m1) {
       const n = num(m1[1]); const first = dmy(m1[2], m1[3], m1[4]);
       if (Math.abs(n * amt - (cashPerYear ?? n * amt)) <= (cashPerYear ?? 0) * 0.05 + 100) {
@@ -165,33 +176,74 @@ function expandSchedule(k: any, start: string | null, termMonths: number | null,
     // a dated first-year schedule on a multi-year deal: later years fall due on the anniversary
     for (let y = 1; y < years; y++) push({ label: `Year ${y + 1}`, dueOn: addMonths(start, 12 * y), amountCents: cashPerYear, gstIncluded: false, notes: "Derived: the annual fee on the anniversary of the term start." });
   }
-  const kept = rows.filter(r => !r.dueOn || r.dueOn >= LEDGER_FROM);
-  if (kept.length < rows.length) flags.push(`${rows.length - kept.length} instalment(s) due before ${LEDGER_FROM} are not listed — the Xero data this ledger starts from begins there.`);
-  return kept.sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999"));
+  return rows.sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999"));
 }
 
-function allocateXero(pays: PayRow[], xr: any) {
+// Documented corrections where the contract's own words change a derived
+// amount. Each one names its clause; nothing here is a guess.
+const OVERRIDES: Record<string, { label: string; amountCents: number; why: string }[]> = {
+  "Shadeplus": [{ label: "Year 1", amountCents: 340000, why: "Contract: \"$4,000 + GST p/a less $600 for prior work completed by Shadeplus\" — Year 1 is $3,400 + GST ($3,910), which is the invoice Xero holds." }],
+};
+// Where an earlier agreement with the same sponsor was still being paid as this
+// one began, only invoices from this date count towards this contract.
+const XERO_FROM: Record<string, { date: string; why: string }> = {
+  "Fusion5": { date: "2026-01-01", why: "INV-15286 (Nov 2025, $17,250) is the last three instalments of the 2025 agreement; this contract is invoiced as INV-15439 (21 Jan 2026, $69,000) — finance review 23 Sep 2026." },
+};
+
+function allocateXero(pays: PayRow[], xr: any, live: any | null, today: string, flags: string[], term: { start: string | null; end: string | null }) {
+  // Live pull (--xero-live): the payments on this sponsor's sponsorship
+  // invoices DATED WITHIN THIS CONTRACT'S WINDOW (a month and a half before the
+  // start to three months after the end), allocated to instalments oldest-first
+  // the way a debtor ledger reads. Each instalment is "paid" on the date of the
+  // payment that completed it. A sponsor who paid the year up front is simply
+  // paid; money beyond the listed instalments becomes a flag, never a row.
+  const inclOf = (p: PayRow) => (p.gstIncluded ? p.amountCents : Math.round(p.amountCents * 1.15));
+  const dated = pays.filter(x => x.dueOn).sort((a, b) => a.dueOn!.localeCompare(b.dueOn!));
+  if (live) {
+    const firstDue = dated[0]?.dueOn ?? null;
+    const from = term.start ? addMonths(term.start, -5) : firstDue ? addMonths(firstDue, -5) : null;
+    const to = term.end ? addMonths(term.end, 3) : null;
+    const invs: any[] = (live.invoices ?? []).filter((v: any) => (!from || String(v.date) >= from) && (!to || String(v.date) <= to));
+    const outside: any[] = (live.invoices ?? []).filter((v: any) => !invs.includes(v));
+    const pulled = live.pulledAt?.slice(0, 10) ?? today;
+    const payments = invs.flatMap((v: any) => (v.payments ?? []).map((q: any) => ({ date: String(q.date), cents: Math.round(q.amount * 100), invoice: v.number }))).sort((a, b) => a.date.localeCompare(b.date));
+    let i = 0, carry = 0, carryDate = "", carryInv = "";
+    let stopped = false;
+    for (const p of dated) {
+      const need = inclOf(p);
+      let have = carry, last = carryDate, inv = carryInv;
+      while (have < need && i < payments.length) { have += payments[i].cents; last = payments[i].date; inv = payments[i].invoice; i++; }
+      if (have >= need) {
+        carry = have - need; carryDate = last; carryInv = inv;
+        p.paidOn = last; p.paidCents = need; p.xeroInvoiceNumber = inv;
+        p.notes = [p.notes, `Paid — ${inv} in Xero, completed by the payment of ${last} (pulled ${pulled})`].filter(Boolean).join(" · ");
+      } else {
+        carry = 0; stopped = true;
+        const invMatch = invs.find((v: any) => Math.abs(Math.round(v.total * 100) - need) <= 100 && Math.abs(daysBetween(p.dueOn!, String(v.date))) <= 200);
+        if (invMatch) p.xeroInvoiceNumber = invMatch.number;
+        if (have >= 1000) p.notes = [p.notes, `$${(have / 100).toLocaleString()} of $${(need / 100).toLocaleString()} received so far per Xero (pulled ${pulled})`].filter(Boolean).join(" · ");
+        else if (p.dueOn! <= today) p.notes = [p.notes, `Not paid per Xero (pulled ${pulled})${invMatch ? ` — ${invMatch.number} ${invMatch.status}` : ""}`].filter(Boolean).join(" · ");
+        break;
+      }
+    }
+    if (!stopped) for (const p of dated) if (!p.paidOn && p.dueOn! <= today) p.notes = [p.notes, `Not paid per Xero (pulled ${pulled})`].filter(Boolean).join(" · ");
+    const leftover = carry + payments.slice(i).reduce((s2, q) => s2 + q.cents, 0);
+    if (leftover > 1000) flags.push(`Xero shows $${(leftover / 100).toLocaleString()} received on ${Array.from(new Set(invs.map((v: any) => v.number))).join(", ")} beyond the instalments listed here (pulled ${pulled}) — the schedule or the invoicing differs from the contract.`);
+    if (!dated.length && invs.length) flags.push(`Xero holds sponsorship invoices in this term: ${invs.map((v: any) => `${v.number} $${Number(v.total).toLocaleString()} (paid $${Number(v.paid ?? 0).toLocaleString()}${v.credited ? `, credited $${Number(v.credited).toLocaleString()}` : ""})`).join("; ")} (pulled ${pulled}).`);
+    if (outside.length) flags.push(`Xero also holds ${outside.length} sponsorship invoice(s) outside this term: ${outside.map((v: any) => `${v.number} ${String(v.date).slice(0, 10)} $${Number(v.total).toLocaleString()}`).join("; ")}.`);
+    return;
+  }
   if (!xr) return;
+  // Snapshot fallback (sponsors.json, 23 Sep 2026): the money received since 1 Jan 2025, oldest-first.
+  const asAt = String(xero?.asAt ?? "2026-09-23");
   const invs: any[] = (xr.invs ?? []).slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
   const paysIn: any[] = (xr.pays ?? []).slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
-  let cash = Math.round(invs.reduce((s: number, v: any) => s + (v.paid ?? 0), 0) * 100);
-  const asAt = String(xr.asAt ?? xero?.asAt ?? "2026-09-23");
-  for (const p of pays.filter(x => x.dueOn).sort((a, b) => a.dueOn!.localeCompare(b.dueOn!))) {
-    const incl = p.gstIncluded ? p.amountCents : Math.round(p.amountCents * 1.15);
-    const inv = invs.find((v: any) => Math.abs(Math.round(v.total * 100) - incl) <= 100 && Math.abs(daysBetween(p.dueOn!, String(v.date))) <= 200 && !(v as any)._used);
-    if (inv) { (inv as any)._used = true; p.xeroInvoiceNumber = inv.invoice; }
-    if (cash >= incl) {
-      cash -= incl;
-      const after = paysIn.filter((x: any) => String(x.date) >= addMonths(p.dueOn!, -2));
-      p.paidOn = after[0]?.date ?? (inv?.date ?? p.dueOn);
-      p.paidCents = incl;
-      p.notes = [p.notes, `Paid per Xero (snapshot ${asAt}${p.xeroInvoiceNumber ? `, ${p.xeroInvoiceNumber}` : ""}); the paid-on date is the first payment seen after it fell due`].filter(Boolean).join(" · ");
-    } else if (cash > 0) {
-      p.notes = [p.notes, `$${(cash / 100).toLocaleString()} of $${(incl / 100).toLocaleString()} paid as at ${asAt} per Xero${p.xeroInvoiceNumber ? ` (${p.xeroInvoiceNumber})` : ""}`].filter(Boolean).join(" · ");
-      cash = 0;
-    } else if (p.dueOn! <= asAt) {
-      p.notes = [p.notes, `Not paid as at ${asAt} per Xero${p.xeroInvoiceNumber ? ` (${p.xeroInvoiceNumber})` : ""}`].filter(Boolean).join(" · ");
-    }
+  let cash = Math.round(invs.reduce((s2: number, v: any) => s2 + (v.paid ?? 0), 0) * 100);
+  for (const p of dated.filter(x => x.dueOn! <= addMonths(asAt, 1))) {
+    const incl = inclOf(p);
+    if (cash >= incl) { cash -= incl; p.paidOn = paysIn.filter((x: any) => String(x.date) >= addMonths(p.dueOn!, -2) && String(x.date) <= asAt)[0]?.date ?? asAt; p.paidCents = incl; p.notes = [p.notes, `Paid per Xero (snapshot ${asAt})`].filter(Boolean).join(" · "); }
+    else if (cash > 0) { p.notes = [p.notes, `$${(cash / 100).toLocaleString()} of $${(incl / 100).toLocaleString()} paid as at ${asAt} per Xero`].filter(Boolean).join(" · "); cash = 0; }
+    else if (p.dueOn! <= asAt) p.notes = [p.notes, `Not paid as at ${asAt} per Xero`].filter(Boolean).join(" · ");
   }
 }
 
@@ -220,10 +272,12 @@ async function main() {
       organizationId: org.id,
       company: meta.company,
       brandTags,
-      primaryContactName: text(contact.name, 200) ?? deal?.primaryContactName ?? (xc?.people?.[0] ? `${xc.people[0].first ?? ""} ${xc.people[0].last ?? ""}`.trim() || null : null),
-      primaryContactRole: text(contact.role, 200),
-      primaryContactEmail: text(contact.email, 200) ?? deal?.primaryContactEmail ?? (xc?.email ? String(xc.email) : null),
-      primaryContactPhone: text(contact.phone, 60) ?? deal?.primaryContactPhone ?? (xc?.phones?.[0] ? String(xc.phones[0].number ?? xc.phones[0]) : null),
+      // The day-to-day person: the pipeline deal's contact when it has an email
+      // (a real relationship), else the contract's own contact with the email
+      // accounts files them under. The signatory stays on the contract row.
+      ...(deal?.primaryContactEmail
+        ? { primaryContactName: deal.primaryContactName, primaryContactRole: text(contact.name, 200) && lower(contact.name) !== lower(deal.primaryContactName) ? `Signatory: ${text(contact.name, 120)}` : text(contact.role, 200), primaryContactEmail: deal.primaryContactEmail, primaryContactPhone: deal.primaryContactPhone ?? phone(xc?.phones?.[0]) }
+        : { primaryContactName: text(contact.name, 200) ?? (xc?.people?.[0] ? `${xc.people[0].first ?? ""} ${xc.people[0].last ?? ""}`.trim() || null : null), primaryContactRole: text(contact.role, 200), primaryContactEmail: text(contact.email, 200) ?? (xc?.email ? String(xc.email) : null), primaryContactPhone: phone(text(contact.phone, 60) ?? xc?.phones?.[0]) }),
       dealId: deal?.id ?? null,
       sponsorLinkId: link?.id ?? null,
       xeroContactName: xr?.sponsor ?? (xc?.name && String(xc.name).startsWith("(S)") ? xc.name : null),
@@ -275,11 +329,27 @@ async function main() {
     // for a plain per-annum fee, and nothing at all for a contra deal. Every
     // expansion is checked against the annual fee and labelled as derived.
     type Pay = { label: string | null; dueOn: string | null; amountCents: number; gstIncluded: boolean; notes: string | null; paidOn?: string | null; paidCents?: number | null; xeroInvoiceNumber?: string | null };
-    const pays = expandSchedule(k, start, termMonths, contractVals.cashPerYearCents, flags);
+    let pays = expandSchedule(k, start, termMonths, contractVals.cashPerYearCents, flags);
+    for (const o of OVERRIDES[meta.company] ?? []) { const row = pays.find(r => r.label === o.label); if (row) { row.amountCents = o.amountCents; row.notes = [row.notes, o.why].filter(Boolean).join(" · "); } }
     // Paid-or-not from the Xero snapshot: the money that has landed on this
     // sponsor since 1 Jan 2025 is allocated to instalments oldest-first, the
     // way a debtor ledger reads. Fully covered = paid; partly covered = a note.
-    allocateXero(pays, xr);
+    let live = xeroLive ? xeroLive[meta.company] ?? xeroLive[e.folder] ?? null : null;
+    const xf = XERO_FROM[meta.company];
+    if (xf && live) { live = { ...live, invoices: (live.invoices ?? []).filter((v: any) => String(v.date) >= xf.date) }; flags.push(`Xero invoices before ${xf.date} are not counted here: ${xf.why}`); }
+    allocateXero(pays, xr, live, TODAY, flags, { start, end });
+    if (live?.contacts?.length && !partnerVals.xeroContactName) partnerVals.xeroContactName = live.contacts[0];
+    // The ledger starts where the Xero data does: instalments due before 2025
+    // took part in the allocation above (so 2024's money pays 2024's year) but
+    // are not listed.
+    const before = pays.filter(r => r.dueOn && r.dueOn < LEDGER_FROM).length;
+    if (before) { flags.push(`${before} instalment(s) due before ${LEDGER_FROM} are not listed — the Xero data this ledger starts from begins there.`); pays = pays.filter(r => !r.dueOn || r.dueOn >= LEDGER_FROM); }
+    // 🔴 An agreement nobody has signed carries no instalments unless money has
+    // actually landed on it — an "overdue" flag on a draft is a lie.
+    if (sig !== "both_parties" && !pays.some(r => r.paidOn)) {
+      if (pays.length) flags.push(`No instalments listed: the agreement is ${sig === "not_checked" ? "unchecked" : sig.replace("_", " ")} and Xero shows nothing paid against it. The contract's wording is under Payment terms.`);
+      pays = [];
+    }
     for (const p of pays) say(`instalment: ${p.label} · due ${p.dueOn ?? "unscheduled"} · $${(p.amountCents / 100).toLocaleString()} ${p.gstIncluded ? "incl" : "excl"} GST${p.paidOn ? ` · PAID ${p.paidOn}${p.xeroInvoiceNumber ? ` (${p.xeroInvoiceNumber})` : ""}` : p.notes?.includes("of $") ? " · partly paid" : ""}`);
 
     const dels = ((k.deliverables ?? []) as any[]).filter(d => text(d.title, 300));
@@ -304,7 +374,8 @@ async function main() {
 
     let nodeId: number | null = null;
     if (best && local?.local && existsSync(local.local)) {
-      const already = await findStoredContractBySourceId(best.id);
+      // Prefixed: the August Google import already owns the bare id (unique) under the Budget-locked folder.
+      const already = await findStoredContractBySourceId(`contract:${best.id}`);
       if (already) { nodeId = already.id; say(`file already in Club Drive (node #${already.id})`); }
       else {
         const buf = readFileSync(local.local);
@@ -315,7 +386,7 @@ async function main() {
         if (mime === "application/pdf" && !/\.pdf$/i.test(name)) name += ".pdf";
         const node = await storeContractFile({
           buffer: buf, name, contentType: mime, company: meta.company, userId: null,
-          sourceId: best.id, sourceUrl: inv?.webViewLink ?? null, sourceModifiedAt: inv?.modifiedTime ? new Date(inv.modifiedTime) : null,
+          sourceId: `contract:${best.id}`, sourceUrl: inv?.webViewLink ?? null, sourceModifiedAt: inv?.modifiedTime ? new Date(inv.modifiedTime) : null,
           extractedText: txt, description: `${signed ? "Signed agreement" : "Agreement (" + best.classification + ")"} — ${meta.company}. From the Google Drive Contracts folder, uploaded there ${inv?.createdTime?.slice(0, 10) ?? "?"} by ${inv?.lastModifyingUser?.emailAddress ?? "?"}.`,
         });
         nodeId = node.id; uploads++;
