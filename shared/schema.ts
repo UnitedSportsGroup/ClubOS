@@ -2901,7 +2901,12 @@ export const deliverableTriggerEnum = pgEnum("deliverable_trigger", ["once", "pe
 
 export const sponsorshipDeliverables = pgTable("sponsorship_deliverables", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  dealId: integer("deal_id").notNull().references(() => sponsorshipDeals.id, { onDelete: "cascade" }),
+  // 🔴 A deliverable belongs to a pipeline DEAL or to a signed PARTNER CONTRACT
+  // (Partners tab, 2026-10-23) — one of the two, enforced by a CHECK in Postgres.
+  // deal_id was NOT NULL until the Partners tab; the existing routes still write
+  // it and never see a partner row.
+  dealId: integer("deal_id").references(() => sponsorshipDeals.id, { onDelete: "cascade" }),
+  partnerContractId: integer("partner_contract_id").references((): any => sponsorshipPartnerContracts.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   type: text("type"),
   // 'contract' = from the signed contract (front-of-shirt, social posts, signage)
@@ -2995,6 +3000,123 @@ export const sponsorshipProspects = pgTable("sponsorship_prospects", {
 export const insertSponsorshipProspectSchema = createInsertSchema(sponsorshipProspects).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSponsorshipProspect = z.infer<typeof insertSponsorshipProspectSchema>;
 export type SponsorshipProspect = typeof sponsorshipProspects.$inferSelect;
+
+// ── Sponsorship Partners — the sponsors we have already SIGNED ───────────────
+// Daniel, 2026-10-23: "Signed is king… a quick list of all of our actual
+// partners… quick link to get the actual signed doc… when they signed on, where
+// their renewal date is… if the payment for the second year is coming up, that
+// needs to get flagged."
+//
+// A PARTNER is the relationship (the company). A CONTRACT is one signed agreement
+// inside it (Heartland holds a 2024 and a 2026 one). PAYMENTS are the instalments
+// a contract promises. Deliverables hang off the CONTRACT via
+// sponsorship_deliverables.partner_contract_id, because the promises live in
+// the signed document. Every derived state — current contract, renewal due,
+// overdue — is computed in shared/sponsorship-partners.ts, never stored.
+export const sponsorshipPartners = pgTable("sponsorship_partners", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  company: text("company").notNull(),
+  tradingName: text("trading_name"),
+  website: text("website"),
+  logoUrl: text("logo_url"),
+  brandTags: text("brand_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  primaryContactName: text("primary_contact_name"),
+  primaryContactRole: text("primary_contact_role"),
+  primaryContactEmail: text("primary_contact_email"),
+  primaryContactPhone: text("primary_contact_phone"),
+  // The pipeline deal that won them (if the deal was tracked) and the tracked
+  // sponsor-link row (Sponsor Traffic) — both optional, both SET NULL.
+  dealId: integer("deal_id").references(() => sponsorshipDeals.id, { onDelete: "set null" }),
+  sponsorLinkId: integer("sponsor_link_id").references(() => sponsors.id, { onDelete: "set null" }),
+  xeroContactName: text("xero_contact_name"),          // "(S) Fusion5 Limited" — how accounts files them
+  notes: text("notes"),
+  ownerId: integer("owner_id").references(() => users.id, { onDelete: "set null" }),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  orgIdx: index("sponsorship_partners_org_idx").on(t.organizationId),
+}));
+
+export const insertSponsorshipPartnerSchema = createInsertSchema(sponsorshipPartners).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSponsorshipPartner = z.infer<typeof insertSponsorshipPartnerSchema>;
+export type SponsorshipPartner = typeof sponsorshipPartners.$inferSelect;
+
+export const sponsorshipPartnerContracts = pgTable("sponsorship_partner_contracts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  partnerId: integer("partner_id").notNull().references(() => sponsorshipPartners.id, { onDelete: "restrict" }),
+  title: text("title"),                                  // "Front of shirt — CUFC men's National League"
+  clubEntity: text("club_entity"),                       // which of OUR entities signed
+  signedOn: date("signed_on"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  openEnded: boolean("open_ended").notNull().default(false),  // month-to-month, no end date
+  termMonths: integer("term_months"),
+  termText: text("term_text"),
+  renewalTerms: text("renewal_terms"),
+  autoRenews: boolean("auto_renews"),
+  noticeDays: integer("notice_days"),
+  cashPerYearCents: integer("cash_per_year_cents"),      // excl GST
+  cashTotalCents: integer("cash_total_cents"),           // whole term, excl GST
+  gstNote: text("gst_note"),
+  contraPerYearCents: integer("contra_per_year_cents"),
+  contraDescription: text("contra_description"),
+  paymentTerms: text("payment_terms"),
+  exclusivity: text("exclusivity"),
+  termination: text("termination"),
+  otherClauses: text("other_clauses"),
+  // THE signed document. A Club Drive node (RESTRICT — the file outlives the
+  // row) plus the Google Drive link it came from. Signed is king: the Partners
+  // tab shows this one file, never the proposals.
+  contractNodeId: integer("contract_node_id").references((): any => driveNodes.id, { onDelete: "restrict" }),
+  contractSourceUrl: text("contract_source_url"),
+  // What a human (or a reader that LOOKED at the page) found on the signature
+  // page. Vocabulary in shared/sponsorship-partners.ts — no CHECK, a stale CHECK
+  // is how the MFL checkout 500'd.
+  signatureStatus: text("signature_status").notNull().default("not_checked"),
+  signedBy: text("signed_by"),
+  signatureEvidence: text("signature_evidence"),
+  signatureCheckedAt: timestamp("signature_checked_at"),
+  signatureCheckedBy: integer("signature_checked_by").references(() => users.id, { onDelete: "set null" }),
+  flags: jsonb("flags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),          // contradictions a manager must know
+  sourceFiles: jsonb("source_files").$type<Array<{ name: string; url: string | null; classification: string }>>().notNull().default(sql`'[]'::jsonb`),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  partnerIdx: index("sponsorship_partner_contracts_partner_idx").on(t.partnerId),
+}));
+
+export const insertSponsorshipPartnerContractSchema = createInsertSchema(sponsorshipPartnerContracts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSponsorshipPartnerContract = z.infer<typeof insertSponsorshipPartnerContractSchema>;
+export type SponsorshipPartnerContract = typeof sponsorshipPartnerContracts.$inferSelect;
+
+// One row per instalment the contract promises. paid_on is a FACT somebody
+// records (or Xero confirms); overdue is paid_on IS NULL AND due_on < today,
+// derived — a payment made late reads PAID.
+export const sponsorshipPartnerPayments = pgTable("sponsorship_partner_payments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  contractId: integer("contract_id").notNull().references(() => sponsorshipPartnerContracts.id, { onDelete: "cascade" }),
+  label: text("label"),                                  // "Year 2", "Instalment 3 of 12"
+  dueOn: date("due_on"),
+  amountCents: integer("amount_cents").notNull(),
+  gstIncluded: boolean("gst_included").notNull().default(false),
+  paidOn: date("paid_on"),
+  paidCents: integer("paid_cents"),
+  xeroInvoiceNumber: text("xero_invoice_number"),
+  xeroInvoiceId: text("xero_invoice_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  contractIdx: index("sponsorship_partner_payments_contract_idx").on(t.contractId),
+}));
+
+export const insertSponsorshipPartnerPaymentSchema = createInsertSchema(sponsorshipPartnerPayments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSponsorshipPartnerPayment = z.infer<typeof insertSponsorshipPartnerPaymentSchema>;
+export type SponsorshipPartnerPayment = typeof sponsorshipPartnerPayments.$inferSelect;
 
 // ── Grant funding (USG workspace) ───────────────────────────────────────────
 // Funder directory + application tracker. Brings the grants process in-house:

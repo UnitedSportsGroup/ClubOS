@@ -1,0 +1,431 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Sponsorship Partners — USG → Sponsorship → Partners.
+//
+// The sponsors we have already SIGNED: the company, the person, the signed
+// document one click away, the term and the money, the instalments, the
+// promises (deliverables) and the ideas for going beyond them. The Pipeline is
+// for the deals we are chasing; this is for the ones we must keep.
+//
+// Gate: requireTab("sponsorship") + a membership in the workspace the header
+// names. The workspace decides the organisation — a page can never pick another
+// org by query string. Every derived state (current contract, renewal due,
+// overdue) comes from shared/sponsorship-partners.ts against the NZ date the
+// server holds, never from a stored flag.
+//
+// The signed file itself is a Club Drive node under the gated "Sponsor
+// Contracts" folder (server/sponsorship-partner-files.ts); the client opens it
+// through Drive's own /api/admin/drive/file/:id/open — a plain link, so it needs
+// no workspace header, and Drive's node gate is the same rule as this tab's.
+// ─────────────────────────────────────────────────────────────────────────────
+import type { Express, Request, Response } from "express";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import multer from "multer";
+import { db } from "./db";
+import { storage } from "./storage";
+import { requireAuth, requireTab } from "./auth";
+import {
+  organizations, driveNodes, sponsorshipDeals, sponsorshipDeliverables,
+  sponsorshipPartners, sponsorshipPartnerContracts, sponsorshipPartnerPayments, users as usersTable,
+} from "@shared/schema";
+import { nzTodayIso } from "@shared/dashboard";
+import {
+  SIGNATURE_STATUSES, annualValueCents, contractState, currentContract, isIsoDate, nextPayment,
+  partnerFlags, partnerSince, partnerStatus, paymentState,
+} from "@shared/sponsorship-partners";
+import { storeContractFile } from "./sponsorship-partner-files";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
+
+const DELIVERABLE_CATEGORIES = new Set(["contract", "activation", "idea", "onboarding", "other"]);
+const TRIGGERS = new Set(["once", "per_match", "weekly", "monthly", "quarterly", "annually"]);
+
+type Scope = { userId: number; orgId: number; orgSlug: string };
+
+/** The workspace in the header decides the org; the caller must belong to it. */
+async function scope(req: Request, res: Response): Promise<Scope | null> {
+  const userId = req.session.userId!;
+  const slug = String(req.headers["x-workspace-slug"] || "");
+  if (!slug) { res.status(400).json({ message: "X-Workspace-Slug header required" }); return null; }
+  const [org] = await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations).where(eq(organizations.slug, slug));
+  if (!org) { res.status(404).json({ message: "Not found" }); return null; }
+  const mine = await storage.getUserOrganizations(userId);
+  if (!mine.some((o: any) => o.id === org.id)) { res.status(403).json({ message: "Forbidden" }); return null; }
+  return { userId, orgId: org.id, orgSlug: org.slug };
+}
+
+const str = (v: unknown, max = 4000): string | null => {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s ? s.slice(0, max) : null;
+};
+const cents = (v: unknown): number | null => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? n : null;
+};
+const dateOrNull = (v: unknown): string | null => (typeof v === "string" && isIsoDate(v) ? v : null);
+const bool = (v: unknown): boolean | null => (v === undefined || v === null ? null : !!v);
+
+async function partnerInScope(s: Scope, id: number) {
+  const [p] = await db.select().from(sponsorshipPartners).where(and(eq(sponsorshipPartners.id, id), eq(sponsorshipPartners.organizationId, s.orgId)));
+  return p ?? null;
+}
+async function contractInScope(s: Scope, cid: number) {
+  const [row] = await db.select({ c: sponsorshipPartnerContracts, p: sponsorshipPartners })
+    .from(sponsorshipPartnerContracts)
+    .innerJoin(sponsorshipPartners, eq(sponsorshipPartners.id, sponsorshipPartnerContracts.partnerId))
+    .where(and(eq(sponsorshipPartnerContracts.id, cid), eq(sponsorshipPartners.organizationId, s.orgId)));
+  return row ?? null;
+}
+
+function nodeView(n: any | null) {
+  if (!n) return null;
+  return {
+    id: n.id, name: n.name, mimeType: n.mimeType, sizeBytes: n.sizeBytes == null ? null : Number(n.sizeBytes),
+    openUrl: `/api/admin/drive/file/${n.id}/open`, downloadUrl: `/api/admin/drive/file/${n.id}/download`,
+    sourceUrl: n.sourceUrl ?? null, hasText: n.extractStatus === "done",
+  };
+}
+
+export function registerSponsorshipPartnerRoutes(app: Express) {
+  const gate = [requireAuth, requireTab("sponsorship")] as const;
+
+  // ── The list ──────────────────────────────────────────────────────────────
+  app.get("/api/admin/sponsorship/partners", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const today = nzTodayIso();
+      const includeArchived = req.query.archived === "1";
+      const partners = await db.select().from(sponsorshipPartners)
+        .where(includeArchived ? eq(sponsorshipPartners.organizationId, s.orgId) : and(eq(sponsorshipPartners.organizationId, s.orgId), isNull(sponsorshipPartners.archivedAt)))
+        .orderBy(asc(sponsorshipPartners.company));
+      const ids = partners.map(p => p.id);
+      const contracts = ids.length ? await db.select().from(sponsorshipPartnerContracts).where(inArray(sponsorshipPartnerContracts.partnerId, ids)) : [];
+      const cids = contracts.map(c => c.id);
+      const payments = cids.length ? await db.select().from(sponsorshipPartnerPayments).where(inArray(sponsorshipPartnerPayments.contractId, cids)) : [];
+      const nodeIds = contracts.map(c => c.contractNodeId).filter((x): x is number => !!x);
+      const nodes = nodeIds.length ? ((await db.select().from(driveNodes).where(inArray(driveNodes.id, nodeIds))) as any[]) : [];
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+      const rows = partners.map(p => {
+        const mine = contracts.filter(c => c.partnerId === p.id);
+        const cur = currentContract(mine, today);
+        const pays = payments.filter(x => mine.some(c => c.id === x.contractId));
+        const flags = partnerFlags({ contracts: mine, payments: pays, today });
+        const status = partnerStatus(flags, cur, today);
+        const next = nextPayment(pays, today);
+        return {
+          ...p,
+          since: partnerSince(mine),
+          renewalOn: cur && !cur.openEnded ? cur.endDate : null,
+          annualValueCents: annualValueCents(cur),
+          cashPerYearCents: cur?.cashPerYearCents ?? 0,
+          contraPerYearCents: cur?.contraPerYearCents ?? 0,
+          status,
+          flags,
+          contractsCount: mine.length,
+          current: cur ? { ...cur, state: contractState(cur, today), node: nodeView(cur.contractNodeId ? nodeMap.get(cur.contractNodeId) : null) } : null,
+          nextPayment: next ? { ...next, state: paymentState(next, today) } : null,
+          paidCents: pays.reduce((sum, x) => sum + (x.paidCents ?? 0), 0),
+          overdueCents: pays.filter(x => paymentState(x, today) === "overdue").reduce((sum, x) => sum + x.amountCents, 0),
+        };
+      });
+      const live = rows.filter(r => r.status !== "expired" && r.status !== "no_contract");
+      res.json({
+        today,
+        partners: rows,
+        totals: {
+          partners: rows.length,
+          active: live.length,
+          annualCashCents: live.reduce((sum, r) => sum + r.cashPerYearCents, 0),
+          annualContraCents: live.reduce((sum, r) => sum + r.contraPerYearCents, 0),
+          renewalsDue: rows.filter(r => r.flags.some(f => f.kind === "renewal_due" || f.kind === "notice_passed")).length,
+          overdueCents: rows.reduce((sum, r) => sum + r.overdueCents, 0),
+          needsAttention: rows.filter(r => r.status === "attention" || r.status === "expired" || r.status === "no_contract").length,
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/sponsorship/partners", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const company = str(req.body?.company, 200);
+      if (!company) return res.status(400).json({ message: "Company name required" });
+      const [row] = await db.insert(sponsorshipPartners).values({
+        organizationId: s.orgId,
+        company,
+        tradingName: str(req.body?.tradingName, 200),
+        website: str(req.body?.website, 500),
+        brandTags: Array.isArray(req.body?.brandTags) ? req.body.brandTags.map(String).slice(0, 12) : [],
+        primaryContactName: str(req.body?.primaryContactName, 200),
+        primaryContactRole: str(req.body?.primaryContactRole, 200),
+        primaryContactEmail: str(req.body?.primaryContactEmail, 200),
+        primaryContactPhone: str(req.body?.primaryContactPhone, 60),
+        dealId: cents(req.body?.dealId),
+        notes: str(req.body?.notes, 10000),
+        ownerId: cents(req.body?.ownerId),
+        createdBy: s.userId,
+      }).returning();
+      res.json(row);
+    } catch (e: any) {
+      if (String(e?.message ?? "").includes("sponsorship_partners_company_live_idx")) return res.status(409).json({ message: "That company is already a partner here" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── One partner, in full ─────────────────────────────────────────────────
+  app.get("/api/admin/sponsorship/partners/:id", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Bad id" });
+      const p = await partnerInScope(s, id);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      const today = nzTodayIso();
+      const contracts = await db.select().from(sponsorshipPartnerContracts).where(eq(sponsorshipPartnerContracts.partnerId, id)).orderBy(desc(sponsorshipPartnerContracts.startDate), desc(sponsorshipPartnerContracts.id));
+      const cids = contracts.map(c => c.id);
+      const payments = cids.length ? await db.select().from(sponsorshipPartnerPayments).where(inArray(sponsorshipPartnerPayments.contractId, cids)).orderBy(asc(sponsorshipPartnerPayments.dueOn), asc(sponsorshipPartnerPayments.id)) : [];
+      const deliverables = cids.length ? await db.select().from(sponsorshipDeliverables).where(inArray(sponsorshipDeliverables.partnerContractId, cids)).orderBy(asc(sponsorshipDeliverables.displayOrder), asc(sponsorshipDeliverables.id)) : [];
+      const nodeIds = contracts.map(c => c.contractNodeId).filter((x): x is number => !!x);
+      const nodes = nodeIds.length ? ((await db.select().from(driveNodes).where(inArray(driveNodes.id, nodeIds))) as any[]) : [];
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      const cur = currentContract(contracts, today);
+      const flags = partnerFlags({ contracts, payments, today });
+      const deal = p.dealId ? (await db.select().from(sponsorshipDeals).where(eq(sponsorshipDeals.id, p.dealId)))[0] ?? null : null;
+      const ownerIds = [p.ownerId, ...deliverables.map(d => d.ownerId)].filter((x): x is number => !!x);
+      const people = ownerIds.length ? await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName }).from(usersTable).where(inArray(usersTable.id, Array.from(new Set(ownerIds)))) : [];
+      res.json({
+        today,
+        partner: { ...p, since: partnerSince(contracts), status: partnerStatus(flags, cur, today), flags, annualValueCents: annualValueCents(cur), currentContractId: cur?.id ?? null },
+        deal: deal ? { id: deal.id, title: deal.title, stage: deal.stage } : null,
+        contracts: contracts.map(c => ({
+          ...c,
+          state: contractState(c, today),
+          isCurrent: cur?.id === c.id,
+          node: nodeView(c.contractNodeId ? nodeMap.get(c.contractNodeId) : null),
+          payments: payments.filter(x => x.contractId === c.id).map(x => ({ ...x, state: paymentState(x, today) })),
+          deliverables: deliverables.filter(d => d.partnerContractId === c.id),
+        })),
+        people: people.map(u => ({ id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(" ") })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/partners/:id", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const p = await partnerInScope(s, id);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      const b = req.body ?? {};
+      const patch: any = { updatedAt: new Date() };
+      if (b.company !== undefined) { const v = str(b.company, 200); if (!v) return res.status(400).json({ message: "Company name required" }); patch.company = v; }
+      for (const f of ["tradingName", "website", "primaryContactName", "primaryContactRole", "primaryContactEmail", "primaryContactPhone", "xeroContactName", "logoUrl"]) if (b[f] !== undefined) patch[f] = str(b[f], 500);
+      if (b.notes !== undefined) patch.notes = str(b.notes, 10000);
+      if (b.brandTags !== undefined) patch.brandTags = Array.isArray(b.brandTags) ? b.brandTags.map(String).slice(0, 12) : [];
+      if (b.dealId !== undefined) patch.dealId = cents(b.dealId);
+      if (b.ownerId !== undefined) patch.ownerId = cents(b.ownerId);
+      if (b.archived !== undefined) patch.archivedAt = b.archived ? new Date() : null;
+      const [row] = await db.update(sponsorshipPartners).set(patch).where(eq(sponsorshipPartners.id, id)).returning();
+      res.json(row);
+    } catch (e: any) {
+      if (String(e?.message ?? "").includes("sponsorship_partners_company_live_idx")) return res.status(409).json({ message: "That company is already a partner here" });
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Archive, never delete: a partner with contracts is a legal record.
+  app.delete("/api/admin/sponsorship/partners/:id", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const p = await partnerInScope(s, id);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      await db.update(sponsorshipPartners).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(sponsorshipPartners.id, id));
+      res.json({ ok: true, archived: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Contracts ─────────────────────────────────────────────────────────────
+  function contractPatch(b: any, strict: boolean) {
+    const patch: any = {};
+    const S = (f: string, max = 4000) => { if (b[f] !== undefined) patch[f] = str(b[f], max); };
+    const D = (f: string) => { if (b[f] !== undefined) patch[f] = dateOrNull(b[f]); };
+    const N = (f: string) => { if (b[f] !== undefined) patch[f] = cents(b[f]); };
+    for (const f of ["title", "clubEntity", "termText", "renewalTerms", "gstNote", "contraDescription", "paymentTerms", "exclusivity", "termination", "otherClauses", "signedBy", "signatureEvidence", "contractSourceUrl"]) S(f, f === "otherClauses" || f === "paymentTerms" ? 20000 : 4000);
+    for (const f of ["signedOn", "startDate", "endDate"]) D(f);
+    for (const f of ["termMonths", "noticeDays", "cashPerYearCents", "cashTotalCents", "contraPerYearCents"]) N(f);
+    if (b.openEnded !== undefined) patch.openEnded = !!b.openEnded;
+    if (b.autoRenews !== undefined) patch.autoRenews = bool(b.autoRenews);
+    if (b.signatureStatus !== undefined) {
+      if (!SIGNATURE_STATUSES.includes(b.signatureStatus)) { if (strict) throw new Error("Unknown signature status"); }
+      else patch.signatureStatus = b.signatureStatus;
+    }
+    if (b.flags !== undefined) patch.flags = Array.isArray(b.flags) ? b.flags.map((x: unknown) => String(x).slice(0, 1000)).slice(0, 50) : [];
+    if (patch.openEnded && patch.endDate !== undefined && patch.endDate) throw new Error("An ongoing contract cannot carry an end date");
+    return patch;
+  }
+
+  app.post("/api/admin/sponsorship/partners/:id/contracts", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const p = await partnerInScope(s, id);
+      if (!p) return res.status(404).json({ message: "Not found" });
+      const patch = contractPatch(req.body ?? {}, true);
+      const [row] = await db.insert(sponsorshipPartnerContracts).values({ ...patch, partnerId: id, createdBy: s.userId }).returning();
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/partners/contracts/:cid", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const cid = Number(req.params.cid);
+      const row = await contractInScope(s, cid);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      const patch = contractPatch(req.body ?? {}, true);
+      if (patch.signatureStatus !== undefined && patch.signatureStatus !== row.c.signatureStatus) { patch.signatureCheckedAt = new Date(); patch.signatureCheckedBy = s.userId; }
+      const [updated] = await db.update(sponsorshipPartnerContracts).set({ ...patch, updatedAt: new Date() }).where(eq(sponsorshipPartnerContracts.id, cid)).returning();
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/sponsorship/partners/contracts/:cid", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const cid = Number(req.params.cid);
+      const row = await contractInScope(s, cid);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      // Payments and deliverables cascade; the file node stays in Club Drive.
+      await db.delete(sponsorshipPartnerContracts).where(eq(sponsorshipPartnerContracts.id, cid));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Attach (or replace) THE signed document. Lands in Club Drive under
+  // "Sponsor Contracts / <Company>" with the sponsorship gate.
+  app.post(
+    "/api/admin/sponsorship/partners/contracts/:cid/file",
+    ...gate,
+    (req, res, next) => upload.single("file")(req, res, (err: any) => (err ? res.status(400).json({ message: err.message ?? "Upload failed" }) : next())),
+    async (req, res) => {
+      try {
+        const s = await scope(req, res); if (!s) return;
+        const cid = Number(req.params.cid);
+        const row = await contractInScope(s, cid);
+        if (!row) return res.status(404).json({ message: "Not found" });
+        const file = (req as any).file as { buffer: Buffer; mimetype: string; originalname: string } | undefined;
+        if (!file) return res.status(400).json({ message: "No file" });
+        const node = await storeContractFile({
+          buffer: file.buffer, name: (str(req.body?.name, 250) ?? file.originalname ?? "contract.pdf"), contentType: file.mimetype,
+          company: row.p.company, userId: s.userId, description: `Signed agreement — ${row.p.company}`,
+        });
+        const [updated] = await db.update(sponsorshipPartnerContracts)
+          .set({ contractNodeId: node.id, updatedAt: new Date() })
+          .where(eq(sponsorshipPartnerContracts.id, cid)).returning();
+        res.json({ contract: updated, node: nodeView(node) });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    },
+  );
+
+  // ── Payments (instalments) ────────────────────────────────────────────────
+  function paymentPatch(b: any) {
+    const patch: any = {};
+    if (b.label !== undefined) patch.label = str(b.label, 200);
+    if (b.dueOn !== undefined) patch.dueOn = dateOrNull(b.dueOn);
+    if (b.amountCents !== undefined) { const n = cents(b.amountCents); if (!n || n <= 0) throw new Error("Amount must be more than zero"); patch.amountCents = n; }
+    if (b.gstIncluded !== undefined) patch.gstIncluded = !!b.gstIncluded;
+    if (b.xeroInvoiceNumber !== undefined) patch.xeroInvoiceNumber = str(b.xeroInvoiceNumber, 60);
+    if (b.xeroInvoiceId !== undefined) patch.xeroInvoiceId = str(b.xeroInvoiceId, 80);
+    if (b.notes !== undefined) patch.notes = str(b.notes, 4000);
+    if (b.paidOn !== undefined) {
+      const d = dateOrNull(b.paidOn);
+      if (d) { patch.paidOn = d; patch.paidCents = cents(b.paidCents) ?? patch.amountCents ?? null; }
+      else { patch.paidOn = null; patch.paidCents = null; }
+    } else if (b.paidCents !== undefined) {
+      patch.paidCents = cents(b.paidCents);
+    }
+    return patch;
+  }
+
+  app.post("/api/admin/sponsorship/partners/contracts/:cid/payments", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const cid = Number(req.params.cid);
+      const row = await contractInScope(s, cid);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      const patch = paymentPatch(req.body ?? {});
+      if (!patch.amountCents) return res.status(400).json({ message: "Amount must be more than zero" });
+      if (patch.paidOn && patch.paidCents == null) patch.paidCents = patch.amountCents;
+      const [p] = await db.insert(sponsorshipPartnerPayments).values({ ...patch, contractId: cid }).returning();
+      res.json(p);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/partners/payments/:pid", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const pid = Number(req.params.pid);
+      const [existing] = await db.select().from(sponsorshipPartnerPayments).where(eq(sponsorshipPartnerPayments.id, pid));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const row = await contractInScope(s, existing.contractId);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      const patch = paymentPatch(req.body ?? {});
+      if (patch.paidOn && patch.paidCents == null) patch.paidCents = patch.amountCents ?? existing.amountCents;
+      const [p] = await db.update(sponsorshipPartnerPayments).set({ ...patch, updatedAt: new Date() }).where(eq(sponsorshipPartnerPayments.id, pid)).returning();
+      res.json(p);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/admin/sponsorship/partners/payments/:pid", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const pid = Number(req.params.pid);
+      const [existing] = await db.select().from(sponsorshipPartnerPayments).where(eq(sponsorshipPartnerPayments.id, pid));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const row = await contractInScope(s, existing.contractId);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      await db.delete(sponsorshipPartnerPayments).where(eq(sponsorshipPartnerPayments.id, pid));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // ── Deliverables and ideas on a contract ─────────────────────────────────
+  // category 'contract' = promised in the signed document · 'activation' =
+  // something we scheduled for them · 'idea' = above-and-beyond, not promised.
+  // PATCH / DELETE reuse the existing /api/admin/sponsorship/deliverables/:id
+  // routes, which now understand a partner-owned row.
+  app.post("/api/admin/sponsorship/partners/contracts/:cid/deliverables", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const cid = Number(req.params.cid);
+      const row = await contractInScope(s, cid);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      const b = req.body ?? {};
+      const title = str(b.title, 300);
+      if (!title) return res.status(400).json({ message: "Title required" });
+      const category = DELIVERABLE_CATEGORIES.has(b.category) ? b.category : "contract";
+      const triggerType = TRIGGERS.has(b.triggerType) ? b.triggerType : "once";
+      const [maxRow] = await db.select({ m: sponsorshipDeliverables.displayOrder }).from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.partnerContractId, cid)).orderBy(desc(sponsorshipDeliverables.displayOrder)).limit(1);
+      const [d] = await db.insert(sponsorshipDeliverables).values({
+        partnerContractId: cid,
+        title,
+        type: str(b.type, 100),
+        category,
+        triggerType,
+        scheduledDate: dateOrNull(b.scheduledDate),
+        entitlementQty: cents(b.entitlementQty) ?? 1,
+        usedQty: cents(b.usedQty) ?? 0,
+        status: b.status && ["pending", "in_progress", "delivered", "overdue", "waived"].includes(b.status) ? b.status : "pending",
+        ownerId: cents(b.ownerId),
+        proofUrl: str(b.proofUrl, 1000),
+        notes: str(b.notes, 4000),
+        displayOrder: (maxRow?.m ?? 0) + 1,
+        createdBy: s.userId,
+      } as any).returning();
+      res.json(d);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+}

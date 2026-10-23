@@ -13,7 +13,7 @@ import { guardPublicForm, mintFormToken } from "./form-guard";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, cugcAttendance, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches,
+import { shortLinks, linkClicks, insertContactSchema, insertProgramSchema, insertRegistrationSchema, registrations, emailCampaigns, emailCampaignRecipients, emailUnsubscribes, inboxMessages, analyticsEvents, splitTests, splitTestVariants, apiKeys, customDomains, organizations, programs as programsTable, facilityBookings, facilities, clubs, projectBoards, projectGroups, projectTasks, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates, sponsorshipProspects, sponsorshipPartners, sponsorshipPartnerContracts, grantFunders, grantApplications, grantFunderDeadlines, billboardDeals, leagueCompetitions, leagueDivisions, leagueTeams, leagueGames, leagueTeamMembers, leagueGameReferees, leagueAnnouncements, leagueGoals, leagueCards, leagueMedia, users as usersTable, terms, campDates, calendarEvents, eventInvitees, eventReminders, insertBudgetCostCentreSchema, insertBudgetLineSchema, type InsertCalendarCategory, skillsChallengeEntries, tournamentTeams, appUsers, foodTruckShifts, cicVendors, cicVendorBookings, esignDocuments, esignSigners, esignEvents, esignFields, esignTemplates, footballInstituteApplications, bookingRequests, cic7sRegistrations, cugcRegistrations, cugcFreeSessions, cugcAttendance, passwordResetTokens, clubLogoConsents, tournamentStaff, devicePushTokens, pushCampaigns, apiKeyRequestLogs, leagueWaitlist, licensingCriteria, licensingSubtasks, communityEvents, communityEventTasks, membershipTiers, members, membershipDeliverables, departments, goals, goalMeasures, taskTemplates, taskTemplateItems, proposals, proposalCategories, proposalEvents, insertProposalSchema, insertProposalCategorySchema, sponsors, sponsorLinkEvents, leaguePaymentReminders, leaguePaymentReminderEvents, contentItems, contentSessions, contentTasks, chatConversations, chatMessages, cicInterestRegistrations, payablesDeclarations, payablesDeclarationSignatories, payablesDeclarationEvents, contacts, contactRelationships, academyWaitlist, clubSquads, clubSquadMembers, discounts, predictorFixtures, predictorEntrants, predictorPredictions, predictorSquad, volunteers, volunteerTaskTypes, volunteerAssignments, behaviorEvents, attendance, sessionCoaches,
   registrationItems,
 } from "@shared/schema";
 import { isValidApiScope, API_SCOPES, normalizeProgramFilter, programFilterIsEmpty, programFilterSqlCondition, describeProgramFilter, rejectedProgramTokens, unknownProgramTypes, scopesOutsideProgramFilter, PROGRAM_TYPES, type ProgramFilter } from "@shared/api-scopes";
@@ -150,6 +150,7 @@ import { registerMediaRoutes } from "./media-routes";
 import { registerCicLeadRoutes } from "./cic-leads-routes";
 import { registerFisLeadRoutes } from "./fis-leads-routes";
 import { registerBreweryOfferRoutes } from "./brewery-offers";
+import { registerSponsorshipPartnerRoutes } from "./sponsorship-partners";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
@@ -14140,6 +14141,21 @@ export async function registerRoutes(
     return deal;
   }
 
+  // A deliverable belongs to a pipeline deal OR a signed partner contract
+  // (Partners tab). Either way the question is the same: is the caller a
+  // member of the organisation that owns it?
+  async function deliverableOwnedByUser(req: Request, d: { dealId: number | null; partnerContractId?: number | null }) {
+    if (d.dealId) return !!(await dealForUser(req, d.dealId));
+    if (d.partnerContractId) {
+      const [row] = await db.select({ orgId: sponsorshipPartners.organizationId })
+        .from(sponsorshipPartnerContracts)
+        .innerJoin(sponsorshipPartners, eq(sponsorshipPartners.id, sponsorshipPartnerContracts.partnerId))
+        .where(eq(sponsorshipPartnerContracts.id, d.partnerContractId));
+      return !!row && (await checkUserOrg(req.session.userId!, row.orgId));
+    }
+    return false;
+  }
+
   app.get("/api/admin/sponsorship/deals/:dealId/deliverables", requireAuth, requireTab("sponsorship"), async (req, res) => {
     try {
       const dealId = parseInt(req.params.dealId);
@@ -14182,8 +14198,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
       if (!existing) return res.status(404).json({ message: "Not found" });
-      const deal = await dealForUser(req, existing.dealId);
-      if (!deal) return res.status(403).json({ message: "Forbidden" });
+      if (!(await deliverableOwnedByUser(req, existing))) return res.status(403).json({ message: "Forbidden" });
       const patch: any = { updatedAt: new Date() };
       const fields = ["title", "type", "triggerType", "scheduledDate", "ownerId", "proofUrl", "notes", "entitlementQty", "usedQty", "displayOrder"];
       for (const f of fields) if (req.body[f] !== undefined) patch[f] = req.body[f] === "" ? null : req.body[f];
@@ -14206,8 +14221,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
       if (!existing) return res.status(404).json({ message: "Not found" });
-      const deal = await dealForUser(req, existing.dealId);
-      if (!deal) return res.status(403).json({ message: "Forbidden" });
+      if (!(await deliverableOwnedByUser(req, existing))) return res.status(403).json({ message: "Forbidden" });
       await db.delete(sponsorshipDeliverables).where(eq(sponsorshipDeliverables.id, id));
       res.json({ ok: true });
     } catch (error: any) { res.status(400).json({ message: error.message }); }
@@ -24351,6 +24365,8 @@ export async function registerRoutes(
   registerFisLeadRoutes(app);
   // Brewery partner offers — USG → Sponsorship → Breweries (server/brewery-offers.ts).
   registerBreweryOfferRoutes(app);
+  // Sponsorship Partners — the sponsors we have already signed (server/sponsorship-partners.ts).
+  registerSponsorshipPartnerRoutes(app);
 
   // ── CIC "Become a Volunteer" → CIC Volunteers tab + email info@cicyouth.com ──
   // Posted cross-origin from cicyouth.com/volunteer. Lands as a 'new' volunteer

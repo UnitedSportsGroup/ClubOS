@@ -151,6 +151,9 @@ const CANARIES: Canary[] = [
   // Marketing hub (2026-09-15): Daniel's one-stop marketing dashboard. A deploy
   // without it would leave a sidebar link to a page whose every section 404s.
   { feature: "marketing hub",        path: "/api/admin/marketing-hub/overview",         expect: [401] },
+  // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
+  // instalments. A deploy without it empties USG → Sponsorship → Partners.
+  { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
   // Google Ads attribution (2026-10-14): the hub's attribution check. The public
   // conversions CSV answers 404 by design when unauthenticated, so it cannot be
   // its own canary — this route ships in the same file and stands in for it.
