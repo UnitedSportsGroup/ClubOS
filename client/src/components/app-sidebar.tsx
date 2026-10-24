@@ -222,6 +222,7 @@ const campsNav = [
     // are not enough — this array is what renders the link, and a page nobody
     // can reach is a page nobody knows exists.
     children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
       { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
     ],
   },

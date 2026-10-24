@@ -338,8 +338,8 @@ html:not(.dark) .text-white\/95 { color: rgb(15 23 42 / 0.99) !important; }
 html:not(.dark) .to-white\/\[0\.01\] { --tw-gradient-to: rgb(15 23 42 / 0.015) var(--tw-gradient-to-position) !important; }
 html:not(.dark) .via-white\/10 { --tw-gradient-to: rgb(15 23 42 / 0); --tw-gradient-stops: var(--tw-gradient-from), rgb(15 23 42 / 0.06) var(--tw-gradient-via-position), var(--tw-gradient-to) !important; }
 
-/* 45 hardcoded dark surfaces → light card. Luminance < 0.02.
-   bg-[#011a48] (L=0.0121), bg-[#02060E] (L=0.0017), bg-[#050B16] (L=0.0033), bg-[#07090c] (L=0.0027), bg-[#070C16] (L=0.0037), bg-[#0a0a0a] (L=0.0030), bg-[#0a0a0c] (L=0.0031), bg-[#0a0b0d] (L=0.0033), bg-[#0a0e17] (L=0.0044), bg-[#0a0e17]/95 (L=0.0044), bg-[#0a0e1a] (L=0.0045), bg-[#0a0e1a]/95 (L=0.0045), bg-[#0a0f1a] (L=0.0048), bg-[#0a0f1c] (L=0.0049), bg-[#0a0f1c]/95 (L=0.0049), bg-[#0b0b0c] (L=0.0034), bg-[#0b0b0c]/95 (L=0.0034), bg-[#0b0c0e] (L=0.0037), bg-[#0b0f17] (L=0.0047), bg-[#0b1120] (L=0.0058), bg-[#0c0c0e] (L=0.0037), bg-[#0c0f14] (L=0.0047), bg-[#0d1117] (L=0.0055), bg-[#0d1120] (L=0.0059), bg-[#0d1220] (L=0.0062), bg-[#0d1424] (L=0.0071), bg-[#0e0f12] (L=0.0048), bg-[#0e1116] (L=0.0055), bg-[#0f1216] (L=0.0059), bg-[#0f1423] (L=0.0072), bg-[#101013] (L=0.0053), bg-[#101215] (L=0.0060), bg-[#12151b] (L=0.0074), bg-[#131829] (L=0.0095), bg-[#141511] (L=0.0073), bg-[#15171c] (L=0.0086), bg-[#16171a] (L=0.0086), bg-[#17181c] (L=0.0092), bg-[#1b1814] (L=0.0094), bg-[#1c1e24] (L=0.0130), from-[#07090c] (L=0.0027), from-[#0d1117] (L=0.0055), via-[#07090c]/30 (L=0.0027), via-[#0d1117] (L=0.0055), via-[#0d1117]/40 (L=0.0055) */
+/* 46 hardcoded dark surfaces → light card. Luminance < 0.02.
+   bg-[#011a48] (L=0.0121), bg-[#02060E] (L=0.0017), bg-[#050B16] (L=0.0033), bg-[#07090c] (L=0.0027), bg-[#070C16] (L=0.0037), bg-[#0a0a0a] (L=0.0030), bg-[#0a0a0c] (L=0.0031), bg-[#0a0b0d] (L=0.0033), bg-[#0a0e17] (L=0.0044), bg-[#0a0e17]/95 (L=0.0044), bg-[#0a0e1a] (L=0.0045), bg-[#0a0e1a]/95 (L=0.0045), bg-[#0a0f1a] (L=0.0048), bg-[#0a0f1c] (L=0.0049), bg-[#0a0f1c]/95 (L=0.0049), bg-[#0b0b0c] (L=0.0034), bg-[#0b0b0c]/95 (L=0.0034), bg-[#0b0c0e] (L=0.0037), bg-[#0b0f17] (L=0.0047), bg-[#0b1120] (L=0.0058), bg-[#0c0c0e] (L=0.0037), bg-[#0c0f14] (L=0.0047), bg-[#0d1117] (L=0.0055), bg-[#0d1120] (L=0.0059), bg-[#0d1220] (L=0.0062), bg-[#0d1424] (L=0.0071), bg-[#0e0f12] (L=0.0048), bg-[#0e1116] (L=0.0055), bg-[#0f1216] (L=0.0059), bg-[#0f1423] (L=0.0072), bg-[#0f1726] (L=0.0085), bg-[#101013] (L=0.0053), bg-[#101215] (L=0.0060), bg-[#12151b] (L=0.0074), bg-[#131829] (L=0.0095), bg-[#141511] (L=0.0073), bg-[#15171c] (L=0.0086), bg-[#16171a] (L=0.0086), bg-[#17181c] (L=0.0092), bg-[#1b1814] (L=0.0094), bg-[#1c1e24] (L=0.0130), from-[#07090c] (L=0.0027), from-[#0d1117] (L=0.0055), via-[#07090c]/30 (L=0.0027), via-[#0d1117] (L=0.0055), via-[#0d1117]/40 (L=0.0055) */
 html:not(.dark) .bg-\[\#011a48\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#02060E\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#050B16\] { background-color: hsl(var(--card)) !important; }
@@ -370,6 +370,7 @@ html:not(.dark) .bg-\[\#0e0f12\] { background-color: hsl(var(--card)) !important
 html:not(.dark) .bg-\[\#0e1116\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#0f1216\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#0f1423\] { background-color: hsl(var(--card)) !important; }
+html:not(.dark) .bg-\[\#0f1726\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#101013\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#101215\] { background-color: hsl(var(--card)) !important; }
 html:not(.dark) .bg-\[\#12151b\] { background-color: hsl(var(--card)) !important; }
@@ -744,6 +745,10 @@ html:not(.dark) .text-white.bg-sky-500:not([class*="bg-sky-500/"]) { color: #fff
 html:not(.dark) .bg-sky-500:not([class*="bg-sky-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-sky-700:not([class*="bg-sky-700/"]) { color: #fff !important; }
 html:not(.dark) .bg-sky-700:not([class*="bg-sky-700/"]) .text-white { color: #fff !important; }
+html:not(.dark) .text-white.bg-slate-600:not([class*="bg-slate-600/"]) { color: #fff !important; }
+html:not(.dark) .bg-slate-600:not([class*="bg-slate-600/"]) .text-white { color: #fff !important; }
+html:not(.dark) .text-white.bg-slate-700:not([class*="bg-slate-700/"]) { color: #fff !important; }
+html:not(.dark) .bg-slate-700:not([class*="bg-slate-700/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-teal-500:not([class*="bg-teal-500/"]) { color: #fff !important; }
 html:not(.dark) .bg-teal-500:not([class*="bg-teal-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-violet-500:not([class*="bg-violet-500/"]) { color: #fff !important; }
@@ -776,7 +781,7 @@ html:not(.dark) .text-white.from-violet-500:not([class*="from-violet-500/"]) { c
 html:not(.dark) .from-violet-500:not([class*="from-violet-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.from-violet-600:not([class*="from-violet-600/"]) { color: #fff !important; }
 html:not(.dark) .from-violet-600:not([class*="from-violet-600/"]) .text-white { color: #fff !important; }
-/* 69 coloured grounds keep their white ink */
+/* 71 coloured grounds keep their white ink */
 
 /* Design tokens re-declared at higher specificity so a third-party
    `:root` block (a browser extension's theme, say) cannot silently

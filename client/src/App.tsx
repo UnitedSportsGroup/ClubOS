@@ -36,6 +36,8 @@ const AdminContacts = lazy(() => import("@/pages/admin-contacts"));
 const AdminPersonDetail = lazy(() => import("@/pages/admin-person-detail"));
 const AdminMailer = lazy(() => import("@/pages/admin-mailer"));
 const AdminMailerHistory = lazy(() => import("@/pages/admin-mailer-history"));
+const AdminMailerAutomations = lazy(() => import("@/pages/admin-mailer-automations"));
+const AdminMailerAutomationDetail = lazy(() => import("@/pages/admin-mailer-automations").then((m) => ({ default: m.AdminMailerAutomationDetail })));
 const AdminXeroPayments = lazy(() => import("@/pages/admin-xero-payments"));
 const Predictor = lazy(() => import("@/pages/predictor"));
 const FootballInstitute = lazy(() => import("@/pages/football-institute"));
@@ -698,6 +700,8 @@ function AdminRouter() {
       {/* History before the bare route: wouter matches in order, and a
           sub-page of a tab must never be swallowed by the tab itself. */}
       <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+      <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+      <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
       <Route path="/admin/mailer" component={AdminMailer} />
       <Route path="/admin/predictor" component={Predictor} />
       {/* Friendly Manager History — CUFC's 10-year archive (default/camps

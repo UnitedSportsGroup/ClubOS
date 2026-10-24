@@ -155,6 +155,7 @@ import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
+import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
@@ -27368,6 +27369,13 @@ export async function registerRoutes(
   registerFamilyRoutes(app);
   registerMailerPeopleSearch(app, requireAuth);
   registerMailerTemplateRoutes(app);
+  // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
+  // list are handed in so the secret stays in one file.
+  {
+    const automationDeps = { unsubUrl: cufcUnsubUrl, unsubscribed: getUnsubscribedEmails };
+    registerMailerAutomationRoutes(app, automationDeps);
+    startMailerAutomations(automationDeps);
+  }
 
   // View As — see ClubOS exactly as a staff member sees it (super admin only,
   // read-only, audited). Born from Olga's and Travis's blank tabs: a super admin

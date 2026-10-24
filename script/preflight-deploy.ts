@@ -154,6 +154,9 @@ const CANARIES: Canary[] = [
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
+  // Mailer Automations (2026-10-25): emails that send themselves. A deploy
+  // without it stops every flow (and the unfinished-registration reminders).
+  { feature: "mailer automations",    path: "/api/admin/mailer/automations",            expect: [401] },
   // Google Ads attribution (2026-10-14): the hub's attribution check. The public
   // conversions CSV answers 404 by design when unauthenticated, so it cannot be
   // its own canary — this route ships in the same file and stands in for it.
