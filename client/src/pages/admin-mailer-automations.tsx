@@ -36,7 +36,7 @@ import { SelectInput } from "@/components/ui/select-input";
 import { TimePickerInput } from "@/components/ui/time-picker-input";
 import {
   TRIGGERS, TRIGGER_ORDER, GROUP_LABELS, STARTER_FLOWS, AUTOMATION_MERGE_TAGS,
-  timingSentence, timingChip, sendTimeApplies, dueAt,
+  timingSentence, timingChip, sendTimeApplies, dueAt, formatClock,
   type TriggerType, type TimingUnit, type AutomationStatus, type EmailKind,
 } from "@shared/mailer-automations";
 
@@ -626,7 +626,7 @@ export function AdminMailerAutomationDetail() {
 
               {ordered.map((s, i) => (
                 <div key={s.key} className="flex flex-col items-stretch">
-                  <Connector label={gapLabel(ordered[i - 1], s)} onAdd={() => addStep(ordered[i - 1] ?? undefined)} />
+                  <Connector label={gapLabel(ordered[i - 1], s, draft.trigger)} onAdd={() => addStep(ordered[i - 1] ?? undefined)} />
                   <Node
                     tone={s.enabled ? "white" : "muted"} icon={Mail}
                     eyebrow={timingSentence(s, draft.trigger)}
@@ -672,6 +672,7 @@ export function AdminMailerAutomationDetail() {
               <StepPanel
                 automationId={id}
                 trigger={draft.trigger}
+                programmeLabel={draft.programIds?.length === 1 ? (programmes.find((p) => p.id === draft.programIds![0])?.name ?? "your programme") : "your programme"}
                 step={selStep}
                 onChange={(p) => patchStep(selStep.key, p)}
                 onEdit={() => setEditing(selStep.key)}
@@ -723,7 +724,8 @@ export function AdminMailerAutomationDetail() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-white/45">Tags you can type into the email or subject:</span>
                 {AUTOMATION_MERGE_TAGS.map((t) => <code key={t.tag} className="text-[11px] rounded border border-white/10 px-1.5 py-0.5 text-white/70" title={t.label}>{t.tag}</code>)}
-                <Button className="ml-auto bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-9" onClick={() => setEditing(null)} data-testid="button-editor-done">
+                <span className="ml-auto text-[11px] text-white/45">Click outside the text you're editing (or press Save) before Done.</span>
+                <Button className="bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-9" onClick={() => setEditing(null)} data-testid="button-editor-done">
                   Done
                 </Button>
               </div>
@@ -757,16 +759,37 @@ function previewText(html: string): string {
   return html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 }
 
-/** The label on the line between two emails: how long after the one above. */
-function gapLabel(prev: Step | undefined, s: Step): string | undefined {
+/** The label on the line between two emails: how long after the one above.
+ *  When the lower email sends at a time of day, the honest gap is in DAYS
+ *  ("the next day, at 10am"), not "22 hours later". */
+function gapLabel(prev: Step | undefined, s: Step, trigger: TriggerType): string | undefined {
   if (!prev) return undefined;
-  const mins = (x: Step) => (x.timingUnit === "immediately" ? 0 : x.timingAmount * ({ minutes: 1, hours: 60, days: 1440, weeks: 10080 } as any)[x.timingUnit]) * (x.timingDirection === "before" ? -1 : 1);
+  const per: Record<string, number> = { immediately: 0, minutes: 1, hours: 60, days: 1440, weeks: 10080 };
+  const mins = (x: Step) => (x.timingUnit === "immediately" ? 0 : x.timingAmount * per[x.timingUnit]) * (x.timingDirection === "before" ? -1 : 1);
+  if (s.sendTime && sendTimeApplies(s, trigger)) {
+    const day = (x: Step) => Math.floor(mins(x) / 1440);
+    const d = day(s) - day(prev);
+    const at = formatClock(s.sendTime);
+    if (d <= 0) return `then later that day, at ${at}`;
+    if (d === 1) return `then the next day, at ${at}`;
+    if (d % 7 === 0) return `then ${d / 7} week${d === 7 ? "" : "s"} later, at ${at}`;
+    return `then ${d} days later, at ${at}`;
+  }
   const d = mins(s) - mins(prev);
   if (d <= 0) return "same time";
   if (d % 10080 === 0) return `then ${d / 10080} week${d === 10080 ? "" : "s"} later`;
   if (d % 1440 === 0) return `then ${d / 1440} day${d === 1440 ? "" : "s"} later`;
   if (d % 60 === 0) return `then ${d / 60} hour${d === 60 ? "" : "s"} later`;
   return `then ${d} min later`;
+}
+
+/** The preview reads like the real email: sample names in place of the tags. */
+function withSampleTags(html: string, programme: string): string {
+  const sample: Record<string, string> = {
+    first_name: "Sam", last_name: "Taylor", player_first_name: "Alex", player_name: "Alex Taylor",
+    programme_name: programme, programme_start_date: "Monday 12 October", email: "sam@example.com",
+  };
+  return html.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => sample[k] ?? m);
 }
 
 function Node({
@@ -932,9 +955,9 @@ function RuleRow({ title, sub, checked, onChange, testId }: { title: string; sub
 }
 
 function StepPanel({
-  automationId, trigger, step, onChange, onEdit, onRemove,
+  automationId, trigger, step, onChange, onEdit, onRemove, programmeLabel,
 }: {
-  automationId: number; trigger: TriggerType; step: Step;
+  automationId: number; trigger: TriggerType; step: Step; programmeLabel: string;
   onChange: (p: Partial<Step>) => void; onEdit: () => void; onRemove: () => void;
 }) {
   const { toast } = useToast();
@@ -1049,9 +1072,10 @@ function StepPanel({
             <Pencil className="w-3.5 h-3.5 mr-1" /> Edit email
           </Button>
         </div>
+        <div className="text-[11px] text-white/40">Preview with sample names — Sam is the parent, Alex the player.</div>
         <div className="rounded-lg border border-white/10 bg-white overflow-hidden">
           {step.bodyHtml.trim() ? (
-            <iframe title="Email preview" className="w-full h-64 bg-white" sandbox="" srcDoc={step.bodyHtml} data-testid="step-preview" />
+            <iframe title="Email preview" className="w-full h-64 bg-white" sandbox="" srcDoc={withSampleTags(step.bodyHtml, programmeLabel)} data-testid="step-preview" />
           ) : (
             <button type="button" onClick={onEdit} className="w-full h-32 text-sm text-gray-500 hover:bg-gray-50">Nothing written yet — tap to write it</button>
           )}
