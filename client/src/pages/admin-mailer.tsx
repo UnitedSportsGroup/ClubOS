@@ -100,7 +100,11 @@ function formatSentAt(c: { sentAt: string | null; createdAt: string }) {
 export default function AdminMailer() {
   const { toast } = useToast();
   const [step, setStep] = useState(0);
-  const [segmentType, setSegmentType] = useState("all");
+  // Custom List is the default: an email meant for a few must never go to
+  // everyone because nobody changed the first card (Zach, Oct 2026).
+  const [segmentType, setSegmentType] = useState("custom");
+  // Sending to every contact needs a deliberate tick on the Send step.
+  const [confirmAll, setConfirmAll] = useState(false);
   const [manualEmails, setManualEmails] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [fromEmail, setFromEmail] = useState(senderFrom(CUFC_MAILER_SENDERS[0]));
@@ -359,7 +363,8 @@ export default function AdminMailer() {
       setBuilderKey((k) => k + 1);
       setHasEditorContent(false);
       setManualEmails([]);
-      setSegmentType("all");
+      setSegmentType("custom");
+      setConfirmAll(false);
     },
     onError: (error: any) => {
       toast({ title: "Send failed", description: error.message, variant: "destructive" });
@@ -455,12 +460,12 @@ export default function AdminMailer() {
 
             <div className="grid grid-cols-2 gap-3 max-w-xl">
               {[
+                { key: "custom", label: "Custom List", desc: "Only the people you add" },
                 { key: "all", label: "All Contacts", desc: "Every parent email" },
-                { key: "custom", label: "Custom List", desc: "Manual email entry" },
               ].map(seg => (
                 <button
                   key={seg.key}
-                  onClick={() => setSegmentType(seg.key)}
+                  onClick={() => { setSegmentType(seg.key); setConfirmAll(false); }}
                   className={`p-4 rounded-xl border text-left transition-all ${
                     segmentType === seg.key
                       ? "bg-blue-500/10 border-blue-500/30 shadow-[0_0_12px_rgba(59,130,246,0.1)]"
@@ -870,6 +875,22 @@ export default function AdminMailer() {
             </div>
           </div>
 
+          {segmentType === "all" && (
+            <label className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] cursor-pointer" data-testid="confirm-send-all">
+              <input
+                type="checkbox"
+                checked={confirmAll}
+                onChange={(e) => setConfirmAll(e.target.checked)}
+                className="mt-0.5 w-5 h-5 accent-amber-600"
+                data-testid="checkbox-confirm-all"
+              />
+              <span className="text-sm text-white/80">
+                <strong>This goes to every contact</strong>, not a few people. Tick to confirm that's what you mean.
+                To email only some people, go back to Setup and choose Custom List.
+              </span>
+            </label>
+          )}
+
           <div className="flex items-center justify-between">
             <Button
               onClick={() => setStep(1)}
@@ -882,7 +903,7 @@ export default function AdminMailer() {
             </Button>
             <Button
               onClick={() => sendMutation.mutate()}
-              disabled={sendMutation.isPending}
+              disabled={sendMutation.isPending || (segmentType === "all" && !confirmAll)}
               className="h-11 md:h-9 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6"
               data-testid="button-send-campaign"
             >
