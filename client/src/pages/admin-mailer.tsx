@@ -38,12 +38,6 @@ const BRAND_BY_SLUG: Record<string, string> = {
   "united-prints": "prints",
 };
 
-type SegmentData = {
-  campId: number;
-  campName: string;
-  dates: { id: number; date: string }[];
-};
-
 type Campaign = {
   id: number;
   subject: string;
@@ -107,9 +101,6 @@ export default function AdminMailer() {
   const { toast } = useToast();
   const [step, setStep] = useState(0);
   const [segmentType, setSegmentType] = useState("all");
-  const [selectedCampId, setSelectedCampId] = useState<number | null>(null);
-  const [selectedDateId, setSelectedDateId] = useState<number | null>(null);
-  const [selectedSession, setSelectedSession] = useState<string>("");
   const [manualEmails, setManualEmails] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [fromEmail, setFromEmail] = useState(senderFrom(CUFC_MAILER_SENDERS[0]));
@@ -193,10 +184,6 @@ export default function AdminMailer() {
     return Number.isInteger(n) && n > 0 ? n : null;
   });
 
-  const { data: segments = [] } = useQuery<SegmentData[]>({
-    queryKey: ["/api/admin/mailer/segments"],
-  });
-
   // Debounced so typing doesn't fire a query per keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -230,12 +217,9 @@ export default function AdminMailer() {
   });
 
   const segmentConfig = useMemo(() => {
-    if (segmentType === "camp" && selectedCampId) return { campId: selectedCampId };
-    if (segmentType === "day" && selectedCampId && selectedDateId) return { campId: selectedCampId, campDateId: selectedDateId };
-    if (segmentType === "session" && selectedCampId && selectedDateId && selectedSession) return { campId: selectedCampId, campDateId: selectedDateId, sessionType: selectedSession };
     if (segmentType === "custom") return { emails: manualEmails };
     return {};
-  }, [segmentType, selectedCampId, selectedDateId, selectedSession, manualEmails]);
+  }, [segmentType, manualEmails]);
 
   const previewMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/mailer/preview-recipients", { segmentType, segmentConfig }),
@@ -388,13 +372,7 @@ export default function AdminMailer() {
   }, []);
 
 
-  const selectedCamp = segments.find(s => s.campId === selectedCampId);
-  const selectedDate = selectedCamp?.dates.find(d => d.id === selectedDateId);
-
   const canProceedSetup = segmentType === "all" ||
-    (segmentType === "camp" && selectedCampId) ||
-    (segmentType === "day" && selectedCampId && selectedDateId) ||
-    (segmentType === "session" && selectedCampId && selectedDateId && selectedSession) ||
     (segmentType === "custom" && manualEmails.length > 0);
 
   // 🔴 Never move on with an older copy of the design: while a change is still
@@ -475,17 +453,14 @@ export default function AdminMailer() {
           <div className="glass-card rounded-2xl p-6 space-y-5">
             <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Recipients</h2>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 gap-3 max-w-xl">
               {[
                 { key: "all", label: "All Contacts", desc: "Every parent email" },
-                { key: "camp", label: "By Camp", desc: "Registered to a camp" },
-                { key: "day", label: "By Day", desc: "Specific camp day" },
-                { key: "session", label: "By Session", desc: "Morning or afternoon" },
                 { key: "custom", label: "Custom List", desc: "Manual email entry" },
               ].map(seg => (
                 <button
                   key={seg.key}
-                  onClick={() => { setSegmentType(seg.key); setSelectedCampId(null); setSelectedDateId(null); setSelectedSession(""); }}
+                  onClick={() => setSegmentType(seg.key)}
                   className={`p-4 rounded-xl border text-left transition-all ${
                     segmentType === seg.key
                       ? "bg-blue-500/10 border-blue-500/30 shadow-[0_0_12px_rgba(59,130,246,0.1)]"
@@ -498,72 +473,6 @@ export default function AdminMailer() {
                 </button>
               ))}
             </div>
-
-            {(segmentType === "camp" || segmentType === "day" || segmentType === "session") && (
-              <div className="space-y-3">
-                <label className="text-xs text-white/40 uppercase tracking-wider">Select Camp</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {segments.map(s => (
-                    <button
-                      key={s.campId}
-                      onClick={() => { setSelectedCampId(s.campId); setSelectedDateId(null); setSelectedSession(""); }}
-                      className={`p-3 rounded-xl border text-left text-sm transition-all ${
-                        selectedCampId === s.campId
-                          ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                          : "bg-white/[0.02] border-white/[0.06] text-white/60 hover:bg-white/[0.04]"
-                      }`}
-                      data-testid={`button-camp-${s.campId}`}
-                    >
-                      {s.campName}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(segmentType === "day" || segmentType === "session") && selectedCamp && (
-              <div className="space-y-3">
-                <label className="text-xs text-white/40 uppercase tracking-wider">Select Day</label>
-                <div className="flex flex-wrap gap-2">
-                  {selectedCamp.dates.map(d => (
-                    <button
-                      key={d.id}
-                      onClick={() => { setSelectedDateId(d.id); setSelectedSession(""); }}
-                      className={`px-4 py-2 rounded-xl border text-sm transition-all ${
-                        selectedDateId === d.id
-                          ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                          : "bg-white/[0.02] border-white/[0.06] text-white/60 hover:bg-white/[0.04]"
-                      }`}
-                      data-testid={`button-date-${d.id}`}
-                    >
-                      {new Date(d.date + "T12:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {segmentType === "session" && selectedDateId && (
-              <div className="space-y-3">
-                <label className="text-xs text-white/40 uppercase tracking-wider">Select Session</label>
-                <div className="flex gap-2">
-                  {["morning", "afternoon", "full_day"].map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setSelectedSession(s)}
-                      className={`px-4 py-2 rounded-xl border text-sm capitalize transition-all ${
-                        selectedSession === s
-                          ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                          : "bg-white/[0.02] border-white/[0.06] text-white/60 hover:bg-white/[0.04]"
-                      }`}
-                      data-testid={`button-session-${s}`}
-                    >
-                      {s.replace("_", " ")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {segmentType === "custom" && (
               <div className="space-y-3">
@@ -897,9 +806,6 @@ export default function AdminMailer() {
                 <div className="text-xs text-white/40 mb-1">Segment</div>
                 <div className="text-sm text-white/80 capitalize" data-testid="text-review-segment">
                   {segmentType === "all" ? "All contacts" :
-                   segmentType === "camp" ? `Camp: ${selectedCamp?.campName || ""}` :
-                   segmentType === "day" ? `${selectedCamp?.campName || ""} — ${selectedDate ? new Date(selectedDate.date + "T12:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" }) : ""}` :
-                   segmentType === "session" ? `${selectedCamp?.campName || ""} — ${selectedSession.replace("_", " ")}` :
                    `Custom (${manualEmails.length} emails)`}
                 </div>
               </div>
