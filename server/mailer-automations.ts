@@ -194,9 +194,11 @@ export function registerMailerAutomationRoutes(app: Express, deps: Deps) {
                   count(*) FILTER (WHERE e.entered_at > now() - interval '30 days')                       AS entered_30d,
                   count(*) FILTER (WHERE e.stop_reason = 'paid' AND e.finished_at > now() - interval '30 days') AS paid_30d,
                   (SELECT count(*) FROM mailer_automation_sends s JOIN mailer_automation_enrollments e2 ON e2.id = s.enrollment_id
-                    WHERE e2.automation_id = e.automation_id AND s.status = 'sent' AND s.sent_at > now() - interval '30 days') AS sent_30d
+                    WHERE e2.automation_id = e.automation_id AND e2.dedupe_key NOT LIKE 'sim:%' AND s.status = 'sent' AND s.sent_at > now() - interval '30 days') AS sent_30d
              FROM mailer_automation_enrollments e
             WHERE e.automation_id = ANY($1::int[])
+              -- A "test family" from the button is not a family: keep it out of the numbers.
+              AND e.dedupe_key NOT LIKE 'sim:%'
             GROUP BY e.automation_id`, [ids])
         : [];
       const statBy = new Map(stats.map((s) => [Number(s.automation_id), {
@@ -931,7 +933,17 @@ async function processDue(deps: Deps) {
                       ORDER BY due_at LIMIT 40 FOR UPDATE SKIP LOCKED)
       RETURNING s.*`);
   const unsubCache = new Map<number, Set<string>>();
+  // 🔴 In time order, and ONE email per family per minute. After a restart two
+  // emails can both be due; the claim's RETURNING order is not the subquery's
+  // ORDER BY, and the test on 2026-10-25 sent email 2 a second BEFORE email 1.
+  due.sort((x, y) => new Date(x.due_at).getTime() - new Date(y.due_at).getTime() || Number(x.id) - Number(y.id));
+  const sentThisTick = new Set<string>();
   for (const s of due) {
+    if (sentThisTick.has(String(s.enrollment_id))) {
+      await q(`UPDATE mailer_automation_sends SET status='scheduled', attempts = attempts - 1, due_at = now() + interval '1 minute', updated_at=now() WHERE id=$1`, [s.id]);
+      continue;
+    }
+    sentThisTick.add(String(s.enrollment_id));
     const done = async (status: string, reason: string | null, extra: { to?: string; id?: string | null } = {}) => {
       await q(`UPDATE mailer_automation_sends SET status=$2, reason=$3, sent_to=$4, provider_id=$5,
                  sent_at = CASE WHEN $2='sent' THEN now() ELSE sent_at END, updated_at=now() WHERE id=$1`,
