@@ -759,7 +759,7 @@ export default function AdminMailer() {
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertSubjectTag(tag)}
-                  className="rounded-full border border-white/10 px-3 min-h-9 text-xs font-medium text-white/70 hover:bg-white/5"
+                  className="rounded-full border border-white/10 px-3 min-h-11 md:min-h-9 text-xs font-medium text-white/70 hover:bg-white/5"
                   title={`Adds ${tag} — swapped for each recipient at send`}
                   data-testid={`button-subject-tag-${tag.replace(/[{}]/g, "")}`}
                 >

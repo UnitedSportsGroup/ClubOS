@@ -150,7 +150,8 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
     { icon: RemoveFormatting, title: "Clear formatting", run: () => { exec("removeFormat"); exec("formatBlock", "<div>"); }, testId: "clear" },
   ];
 
-  const btn = "w-9 h-9 md:w-8 md:h-8 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 shrink-0";
+  // 44px on a phone — the smallest thing a thumb hits reliably; 32px on a laptop.
+  const btn = "w-11 h-11 md:w-8 md:h-8 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 shrink-0";
 
   return (
     <div className="rounded-xl border border-white/10 overflow-hidden" data-testid="simple-compose">
@@ -181,7 +182,7 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertTag(m.tag)}
-              className="rounded-full border border-white/10 px-2.5 min-h-8 text-xs font-medium text-white/70 hover:bg-white/5"
+              className="rounded-full border border-white/10 px-2.5 min-h-11 md:min-h-8 text-xs font-medium text-white/70 hover:bg-white/5"
               title={`Inserts ${m.tag} — ${m.hint}; swapped for each recipient at send`}
               data-testid={`compose-tag-${m.tag.replace(/[{}]/g, "")}`}
             >
@@ -195,7 +196,7 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
           <SelectInput
             value={letterhead}
             onChange={(e) => onLetterhead(e.target.value)}
-            className="h-9 md:h-8 w-48 text-sm"
+            className="h-11 md:h-8 w-48 text-sm"
             data-testid="compose-letterhead"
           >
             <option value="none">None</option>

@@ -3,10 +3,13 @@
 //
 //   npx tsx --env-file=.env script/_verify-mailer-browser.ts
 //
-// Why this exists: the visual builder is a three-pane shell that cannot work on
-// a 390px screen, so it swaps itself for a plain-HTML editor below 768px. That
-// fallback lives inside a fixed-height, overflow-hidden box sized for a laptop
-// canvas — a combination nothing but a browser at a phone width can judge.
+// What it walks (Daniel, 2026-10-25 — "a simple editor and the full email
+// builder"): Setup → Content opens on the WRITE / DESIGN chooser; Write opens
+// the Gmail-shaped compose box seeded with a greeting, the crest on top and the
+// sign-off read off the From; typing saves itself and enables Next; on a phone
+// the box fits, every control is thumb-sized, the Preview pane shows the real
+// email and Next can be scrolled to; on a laptop the email can be handed to the
+// designer and brought back with its words intact and ONE sign-off.
 //
 // Signs in over the API and injects the cookie: driving ClubOS's SPA login form
 // races its submit and screenshots the login page, which reads exactly like a
@@ -29,6 +32,24 @@ const ok = (l: string, good: boolean, d = "") => {
   console.log(`  ${good ? "ok  " : "FAIL"} ${l}${d ? ` — ${d}` : ""}`);
   good ? pass++ : fail++;
 };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The Mailer's OWN controls must be thumb-sized. The admin shell around it
+// (sidebar toggle, global search, account menu) is every page in ClubOS, not
+// this feature — reported so it stays visible, never asserted here.
+const SHELL = ["button-sidebar-toggle", "input-global-search", "button-account-menu"];
+const SMALL_CONTROLS = `(function () {
+  var small = [];
+  var nodes = document.querySelectorAll("button, a[href], input, select, textarea, [role=textbox]");
+  for (var i = 0; i < nodes.length; i++) {
+    var b = nodes[i].getBoundingClientRect();
+    if (b.width > 0 && b.height > 0 && b.height < 44) {
+      var t = nodes[i].getAttribute("data-testid");
+      small.push(nodes[i].tagName.toLowerCase() + (t ? "[" + t + "]" : "") + ":" + Math.round(b.height) + "px");
+    }
+  }
+  return small;
+})()`;
 
 const users: number[] = [];
 let browser: any = null;
@@ -69,11 +90,17 @@ try {
     await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: 2 });
     if (mobile) await page.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1");
     await page.setCookie({ name: cname, value: cvalue, domain: "app.usg.co.nz", path: "/", httpOnly: true, secure: true });
+    // The round trip asks "are you sure?" — answered yes here, never shown.
+    await page.evaluateOnNewDocument(() => { window.confirm = () => true; });
 
     await page.goto(`${BASE}/admin`, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.evaluate((slug: string) => localStorage.setItem("clubos_workspace", slug), WORKSPACE);
+    await page.evaluate((slug: string) => {
+      localStorage.setItem("clubos_workspace", slug);
+      // A draft left by an earlier run would skip the chooser.
+      Object.keys(localStorage).filter((k) => k.startsWith("clubos-mailer-draft:")).forEach((k) => localStorage.removeItem(k));
+    }, WORKSPACE);
     await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
-    await new Promise((r) => setTimeout(r, 2500));
+    await sleep(2500);
 
     const body = await page.evaluate(() => document.body.innerText);
     ok("the page is the Mailer, not the login screen", !/Sign in|Forgot password/i.test(body));
@@ -82,79 +109,134 @@ try {
     const seg = await page.$('[data-testid="button-segment-all"]');
     ok("the audience picker is present", Boolean(seg));
     if (seg) await seg.click();
-    await new Promise((r) => setTimeout(r, 400));
+    await sleep(400);
     const next = await page.$('[data-testid="button-next-content"]');
     if (next) await next.click();
-    await new Promise((r) => setTimeout(r, 1200));
+    await sleep(1200);
 
-    // Give the builder a subject and let the lazy chunk land.
+    // ── The Content step: subject on one row, then the chooser ───────────────
     const subj = await page.$('[data-testid="input-subject"]');
     ok("the Content step opened (subject field visible)", Boolean(subj));
     if (subj) { await subj.click(); await page.keyboard.type("Preflight — everything happening this week"); }
-    await new Promise((r) => setTimeout(r, 6000));
-
-    // ── the checks that only a browser at this width can make ────────────────
-    const m: any = await page.evaluate(`(function () {
-      var de = document.documentElement;
-      var box = document.querySelector('[data-testid="email-builder"]');
-      var inner = box ? box.firstElementChild : null;
-      var ta = box ? box.querySelector("textarea") : null;
-      var iframe = box ? box.querySelector("iframe") : null;
-      var gjs = box ? box.querySelector(".gjs-editor") : null;
-      var small = [];
-      var nodes = document.querySelectorAll("button, a[href], input, textarea");
-      for (var i = 0; i < nodes.length; i++) {
-        var b = nodes[i].getBoundingClientRect();
-        if (b.width > 0 && b.height > 0 && b.height < 44) {
-          var t = nodes[i].getAttribute("data-testid");
-          small.push(nodes[i].tagName.toLowerCase() + (t ? "[" + t + "]" : "") + ":" + Math.round(b.height) + "px");
-        }
-      }
+    const top: any = await page.evaluate(`(function () {
+      var s = document.querySelector('[data-testid="input-subject"]');
+      var chip = document.querySelector('[data-testid="button-subject-tag-first_name"]');
+      var sr = s ? s.getBoundingClientRect() : null, cr = chip ? chip.getBoundingClientRect() : null;
       return {
-        docWidth: de.scrollWidth,
-        winWidth: window.innerWidth,
-        boxH: box ? box.clientHeight : 0,
-        contentH: inner ? inner.scrollHeight : 0,
-        boxOverflow: box ? getComputedStyle(box).overflow : "",
-        hasTextarea: !!ta,
-        textareaValueLen: ta ? ta.value.length : -1,
-        hasGrapes: !!gjs,
-        iframeBottom: iframe ? iframe.getBoundingClientRect().bottom : null,
-        boxBottom: box ? box.getBoundingClientRect().bottom : null,
-        small: small.slice(0, 10)
+        chooser: !!document.querySelector('[data-testid="mailer-mode-chooser"]'),
+        simpleCard: !!document.querySelector('[data-testid="button-mode-simple"]'),
+        designCard: !!document.querySelector('[data-testid="button-mode-design"]'),
+        builderMounted: !!document.querySelector('[data-testid="email-builder"]'),
+        composeMounted: !!document.querySelector('[data-testid="simple-compose"]'),
+        templates: !!document.querySelector('[data-testid="mailer-templates-bar"]'),
+        designBlurb: /Drag a section in from the left/.test(document.body.innerText),
+        chipBesideSubject: !!(sr && cr) && Math.abs((sr.top + sr.bottom) / 2 - (cr.top + cr.bottom) / 2) < sr.height,
+        docWidth: document.documentElement.scrollWidth, winWidth: window.innerWidth
       };
     })()`);
+    ok("Content opens on the Write / Design chooser, nothing mounted yet",
+      top.chooser && top.simpleCard && top.designCard && !top.builderMounted && !top.composeMounted,
+      JSON.stringify({ chooser: top.chooser, builder: top.builderMounted, compose: top.composeMounted }));
+    ok("Templates have their own section", top.templates);
+    ok("the old design blurb is gone", !top.designBlurb);
+    if (!mobile) ok("the subject's insert chips sit on the subject's row", top.chipBesideSubject);
+    ok("no horizontal overflow on the chooser", top.docWidth <= top.winWidth + 1, `${top.docWidth} vs ${top.winWidth}`);
+    await page.screenshot({ path: join(OUT, `${label}-chooser.png`) });
+    console.log(`  → ${join(OUT, `${label}-chooser.png`)}`);
 
-    ok("no horizontal overflow", m.docWidth <= m.winWidth + 1, `${m.docWidth} vs ${m.winWidth}`);
+    // ── Write an email ───────────────────────────────────────────────────────
+    const writeCard = await page.$('[data-testid="button-mode-simple"]');
+    if (writeCard) await writeCard.click();
+    await sleep(1500);
+    const compose: any = await page.evaluate(`(function () {
+      var box = document.querySelector('[data-testid="compose-body"]');
+      var pv = document.querySelector('[data-testid="compose-preview"]');
+      var doc = pv ? pv.getAttribute("srcdoc") || "" : "";
+      return {
+        mounted: !!document.querySelector('[data-testid="simple-compose"]'),
+        mode: (document.querySelector('[data-testid="text-editor-mode"]') || {}).textContent,
+        greeting: box ? /\\{\\{first_name\\}\\}/.test(box.innerHTML) : false,
+        boxH: box ? box.getBoundingClientRect().height : 0,
+        previewVisible: !!pv && pv.getBoundingClientRect().width > 0,
+        letterheadInPreview: /logos\\/christchurch-united\\.png/.test(doc),
+        signOffInPreview: /<strong>Christchurch United FC<\\/strong>/.test(doc),
+        hasBody: /<body/.test(doc),
+        attachAtFoot: !!document.querySelector('[data-testid="mailer-attachments-bar"]'),
+        docWidth: document.documentElement.scrollWidth, winWidth: window.innerWidth
+      };
+    })()`);
+    ok("Write opens the compose box as a written email", compose.mounted && compose.mode === "Written email", String(compose.mode));
+    ok("it starts with a greeting that carries the first-name tag", compose.greeting);
+    ok("the writing area is tall enough to work in", compose.boxH >= 300, `${Math.round(compose.boxH)}px`);
+    ok("the compiled preview is a real document with the crest and the sign-off",
+      compose.hasBody && compose.letterheadInPreview && compose.signOffInPreview,
+      JSON.stringify({ body: compose.hasBody, crest: compose.letterheadInPreview, signOff: compose.signOffInPreview }));
+    ok("Attach a file sits at the foot of the editor", compose.attachAtFoot);
+    ok("no horizontal overflow with the compose box open", compose.docWidth <= compose.winWidth + 1, `${compose.docWidth} vs ${compose.winWidth}`);
+    if (mobile) ok("the preview is behind the Preview switch on a phone", !compose.previewVisible);
+    else ok("the preview sits beside the box on a laptop", compose.previewVisible);
+
+    // Type, bold a word, insert a tag at the caret — then the save must land
+    // on its own and Next must open.
+    const bodyEl = await page.$('[data-testid="compose-body"]');
+    if (bodyEl) {
+      await bodyEl.click();
+      await page.keyboard.press("End");
+      await page.keyboard.type("Boots on by 4:15 please, ");
+      const tag = await page.$('[data-testid="compose-tag-player_first_name"]');
+      if (tag) await tag.click();
+      await page.keyboard.type(" is in the Monday group.");
+    }
+    await sleep(1600);
+    const typed: any = await page.evaluate(`(function () {
+      var box = document.querySelector('[data-testid="compose-body"]');
+      var pv = document.querySelector('[data-testid="compose-preview"]');
+      var nextBtn = document.querySelector('[data-testid="button-next-send"]');
+      return {
+        tagInBody: box ? /\\{\\{player_first_name\\}\\} is in the Monday group/.test(box.innerHTML) : false,
+        tagInPreview: pv ? /\\{\\{player_first_name\\}\\} is in the Monday group/.test(pv.getAttribute("srcdoc") || "") : false,
+        saved: !!document.querySelector('[data-testid="text-design-saved"]'),
+        nextEnabled: !!nextBtn && !nextBtn.disabled
+      };
+    })()`);
+    ok("the tag went in at the caret, mid-sentence", typed.tagInBody);
+    ok("the preview carries the typed words", typed.tagInPreview);
+    ok("the email saved itself after typing", typed.saved);
+    ok("Next: Review & Send is enabled", typed.nextEnabled);
 
     if (mobile) {
-      ok("the narrow fallback is shown (plain-HTML editor, not the 3-pane builder)",
-        m.hasTextarea && !m.hasGrapes, `textarea=${m.hasTextarea} grapes=${m.hasGrapes}`);
-      ok("the fallback is not clipped by the fixed-height box",
-        m.contentH <= m.boxH + 2, `content ${m.contentH}px inside ${m.boxH}px (${m.boxOverflow})`);
-      ok("the preview iframe is fully inside the box",
-        m.iframeBottom !== null && m.boxBottom !== null && m.iframeBottom <= m.boxBottom + 2,
-        `iframe bottom ${Math.round(m.iframeBottom ?? -1)} vs box bottom ${Math.round(m.boxBottom ?? -1)}`);
-      // The Mailer's OWN controls must be thumb-sized. The admin shell around
-      // it (sidebar toggle, global search, account menu) is every page in
-      // ClubOS, not this feature — reported so it stays visible, but a global
-      // restyle is not something a mailer change gets to smuggle in.
-      const SHELL = ["button-sidebar-toggle", "input-global-search", "button-account-menu"];
-      const mine = m.small.filter((s: string) => !SHELL.some((k) => s.includes(k)));
-      const shell = m.small.filter((s: string) => SHELL.some((k) => s.includes(k)));
+      const small: string[] = await page.evaluate(SMALL_CONTROLS);
+      const mine = small.filter((s) => !SHELL.some((k) => s.includes(k)));
+      const shell = small.filter((s) => SHELL.some((k) => s.includes(k)));
       ok("every Mailer control is at least 44px tall", mine.length === 0, mine.join(", "));
       if (shell.length) console.log(`  note  shared admin chrome under 44px (not this feature): ${shell.join(", ")}`);
-    } else {
-      ok("the full builder mounted", m.hasGrapes || m.contentH > 0, `grapes=${m.hasGrapes}`);
-    }
+      await page.screenshot({ path: join(OUT, `${label}-write.png`) });
+      console.log(`  → ${join(OUT, `${label}-write.png`)}`);
 
-    // Not clipped is not the same as reachable. ClubOS's admin scrolls in an
-    // inner pane, not the document, so this finds whatever actually scrolls and
-    // drives it to the bottom — the preview and the Next button have to be
-    // somewhere a thumb can get to.
-    if (mobile) {
+      // Preview pane: the real email, inside the screen.
+      const pvTab = await page.$('[data-testid="compose-pane-preview"]');
+      if (pvTab) await pvTab.click();
+      await sleep(600);
+      const pane: any = await page.evaluate(`(function () {
+        var pv = document.querySelector('[data-testid="compose-preview"]');
+        var r = pv ? pv.getBoundingClientRect() : null;
+        var box = document.querySelector('[data-testid="compose-body"]');
+        return {
+          previewShown: !!r && r.width > 0,
+          insideScreen: !!r && r.left >= 0 && r.right <= window.innerWidth + 1,
+          writeHidden: !box || box.getBoundingClientRect().width === 0
+        };
+      })()`);
+      ok("the Preview pane shows the email", pane.previewShown);
+      ok("the preview fits inside the phone's width", pane.insideScreen);
+      ok("one pane at a time on a phone", pane.writeHidden);
+      await page.screenshot({ path: join(OUT, `${label}-preview.png`) });
+      console.log(`  → ${join(OUT, `${label}-preview.png`)}`);
+
+      // Not clipped is not the same as reachable: scroll whatever scrolls and
+      // the Next button has to be somewhere a thumb can get to.
       const reach: any = await page.evaluate(`(function () {
-        var box = document.querySelector('[data-testid="email-builder"]');
+        var box = document.querySelector('[data-testid="simple-compose"]');
         var el = box ? box.parentElement : null;
         var scroller = null;
         while (el) {
@@ -165,30 +247,58 @@ try {
         if (!scroller && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight + 4) scroller = document.scrollingElement;
         if (!scroller) return { scrolled: false };
         scroller.scrollTop = scroller.scrollHeight;
-        var iframe = box ? box.querySelector("iframe") : null;
         var next = document.querySelector('[data-testid="button-next-send"]');
-        var ir = iframe ? iframe.getBoundingClientRect() : null;
         var nr = next ? next.getBoundingClientRect() : null;
-        return {
-          scrolled: true,
-          previewOnScreen: !!ir && ir.top < window.innerHeight && ir.bottom > 0,
-          nextOnScreen: !!nr && nr.top < window.innerHeight && nr.bottom > 0,
-          nextTop: nr ? Math.round(nr.top) : null,
-          viewport: window.innerHeight
-        };
+        return { scrolled: true, nextOnScreen: !!nr && nr.top < window.innerHeight && nr.bottom > 0, nextTop: nr ? Math.round(nr.top) : null, viewport: window.innerHeight };
       })()`);
-      await new Promise((r) => setTimeout(r, 600));
+      await sleep(400);
       ok("the page scrolls", reach.scrolled === true);
-      ok("the live preview can be scrolled to", reach.previewOnScreen === true);
-      ok("Next: Review & Send can be reached", reach.nextOnScreen === true,
-        `top ${reach.nextTop} of ${reach.viewport}`);
+      ok("Next: Review & Send can be reached", reach.nextOnScreen === true, `top ${reach.nextTop} of ${reach.viewport}`);
       await page.screenshot({ path: join(OUT, `${label}-scrolled.png`) });
       console.log(`  → ${join(OUT, `${label}-scrolled.png`)}`);
+    } else {
+      await page.screenshot({ path: join(OUT, `${label}-write.png`) });
+      console.log(`  → ${join(OUT, `${label}-write.png`)}`);
+
+      // ── Written → designer → written: the words survive, the sign-off is one ──
+      const sw = await page.$('[data-testid="button-switch-mode"]');
+      if (sw) await sw.click();
+      await sleep(9000); // the ~725KB builder chunk + MJML parse
+      const designed: any = await page.evaluate(`(function () {
+        var mode = (document.querySelector('[data-testid="text-editor-mode"]') || {}).textContent;
+        var frame = document.querySelector('[data-testid="email-builder"] iframe');
+        var text = "";
+        try { text = frame && frame.contentDocument ? frame.contentDocument.body.innerText : ""; } catch (e) {}
+        return { mode: mode, grapes: !!document.querySelector(".gjs-editor"), wordsInCanvas: /Boots on by 4:15 please/.test(text), crestInCanvas: !!(frame && frame.contentDocument && frame.contentDocument.querySelector('img[src*="christchurch-united.png"]')) };
+      })()`);
+      ok("the designer opened on the written email", designed.mode === "Designed email" && designed.grapes, JSON.stringify(designed));
+      ok("the words came with it onto the canvas", designed.wordsInCanvas);
+      ok("the crest came with it", designed.crestInCanvas);
+      await page.screenshot({ path: join(OUT, `${label}-designer.png`) });
+      console.log(`  → ${join(OUT, `${label}-designer.png`)}`);
+
+      const back = await page.$('[data-testid="button-switch-mode"]');
+      if (back) await back.click();
+      await sleep(1500);
+      const returned: any = await page.evaluate(`(function () {
+        var box = document.querySelector('[data-testid="compose-body"]');
+        var html = box ? box.innerHTML : "";
+        return {
+          mode: (document.querySelector('[data-testid="text-editor-mode"]') || {}).textContent,
+          words: /Boots on by 4:15 please/.test(html),
+          tag: /\\{\\{player_first_name\\}\\}/.test(html),
+          signOffCount: (html.match(/<b>\\s*Christchurch United FC\\s*<\\/b>/g) || []).length,
+          footerLeak: /receiving this because|Unsubscribe/i.test(html)
+        };
+      })()`);
+      ok("back to a written email", returned.mode === "Written email", String(returned.mode));
+      ok("the words and the tag are intact", returned.words && returned.tag);
+      ok("the sign-off is not doubled into the body", returned.signOffCount === 0, `${returned.signOffCount} copies in the body`);
+      ok("the designer's footer did not leak into the body", !returned.footerLeak);
+      await page.screenshot({ path: join(OUT, `${label}-returned.png`) });
+      console.log(`  → ${join(OUT, `${label}-returned.png`)}`);
     }
 
-    const shot = join(OUT, `${label}.png`);
-    await page.screenshot({ path: shot, fullPage: false });
-    console.log(`  → ${shot}`);
     const full = join(OUT, `${label}-full.png`);
     await page.screenshot({ path: full, fullPage: true });
     console.log(`  → ${full}`);
