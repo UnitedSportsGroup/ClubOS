@@ -71,7 +71,12 @@ type SavedTemplate = { id: number; name: string; subject: string | null; updated
 
 /** An email that has not been sent yet, kept in THIS browser so a reload, a
  *  closed tab or a builder hiccup never costs someone their work. */
-type LocalDraft = { subject: string; bodyDoc: unknown; bodyHtml: string; savedAt: string };
+type LocalDraft = {
+  subject: string; bodyDoc: unknown; bodyHtml: string; savedAt: string;
+  /** The typed recipient list and audience ride with the email (2026-10-26) —
+   *  thirty addresses typed by hand are as much work as the words. */
+  recipients?: string[]; segmentType?: string;
+};
 const draftKey = (slug: string) => `clubos-mailer-draft:${slug || "default"}`;
 const readDraft = (slug: string): LocalDraft | null => {
   try {
@@ -314,11 +319,23 @@ export default function AdminMailer() {
   // The builder hands back the doc, the compiled email-safe HTML and a plain-text
   // version in one go. `hasEditorContent` gates the Next button, so it tracks the
   // TEXT: a design of nothing but a spacer is not something to email 3,800 people.
+  // The newest of everything the draft is made of, readable from any closure —
+  // the save handler, the unmount flush, the tab-close flush. Assigned each
+  // render below, once every piece exists.
+  const latestDraft = useRef<{
+    orgSlug: string; subject: string; bodyDoc: unknown; bodyHtml: string; mode: "choose" | "simple" | "design";
+    simpleDoc: SimpleDoc | null; brandKey: string; recipients: string[]; segmentType: string;
+  }>({ orgSlug: "", subject: "", bodyDoc: null, bodyHtml: "", mode: "choose", simpleDoc: null, brandKey: "", recipients: [], segmentType: "custom" });
   const handleDesignSave = useCallback((result: { doc: unknown; html: string; text: string }) => {
     setBodyHtml(result.html);
     setBodyDoc(result.doc);
     setHasEditorContent((result.text || "").trim().length > 0);
     setDesignSavedAt(new Date());
+    // 🔴 Written to this browser NOW, not through React state: a save that
+    // lands after the page has unmounted (the builder flushing on the way out)
+    // still reaches the draft, where a setState would be dropped on the floor.
+    const d = latestDraft.current;
+    writeDraft(d.orgSlug, { subject: d.subject, bodyDoc: result.doc, bodyHtml: result.html, recipients: d.recipients, segmentType: d.segmentType, savedAt: new Date().toISOString() });
   }, []);
 
   // ── Loading a design: a template, a past email, a recovered draft ─────────
@@ -359,6 +376,29 @@ export default function AdminMailer() {
     () => (mode === "simple" && simpleTextOf(simpleHtml) ? compileSimpleEmail(simpleDoc, brandKey) : ""),
     [mode, simpleDoc, simpleHtml, brandKey],
   );
+  latestDraft.current = { orgSlug, subject, bodyDoc, bodyHtml, mode, simpleDoc, brandKey, recipients: manualEmails, segmentType };
+
+  // 🔴 Nothing typed is lost to a click (Daniel, 2026-10-26: Friendly Manager
+  // "if you accidentally clicked another page you lost all your writing …
+  // needs to auto save as you go"). The debounced write below drops its timer
+  // when the page unmounts, and a written email's last half-second of typing
+  // sits uncompiled in the box. So on the way out — a sidebar click, Back, a
+  // closed tab, a refresh — the draft is written from the newest state,
+  // compiling the written email on the spot.
+  useEffect(() => {
+    const flush = () => {
+      const d = latestDraft.current;
+      let { bodyDoc, bodyHtml } = d;
+      if (d.mode === "simple" && d.simpleDoc) {
+        const text = simpleTextOf(d.simpleDoc.html);
+        if (text) { bodyDoc = d.simpleDoc; bodyHtml = compileSimpleEmail(d.simpleDoc, d.brandKey); } else { bodyDoc = null; bodyHtml = ""; }
+      }
+      if (!bodyHtml.trim() && !d.subject.trim()) return;
+      writeDraft(d.orgSlug, { subject: d.subject, bodyDoc, bodyHtml, recipients: d.recipients, segmentType: d.segmentType, savedAt: new Date().toISOString() });
+    };
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, []);
   // Compiles and records the email half a second after the last keystroke —
   // the same save the builder makes, so Next, the draft copy, templates and
   // the send all read one thing. An emptied box empties the email, so a blank
@@ -426,14 +466,16 @@ export default function AdminMailer() {
   const confirmReplace = () =>
     !hasDesign || window.confirm("Replace the email you're working on? It can't be brought back.");
 
-  // Keep the unsent email in this browser — every design save and subject edit.
+  // Keep the unsent email in this browser — every design save, subject edit
+  // and change to the recipient list. (The unmount flush above catches the
+  // write this timer would otherwise drop.)
   useEffect(() => {
     if (!bodyHtml.trim() && !subject.trim()) return;
     const t = setTimeout(() => {
-      writeDraft(orgSlug, { subject, bodyDoc, bodyHtml, savedAt: new Date().toISOString() });
+      writeDraft(orgSlug, { subject, bodyDoc, bodyHtml, recipients: manualEmails, segmentType, savedAt: new Date().toISOString() });
     }, 400);
     return () => clearTimeout(t);
-  }, [orgSlug, subject, bodyDoc, bodyHtml]);
+  }, [orgSlug, subject, bodyDoc, bodyHtml, manualEmails, segmentType]);
 
   // ── Saved templates (this workspace) ──────────────────────────────────────
   const { data: templateList } = useQuery<{ templates: SavedTemplate[] }>({
@@ -617,7 +659,15 @@ export default function AdminMailer() {
           <div className="flex gap-2">
             <Button
               className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => { loadDesign(recoverable); setRecoverable(null); setStep(1); }}
+              onClick={() => {
+                loadDesign(recoverable);
+                // The list typed last time comes back too — unless one has
+                // already been started here, which is the newer intention.
+                if (recoverable.recipients?.length && manualEmails.length === 0) setManualEmails(recoverable.recipients);
+                if (recoverable.segmentType && manualEmails.length === 0) { setSegmentType(recoverable.segmentType); setConfirmAll(false); }
+                setRecoverable(null);
+                setStep(1);
+              }}
               data-testid="button-draft-continue"
             >
               Carry on with it

@@ -559,6 +559,39 @@ try {
     const afterReload = await readBanner();
     ok("the discarded email stays gone after a reload", afterReload.banner === null && !afterReload.draft, JSON.stringify(afterReload));
 
+    // ── Nothing typed is lost to a click (2026-10-26) ──────────────────────
+    // Daniel: Friendly Manager "if you accidentally clicked another page you
+    // lost all your writing … needs to auto save as you go". Type into a
+    // written email and click the sidebar INSIDE the save delay: the words,
+    // and the audience chosen on Setup, must be in the draft when the page
+    // comes back.
+    await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+    await sleep(2500);
+    const segAll = await page.$('[data-testid="button-segment-all"]');
+    if (segAll) await segAll.click();
+    await sleep(300);
+    const nextC = await page.$('[data-testid="button-next-content"]');
+    if (nextC) await nextC.click();
+    await sleep(1000);
+    const writeCard2 = await page.$('[data-testid="button-mode-simple"]');
+    if (writeCard2) await writeCard2.click();
+    await sleep(1200);
+    const flushBox = await page.$('[data-testid="compose-body"]');
+    if (flushBox) { await flushBox.click(); await page.keyboard.press("End"); await page.keyboard.type(" Flushed on the way out"); }
+    // Straight to the sidebar — no wait for the 500ms compile or the 400ms write.
+    await page.evaluate(() => (Array.from(document.querySelectorAll("a")).find((a) => (a.textContent || "").trim() === "Dashboard") as HTMLAnchorElement | undefined)?.click());
+    await sleep(1500);
+    const flushed = await page.evaluate(`(function () {
+      var raw = localStorage.getItem(${JSON.stringify(DRAFT_KEY)});
+      var d = raw ? JSON.parse(raw) : null;
+      return { path: location.pathname, words: !!d && /Flushed on the way out/.test(d.bodyHtml || ""), audience: d ? d.segmentType : null };
+    })()`) as { path: string; words: boolean; audience: string | null };
+    ok("words typed a moment before clicking away are in the draft, with the audience", flushed.path === "/admin" && flushed.words && flushed.audience === "all", JSON.stringify(flushed));
+    await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+    await sleep(2500);
+    const back = await readBanner();
+    ok("…and the Mailer offers them back by their first words", !!back.banner && /Flushed on the way out/.test(back.banner), JSON.stringify(back));
+
     const full = join(OUT, `${label}-full.png`);
     await page.screenshot({ path: full, fullPage: true });
     console.log(`  → ${full}`);

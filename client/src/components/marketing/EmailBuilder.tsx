@@ -338,11 +338,42 @@ export default function EmailBuilder({
   // Every change schedules one save; another change pushes it back. Errors are
   // shown exactly as a manual save would show them (the Gmail size guard).
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
+  // A change the automatic save has not yet written. 🔴 Set when a save is
+  // scheduled, cleared when one lands — so the flush below knows whether
+  // leaving now would lose anything.
+  const unsaved = useRef(false);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  // 🔴 A sidebar click, Back or a closed tab used to throw away the last
+  // 1.5 seconds of editing: the timer was cleared on unmount and the edit
+  // never reached the page (Daniel, 2026-10-26, on Friendly Manager losing an
+  // hour's writing to a stray click). The export is synchronous, and this
+  // cleanup runs before the surface destroys its editor, so a pending change
+  // is read and handed up on the way out. `onSave` writes the draft to the
+  // browser directly, so it lands even though this component is gone.
+  useEffect(() => {
+    const flush = () => {
+      if (!unsaved.current) return;
+      const surface = surfaceRef.current;
+      if (!surface?.isReady()) return;
+      try {
+        if (surface.isEditing()) surface.endEditing();
+        unsaved.current = false;
+        surface.getResult().then((r) => commitRef.current(r)).catch(() => { /* leaving — nothing to show it to */ });
+      } catch { /* the editor is already gone */ }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+      flush();
+    };
+  }, []);
   const handleDirty = useCallback(() => {
     onDirty?.();
     setLastSave(null);
     if (!autoSave) return;
+    unsaved.current = true;
     if (autoTimer.current) clearTimeout(autoTimer.current);
     const run = async () => {
       const surface = surfaceRef.current;
@@ -357,6 +388,7 @@ export default function EmailBuilder({
       if (surface.isEditing()) { autoTimer.current = setTimeout(run, AUTOSAVE_MS); return; }
       try {
         const result = await surface.getResult();
+        unsaved.current = false;
         await commit(result);
         setLastSave({ at: new Date(), auto: true });
       } catch (e) {
