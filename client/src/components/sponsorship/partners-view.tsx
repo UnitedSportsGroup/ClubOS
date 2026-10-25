@@ -142,14 +142,17 @@ function StatusPill({ status }: { status: PartnerStatus }) {
 }
 /** The sponsor's mark on the ground it was drawn for — white artwork on the
  *  club navy, colour artwork on white — or their initials until a logo is on
- *  file. The Mailer's recipient search draws the same tile. */
+ *  file. The Mailer's recipient search draws the same tile.
+ *  🔴 The navy is the blue-900 TOKEN, not a hex: the light-theme generator
+ *  rewrites any hex darker than L 0.02 into a white panel (it did — the tile
+ *  shipped white-on-white once), and leaves a colour token alone. */
 function LogoTile({ company, logoUrl, ground, size }: { company: string; logoUrl?: string | null; ground?: "light" | "dark" | null; size: "sm" | "lg" }) {
   const dim = size === "lg" ? "w-16 h-16 rounded-xl p-1.5" : "w-9 h-9 rounded-lg p-1";
   const initials = company.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
   if (!logoUrl) {
     return <span className={`${dim} shrink-0 bg-amber-500/10 text-amber-300 font-semibold flex items-center justify-center ${size === "lg" ? "text-base" : "text-[11px]"}`} title="No logo on file yet" data-testid="partner-logo-initials">{initials || "?"}</span>;
   }
-  return <img src={logoUrl} alt={`${company} logo`} className={`${dim} shrink-0 object-contain ${ground === "dark" ? "bg-[#0B1A3A]" : "bg-white border border-black/10"}`} data-testid="partner-logo" />;
+  return <img src={logoUrl} alt={`${company} logo`} className={`${dim} shrink-0 object-contain ${ground === "dark" ? "bg-blue-900" : "bg-white border border-black/10"}`} data-testid="partner-logo" />;
 }
 
 function BrandChips({ tags }: { tags: string[] }) {

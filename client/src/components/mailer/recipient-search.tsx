@@ -116,7 +116,7 @@ function SponsorMark({ company, logoUrl, ground }: { company: string; logoUrl: s
   // White artwork sits on the club navy; colour artwork on white — the same
   // tile the Partners tab draws, so a sponsor looks the same everywhere.
   return logoUrl ? (
-    <img src={logoUrl} alt="" className={`w-7 h-7 rounded-md object-contain p-0.5 shrink-0 ${ground === "dark" ? "bg-[#0B1A3A]" : "bg-white"}`} />
+    <img src={logoUrl} alt="" className={`w-7 h-7 rounded-md object-contain p-0.5 shrink-0 ${ground === "dark" ? "bg-blue-900" : "bg-white"}`} />
   ) : (
     <span className="w-7 h-7 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-semibold flex items-center justify-center shrink-0">
       {initials || "S"}
