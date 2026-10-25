@@ -40,7 +40,7 @@ export interface TriggerMeta {
   dateBased: boolean;
   /** Where the list groups it. */
   group: "purchase" | "unfinished" | "welcome" | "dates";
-  /** The unfinished-registration flow always offers "stop when they pay". */
+  /** The abandoned-cart flow always offers "stop when they pay". */
   canStopOnPayment: boolean;
 }
 
@@ -56,7 +56,7 @@ export const TRIGGERS: Record<TriggerType, TriggerMeta> = {
   },
   registration_started: {
     type: "registration_started",
-    label: "Unfinished registration",
+    label: "Abandoned cart",
     blurb: "Someone started registering and didn't pay. Stops the moment they do.",
     anchorPhrase: "after they stopped at checkout",
     dateBased: false,
@@ -115,7 +115,7 @@ export const TRIGGER_ORDER: TriggerType[] = [
 
 export const GROUP_LABELS: Record<TriggerMeta["group"], string> = {
   purchase: "After someone pays",
-  unfinished: "Unfinished registrations",
+  unfinished: "Abandoned cart",
   welcome: "Welcome",
   dates: "Dates — start, end and birthdays",
 };
@@ -329,7 +329,7 @@ export const STARTER_FLOWS: StarterFlow[] = [
   },
   {
     key: "unfinished_registration",
-    name: "Unfinished registration",
+    name: "Abandoned cart",
     description: "Reminds a family who started registering and didn't pay. Stops the moment they pay.",
     trigger: "registration_started",
     stopOnPayment: true,

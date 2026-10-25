@@ -188,7 +188,7 @@ export default function AdminMailerAutomations() {
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-white">Automations</h1>
           <p className="text-sm text-white/50 mt-1">
-            Emails that send themselves — after someone pays, when a registration is left unfinished, before a programme starts, on a birthday.
+            Emails that send themselves — after someone pays, when someone abandons their cart, before a programme starts, on a birthday.
           </p>
         </div>
         <Button className="ml-auto bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-9" onClick={() => setCreating(true)} data-testid="button-new-automation">
