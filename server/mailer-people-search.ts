@@ -190,7 +190,7 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         }
         for (const p of people) {
           const m = byGuardian.get(p.contactId);
-          if (m) p.children = Array.from(m.values()).slice(0, 4);
+          if (m) p.children = Array.from(m.values()).slice(0, 12);
         }
       }
 

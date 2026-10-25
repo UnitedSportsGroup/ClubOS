@@ -22,6 +22,13 @@
 // with their age group and parent; a sponsor with the company and its logo.
 // Each kind has its own colour so the eye finds it before reading.
 //
+// 🔴 EVERY ROW IS THE SAME HEIGHT: two lines, never three (Daniel, 2026-10-25:
+// "anything with an extra element has to go side by side, as opposed to just
+// stacking"). Line one is the name, the badge and whatever says who they are
+// (children, age group, company) in ONE non-wrapping strip that clips with a
+// "+N" chip; line two is the address. Holds at every width because nothing in
+// a row is allowed to wrap.
+//
 // 🔴 THE LIST IS RENDERED THROUGH A PORTAL. The Mailer's cards carry
 // `backdrop-filter`, which makes each card its own stacking context — an
 // absolutely-positioned list inside the Recipients card drew UNDER the Sender
@@ -59,6 +66,23 @@ const KIND: Record<string, { label: string; badge: string; dot: string }> = {
   sponsor:  { label: "Sponsor", badge: "border-amber-500/30 text-amber-300 bg-amber-500/10",    dot: "bg-amber-400" },
 };
 const kindOf = (t: string) => KIND[t] ?? { label: t, badge: "border-white/10 text-white/40 bg-white/5", dot: "bg-white/30" };
+
+// The children strip: at most three named, the rest counted, and the whole
+// thing clips rather than wraps so the row keeps its height on a phone.
+function ChildChips({ children }: { children: PersonChild[] }) {
+  const shown = children.slice(0, 3);
+  const more = children.length - shown.length;
+  return (
+    <span className="flex items-center gap-1 min-w-0 overflow-hidden shrink">
+      {shown.map(c => (
+        <span key={c.name} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center gap-1 shrink-0" title={c.programme ?? undefined}>
+          {c.name}{c.ageGroup && <span className="text-emerald-300/80">{c.ageGroup}</span>}
+        </span>
+      ))}
+      {more > 0 && <span className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/45 flex items-center shrink-0">+{more}</span>}
+    </span>
+  );
+}
 
 function SponsorMark({ company, logoUrl }: { company: string; logoUrl: string | null }) {
   const initials = company.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join("");
@@ -194,33 +218,28 @@ export function RecipientSearch({
                 : i === active ? "bg-blue-500/10" : "hover:bg-white/[0.03]"}`}
             data-testid={`option-person-${p.contactId}`}
           >
-            <div className="flex items-start gap-2.5 min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0">
               {p.type === "sponsor"
                 ? <SponsorMark company={p.company ?? title} logoUrl={p.logoUrl ?? null} />
-                : <span className={`mt-[7px] w-2 h-2 rounded-full shrink-0 ${kind.dot}`} />}
+                : <span className={`w-2 h-2 rounded-full shrink-0 ${kind.dot}`} />}
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                  <span className="text-[13px] text-white/90 truncate">{title}</span>
+                {/* Line one: who they are. One strip, no wrapping, clipped. */}
+                <div className="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap h-5">
+                  <span className="text-[13px] text-white/90 truncate shrink min-w-[4rem]">{title}</span>
                   <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 shrink-0 ${kind.badge}`}>{kind.label}</Badge>
-                  {/* Who this person is, in one glance. */}
                   {p.type === "player" && p.ageGroup && (
-                    <span className="text-[10px] px-1.5 h-4 rounded-full bg-emerald-500/10 text-emerald-300/90 shrink-0">{p.ageGroup}</span>
+                    <span className="text-[10px] px-1.5 h-4 rounded-full bg-emerald-500/10 text-emerald-300/90 shrink-0 flex items-center">{p.ageGroup}</span>
                   )}
                   {p.type === "sponsor" && p.company && p.name && (
                     <span className="text-[11px] text-amber-200/70 truncate">{p.company}{p.role ? ` · ${p.role}` : ""}</span>
                   )}
+                  {p.type === "guardian" && p.children && p.children.length > 0 && (
+                    <ChildChips children={p.children} />
+                  )}
                   {already && <span className="text-[10px] text-emerald-400/70 shrink-0">added</span>}
                 </div>
-                {p.type === "guardian" && p.children && p.children.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {p.children.map(c => (
-                      <span key={c.name} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center gap-1" title={c.programme ?? undefined}>
-                        {c.name}{c.ageGroup && <span className="text-emerald-300/80">{c.ageGroup}</span>}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="text-[11px] mt-0.5 min-w-0 truncate">
+                {/* Line two: the address and whose it is. */}
+                <div className="text-[11px] mt-0.5 min-w-0 truncate h-4 leading-4">
                   {p.email ? (
                     <>
                       <span className="text-blue-300/70">{p.email}</span>
@@ -229,7 +248,7 @@ export function RecipientSearch({
                       {p.type === "player" && !p.emailOwner && p.parentName && <span className="text-white/35"> · parent {p.parentName}</span>}
                     </>
                   ) : (
-                    <span className="text-amber-300/60 flex items-center gap-1">
+                    <span className="text-amber-300/60 inline-flex items-center gap-1">
                       <UserX className="w-3 h-3" />{p.unreachable}
                     </span>
                   )}
