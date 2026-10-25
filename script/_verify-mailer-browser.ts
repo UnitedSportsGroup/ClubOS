@@ -438,7 +438,9 @@ try {
       await sleep(2000);
       const desk = await measureHeader();
       ok("Desktop preview keeps the crest left and the nav right",
-        !!desk && desk.w >= 600 && desk.crest !== null && desk.crest < desk.w / 2 - 60 && desk.nav !== null && desk.nav > desk.w / 2 + 60,
+        // The 600px device renders a 598px frame (its own border), so the width
+        // floor sits below the device width — the assertion is about the SHAPE.
+        !!desk && desk.w >= 560 && desk.crest !== null && desk.crest < desk.w / 2 - 60 && desk.nav !== null && desk.nav > desk.w / 2 + 60,
         JSON.stringify(desk));
     }
 
