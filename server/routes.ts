@@ -6702,6 +6702,7 @@ export async function registerRoutes(
           firstName: r?.firstName ?? null,
           lastName: r?.lastName ?? null,
           players: r?.players ?? [],
+          registered: r?.registered ?? "none",
           unsubscribed: unsubscribed.has(email),
           deliverability: d,
         };
@@ -6826,6 +6827,22 @@ export async function registerRoutes(
       emails = emails.filter((e) => !unsubscribed.has(e.trim().toLowerCase()));
       const suppressed = requested - emails.length;
 
+      // 🔴 Nothing is sent to an address whose DOMAIN cannot take mail (Daniel,
+      // 2026-10-25: "let's go with this"). A send that is certain to bounce buys
+      // nothing and costs sender reputation. Only a PROVEN dead domain or a
+      // malformed address is dropped — a lookup that fails reads "unchecked"
+      // and the address is sent to, so a resolver blip can never strike off a
+      // real family. The skipped addresses are named in the log.
+      const checks = await checkManyDeliverability(emails);
+      const undeliverable = emails.filter((e) => {
+        const st = checks.get(e)?.status;
+        return st === "no_domain" || st === "bad_syntax";
+      });
+      if (undeliverable.length) {
+        console.log(`[Camps mailer] skipping ${undeliverable.length} undeliverable: ${undeliverable.join(", ")}`);
+        emails = emails.filter((e) => !undeliverable.includes(e));
+      }
+
       if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
 
       const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
@@ -6917,6 +6934,8 @@ export async function registerRoutes(
         // Surfaced so the confirmation can say "12 people who unsubscribed were
         // skipped" rather than silently sending to a smaller list than promised.
         suppressedCount: suppressed,
+        // Addresses on a domain that takes no mail — not attempted.
+        undeliverableCount: undeliverable.length,
         queued: true,
         status: "sending",
       });

@@ -239,7 +239,8 @@ export default function AdminMailer() {
   // filter the send does, and flags any address whose domain takes no mail.
   type PreviewRow = {
     email: string; firstName: string | null; lastName: string | null;
-    players: { firstName: string; lastName: string }[];
+    players: { firstName: string; lastName: string; programme: string | null; ageGroup: string | null; age: number | null; current: boolean }[];
+    registered: "current" | "past" | "none";
     unsubscribed: boolean;
     deliverability: { status: string; reason: string | null; suggestion: string | null };
   };
@@ -384,9 +385,12 @@ export default function AdminMailer() {
       // it paces at ~1.5/s to stay under Resend's 10/s limit, so 3,861 people
       // takes about 40 minutes. Claiming "sent!" the instant the button is
       // pressed is exactly how nobody noticed 75% were being rejected.
+      const skipped: string[] = [];
+      if (data.suppressedCount > 0) skipped.push(`${data.suppressedCount} unsubscribed`);
+      if (data.undeliverableCount > 0) skipped.push(`${data.undeliverableCount} at ${data.undeliverableCount === 1 ? "an address" : "addresses"} that can't receive mail`);
       toast({
         title: "Sending started",
-        description: `${data.recipientCount} ${data.recipientCount === 1 ? "person" : "people"} queued. It sends steadily — watch the count on this page climb.`,
+        description: `${data.recipientCount} ${data.recipientCount === 1 ? "person" : "people"} queued. It sends steadily — watch the count on this page climb.${skipped.length ? ` Skipped ${skipped.join(" and ")}.` : ""}`,
       });
       setStep(0);
       setSubject("");
@@ -1008,10 +1012,21 @@ export default function AdminMailer() {
                     <div key={r.email} className={`px-5 py-2 border-b border-white/[0.04] last:border-0 min-w-0 ${r.unsubscribed || bad ? "opacity-60" : ""}`} data-testid={`preview-row-${r.email}`}>
                       <div className="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap h-5">
                         <span className="text-[13px] text-white/90 truncate min-w-[4rem]">{name || <span className="text-white/35">No name on file</span>}</span>
+                        {/* Registered now · past only · nothing on file. */}
+                        {r.registered === "current" && <span className="text-[10px] px-1.5 h-4 rounded-full bg-emerald-500/10 text-emerald-300 flex items-center shrink-0">Registered</span>}
+                        {r.registered === "past" && <span className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/45 flex items-center shrink-0">Not currently registered</span>}
+                        {r.registered === "none" && <span className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/35 flex items-center shrink-0">No registrations</span>}
                         {r.players.length > 0 && (
                           <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+                            {/* In a programme now → the age group and the programme; otherwise their age. */}
                             {r.players.slice(0, 3).map((p) => (
-                              <span key={`${p.firstName} ${p.lastName}`} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center shrink-0">{p.firstName} {p.lastName}</span>
+                              <span key={`${p.firstName} ${p.lastName}`} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center gap-1 shrink-0">
+                                {p.firstName} {p.lastName}
+                                {p.current && p.ageGroup && <span className="text-emerald-300/90">{p.ageGroup}</span>}
+                                {p.current && p.programme && <span className="text-white/40">{p.programme}</span>}
+                                {!p.current && p.age != null && <span className="text-white/40">{p.age} yrs</span>}
+                                {!p.current && p.age == null && p.ageGroup && <span className="text-white/40">{p.ageGroup}</span>}
+                              </span>
                             ))}
                             {r.players.length > 3 && <span className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/45 flex items-center shrink-0">+{r.players.length - 3}</span>}
                           </span>

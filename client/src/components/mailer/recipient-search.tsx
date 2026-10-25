@@ -35,6 +35,14 @@
 // Details card below it, whatever z-index it carried. Portalled to <body> and
 // positioned from the input's rect, nothing on the page can sit on top of it.
 //
+// 🔴 FINISHING THE ADDRESS FOR THEM (Daniel, 2026-10-25: "if no options
+// already exist in our database, it comes up with the common ones to help
+// speed up that process"). When nobody in ClubOS matches what is typed, the
+// list offers the typed text at the mailboxes NZ families actually use —
+// "dannyboy362@gmail.com", "@hotmail.com", … — and narrows as they type past
+// the @. One tap or Enter completes it. It never guesses a domain on its own:
+// a typed address that is already complete is added exactly as typed.
+//
 // 🔴 TYPING A WHOLE ADDRESS STILL WORKS. Enter adds it as-is — the search is an
 // addition to free entry, never a replacement for it.
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
@@ -57,6 +65,23 @@ type PersonHit = {
   role?: string | null;
   logoUrl?: string | null;
 };
+
+// The mailboxes NZ families use, most common first. Kept short on purpose:
+// a long list is noise, and anything else they type in full.
+const COMMON_DOMAINS = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "icloud.com", "xtra.co.nz"];
+
+/** "dannyboy362" → every common domain · "dannyboy362@g" → gmail.com only ·
+ *  "dannyboy362@gmail.com" (complete) → nothing. */
+function completionsFor(typed: string): string[] {
+  const t = typed.trim().toLowerCase();
+  if (!t || /\s/.test(t) || t.length < 2) return [];
+  const at = t.indexOf("@");
+  const local = at === -1 ? t : t.slice(0, at);
+  const domainTyped = at === -1 ? "" : t.slice(at + 1);
+  if (!local || local.includes("@")) return [];
+  if (domainTyped.includes(".") && COMMON_DOMAINS.includes(domainTyped)) return [];   // already complete
+  return COMMON_DOMAINS.filter((d) => d.startsWith(domainTyped)).slice(0, 5).map((d) => `${local}@${d}`);
+}
 
 // One colour per kind of person, so a sponsor never looks like a parent.
 const KIND: Record<string, { label: string; badge: string; dot: string }> = {
@@ -184,21 +209,37 @@ export function RecipientSearch({
     setQ(""); setHits([]); setOpen(false);
   }, [emails, onAdd]);
 
+  // Domain completions show only when nobody in ClubOS matches — a real
+  // family on file always comes first.
+  const completions = hits.length === 0 && !busy ? completionsFor(q) : [];
+  const rowCount = hits.length + completions.length;
+  const complete = useCallback((address: string) => {
+    const e = address.toLowerCase();
+    if (!emails.includes(e)) onAdd(e);
+    setQ(""); setHits([]); setOpen(false);
+    void checkTyped(e);
+  }, [emails, onAdd, checkTyped]);
+
   const onKey = (e: React.KeyboardEvent) => {
-    if (!open || hits.length === 0) {
+    if (!open || rowCount === 0) {
       if (e.key === "Enter") { e.preventDefault(); addRaw(); }
       return;
     }
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => Math.min(i + 1, hits.length - 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => Math.min(i + 1, rowCount - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
     else if (e.key === "Escape") { setOpen(false); }
     else if (e.key === "Enter") {
       e.preventDefault();
       const p = hits[active];
-      // A typed address wins over a highlighted person — if it looks like an
-      // email, that is what they meant.
-      if (q.includes("@")) addRaw();
+      const c = completions[active - hits.length];
+      // A complete typed address wins over anything highlighted — if it
+      // looks like an email, that is what they meant. An unfinished one
+      // ("dannyboy362" or "dannyboy362@g") takes the highlighted completion.
+      const typedComplete = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(q.trim());
+      if (typedComplete) addRaw();
       else if (p) pick(p);
+      else if (c) complete(c);
+      else addRaw();
     }
   };
 
@@ -212,7 +253,31 @@ export function RecipientSearch({
       className="z-[120] overflow-y-auto rounded-xl border border-blue-500/20 bg-[#0d1220] shadow-2xl"
       data-testid="list-recipient-results"
     >
-      {hits.length === 0 ? (
+      {hits.length === 0 && completions.length > 0 && (
+        <div data-testid="list-domain-completions">
+          <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-white/30">
+            Nobody on file for “{q.trim()}” — finish the address
+          </div>
+          {completions.map((c, i) => {
+            const at = c.indexOf("@");
+            return (
+              <button
+                key={c}
+                onMouseEnter={() => setActive(hits.length + i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => complete(c)}
+                className={`w-full text-left px-3 py-2 text-[13px] border-b border-white/[0.04] last:border-0 transition-colors ${
+                  hits.length + i === active ? "bg-blue-500/10" : "hover:bg-white/[0.03]"}`}
+                data-testid={`option-complete-${c}`}
+              >
+                <span className="text-white/60">{c.slice(0, at)}</span>
+                <span className="text-blue-300">{c.slice(at)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {hits.length === 0 && completions.length === 0 ? (
         <div className="px-3 py-3 text-[12px] text-white/35">
           Nobody found for “{q.trim()}”.
           {q.includes("@") && <> Press Enter to add it as a new address.</>}

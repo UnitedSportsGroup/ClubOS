@@ -41,12 +41,79 @@ import {
   children,
   contactRelationships,
   contacts,
+  programOptions,
+  programs,
   registrationItems,
   registrations,
+  terms,
 } from "@shared/schema";
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
+import { ageGradeFor, gradesForOptionName } from "@shared/parent";
+import { seriesName } from "@shared/programme-series";
+import { nzTodayIso } from "@shared/academy";
 
-export type MailerPlayer = { firstName: string; lastName: string };
+export type MailerPlayer = {
+  firstName: string;
+  lastName: string;
+  /** The programme the registration that named them is for ("Pre-Academy"),
+   *  stripped of its term/edition. Null only when nothing is known. */
+  programme: string | null;
+  /** "U9" — from the option they paid for, else from the date of birth. */
+  ageGroup: string | null;
+  /** Whole years today, from the date of birth. Null without one. */
+  age: number | null;
+  /** True when the registration that names them has not ended — a term
+   *  still running (or yet to start), a camp whose last day is still ahead. */
+  current: boolean;
+};
+
+/** What a registration says about the child it names — carried on the
+ *  player so a preview can say "Jack · U9 · Pre-Academy" (Daniel,
+ *  2026-10-25: "write the program they're in, like under 9; if they're not
+ *  in a program, just write their age"). */
+type PlayerInfo = { programme: string | null; optionName: string | null; dob: string | null; current: boolean };
+
+function ageYears(dob: string | null, todayIso: string): number | null {
+  if (!dob || dob.length < 10) return null;
+  const [y, m, d] = dob.slice(0, 10).split("-").map(Number);
+  const [ty, tm, td] = todayIso.split("-").map(Number);
+  if (!y || !ty) return null;
+  let age = ty - y;
+  if (tm < m || (tm === m && td < d)) age--;
+  return age >= 0 && age < 120 ? age : null;
+}
+
+function describePlayer(info: PlayerInfo | undefined, todayIso: string): Pick<MailerPlayer, "programme" | "ageGroup" | "age" | "current"> {
+  if (!info) return { programme: null, ageGroup: null, age: null, current: false };
+  // The option they PAID for names the grade when it names exactly one
+  // ("U9"); a pair ("U9–U10") says nothing a birth year does not say better.
+  const span = gradesForOptionName(info.optionName);
+  const fromOption = span && span[0] === span[1] ? span[0] : null;
+  const grade = fromOption ?? ageGradeFor(info.dob, todayIso);
+  return {
+    programme: info.programme ? seriesName(info.programme) : null,
+    ageGroup: grade ? `U${grade}` : null,
+    age: ageYears(info.dob, todayIso),
+    current: info.current,
+  };
+}
+
+/** Is a REAL registration still "now"? A term programme by the term the
+ *  registration itself carries (never the programme's — that one is flipped
+ *  each term and would re-file history); anything else by the programme's
+ *  last day. An unrecorded term reads NOT current rather than guessed. */
+function registrationIsCurrent(
+  r: { scheduleType: string | null; regTermEnd: unknown; programEnd: unknown },
+  todayIso: string,
+): boolean {
+  const iso = (d: unknown) => (d ? String(d).slice(0, 10) : null);
+  if (r.scheduleType === "term") {
+    const end = iso(r.regTermEnd);
+    return !!end && end >= todayIso;
+  }
+  const end = iso(r.programEnd);
+  return !!end && end >= todayIso;
+}
 
 export type MailerRecipient = {
   email: string;
@@ -56,6 +123,9 @@ export type MailerRecipient = {
   /** The registered children this address stands for, within the audience's
    *  scope (a day segment lists only the children booked on that day). */
   players: MailerPlayer[];
+  /** current = a paid registration that has not ended · past = paid ones, all
+   *  ended · none = no paid registration reaches this address. */
+  registered: "current" | "past" | "none";
 };
 
 export type MailerAudience = {
@@ -101,22 +171,41 @@ type Acc = MailerRecipient & {
    *  0 = nothing yet. Higher wins; a tie keeps the first. */
   parentRank: number;
   playerKeys: Set<string>;
+  /** Per player name key — the newest registration's word on them wins. */
+  playerInfo: Map<string, PlayerInfo>;
+  /** 0 none · 1 past only · 2 a current registration. Max wins. */
+  regState: 0 | 1 | 2;
 };
 
 function acc(byEmail: Map<string, Acc>, email: string): Acc {
   let a = byEmail.get(email);
   if (!a) {
-    a = { email, firstName: null, lastName: null, players: [], parentRank: 0, playerKeys: new Set() };
+    a = { email, firstName: null, lastName: null, players: [], registered: "none", parentRank: 0, playerKeys: new Set(), playerInfo: new Map(), regState: 0 };
     byEmail.set(email, a);
   }
   return a;
 }
 
-function addPlayer(a: Acc, key: string, firstName: string | null, lastName: string | null) {
-  if (a.playerKeys.has(key)) return;
+function addPlayer(a: Acc, key: string, firstName: string | null, lastName: string | null, info?: PlayerInfo) {
   const first = (firstName || "").trim();
   if (!first) return;
   const last = (lastName || "").trim();
+  const nameKey0 = `n:${first.toLowerCase()} ${last.toLowerCase()}`.trim();
+  // Rows arrive oldest registration first, so a later call carries the newer
+  // programme — it replaces, and a blank never overwrites a known value.
+  if (info) {
+    const prev = a.playerInfo.get(nameKey0);
+    // A current registration's programme beats an ended one's, whatever order
+    // the rows came in — "Jack · U9 · Pre-Academy" must be the one he is IN.
+    const takeNew = info.current || !prev?.current;
+    a.playerInfo.set(nameKey0, {
+      programme: takeNew ? (info.programme ?? prev?.programme ?? null) : (prev?.programme ?? info.programme ?? null),
+      optionName: takeNew ? (info.optionName ?? prev?.optionName ?? null) : (prev?.optionName ?? info.optionName ?? null),
+      dob: info.dob ?? prev?.dob ?? null,
+      current: info.current || !!prev?.current,
+    });
+  }
+  if (a.playerKeys.has(key)) return;
   // 🔴 One child, stored twice (the duplicate-children problem the Families
   // work keeps merging), must not read "Levi, Max and Levi" — the live
   // verifier found exactly that on FUNiño. Two rows with the same name on the
@@ -128,7 +217,7 @@ function addPlayer(a: Acc, key: string, firstName: string | null, lastName: stri
   }
   a.playerKeys.add(key);
   a.playerKeys.add(nameKey);
-  a.players.push({ firstName: first, lastName: last });
+  a.players.push({ firstName: first, lastName: last, programme: null, ageGroup: null, age: null, current: false });
 }
 
 function setParent(a: Acc, rank: number, firstName: string | null, lastName: string | null) {
@@ -150,6 +239,8 @@ async function foldRegistrations(
   onlyEmails?: Set<string>,
 ): Promise<void> {
   const guardian = alias(contacts, "mailer_guardian");
+  const regTerm = alias(terms, "mailer_reg_term");
+  const today = nzTodayIso();
 
   const itemFilter =
     scope.kind === "items"
@@ -190,10 +281,19 @@ async function foldRegistrations(
       guardianFirst: guardian.firstName,
       guardianLast: guardian.lastName,
       guardianEmail: guardian.email,
+      registrantDob: contacts.dateOfBirth,
+      programmeName: programs.name,
+      optionName: programOptions.name,
+      scheduleType: programs.scheduleType,
+      programEnd: programs.endDate,
+      regTermEnd: regTerm.endDate,
     })
     .from(registrations)
     .innerJoin(contacts, eq(registrations.contactId, contacts.id))
     .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
+    .leftJoin(programs, eq(registrations.programId, programs.id))
+    .leftJoin(programOptions, eq(registrations.programOptionId, programOptions.id))
+    .leftJoin(regTerm, eq(registrations.termId, regTerm.id))
     .where(regWhere)
     .orderBy(registrations.id);
 
@@ -202,7 +302,10 @@ async function foldRegistrations(
   // Which addresses each registration reaches — the children below fan out
   // to the same ones.
   const emailsByReg = new Map<number, string[]>();
+  const infoByReg = new Map<number, PlayerInfo>();
   for (const r of regRows) {
+    const current = registrationIsCurrent(r, today);
+    infoByReg.set(r.regId, { programme: r.programmeName ?? null, optionName: r.optionName ?? null, dob: null, current });
     const emails = Array.from(
       new Set([cleanMailerEmail(r.guardianEmail), cleanMailerEmail(r.registrantEmail)].filter((e): e is string => !!e)),
     );
@@ -210,6 +313,7 @@ async function foldRegistrations(
     emailsByReg.set(r.regId, emails);
     for (const email of emails) {
       const a = acc(byEmail, email);
+      a.regState = Math.max(a.regState, current ? 2 : 1) as 0 | 1 | 2;
       if (r.guardianFirst) setParent(a, 2, r.guardianFirst, r.guardianLast);
       else if (r.registrantType !== "player") setParent(a, 1, r.registrantFirst, r.registrantLast);
     }
@@ -228,6 +332,7 @@ async function foldRegistrations(
         childId: children.id,
         firstName: children.firstName,
         lastName: children.lastName,
+        dob: children.dateOfBirth,
       })
       .from(registrationItems)
       .innerJoin(children, eq(registrationItems.childId, children.id))
@@ -236,7 +341,9 @@ async function foldRegistrations(
     for (const c of childRows) {
       regsWithChildren.add(c.regId);
       for (const email of emailsByReg.get(c.regId) ?? []) {
-        addPlayer(acc(byEmail, email), `k${c.childId}`, c.firstName, c.lastName);
+        const base = infoByReg.get(c.regId);
+        addPlayer(acc(byEmail, email), `k${c.childId}`, c.firstName, c.lastName,
+          { programme: base?.programme ?? null, optionName: base?.optionName ?? null, dob: c.dob ? String(c.dob) : null, current: !!base?.current });
       }
     }
   }
@@ -249,7 +356,8 @@ async function foldRegistrations(
   for (const r of regRows) {
     if (r.registrantType !== "player" || regsWithChildren.has(r.regId)) continue;
     for (const email of emailsByReg.get(r.regId) ?? []) {
-      addPlayer(acc(byEmail, email), `c${r.registrantId}`, r.registrantFirst, r.registrantLast);
+      addPlayer(acc(byEmail, email), `c${r.registrantId}`, r.registrantFirst, r.registrantLast,
+        { programme: r.programmeName ?? null, optionName: r.optionName ?? null, dob: r.registrantDob ? String(r.registrantDob) : null, current: registrationIsCurrent(r, today) });
     }
   }
 }
@@ -314,14 +422,20 @@ async function fillParentNames(byEmail: Map<string, Acc>): Promise<void> {
 function finish(byEmail: Map<string, Acc>, order: string[]): MailerAudience {
   const out = new Map<string, MailerRecipient>();
   const emails: string[] = [];
+  const today = nzTodayIso();
   for (const email of order) {
     if (out.has(email)) continue;
     const a = byEmail.get(email);
+    const players = (a?.players ?? []).map((p) => ({
+      ...p,
+      ...describePlayer(a?.playerInfo.get(`n:${p.firstName.toLowerCase()} ${p.lastName.toLowerCase()}`.trim()), today),
+    }));
     out.set(email, {
       email,
       firstName: a?.firstName ?? null,
       lastName: a?.lastName ?? null,
-      players: a?.players ?? [],
+      players,
+      registered: a?.regState === 2 ? "current" : a?.regState === 1 ? "past" : "none",
     });
     emails.push(email);
   }
@@ -422,7 +536,15 @@ export async function resolveMailerAudience(
       a.firstName = r.firstName;
       a.lastName = r.lastName;
       a.parentRank = r.firstName ? 1 : 0;
-      for (const p of r.players) addPlayer(a, `x${e}:${p.firstName} ${p.lastName}`, p.firstName, p.lastName);
+      for (const p of r.players) {
+        addPlayer(a, `x${e}:${p.firstName} ${p.lastName}`, p.firstName, p.lastName);
+        // Already described (programme, age group, age) by the inner resolve.
+        const nk = `n:${p.firstName.toLowerCase()} ${p.lastName.toLowerCase()}`.trim();
+        if (!a.playerInfo.has(nk)) a.playerInfo.set(nk, { programme: p.programme, optionName: p.ageGroup, dob: null, current: p.current });
+        const last = a.players[a.players.length - 1];
+        if (last && last.firstName === p.firstName && last.lastName === p.lastName) Object.assign(last, { programme: p.programme, ageGroup: p.ageGroup, age: p.age, current: p.current });
+      }
+      a.regState = Math.max(a.regState, r.registered === "current" ? 2 : r.registered === "past" ? 1 : 0) as 0 | 1 | 2;
       push(e);
     }
   }
@@ -435,7 +557,7 @@ export async function resolveMailerAudience(
  *  pressing Send sees their own children's names where a family would. */
 export async function lookupMailerRecipient(email: string): Promise<MailerRecipient> {
   const clean = cleanMailerEmail(email);
-  if (!clean) return { email: String(email ?? ""), firstName: null, lastName: null, players: [] };
+  if (!clean) return { email: String(email ?? ""), firstName: null, lastName: null, players: [], registered: "none" };
   const aud = await resolveForEmails([clean]);
-  return aud.byEmail.get(clean) ?? { email: clean, firstName: null, lastName: null, players: [] };
+  return aud.byEmail.get(clean) ?? { email: clean, firstName: null, lastName: null, players: [], registered: "none" };
 }
