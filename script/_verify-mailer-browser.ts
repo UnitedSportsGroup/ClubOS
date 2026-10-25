@@ -450,7 +450,7 @@ try {
       // bigger without actually taking up more space." The untrimmed original
       // drew the ram 43px wide inside a 56px box.
       ok("the crest fills its row: the trimmed file, 64px tall",
-        !!desk && desk.crestH !== null && desk.crestH >= 60 && desk.crestH <= 68 && /\\/mailer\\/crests\\/cufc\\.png$/.test(desk.crestSrc),
+        !!desk && desk.crestH !== null && desk.crestH >= 60 && desk.crestH <= 68 && /\/mailer\/crests\/cufc\.png$/.test(desk.crestSrc),
         JSON.stringify({ h: desk?.crestH, src: desk?.crestSrc }));
 
       // ── Save answers the press (2026-10-26) ──────────────────────────────
