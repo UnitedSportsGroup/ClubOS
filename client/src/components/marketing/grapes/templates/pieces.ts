@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { escText, escAttr, type Brand } from "./sections";
 import { SOCIAL_ICON, SOCIAL_ORDER, type BrandKit } from "./brand-kit";
+import { HEADER_CREST_CLASS, HEADER_NAV_CLASS } from "../mobile-css";
 
 export const WHITE = "#ffffff";
 export const INK = "#111111";
@@ -46,16 +47,18 @@ ${children.filter(Boolean).join("\n")}
 
 /** Crest left, up to three nav links right. */
 export function header(b: Brand, k: BrandKit): string {
+  // Crest left, nav right on a laptop; both CENTRED once the columns stack on
+  // a phone — the css-classes are what mobile-css.ts's phone rule targets.
   const nav = k.nav.length
     ? `        <mj-column width="70%" vertical-align="middle">
-          <mj-text align="right" color="${k.link}" font-family="${b.font}" font-size="11px" font-weight="700" letter-spacing="1.4px" text-transform="uppercase" padding="0">${k.nav
+          <mj-text css-class="${HEADER_NAV_CLASS}" align="right" color="${k.link}" font-family="${b.font}" font-size="11px" font-weight="700" letter-spacing="1.4px" text-transform="uppercase" padding="0">${k.nav
             .map((n) => a(n.href, n.label, k.link))
             .join("&nbsp;&nbsp;&nbsp;·&nbsp;&nbsp;&nbsp;")}</mj-text>
         </mj-column>`
     : "";
   return `    <mj-section background-color="${WHITE}" padding="22px 28px 16px" border-bottom="1px solid ${RULE}">
         <mj-column width="${nav ? "30%" : "100%"}" vertical-align="middle">
-          <mj-image src="${escAttr(k.crest)}" alt="${escAttr(b.name)}" href="${escAttr(k.site)}" width="${k.crestWidth}px" align="left" padding="0" />
+          <mj-image css-class="${HEADER_CREST_CLASS}" src="${escAttr(k.crest)}" alt="${escAttr(b.name)}" href="${escAttr(k.site)}" width="${k.crestWidth}px" align="${nav ? "left" : "center"}" padding="0" />
         </mj-column>
 ${nav}
     </mj-section>`;

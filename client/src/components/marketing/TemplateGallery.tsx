@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getBrandMeta } from "./brand-themes";
+import { withMobileCss } from "./grapes/mobile-css";
 import {
   STARTER_TEMPLATES,
   templatesForBrand,
@@ -42,7 +43,7 @@ async function compilePreview(t: StarterTemplate, brandKey: string): Promise<str
   if (hit != null) return hit;
   const mjml2html = await loadMjml();
   const { mjml } = templateDoc(t, brandKey);
-  const html = mjml2html(mjml, { validationLevel: "soft" }).html;
+  const html = withMobileCss(mjml2html(mjml, { validationLevel: "soft" }).html);
   HTML_CACHE.set(key, html);
   return html;
 }

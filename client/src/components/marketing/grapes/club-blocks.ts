@@ -25,7 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Editor } from "grapesjs";
-import { registerBlock, type EmailBlockDef } from "./blocks";
+import { registerBlock, thumb, frame, card, blk, line, lightLine, pill, picture, darkRow, type EmailBlockDef } from "./blocks";
 import { brandCanvasTheme, type BrandCanvas } from "./brand";
 
 const CAT_CLUB = "Club blocks";
@@ -62,7 +62,7 @@ const FIXTURE_DATE = "SAT 12 JUL · 2:00PM";
 function heroBlock(b: BrandCanvas): EmailBlockDef {
   return {
     id: "club-hero",
-    label: "Hero (background image)",
+    label: "Hero image",
     category: CAT_CLUB,
     media: svgHero(),
     content: `<mj-hero mode="fixed-height" height="300px" background-url="${overlayBg(b, 1200, 600)}" background-color="#05060a" background-position="center center" padding="60px 26px">
@@ -182,7 +182,7 @@ function productTwoUpBlock(b: BrandCanvas): EmailBlockDef {
     </mj-column>`;
   return {
     id: "club-product-2up",
-    label: "Product card (2-up)",
+    label: "Product pair",
     category: CAT_CLUB,
     media: svgBagPair(),
     content: `<mj-section background-color="${b.surface}" padding="8px 28px">${card("2026 Home Kit", "$49.99")}
@@ -329,37 +329,79 @@ function tiktokIcon(b: BrandCanvas): string {
   return dataUriSvg(svg);
 }
 
-// ── inline SVG icons (24×24, stroke=currentColor — same convention as blocks.ts) ─
+// ── palette thumbnails (56×36 wireframes — the helpers and the rule live in blocks.ts) ─
 
-function wrap(inner: string): string {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+/** Two crests facing each other inside a card. */
+function crests(y: number, r = 5): string {
+  return `<circle cx="17" cy="${y}" r="${r}" fill="currentColor" fill-opacity="0.45"/><circle cx="39" cy="${y}" r="${r}" fill="currentColor" fill-opacity="0.45"/>`;
 }
 function svgHero() {
-  return wrap(`<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M2.5 14.5h19"/><circle cx="12" cy="10" r="1.1" fill="currentColor" stroke="none"/>`);
+  return thumb(
+    darkRow(
+      `<circle cx="44" cy="9" r="4" fill="#ffffff" fill-opacity="0.25"/>` +
+        lightLine(16, 11, 24, 0.9, 3) +
+        lightLine(20, 17, 16, 0.6) +
+        lightLine(20, 23, 16, 0.9, 5),
+    ),
+  );
 }
 function svgFixture() {
-  return wrap(`<circle cx="6" cy="12" r="3.4"/><circle cx="18" cy="12" r="3.4"/><path d="M10.2 12h3.6"/>`);
+  return thumb(
+    frame(
+      card(
+        5,
+        4,
+        46,
+        28,
+        crests(14) +
+          `<text x="28" y="16.5" text-anchor="middle" font-size="6.5" font-weight="800" fill="currentColor" fill-opacity="0.8">VS</text>` +
+          pill(20, 24, 16),
+      ),
+    ),
+  );
 }
 function svgTrophy() {
-  return wrap(`<path d="M7 4h10v3a5 5 0 0 1-10 0V4Z"/><path d="M9 15h6l1 5H8l1-5Z"/><path d="M12 15v-3"/><path d="M7 5H4a3 3 0 0 0 3 4"/><path d="M17 5h3a3 3 0 0 1-3 4"/>`);
+  return thumb(
+    frame(
+      card(
+        5,
+        4,
+        46,
+        28,
+        crests(13) +
+          `<text x="28" y="16.5" text-anchor="middle" font-size="9" font-weight="800" letter-spacing="-0.5" fill="currentColor" fill-opacity="0.85">3–1</text>` +
+          line(18, 23, 20, 0.3) +
+          line(22, 27, 12, 0.25),
+      ),
+    ),
+  );
 }
 function svgBag() {
-  return wrap(`<path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>`);
+  return thumb(card(15, 3, 26, 30, picture(15.5, 3.5, 25, 14, 0.2) + line(19, 20, 18, 0.55, 2.5) + line(22, 24.5, 12, 0.3) + pill(21, 28, 14, 4)));
 }
 function svgBagPair() {
-  return wrap(`<rect x="2.5" y="6" width="8" height="12" rx="1.5"/><rect x="13.5" y="6" width="8" height="12" rx="1.5"/>`);
+  const one = (x: number) =>
+    card(x, 3, 23, 30, picture(x + 0.5, 3.5, 22, 13, 0.2) + line(x + 3.5, 19.5, 16, 0.55, 2.5) + line(x + 6, 24, 11, 0.3) + pill(x + 5.5, 28, 12, 4));
+  return thumb(one(4) + one(29));
 }
 function svgPlay() {
-  return wrap(`<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M10 9.2l6 2.8-6 2.8V9.2Z" fill="currentColor" stroke="none"/>`);
+  return thumb(
+    darkRow(
+      `<circle cx="28" cy="18" r="8" fill="#ffffff" fill-opacity="0.95"/><path d="M25.5 13.5l7.5 4.5-7.5 4.5z" fill="currentColor" fill-opacity="0.85"/>`,
+      0.55,
+    ),
+  );
 }
 function svgCalendar() {
-  return wrap(`<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/>`);
+  return thumb(frame(card(5, 4, 46, 28, line(21, 9, 14, 0.6) + blk(14, 13, 28, 6, 0.6) + line(18, 22, 20, 0.3) + pill(20, 26, 16, 4))));
 }
 function svgSocialNodes() {
-  return wrap(`<circle cx="5" cy="12" r="1.9"/><circle cx="10.3" cy="6.2" r="1.9"/><circle cx="10.3" cy="17.8" r="1.9"/><circle cx="17.5" cy="12" r="1.9"/><path d="M6.6 10.9l2.2-3.1M6.6 13.1l2.2 3.1M12.2 12h3.3"/>`);
+  // Four rounded tiles — the club row's icons sit on brand-coloured squares,
+  // where the core "Social row" tile shows circles.
+  return thumb(frame([9, 19, 29, 39].map((x) => blk(x, 14, 8, 8, 0.5, 2.2)).join("")));
 }
 function svgBars() {
-  return wrap(`<path d="M5 19V10"/><path d="M12 19V5"/><path d="M19 19v-7"/>`);
+  return thumb(frame([14, 28, 42].map((cx) => blk(cx - 6, 10, 12, 7, 0.6) + line(cx - 5, 21, 10, 0.3)).join("")));
 }
 
 // ── escaping helpers (same behaviour as blocks.ts's private copies) ─────────

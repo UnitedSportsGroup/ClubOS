@@ -12,6 +12,7 @@ import puppeteer from "puppeteer-core";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STARTER_TEMPLATES, templateDoc } from "../client/src/components/marketing/grapes/templates/index";
+import { withMobileCss } from "../client/src/components/marketing/grapes/mobile-css";
 
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const OUT = join(process.cwd(), "outputs", "mailer-templates");
@@ -36,7 +37,8 @@ try {
     if (onlyId && t.id !== onlyId) continue;
     for (const brand of brands) {
       const { mjml } = templateDoc(t, brand);
-      const { html, errors } = await compile(mjml);
+      const { html: compiled, errors } = await compile(mjml);
+      const html = withMobileCss(compiled); // the same phone rule the builder's export carries
       const bytes = Buffer.byteLength(html, "utf8");
       writeFileSync(join(OUT, `${t.id}-${brand}.html`), html);
       console.log(`${errors.length ? "FAIL" : "ok  "} ${t.id} · ${brand} · ${(bytes / 1024).toFixed(0)}KB${errors.length ? "\n      " + errors.join("\n      ") : ""}`);

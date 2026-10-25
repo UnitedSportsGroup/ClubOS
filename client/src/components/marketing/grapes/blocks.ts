@@ -19,7 +19,7 @@
 //       id: "club-fixture-card",
 //       label: "Fixture card",
 //       category: "Club blocks",
-//       media: `<svg ...>`,               // 24×24 line icon, stroke="currentColor"
+//       media: thumb(frame(...)),         // 56×36 wireframe of what it drops (helpers below)
 //       content: `<mj-section ...>…</mj-section>`,  // MJML; use {{merge_tags}} freely
 //     };
 //     registerBlock(editor, fixtureCard);
@@ -46,7 +46,7 @@ export interface EmailBlockDef {
   label: string;
   /** category header the tile groups under (e.g. "Layout", "Club blocks") */
   category: string;
-  /** inline SVG string for the tile icon (24×24, stroke="currentColor") */
+  /** inline SVG string for the tile: a 56×36 wireframe thumbnail of the block (see thumb()) */
   media: string;
   /** MJML content dropped onto the canvas */
   content: string;
@@ -232,48 +232,140 @@ function coreBlocks(c: BlockContext): EmailBlockDef[] {
   ];
 }
 
-// ── inline SVG icons (24×24, stroke=currentColor — coloured by premium.css) ────
+// ── palette thumbnails ────────────────────────────────────────────────────────
+// A tile's media is a 56×36 WIREFRAME of what the block drops — two boxes for
+// "2 columns", a picture for "Image", a dark band for "Footer" — never a glyph.
+// Daniel (2026-10-26): "the icons are the same, so it doesn't actually show
+// you what you're getting … you should be able to see 'oh, it's three
+// columns'." Drawn in currentColor so the tile recolours on hover.
+//
+// 🔴 Every shape declares its own fill. GrapesJS's own stylesheet paints
+// `fill: currentColor` onto every block SVG, which is how the old outline
+// icons (fill="none" on the ROOT only) became identical solid blobs: the fill
+// swallowed the lines inside each rectangle. A layout block is drawn inside the
+// email-row frame; a content block (a piece that drops INTO a column) is drawn
+// bare and larger, which is also the nesting model made visible.
 
-function wrap(inner: string): string {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+/** The 56×36 thumbnail shell. */
+export function thumb(inner: string): string {
+  return `<svg viewBox="0 0 56 36" width="56" height="36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
 }
+/** A tinted placeholder block. `extra` takes raw attributes (e.g. a class). */
+export function blk(x: number, y: number, w: number, h: number, o = 0.22, r = 1.5, extra = ""): string {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="currentColor" fill-opacity="${o}"${extra ? " " + extra : ""}/>`;
+}
+/** A line of text. */
+export function line(x: number, y: number, w: number, o = 0.35, h = 2): string {
+  return blk(x, y, w, h, o, h / 2);
+}
+/** A white line (on a dark band or a button). */
+export function lightLine(x: number, y: number, w: number, o = 0.9, h = 2): string {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="#ffffff" fill-opacity="${o}"/>`;
+}
+/** The email row: a bordered frame the content sits in. */
+export function frame(inner: string, o = 0.05): string {
+  return `<rect x="0.5" y="0.5" width="55" height="35" rx="3" fill="currentColor" fill-opacity="${o}" stroke="currentColor" stroke-opacity="0.45"/>${inner}`;
+}
+/** A bordered card inside the row. */
+export function card(x: number, y: number, w: number, h: number, inner = ""): string {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.6"/>${inner}`;
+}
+/** A solid button pill. */
+export function pill(x: number, y: number, w: number, h = 5, o = 0.75): string {
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="currentColor" fill-opacity="${o}"/>`;
+}
+/** A picture placeholder: a tinted area with a horizon and a sun. */
+export function picture(x: number, y: number, w: number, h: number, o = 0.16): string {
+  const n = (v: number) => Math.round(v * 10) / 10;
+  const hill = `M${n(x + 1)} ${n(y + h - 1)}L${n(x + w * 0.3)} ${n(y + h * 0.5)}L${n(x + w * 0.52)} ${n(y + h * 0.76)}L${n(x + w * 0.7)} ${n(y + h * 0.58)}L${n(x + w - 1)} ${n(y + h - 1)}Z`;
+  return (
+    blk(x, y, w, h, o, 1.5) +
+    `<path d="${hill}" fill="currentColor" fill-opacity="0.3"/>` +
+    `<circle cx="${n(x + w * 0.76)}" cy="${n(y + h * 0.28)}" r="${n(Math.min(w, h) * 0.11)}" fill="currentColor" fill-opacity="0.5"/>`
+  );
+}
+/** A full-bleed dark band (hero, video) with a soft highlight. */
+export function darkRow(inner: string, o = 0.6): string {
+  return `<rect x="0.5" y="0.5" width="55" height="35" rx="3" fill="currentColor" fill-opacity="${o}"/>${inner}`;
+}
+/** One column box; `class="col"` lets a check count them. */
+function colBox(x: number, w: number): string {
+  const inset = w > 16 ? 3 : 2.5;
+  return (
+    blk(x, 5, w, 26, 0.14, 2, 'class="col"') +
+    line(x + inset, 10, w - inset * 2, 0.5, 2.5) +
+    line(x + inset, 16, w - inset * 2) +
+    line(x + inset, 21, Math.max(4, w - inset * 2 - 4))
+  );
+}
+
 function svgSection() {
-  return wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/>`);
+  return thumb(frame(line(6, 8, 20, 0.6, 3) + line(6, 15, 42) + line(6, 20, 34) + pill(6, 25, 14)));
 }
 function svgCols(n: number) {
-  if (n === 3)
-    return wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/>`);
-  return wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="12" y1="5" x2="12" y2="19"/>`);
+  if (n === 3) return thumb(frame(colBox(5, 14) + colBox(21, 14) + colBox(37, 14)));
+  return thumb(frame(colBox(5, 22) + colBox(29, 22)));
 }
 function svgDivider() {
-  return wrap(`<line x1="3" y1="12" x2="21" y2="12"/>`);
+  return thumb(
+    frame(
+      line(6, 8, 40) +
+        line(6, 13, 28) +
+        `<rect x="6" y="17.25" width="44" height="1.5" rx="0.75" fill="currentColor" fill-opacity="0.8"/>` +
+        line(6, 22, 40) +
+        line(6, 27, 24),
+    ),
+  );
 }
 function svgSpacer() {
-  return wrap(`<line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><path d="M12 10v4"/>`);
+  return thumb(
+    frame(
+      blk(5, 4, 46, 8) +
+        blk(5, 24, 46, 8) +
+        `<path d="M28 13.5v9" stroke="currentColor" stroke-opacity="0.7" stroke-width="1.2" stroke-linecap="round"/>` +
+        `<path d="M25.5 16l2.5-2.5 2.5 2.5M25.5 20l2.5 2.5 2.5-2.5" stroke="currentColor" stroke-opacity="0.7" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+    ),
+  );
 }
 function svgHeading() {
-  return wrap(`<path d="M6 5v14"/><path d="M18 5v14"/><path d="M6 12h12"/>`);
+  return thumb(
+    `<text x="28" y="27" text-anchor="middle" font-size="24" font-weight="800" letter-spacing="-1" fill="currentColor" fill-opacity="0.8">Aa</text>`,
+  );
 }
 function svgText() {
-  return wrap(`<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/>`);
+  return thumb(line(6, 7, 44, 0.4, 2.5) + line(6, 13, 44, 0.4, 2.5) + line(6, 19, 38, 0.4, 2.5) + line(6, 25, 26, 0.4, 2.5));
 }
 function svgButton() {
-  return wrap(`<rect x="4" y="8" width="16" height="8" rx="4"/><line x1="9" y1="12" x2="15" y2="12"/>`);
+  return thumb(pill(10, 11, 36, 14) + lightLine(21, 17, 14));
 }
 function svgImage() {
-  return wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-6 6"/>`);
+  return thumb(picture(5, 4, 46, 28) + `<rect x="5" y="4" width="46" height="28" rx="2" fill="none" stroke="currentColor" stroke-opacity="0.5"/>`);
 }
 function svgLogo() {
-  return wrap(`<circle cx="12" cy="12" r="8"/><path d="M8 12l3 3 5-6"/>`);
+  return thumb(
+    `<circle cx="28" cy="18" r="12" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-opacity="0.7" stroke-width="1.3"/>` +
+      `<circle cx="28" cy="18" r="7.5" fill="none" stroke="currentColor" stroke-opacity="0.5"/>` +
+      `<path d="M28 13.5l1.4 2.9 3.2.5-2.3 2.2.5 3.2-2.8-1.5-2.8 1.5.5-3.2-2.3-2.2 3.2-.5z" fill="currentColor" fill-opacity="0.6"/>`,
+  );
 }
 function svgSocial() {
-  return wrap(`<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-4.2M8.2 13.2l7.6 4.2"/>`);
+  return thumb(
+    frame([14.5, 23.5, 32.5, 41.5].map((cx) => `<circle cx="${cx}" cy="18" r="4" fill="currentColor" fill-opacity="0.5"/>`).join("")),
+  );
 }
 function svgFooter() {
-  return wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="7" y1="17.5" x2="17" y2="17.5"/>`);
+  return thumb(
+    frame(
+      line(16, 7, 24, 0.3) +
+        line(20, 11, 16, 0.25) +
+        `<path d="M0.5 17h55v15.5a3 3 0 0 1-3 3h-49a3 3 0 0 1-3-3z" fill="currentColor" fill-opacity="0.6"/>` +
+        lightLine(17, 22, 22, 0.85) +
+        lightLine(21, 27, 14, 0.6),
+    ),
+  );
 }
 function svgStar() {
-  return wrap(`<path d="M12 4l2.3 4.7 5.2.8-3.8 3.7.9 5.1L12 16l-4.6 2.4.9-5.1L4.5 9.5l5.2-.8z"/>`);
+  return thumb(frame(card(6, 5, 44, 26, line(10, 9.5, 10, 0.7) + line(10, 14, 26, 0.55, 3) + line(10, 19.5, 30, 0.3) + pill(10, 24, 14))));
 }
 
 function escapeAttr(s: string): string {

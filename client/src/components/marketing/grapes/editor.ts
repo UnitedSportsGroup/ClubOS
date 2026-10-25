@@ -26,6 +26,7 @@ import { registerClubBlocks } from "./club-blocks";
 import { LETTERHEADS } from "./letterheads";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
 import { installCleanPaste } from "./clean-paste";
+import { MOBILE_EMAIL_CSS, withMobileCss } from "./mobile-css";
 
 // ── doc + result shapes ───────────────────────────────────────────────────────
 
@@ -252,6 +253,9 @@ export function createEmailEditor({ container, brandKey, initialDoc }: CreateEma
   const editor = grapesjs.init({
     container: shell.canvas,
     height: "100%",
+    // The phone-only rule the compiled email carries, so the Mobile preview
+    // (a 375px frame) shows the header centred the way the phone will.
+    canvasCss: MOBILE_EMAIL_CSS,
     fromElement: false,
     storageManager: false,
     // Managers render into OUR shell, not the (hidden) default panels.
@@ -409,7 +413,9 @@ export function exportResult(editor: Editor): EmailBuilderResult {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawHtml = editor.runCommand("mjml-code-to-html") as any;
-  const html: string = typeof rawHtml === "string" ? rawHtml : rawHtml?.html ?? "";
+  // The phone rule (header centred once the columns stack) rides in the
+  // compiled head — see mobile-css.ts for why it is never in the model.
+  const html: string = withMobileCss(typeof rawHtml === "string" ? rawHtml : rawHtml?.html ?? "");
 
   const project = editor.getProjectData();
   const text = htmlToText(html);

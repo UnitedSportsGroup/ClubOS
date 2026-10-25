@@ -260,13 +260,13 @@
   min-height: 0;
   height: auto;
   margin: 0;
-  padding: 15px 8px 11px;
+  padding: 12px 8px 10px;
   float: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   background: var(--ce-panel);
   border: 1px solid var(--ce-border);
   border-radius: 12px;
@@ -284,8 +284,13 @@
 .clubos-gjs .gjs-block:active {
   cursor: grabbing;
 }
+/* Each tile's media is a 56×36 wireframe THUMBNAIL of what the block drops —
+   two boxes for "2 columns", a picture for "Image", a dark band for "Footer" —
+   not a glyph. Daniel (2026-10-26): "the icons are the same, so it doesn't
+   actually show you what you're getting … it showed it was two columns, three
+   columns — you should be able to see". */
 .clubos-gjs .gjs-block__media {
-  height: 24px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -295,9 +300,15 @@
 .clubos-gjs .gjs-block:hover .gjs-block__media {
   color: var(--ce-accent);
 }
+/* 🔴 GrapesJS's own stylesheet paints `fill: currentColor` onto every block
+   SVG, which is how the old outline icons became identical solid blobs: the
+   fill swallowed the lines inside each rectangle. Every shape in a thumbnail
+   declares its own fill; the root stays `none`. */
+.clubos-gjs .gjs-block svg,
 .clubos-gjs .gjs-block__media svg {
-  width: 22px;
-  height: 22px;
+  width: 56px;
+  height: 36px;
+  fill: none;
 }
 .clubos-gjs .gjs-block-label {
   font-size: 11px;

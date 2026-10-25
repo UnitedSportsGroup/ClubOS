@@ -366,7 +366,8 @@ try {
           button: has("See the timetable"),
           offer: has("Partner offer"),
           nextMatch: has("Match details"),
-          unsubscribe: has("{{unsubscribe_url}}")
+          unsubscribe: has("{{unsubscribe_url}}"),
+          mobileCss: has(".clubos-hdr-crest{text-align:center")
         };
       })()`);
       ok("choosing the template saved the email on its own", exported.saved && exported.bytes > 1000, `${exported.bytes} bytes`);
@@ -375,8 +376,70 @@ try {
       ok("the export keeps every photograph and both social icons", exported.photos >= 4 && exported.icons >= 2, `photos ${exported.photos}, icons ${exported.icons}`);
       ok("the export carries its own unsubscribe link", exported.unsubscribe);
       ok("the export stays under Gmail's clip", exported.bytes < 95 * 1024, `${Math.round(exported.bytes / 1024)}KB`);
+      ok("the export carries the phone rule that centres the header", exported.mobileCss);
       await page.screenshot({ path: join(OUT, `${label}-template-in-builder.png`) });
       console.log(`  → ${join(OUT, `${label}-template-in-builder.png`)}`);
+
+      // ── The palette shows what you get (2026-10-26) ──────────────────────
+      // Daniel: "the icons are the same, so it doesn't actually show you what
+      // you're getting … you should be able to see 'oh, it's three columns'."
+      // Every tile's thumbnail is its own, and the column tiles draw their
+      // columns. 🔴 GrapesJS's own stylesheet fills every block SVG; measured
+      // here as the rendered rect count, not the source string.
+      const tiles: any = await page.evaluate(`(function () {
+        var byLabel = {}; var all = [];
+        document.querySelectorAll(".gjs-block").forEach(function (b) {
+          var l = (b.querySelector(".gjs-block-label") || {}).textContent || ""; l = l.trim();
+          var svg = b.querySelector("svg");
+          all.push(svg ? svg.innerHTML.replace(/\\s+/g, "") : l);
+          var r = svg ? svg.getBoundingClientRect() : { width: 0, height: 0 };
+          byLabel[l] = { cols: svg ? svg.querySelectorAll(".col").length : 0, w: Math.round(r.width), h: Math.round(r.height),
+            rootFill: svg ? getComputedStyle(svg).fill : "" };
+        });
+        return { byLabel: byLabel, total: all.length, distinct: new Set(all).size };
+      })()`);
+      ok("every block tile has its own thumbnail — no two alike", tiles.total >= 20 && tiles.distinct === tiles.total, `${tiles.distinct} of ${tiles.total}`);
+      ok("the 2 columns and 3 columns tiles draw two and three columns, at thumbnail size",
+        tiles.byLabel["2 columns"]?.cols === 2 && tiles.byLabel["3 columns"]?.cols === 3 && tiles.byLabel["Section"]?.w >= 48 && tiles.byLabel["Section"]?.h >= 30,
+        JSON.stringify({ two: tiles.byLabel["2 columns"], three: tiles.byLabel["3 columns"], section: tiles.byLabel["Section"] }));
+      ok("GrapesJS's fill rule no longer paints over the thumbnails", /^(none|rgba\\(0, 0, 0, 0\\))$/.test(tiles.byLabel["Section"]?.rootFill ?? ""), tiles.byLabel["Section"]?.rootFill);
+
+      // ── Mobile preview: the header centres on a phone, desktop stays as drawn ──
+      // Daniel: "the logo is centered and the menu items are centered as well.
+      // It's off to the side on the desktop one, which is fine." Measured inside
+      // the canvas frame — the crest's image and the nav's ink, against the
+      // frame's own centre — in both device modes.
+      const measureHeader = async () => {
+        const fh = await page.$("iframe.gjs-frame");
+        const frame = fh ? await fh.contentFrame() : null;
+        if (!frame) return null;
+        return frame.evaluate(`(function () {
+          var w = document.documentElement.clientWidth;
+          var crest = document.querySelector('img[alt="Christchurch United FC"]');
+          var link = Array.prototype.slice.call(document.querySelectorAll("a")).find(function (a) { return /programmes/i.test(a.textContent || ""); });
+          var nav = link ? link.parentElement : null;
+          var mid = function (r) { return Math.round((r.left + r.right) / 2); };
+          var navMid = null;
+          if (nav) { var range = document.createRange(); range.selectNodeContents(nav); navMid = mid(range.getBoundingClientRect()); }
+          return { w: w, crest: crest ? mid(crest.getBoundingClientRect()) : null, nav: navMid, crestClass: !!document.querySelector(".clubos-hdr-crest") };
+        })()`) as Promise<{ w: number; crest: number | null; nav: number | null; crestClass: boolean } | null>;
+      };
+      const mobBtn = await page.$('button[title="Mobile preview"]');
+      if (mobBtn) await mobBtn.click();
+      await sleep(2500);
+      const mob = await measureHeader();
+      ok("Mobile preview centres the crest and the nav",
+        !!mob && mob.w < 480 && mob.crest !== null && Math.abs(mob.crest - mob.w / 2) <= 8 && mob.nav !== null && Math.abs(mob.nav - mob.w / 2) <= 8,
+        JSON.stringify(mob));
+      await page.screenshot({ path: join(OUT, `${label}-template-mobile.png`) });
+      console.log(`  → ${join(OUT, `${label}-template-mobile.png`)}`);
+      const deskBtn = await page.$('button[title="Desktop preview"]');
+      if (deskBtn) await deskBtn.click();
+      await sleep(2000);
+      const desk = await measureHeader();
+      ok("Desktop preview keeps the crest left and the nav right",
+        !!desk && desk.w >= 600 && desk.crest !== null && desk.crest < desk.w / 2 - 60 && desk.nav !== null && desk.nav > desk.w / 2 + 60,
+        JSON.stringify(desk));
     }
 
     const full = join(OUT, `${label}-full.png`);
