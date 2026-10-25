@@ -84,6 +84,18 @@ const writeDraft = (slug: string, d: LocalDraft | null) => {
   try { d ? localStorage.setItem(draftKey(slug), JSON.stringify(d)) : localStorage.removeItem(draftKey(slug)); } catch { /* private mode / full */ }
 };
 const niceTime = (iso: string) => new Date(iso).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+/** The first words of an unsent email, for a draft with no subject yet — so
+ *  the banner says WHAT it is, not only that it exists. An untouched template
+ *  reads "Matchday. …", a blank page reads its own placeholder. */
+const draftBlurb = (html: string) => {
+  const words = (html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html)
+    .replace(/<(style|script|head|title)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return words.length > 72 ? `${words.slice(0, 72).replace(/\s+\S*$/, "")}…` : words;
+};
 const HISTORY_PAGE = 10;
 
 // "cic_youth_custom" → "CIC youth custom". Segment types are namespaced by the
@@ -200,6 +212,14 @@ export default function AdminMailer() {
   const orgSlug = currentOrg?.slug ?? "";
   const [recoverable, setRecoverable] = useState<LocalDraft | null>(null);
   useEffect(() => { setRecoverable(readDraft(orgSlug)); }, [orgSlug]);
+  // The Mailer is often open in two tabs. A draft discarded in one must not
+  // keep being offered in the other, and one saved there is offered here —
+  // the browser fires `storage` in every OTHER tab when the key changes.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => { if (e.key === draftKey(orgSlug)) setRecoverable(readDraft(orgSlug)); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [orgSlug]);
   const [textColor, setTextColor] = useState("#333333");
   const [bgColor, setBgColor] = useState("#ffffff");
   const textColorRef = useRef<HTMLInputElement>(null);
@@ -580,19 +600,24 @@ export default function AdminMailer() {
       </div>
 
       {/* An email that was never sent, kept in this browser. Offered back rather
-          than silently restored — it may be a week old and no longer wanted. */}
+          than silently restored — it may be a week old and no longer wanted.
+          🔴 Both buttons must be SEEN to work (Daniel, 2026-10-26: "carry on
+          with it and discard doesn't actually work"). Carry on used to load the
+          email into memory and leave you on Setup — nothing visible, and the
+          draft was re-stamped, so the banner was back on the next visit. It
+          opens the Content step with the email in the box now; Discard says so. */}
       {recoverable && !hasDesign && (
         <div className="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-amber-500/25" data-testid="mailer-draft-recover">
           <div className="min-w-0">
             <p className="text-sm font-medium text-white/85">You have an email you didn't send</p>
             <p className="text-xs text-white/45 mt-0.5 truncate">
-              {recoverable.subject ? `"${recoverable.subject}" · ` : ""}last changed {niceTime(recoverable.savedAt)}
+              {recoverable.subject ? `"${recoverable.subject}"` : `"${draftBlurb(recoverable.bodyHtml)}"`} · last changed {niceTime(recoverable.savedAt)}
             </p>
           </div>
           <div className="flex gap-2">
             <Button
               className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => { loadDesign(recoverable); setSubject(recoverable.subject || ""); setRecoverable(null); }}
+              onClick={() => { loadDesign(recoverable); setRecoverable(null); setStep(1); }}
               data-testid="button-draft-continue"
             >
               Carry on with it
@@ -600,7 +625,11 @@ export default function AdminMailer() {
             <Button
               variant="outline"
               className="h-11 md:h-9 border-white/10 text-white/60 hover:bg-white/5"
-              onClick={() => { writeDraft(orgSlug, null); setRecoverable(null); }}
+              onClick={() => {
+                writeDraft(orgSlug, null);
+                setRecoverable(null);
+                toast({ title: "Discarded", description: "That unsent email is gone." });
+              }}
               data-testid="button-draft-discard"
             >
               Discard

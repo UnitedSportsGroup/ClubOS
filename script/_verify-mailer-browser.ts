@@ -475,6 +475,90 @@ try {
         JSON.stringify({ pressed, flashed, settled }));
     }
 
+    // ── The unsent-email banner answers both buttons (2026-10-26) ─────────
+    // Daniel: "carry on with it and discard doesn't actually work." Carry on
+    // loaded the email into memory and left you on Setup — nothing visible —
+    // and re-stamped the draft, so the banner was back on the next visit, which
+    // read as Discard failing too. Now: Carry on opens the Content step with
+    // the email in the box; Discard removes the draft, says so, and is still
+    // gone after a reload; a draft with no subject is named by its first words.
+    const DRAFT_KEY = `clubos-mailer-draft:${WORKSPACE}`;
+    const seedDraft = (subject: string, doc: unknown, html: string) => page.evaluate((k: string, s: string, d: unknown, h: string) => {
+      localStorage.setItem(k, JSON.stringify({ subject: s, bodyDoc: d, bodyHtml: h, savedAt: new Date().toISOString() }));
+    }, DRAFT_KEY, subject, doc, html);
+    const readBanner = () => page.evaluate(`(function () {
+      var b = document.querySelector('[data-testid="mailer-draft-recover"]');
+      var pills = Array.prototype.slice.call(document.querySelectorAll('[data-testid^="button-step-"]'));
+      var active = pills.filter(function (x) { return /text-blue-400/.test(x.className); })[0];
+      var subj = document.querySelector('[data-testid="input-subject"]');
+      var mode = document.querySelector('[data-testid="text-editor-mode"]');
+      var compose = document.querySelector('[data-testid="simple-compose"]');
+      return {
+        banner: b ? (b.textContent || "").replace(/\\s+/g, " ").trim() : null,
+        step: active ? active.getAttribute("data-testid") : null,
+        subject: subj ? subj.value : null,
+        mode: mode ? (mode.textContent || "").trim() : null,
+        composeWords: compose ? /Preflight recovered words for the roll/.test(compose.innerText || "") : false,
+        builder: !!document.querySelector('[data-testid="email-builder"]'),
+        draft: !!localStorage.getItem(${JSON.stringify(DRAFT_KEY)}),
+        toast: /That unsent email is gone/.test(document.body.innerText)
+      };
+    })()`) as Promise<{ banner: string | null; step: string | null; subject: string | null; mode: string | null; composeWords: boolean; builder: boolean; draft: boolean; toast: boolean }>;
+    const writtenDraft = { engine: "simple", html: "<div>Preflight recovered words for the roll</div>", letterhead: null, signature: "" };
+    const writtenHtml = "<html><body><p>Preflight recovered words for the roll</p></body></html>";
+
+    await seedDraft("Preflight — recovered subject", writtenDraft, writtenHtml);
+    await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+    await sleep(2500);
+    const offered = await readBanner();
+    ok("an unsent email is offered back on Setup, by its subject",
+      !!offered.banner && /"Preflight — recovered subject"/.test(offered.banner) && offered.step === "button-step-setup", JSON.stringify(offered));
+    const cont = await page.$('[data-testid="button-draft-continue"]');
+    if (cont) await cont.click();
+    await sleep(2500);
+    const carried = await readBanner();
+    ok("Carry on with it opens the Content step with the words in the box and the subject filled in",
+      carried.banner === null && carried.step === "button-step-content" && carried.mode === "Written email" && carried.composeWords && carried.subject === "Preflight — recovered subject",
+      JSON.stringify(carried));
+    await page.screenshot({ path: join(OUT, `${label}-draft-carried-on.png`) });
+    console.log(`  → ${join(OUT, `${label}-draft-carried-on.png`)}`);
+
+    if (!mobile) {
+      // A DESIGNED draft with no subject: named by its first words, and it
+      // carries on in the builder with those words on the canvas — not on the
+      // gallery, which is where a design with no doc would have opened.
+      await seedDraft("", { engine: "grapesjs-mjml", version: 1, mjml: "<mjml><mj-body><mj-section><mj-column><mj-text>Preflight designed words</mj-text></mj-column></mj-section></mj-body></mjml>" }, "<html><head><style>.x{}</style></head><body><p>Preflight designed words</p></body></html>");
+      await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+      await sleep(2500);
+      const offered2 = await readBanner();
+      ok("a draft with no subject is named by its first words, not by its stylesheet",
+        !!offered2.banner && /"Preflight designed words"/.test(offered2.banner) && !/\.x\{/.test(offered2.banner), JSON.stringify(offered2));
+      const cont2 = await page.$('[data-testid="button-draft-continue"]');
+      if (cont2) await cont2.click();
+      await sleep(9000); // the builder chunk + the MJML parse
+      const carried2 = await readBanner();
+      const canvasWords = await page.evaluate(() => {
+        const f = document.querySelector("iframe.gjs-frame") as HTMLIFrameElement | null;
+        return /Preflight designed words/.test(f?.contentDocument?.body?.innerText || "");
+      });
+      ok("a designed draft carries on in the builder with its words on the canvas",
+        carried2.step === "button-step-content" && carried2.mode === "Designed email" && carried2.builder && canvasWords, JSON.stringify({ ...carried2, canvasWords }));
+    }
+
+    await seedDraft("Preflight — to discard", writtenDraft, writtenHtml);
+    await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+    await sleep(2500);
+    const disc = await page.$('[data-testid="button-draft-discard"]');
+    if (disc) await disc.click();
+    await sleep(800);
+    const discarded = await readBanner();
+    ok("Discard removes the draft, hides the banner and says so",
+      discarded.banner === null && !discarded.draft && discarded.toast, JSON.stringify(discarded));
+    await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+    await sleep(2000);
+    const afterReload = await readBanner();
+    ok("the discarded email stays gone after a reload", afterReload.banner === null && !afterReload.draft, JSON.stringify(afterReload));
+
     const full = join(OUT, `${label}-full.png`);
     await page.screenshot({ path: full, fullPage: true });
     console.log(`  → ${full}`);
