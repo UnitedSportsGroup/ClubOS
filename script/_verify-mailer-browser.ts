@@ -66,9 +66,12 @@ try {
     [email, await bcrypt.hash(password, 10)],
   );
   users.push(rows[0].id);
+  // 🔴 Org 1 is Christchurch United. Org 2 is SOUTH ISLAND UNITED — the harness
+  // sat there for weeks, and the only thing that showed it was the SIU crest
+  // appearing where the CUFC one was expected.
   await pool.query(
     `INSERT INTO user_organizations (user_id, organization_id, role, tabs)
-     VALUES ($1, 2, 'admin', NULL)`,
+     VALUES ($1, 1, 'admin', NULL)`,
     [rows[0].id],
   );
 
