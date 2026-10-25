@@ -13,12 +13,16 @@ import {
   List, ListOrdered, Link as LinkIcon, Image, Type, Palette,
   Eye, Loader2, CheckCircle2, AlertCircle, Upload, Heading1,
   Heading2, Minus, RotateCcw, Search,
-  Paperclip,
+  Paperclip, PenLine, LayoutTemplate, ArrowLeftRight,
 } from "lucide-react";
 
 import { useWorkspace } from "@/lib/workspace-context";
 import { SelectInput } from "@/components/ui/select-input";
 import { CUFC_MAILER_SENDERS, defaultSenderFor, senderFrom } from "@shared/mailer-senders";
+import { SimpleCompose } from "@/components/mailer/simple-compose";
+import { compileSimpleEmail, isSimpleDoc, signatureFor, simpleTextOf, simpleToMjml, type SimpleDoc } from "@/components/mailer/simple-email";
+import { LETTERHEADS } from "@/components/marketing/grapes/letterheads";
+import { cleanPastedHtml } from "@/components/marketing/grapes/clean-paste";
 
 // The visual builder is a ~725KB GrapesJS bundle. Lazy so the Mailer's Setup
 // and Send steps stay light and it only streams in when you reach Content.
@@ -178,6 +182,21 @@ export default function AdminMailer() {
   // Bumped to remount the builder with a different design (a template, a past
   // email, a recovered draft) — the builder reads its starting design once.
   const [builderKey, setBuilderKey] = useState(0);
+  // Two ways to make an email (Daniel, 2026-10-25): WRITE it like a Gmail, or
+  // DESIGN it in the builder. "choose" is the two-card screen a fresh email
+  // opens on; a loaded design decides its own mode from how it was made.
+  type EditorMode = "choose" | "simple" | "design";
+  const [mode, setMode] = useState<EditorMode>("choose");
+  const [simpleHtml, setSimpleHtml] = useState("");
+  // Remounts the compose box with a different seed (a template, a past email).
+  const [simpleKey, setSimpleKey] = useState(0);
+  const [simpleLetterhead, setSimpleLetterhead] = useState<string>("none");
+  const letterheadTouched = useRef(false);
+  // The workspace's own crest on top by default; "none" where it has no letterhead.
+  useEffect(() => {
+    if (letterheadTouched.current) return;
+    setSimpleLetterhead(LETTERHEADS.some((l) => l.id === brandKey) ? brandKey : "none");
+  }, [brandKey]);
   const orgSlug = currentOrg?.slug ?? "";
   const [recoverable, setRecoverable] = useState<LocalDraft | null>(null);
   useEffect(() => { setRecoverable(readDraft(orgSlug)); }, [orgSlug]);
@@ -290,8 +309,97 @@ export default function AdminMailer() {
     if (d.subject) setSubject((cur) => cur.trim() ? cur : d.subject!);
     setDesignSavedAt(new Date());
     setBuilderKey((k) => k + 1);
+    // A written email opens back in the compose box; anything else (a builder
+    // design, or plain HTML from before the builder) opens in the designer.
+    if (isSimpleDoc(d.bodyDoc)) {
+      setSimpleHtml(d.bodyDoc.html);
+      setSimpleLetterhead(d.bodyDoc.letterhead ?? "none");
+      letterheadTouched.current = true;
+      setSimpleKey((k) => k + 1);
+      setMode("simple");
+    } else {
+      setMode("design");
+    }
   }, []);
   const hasDesign = bodyHtml.trim().length > 0;
+
+  // ── Written email: the sign-off, the live preview, and saving as you type ──
+  // The sign-off is READ off the From chosen in Setup, never typed twice: pick
+  // Travis there and the email signs as Travis; change it and the sign-off
+  // follows. The From itself is what the inbox shows, so they can't disagree.
+  const signature = useMemo(
+    () => signatureFor(fromSender ? fromSender.fromName : customFromName),
+    [fromSender, customFromName],
+  );
+  const simpleDoc = useMemo<SimpleDoc>(
+    () => ({ engine: "simple", html: simpleHtml, letterhead: simpleLetterhead === "none" ? null : simpleLetterhead, signature }),
+    [simpleHtml, simpleLetterhead, signature],
+  );
+  const simplePreview = useMemo(
+    () => (mode === "simple" && simpleTextOf(simpleHtml) ? compileSimpleEmail(simpleDoc, brandKey) : ""),
+    [mode, simpleDoc, simpleHtml, brandKey],
+  );
+  // Compiles and records the email half a second after the last keystroke —
+  // the same save the builder makes, so Next, the draft copy, templates and
+  // the send all read one thing. An emptied box empties the email, so a blank
+  // can never be sent on the strength of a stale copy.
+  useEffect(() => {
+    if (mode !== "simple") return;
+    const text = simpleTextOf(simpleDoc.html);
+    if (!text) {
+      setBodyHtml("");
+      setBodyDoc(null);
+      setHasEditorContent(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      handleDesignSave({ doc: simpleDoc, html: compileSimpleEmail(simpleDoc, brandKey), text });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [mode, simpleDoc, brandKey, handleDesignSave]);
+
+  const startSimple = () => {
+    setSimpleHtml((cur) => (cur.trim() ? cur : "Hi {{first_name}},<div><br></div><div><br></div>"));
+    setSimpleKey((k) => k + 1);
+    setDesignSavedAt(null);
+    setMode("simple");
+  };
+  const startDesign = () => {
+    setBuilderKey((k) => k + 1);
+    setMode("design");
+  };
+  // Written → designer: every word travels, as a text block under the same
+  // letterhead. The sendable HTML it already has stays valid until the builder
+  // saves its own, so Next is not held up by a save that never comes.
+  const switchToDesign = () => {
+    const text = simpleTextOf(simpleHtml);
+    if (text && !window.confirm("Open this email in the designer? Every word comes with you — you lay it out from there.")) return;
+    if (text) {
+      setBodyDoc({ engine: "grapesjs-mjml", version: 1, mjml: simpleToMjml(simpleDoc, brandKey) });
+    } else {
+      setBodyDoc(null);
+      setBodyHtml("");
+    }
+    setBuilderKey((k) => k + 1);
+    setMode("design");
+  };
+  // Designer → written: the layout is dropped and the words are kept, rebuilt
+  // the way a paste is (bold, links and lists survive; tables and pictures do
+  // not). The footer the designer carries is left behind — the server puts
+  // one on every written email anyway.
+  const switchToSimple = () => {
+    if (hasDesign && !window.confirm("Switch to a written email? The layout is dropped and the words are kept.")) return;
+    const words = hasDesign
+      ? cleanPastedHtml(bodyHtml)
+          .replace(/<a href="\{\{unsubscribe_url\}\}"[^>]*>[^<]*<\/a>/gi, "")
+          .replace(/You(?:'|&#39;|’)re receiving this because[^<]*/gi, "")
+          .replace(/(<br>\s*)+$/i, "")
+      : "";
+    setSimpleHtml(words);
+    setSimpleKey((k) => k + 1);
+    setDesignSavedAt(null);
+    setMode("simple");
+  };
   const confirmReplace = () =>
     !hasDesign || window.confirm("Replace the email you're working on? It can't be brought back.");
 
@@ -404,6 +512,9 @@ export default function AdminMailer() {
       setRecoverable(null);
       setBuilderKey((k) => k + 1);
       setHasEditorContent(false);
+      setMode("choose");
+      setSimpleHtml("");
+      setSimpleKey((k) => k + 1);
       setManualEmails([]);
       setSegmentType("custom");
       setConfirmAll(false);
@@ -620,18 +731,22 @@ export default function AdminMailer() {
 
       {step === 1 && (
         <div className="space-y-4">
-          <div className="glass-card rounded-2xl p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Subject Line</h2>
+          {/* Subject — one row, the quick tags beside the line (Daniel,
+              2026-10-25: "move the insert name stuff next to the subject line,
+              just up top, so it doesn't take as much space"). */}
+          <div className="glass-card rounded-2xl p-4 flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="mailer-subject-card">
+            <label htmlFor="mailer-subject" className="text-xs font-semibold text-white/50 uppercase tracking-wider shrink-0">Subject</label>
             <Input
+              id="mailer-subject"
               ref={subjectRef}
               value={subject}
               onChange={e => setSubject(e.target.value)}
-              placeholder="Enter your email subject..."
-              className="premium-input text-white/80 text-lg h-12"
+              placeholder="What's this email about?"
+              className="premium-input text-white/80 text-base h-11 flex-1 min-w-[240px]"
               data-testid="input-subject"
             />
             <div className="flex flex-wrap items-center gap-1.5" data-testid="subject-merge-hint">
-              <span className="text-xs text-white/40 mr-1">Insert:</span>
+              <span className="text-xs text-white/40">Insert</span>
               {([
                 ["First name", "{{first_name}}"],
                 ["Player first name", "{{player_first_name}}"],
@@ -651,71 +766,187 @@ export default function AdminMailer() {
             </div>
           </div>
 
-          <div className="glass-card rounded-2xl p-4 space-y-3">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Design</h2>
-                {/* There is no left or right pane on a phone, so the phone is
-                    not told to use one. */}
-                <p className="text-xs text-white/35 mt-1 max-w-xl hidden md:block">
-                  Drag a section in from the left, click any text to edit it, and style it on the right.
-                  It saves as you go — what you see is what gets sent.
-                </p>
-                <p className="text-xs text-white/35 mt-1 max-w-xl md:hidden">
-                  Edit the email below and hit <span className="text-white/60 font-medium">Save</span> —
-                  that is what gets sent. The drag-and-drop designer needs a laptop.
-                </p>
-              </div>
-              {designSavedAt && (
-                <span
-                  className="text-xs text-emerald-400/80 flex items-center gap-1.5 shrink-0"
-                  data-testid="text-design-saved"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Design saved {designSavedAt.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}
-                </span>
-              )}
+          {/* Two ways to make the email (Daniel, 2026-10-25): write it like a
+              Gmail, or design it. Most office comms are the first; the second
+              is for the email that has to look like the club. */}
+          {mode === "choose" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="mailer-mode-chooser">
+              <button
+                type="button"
+                onClick={startSimple}
+                className="glass-card rounded-2xl p-5 text-left border border-transparent hover:border-blue-500/40 transition-colors"
+                data-testid="button-mode-simple"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0"><PenLine className="w-5 h-5" /></span>
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold text-white/90">Write an email</div>
+                    <div className="text-xs text-white/45 mt-1 leading-relaxed">Like Gmail. Type it, bold a line, add a link. It goes out on the club letterhead with your sign-off.</div>
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={startDesign}
+                className="glass-card rounded-2xl p-5 text-left border border-transparent hover:border-blue-500/40 transition-colors"
+                data-testid="button-mode-design"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="w-10 h-10 rounded-xl bg-violet-500/15 text-violet-400 flex items-center justify-center shrink-0"><LayoutTemplate className="w-5 h-5" /></span>
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold text-white/90">Design an email</div>
+                    <div className="text-xs text-white/45 mt-1 leading-relaxed">Sections, pictures, buttons and columns. Start from a template or a blank page.<span className="md:hidden"> Best on a laptop.</span></div>
+                  </div>
+                </div>
+              </button>
             </div>
+          )}
 
-            {/* A definite height, but ONLY from md up. The three-pane shell
-                (palette · canvas · inspector) collapses to nothing inside an
-                auto-height parent, so on a laptop it gets 74vh — tall enough to
-                work in, short enough to leave Back/Next on screen.
-                🔴 Below 768px the builder swaps itself for the plain-HTML
-                fallback, which is ~950px of notice + editor + preview: inside a
-                fixed 74vh box with overflow-hidden the preview was cut off
-                entirely and could not be scrolled to. Height and clipping are
-                therefore desktop-only, and `md` here MUST stay in step with
-                useIsNarrow(767) in EmailBuilder — they are the same boundary. */}
-            {/* Your templates — start from one, or keep this email as one. */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5" data-testid="mailer-templates-bar">
-              <span className="text-xs text-white/45 px-1">Your templates</span>
-              {templates.length === 0 ? (
-                <span className="text-xs text-white/30">None yet — build an email, then save it as one.</span>
+          {mode !== "choose" && (
+            <div className="glass-card rounded-2xl p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm text-white/70 min-w-0">
+                  {mode === "simple"
+                    ? <PenLine className="w-4 h-4 text-blue-400" />
+                    : <LayoutTemplate className="w-4 h-4 text-violet-400" />}
+                  <span className="font-medium" data-testid="text-editor-mode">{mode === "simple" ? "Written email" : "Designed email"}</span>
+                  {designSavedAt && (
+                    <span
+                      className="text-xs text-emerald-400/80 flex items-center gap-1.5 ml-2"
+                      data-testid="text-design-saved"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Saved {designSavedAt.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={mode === "simple" ? switchToDesign : switchToSimple}
+                  className="inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white/85 min-h-11 md:min-h-8 px-2 rounded-md hover:bg-white/5"
+                  data-testid="button-switch-mode"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  {mode === "simple" ? "Open in the designer instead" : "Switch to a written email"}
+                </button>
+              </div>
+
+              {mode === "simple" ? (
+                <SimpleCompose
+                  key={simpleKey}
+                  initialHtml={simpleHtml}
+                  onChange={(h) => { setSimpleHtml(h); setDesignSavedAt(null); }}
+                  letterhead={simpleLetterhead}
+                  onLetterhead={(id) => { letterheadTouched.current = true; setSimpleLetterhead(id); setDesignSavedAt(null); }}
+                  signature={signature}
+                  previewHtml={simplePreview}
+                />
               ) : (
-                templates.slice(0, 8).map((t) => (
-                  <span key={t.id} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03]">
-                    <button
-                      type="button"
-                      onClick={() => openTemplate(t.id)}
-                      className="px-3 min-h-11 md:min-h-9 text-xs font-medium text-white/80 hover:text-white"
-                      title={`Start from "${t.name}"${t.createdBy ? ` — saved by ${t.createdBy}` : ""}`}
-                      data-testid={`button-template-${t.id}`}
-                    >
-                      {t.name}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Remove template ${t.name}`}
-                      onClick={() => { if (window.confirm(`Remove the template "${t.name}"? Emails already sent are not affected.`)) removeTemplate.mutate(t.id); }}
-                      className="pr-3 pl-1 min-h-11 md:min-h-9 min-w-9 text-white/30 hover:text-red-400"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))
+                /* A definite height, but ONLY from md up. The three-pane shell
+                   (palette · canvas · inspector) collapses to nothing inside an
+                   auto-height parent, so on a laptop it gets 78vh — tall enough to
+                   work in, short enough to leave Back/Next on screen.
+                   🔴 Below 768px the builder swaps itself for the plain-HTML
+                   fallback, which is ~950px of notice + editor + preview: inside a
+                   fixed box with overflow-hidden the preview was cut off entirely
+                   and could not be scrolled to. Height and clipping are therefore
+                   desktop-only, and `md` here MUST stay in step with
+                   useIsNarrow(767) in EmailBuilder — they are the same boundary.
+                   🔴 A fixed box the builder FILLS (fillParent), clipped so the
+                   browser can never scroll it to chase the caret — the Save bar
+                   sliding off the top on paste (Zach, 2026-09-30) was this box
+                   scrolling itself. The builder's canvas scrolls; this does not. */
+                <div
+                  className="rounded-xl border border-white/10 bg-white md:overflow-hidden md:[overflow:clip] md:h-[78vh] md:min-h-[600px]"
+                  data-testid="email-builder"
+                  onScroll={(e) => { const el = e.currentTarget; if (el.scrollTop) el.scrollTop = 0; }}
+                >
+                  <Suspense
+                    fallback={
+                      <div className="h-full flex items-center justify-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading the builder…
+                      </div>
+                    }
+                  >
+                    <EmailBuilder
+                      key={builderKey}
+                      fillParent
+                      autoSave
+                      workspaceId={currentOrg?.id ?? 1}
+                      brandKey={brandKey}
+                      initialDoc={bodyDoc}
+                      initialHtml={bodyHtml}
+                      onSave={handleDesignSave}
+                      onDirty={() => setDesignSavedAt(null)}
+                    />
+                  </Suspense>
+                </div>
               )}
-              <div className="ml-auto flex items-center gap-2">
+
+              {!designSavedAt && bodyHtml.trim().length > 0 && (
+                <p className="text-xs text-amber-400/70 flex items-center gap-1.5" data-testid="text-design-unsaved">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {mode === "simple"
+                    ? "Saving…"
+                    : "Saving your changes… (finish the text you're editing — click anywhere outside it)"}
+                </p>
+              )}
+
+              {/* Attachments — at the foot of the email, where Gmail keeps the
+                  paperclip. PDFs, images, documents; the same files to everyone. */}
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/[0.06]" data-testid="mailer-attachments-bar">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.ics"
+                  className="hidden"
+                  onChange={(e) => addFiles(e.target.files)}
+                  data-testid="input-attachments"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-11 md:h-9 text-white/70 hover:bg-white/5 px-2"
+                  data-testid="button-add-attachment"
+                >
+                  <Paperclip className="w-4 h-4 mr-1.5" />
+                  Attach a file
+                </Button>
+                {attachments.length === 0 ? (
+                  <span className="text-xs text-white/30">PDFs, images, Word, Excel — up to 7 MB in total.</span>
+                ) : (
+                  <>
+                    {attachments.map((a, i) => (
+                      <span key={`${a.filename}-${i}`} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] pl-3 text-xs text-white/80" data-testid={`attachment-${i}`}>
+                        {a.filename}
+                        <span className="ml-1.5 text-white/40">{a.bytes >= 1048576 ? `${(a.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(a.bytes / 1024))} KB`}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${a.filename}`}
+                          onClick={() => setAttachments((xs) => xs.filter((_, j) => j !== i))}
+                          className="px-2.5 min-h-11 md:min-h-9 text-white/30 hover:text-red-400"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <span className="text-xs text-white/40">{(attachedBytes / 1048576).toFixed(1)} of 7 MB</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Templates — their own section (Daniel, 2026-10-25: "that needs just
+              a separate section"). Start from one, or keep this email as one.
+              A template opens in the mode it was made in. */}
+          <div className="glass-card rounded-2xl p-4 space-y-2" data-testid="mailer-templates-bar">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Templates</h2>
+              <div className="flex items-center gap-2">
                 {namingTemplate ? (
                   <form
                     className="flex items-center gap-2"
@@ -743,98 +974,42 @@ export default function AdminMailer() {
                     disabled={!hasDesign || !designSettled}
                     onClick={() => setNamingTemplate(true)}
                     className="h-11 md:h-9 border-white/10 text-white/70 hover:bg-white/5"
-                    title={!hasDesign ? "Build an email first" : !designSettled ? "Saving your changes…" : "Keep this email to reuse"}
+                    title={!hasDesign ? "Write or design an email first" : !designSettled ? "Saving your changes…" : "Keep this email to reuse"}
                     data-testid="button-save-as-template"
                   >
-                    Save as template
+                    Save this email as a template
                   </Button>
                 )}
               </div>
             </div>
-
-            {/* Attachments — PDFs, images, documents; same files to everyone. */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5" data-testid="mailer-attachments-bar">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.ics"
-                className="hidden"
-                onChange={(e) => addFiles(e.target.files)}
-                data-testid="input-attachments"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-11 md:h-9 border-white/10 text-white/70 hover:bg-white/5"
-                data-testid="button-add-attachment"
-              >
-                <Paperclip className="w-4 h-4 mr-1.5" />
-                Attach a file
-              </Button>
-              {attachments.length === 0 ? (
-                <span className="text-xs text-white/30">PDFs, images, Word, Excel — up to 7 MB in total.</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {templates.length === 0 ? (
+                <span className="text-xs text-white/30">None yet — write or design an email, then keep it as one.</span>
               ) : (
-                <>
-                  {attachments.map((a, i) => (
-                    <span key={`${a.filename}-${i}`} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] pl-3 text-xs text-white/80" data-testid={`attachment-${i}`}>
-                      {a.filename}
-                      <span className="ml-1.5 text-white/40">{a.bytes >= 1048576 ? `${(a.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(a.bytes / 1024))} KB`}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${a.filename}`}
-                        onClick={() => setAttachments((xs) => xs.filter((_, j) => j !== i))}
-                        className="px-2.5 min-h-11 md:min-h-9 text-white/30 hover:text-red-400"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <span className="text-xs text-white/40">{(attachedBytes / 1048576).toFixed(1)} of 7 MB</span>
-                </>
+                templates.slice(0, 12).map((t) => (
+                  <span key={t.id} className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03]">
+                    <button
+                      type="button"
+                      onClick={() => openTemplate(t.id)}
+                      className="px-3 min-h-11 md:min-h-9 text-xs font-medium text-white/80 hover:text-white"
+                      title={`Start from "${t.name}"${t.createdBy ? ` — saved by ${t.createdBy}` : ""}`}
+                      data-testid={`button-template-${t.id}`}
+                    >
+                      {t.name}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove template ${t.name}`}
+                      onClick={() => { if (window.confirm(`Remove the template "${t.name}"? Emails already sent are not affected.`)) removeTemplate.mutate(t.id); }}
+                      className="pr-3 pl-1 min-h-11 md:min-h-9 min-w-9 text-white/30 hover:text-red-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
               )}
             </div>
-
-            {/* 🔴 A fixed box the builder FILLS (fillParent), clipped so the
-                browser can never scroll it to chase the caret — the Save bar
-                sliding off the top on paste (Zach, 2026-09-30) was this box
-                scrolling itself. The builder's canvas scrolls; this does not. */}
-            <div
-              className="rounded-xl border border-white/10 bg-white md:overflow-hidden md:[overflow:clip] md:h-[78vh] md:min-h-[600px]"
-              data-testid="email-builder"
-              onScroll={(e) => { const el = e.currentTarget; if (el.scrollTop) el.scrollTop = 0; }}
-            >
-              <Suspense
-                fallback={
-                  <div className="h-full flex items-center justify-center gap-2 text-sm text-gray-500">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading the builder…
-                  </div>
-                }
-              >
-                <EmailBuilder
-                  key={builderKey}
-                  fillParent
-                  autoSave
-                  workspaceId={currentOrg?.id ?? 1}
-                  brandKey={brandKey}
-                  initialDoc={bodyDoc}
-                  initialHtml={bodyHtml}
-                  onSave={handleDesignSave}
-                  onDirty={() => setDesignSavedAt(null)}
-                />
-              </Suspense>
-            </div>
-
-            {!designSavedAt && bodyHtml.trim().length > 0 && (
-              <p className="text-xs text-amber-400/70 flex items-center gap-1.5" data-testid="text-design-unsaved">
-                <AlertCircle className="w-3.5 h-3.5" />
-                Saving your changes… (finish the text you're editing — click anywhere outside it)
-              </p>
-            )}
           </div>
-
           <div className="flex items-center justify-between">
             <Button
               onClick={() => setStep(0)}
