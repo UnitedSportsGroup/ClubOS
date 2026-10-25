@@ -161,7 +161,7 @@ try {
         greeting: box ? /\\{\\{first_name\\}\\}/.test(box.innerHTML) : false,
         boxH: box ? box.getBoundingClientRect().height : 0,
         previewVisible: !!pv && pv.getBoundingClientRect().width > 0,
-        letterheadInPreview: /logos\\/christchurch-united\\.png/.test(doc),
+        letterheadInPreview: /mailer\\/crests\\/cufc\\.png|logos\\/christchurch-united\\.png/.test(doc),
         signOffInPreview: /<strong>Christchurch United FC<\\/strong>/.test(doc),
         hasBody: /<body/.test(doc),
         attachAtFoot: !!document.querySelector('[data-testid="mailer-attachments-bar"]'),
@@ -284,7 +284,7 @@ try {
         var frame = document.querySelector('[data-testid="email-builder"] iframe');
         var text = "";
         try { text = frame && frame.contentDocument ? frame.contentDocument.body.innerText : ""; } catch (e) {}
-        return { mode: mode, grapes: !!document.querySelector(".gjs-editor"), wordsInCanvas: /Boots on by 4:15 please/.test(text), crestInCanvas: !!(frame && frame.contentDocument && frame.contentDocument.querySelector('img[src*="christchurch-united.png"]')) };
+        return { mode: mode, grapes: !!document.querySelector(".gjs-editor"), wordsInCanvas: /Boots on by 4:15 please/.test(text), crestInCanvas: !!(frame && frame.contentDocument && frame.contentDocument.querySelector('img[src*="crests/cufc.png"], img[src*="christchurch-united.png"]')) };
       })()`);
       ok("the designer opened on the written email", designed.mode === "Designed email" && designed.grapes, JSON.stringify(designed));
       ok("the words came with it onto the canvas", designed.wordsInCanvas);
