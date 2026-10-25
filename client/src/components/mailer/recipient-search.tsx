@@ -15,19 +15,61 @@
 // to see that before she sends, or she cannot tell a right answer from a wrong
 // one.
 //
+// 🔴 A ROW SAYS WHO THE PERSON IS, NOT JUST THEIR TYPE (Daniel, 2026-10-25:
+// "it comes up with a little badge called Guardian, and it has the email, but
+// that doesn't really tell me a lot … what if people have the same name?").
+// A parent is shown with their children and each child's age group; a player
+// with their age group and parent; a sponsor with the company and its logo.
+// Each kind has its own colour so the eye finds it before reading.
+//
+// 🔴 THE LIST IS RENDERED THROUGH A PORTAL. The Mailer's cards carry
+// `backdrop-filter`, which makes each card its own stacking context — an
+// absolutely-positioned list inside the Recipients card drew UNDER the Sender
+// Details card below it, whatever z-index it carried. Portalled to <body> and
+// positioned from the input's rect, nothing on the page can sit on top of it.
+//
 // 🔴 TYPING A WHOLE ADDRESS STILL WORKS. Enter adds it as-is — the search is an
 // addition to free entry, never a replacement for it.
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Plus, X, Search, Loader2, UserX } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
 
+type PersonChild = { name: string; ageGroup: string | null; programme: string | null };
+
 type PersonHit = {
   key: string; contactId: number; name: string; type: string;
   email: string | null; emailOwner: string | null; unreachable: string | null; detail: string | null;
+  ageGroup?: string | null;
+  parentName?: string | null;
+  children?: PersonChild[];
+  company?: string | null;
+  role?: string | null;
+  logoUrl?: string | null;
 };
+
+// One colour per kind of person, so a sponsor never looks like a parent.
+const KIND: Record<string, { label: string; badge: string; dot: string }> = {
+  guardian: { label: "Parent",  badge: "border-blue-500/30 text-blue-300 bg-blue-500/10",       dot: "bg-blue-400" },
+  player:   { label: "Player",  badge: "border-emerald-500/30 text-emerald-300 bg-emerald-500/10", dot: "bg-emerald-400" },
+  staff:    { label: "Staff",   badge: "border-violet-500/30 text-violet-300 bg-violet-500/10",  dot: "bg-violet-400" },
+  sponsor:  { label: "Sponsor", badge: "border-amber-500/30 text-amber-300 bg-amber-500/10",    dot: "bg-amber-400" },
+};
+const kindOf = (t: string) => KIND[t] ?? { label: t, badge: "border-white/10 text-white/40 bg-white/5", dot: "bg-white/30" };
+
+function SponsorMark({ company, logoUrl }: { company: string; logoUrl: string | null }) {
+  const initials = company.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join("");
+  return logoUrl ? (
+    <img src={logoUrl} alt="" className="w-7 h-7 rounded-md object-contain bg-white/90 shrink-0" />
+  ) : (
+    <span className="w-7 h-7 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-semibold flex items-center justify-center shrink-0">
+      {initials || "S"}
+    </span>
+  );
+}
 
 export function RecipientSearch({
   emails, onAdd, onRemove, label, placeholder,
@@ -44,6 +86,8 @@ export function RecipientSearch({
   const [busy, setBusy] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Debounced, and every in-flight answer is discarded if a newer keystroke has
   // happened — otherwise a slow "ta" lands after a fast "tahlae" and the list
@@ -64,11 +108,31 @@ export function RecipientSearch({
     return () => { cancelled = true; clearTimeout(t); };
   }, [q]);
 
+  // The list lives in <body>, so "clicked away" has to check both boxes.
   useEffect(() => {
-    const away = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    const away = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (boxRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, []);
+
+  // Position from the input's rect; follow scroll and resize while open.
+  const measure = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    measure();
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => { window.removeEventListener("scroll", measure, true); window.removeEventListener("resize", measure); };
+  }, [open, measure]);
 
   const addRaw = useCallback(() => {
     const e = q.trim().toLowerCase();
@@ -100,6 +164,86 @@ export function RecipientSearch({
     }
   };
 
+  const showList = open && (hits.length > 0 || (!busy && q.trim().length >= 2));
+  const maxH = rect ? Math.max(160, Math.min(360, window.innerHeight - rect.top - 16)) : 320;
+
+  const list = showList && rect ? createPortal(
+    <div
+      ref={listRef}
+      style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width, maxHeight: maxH }}
+      className="z-[120] overflow-y-auto rounded-xl border border-blue-500/20 bg-[#0d1220] shadow-2xl"
+      data-testid="list-recipient-results"
+    >
+      {hits.length === 0 ? (
+        <div className="px-3 py-3 text-[12px] text-white/35">
+          Nobody found for “{q.trim()}”.
+          {q.includes("@") && <> Press Enter to add it as a new address.</>}
+        </div>
+      ) : hits.map((p, i) => {
+        const already = p.email && emails.includes(p.email.toLowerCase());
+        const kind = kindOf(p.type);
+        const title = p.name || (p.type === "sponsor" ? p.company : null) || p.email || "(no name)";
+        return (
+          <button
+            key={p.key}
+            onMouseEnter={() => setActive(i)}
+            onClick={() => pick(p)}
+            disabled={!p.email}
+            className={`w-full text-left px-3 py-2 border-b border-white/[0.04] last:border-0 transition-colors ${
+              !p.email ? "opacity-45 cursor-not-allowed"
+                : i === active ? "bg-blue-500/10" : "hover:bg-white/[0.03]"}`}
+            data-testid={`option-person-${p.contactId}`}
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              {p.type === "sponsor"
+                ? <SponsorMark company={p.company ?? title} logoUrl={p.logoUrl ?? null} />
+                : <span className={`mt-[7px] w-2 h-2 rounded-full shrink-0 ${kind.dot}`} />}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <span className="text-[13px] text-white/90 truncate">{title}</span>
+                  <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 shrink-0 ${kind.badge}`}>{kind.label}</Badge>
+                  {/* Who this person is, in one glance. */}
+                  {p.type === "player" && p.ageGroup && (
+                    <span className="text-[10px] px-1.5 h-4 rounded-full bg-emerald-500/10 text-emerald-300/90 shrink-0">{p.ageGroup}</span>
+                  )}
+                  {p.type === "sponsor" && p.company && p.name && (
+                    <span className="text-[11px] text-amber-200/70 truncate">{p.company}{p.role ? ` · ${p.role}` : ""}</span>
+                  )}
+                  {already && <span className="text-[10px] text-emerald-400/70 shrink-0">added</span>}
+                </div>
+                {p.type === "guardian" && p.children && p.children.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {p.children.map(c => (
+                      <span key={c.name} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center gap-1" title={c.programme ?? undefined}>
+                        {c.name}{c.ageGroup && <span className="text-emerald-300/80">{c.ageGroup}</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="text-[11px] mt-0.5 min-w-0 truncate">
+                  {p.email ? (
+                    <>
+                      <span className="text-blue-300/70">{p.email}</span>
+                      {/* 🔴 Whose mailbox it is. A child's address is their parent's. */}
+                      {p.emailOwner && <span className="text-white/35"> · via {p.emailOwner}</span>}
+                      {p.type === "player" && !p.emailOwner && p.parentName && <span className="text-white/35"> · parent {p.parentName}</span>}
+                    </>
+                  ) : (
+                    <span className="text-amber-300/60 flex items-center gap-1">
+                      <UserX className="w-3 h-3" />{p.unreachable}
+                    </span>
+                  )}
+                  {p.detail && <span className="text-white/25"> · {p.detail}</span>}
+                </div>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>,
+    document.body,
+  ) : null;
+
   return (
     <div className="space-y-3">
       <label className="text-xs text-white/40 uppercase tracking-wider">{label}</label>
@@ -112,7 +256,7 @@ export function RecipientSearch({
               onChange={e => setQ(e.target.value)}
               onFocus={() => hits.length && setOpen(true)}
               onKeyDown={onKey}
-              placeholder={placeholder ?? "Search a player or parent, or type an email…"}
+              placeholder={placeholder ?? "Search a player, parent or sponsor, or type an email…"}
               className="premium-input text-white/80 w-full pl-9"
               data-testid="input-recipient-search"
               autoComplete="off"
@@ -123,51 +267,7 @@ export function RecipientSearch({
             <Plus className="w-4 h-4" />
           </Button>
         </div>
-
-        {open && (hits.length > 0 || (!busy && q.trim().length >= 2)) && (
-          <div className="absolute z-50 mt-1 w-full max-h-[320px] overflow-y-auto rounded-xl border border-blue-500/20 bg-[#0d1220] shadow-xl" data-testid="list-recipient-results">
-            {hits.length === 0 ? (
-              <div className="px-3 py-3 text-[12px] text-white/35">
-                Nobody found for “{q.trim()}”.
-                {q.includes("@") && <> Press Enter to add it as a new address.</>}
-              </div>
-            ) : hits.map((p, i) => {
-              const already = p.email && emails.includes(p.email.toLowerCase());
-              return (
-                <button
-                  key={p.key}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => pick(p)}
-                  disabled={!p.email}
-                  className={`w-full text-left px-3 py-2 border-b border-white/[0.04] last:border-0 transition-colors ${
-                    !p.email ? "opacity-45 cursor-not-allowed"
-                      : i === active ? "bg-blue-500/10" : "hover:bg-white/[0.03]"}`}
-                  data-testid={`option-person-${p.contactId}`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[13px] text-white/90 truncate">{p.name}</span>
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-white/10 text-white/35 shrink-0 capitalize">{p.type}</Badge>
-                    {already && <span className="text-[10px] text-emerald-400/70 shrink-0">added</span>}
-                  </div>
-                  <div className="text-[11px] mt-0.5 min-w-0 truncate">
-                    {p.email ? (
-                      <>
-                        <span className="text-blue-300/70">{p.email}</span>
-                        {/* 🔴 Whose mailbox it is. A child's address is their parent's. */}
-                        {p.emailOwner && <span className="text-white/35"> · via {p.emailOwner}</span>}
-                      </>
-                    ) : (
-                      <span className="text-amber-300/60 flex items-center gap-1">
-                        <UserX className="w-3 h-3" />{p.unreachable}
-                      </span>
-                    )}
-                    {p.detail && <span className="text-white/25"> · {p.detail}</span>}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {list}
       </div>
 
       {emails.length > 0 && (

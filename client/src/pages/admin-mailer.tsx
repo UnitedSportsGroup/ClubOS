@@ -107,23 +107,32 @@ export default function AdminMailer() {
   const [confirmAll, setConfirmAll] = useState(false);
   const [manualEmails, setManualEmails] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
-  const [fromEmail, setFromEmail] = useState(senderFrom(CUFC_MAILER_SENDERS[0]));
-  const [replyTo, setReplyTo] = useState(CUFC_MAILER_SENDERS[0].email);
-  // "Send as": pre-selected from the person signed in (Zach → grassroots@,
-  // Olga → accounts@), changeable, with "Custom" keeping the free-text fields.
+  // Sender details (Daniel, 2026-10-25): ONE "From" dropdown that shows the
+  // whole identity, and a SEPARATE "Replies go to" — an email can come from
+  // Daniel while replies land with the office. Pre-selected from the person
+  // signed in (Zach → grassroots@, Olga → accounts@); "Custom…" on either
+  // opens a typed field.
   const [senderId, setSenderId] = useState<string>(CUFC_MAILER_SENDERS[0].id);
+  const [customFromName, setCustomFromName] = useState("Christchurch United FC");
+  const [customFromEmail, setCustomFromEmail] = useState("");
+  // "same" (the From address) | a sender id | "custom"
+  const [replyMode, setReplyMode] = useState<string>("same");
+  const [customReplyTo, setCustomReplyTo] = useState("");
   const senderTouched = useRef(false);
   const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
-  const pickSender = (id: string) => {
-    setSenderId(id);
-    const s = CUFC_MAILER_SENDERS.find((x) => x.id === id);
-    if (s) { setFromEmail(senderFrom(s)); setReplyTo(s.email); }
-  };
   useEffect(() => {
     if (senderTouched.current || me?.id == null) return;
-    pickSender(defaultSenderFor(me.id).id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSenderId(defaultSenderFor(me.id).id);
   }, [me?.id]);
+  const fromSender = CUFC_MAILER_SENDERS.find((x) => x.id === senderId) ?? null;
+  const fromAddress = fromSender ? fromSender.email : customFromEmail.trim().toLowerCase();
+  const fromEmail = fromSender
+    ? senderFrom(fromSender)
+    : (customFromName.trim() ? `${customFromName.trim()} <${fromAddress}>` : fromAddress);
+  const replySender = CUFC_MAILER_SENDERS.find((x) => x.id === replyMode) ?? null;
+  const replyTo = replyMode === "same" ? fromAddress : replySender ? replySender.email : customReplyTo.trim().toLowerCase();
+  const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const senderValid = looksLikeEmail(fromAddress) && looksLikeEmail(replyTo);
 
   // Attachments — the same files go to every recipient, so the total is capped
   // (server/mailer-attachments.ts says why). Read to base64 in the browser;
@@ -377,8 +386,8 @@ export default function AdminMailer() {
   }, []);
 
 
-  const canProceedSetup = segmentType === "all" ||
-    (segmentType === "custom" && manualEmails.length > 0);
+  const canProceedSetup = senderValid && (segmentType === "all" ||
+    (segmentType === "custom" && manualEmails.length > 0));
 
   // 🔴 Never move on with an older copy of the design: while a change is still
   // being saved (designSavedAt is cleared on every edit and set by the save),
@@ -512,6 +521,53 @@ export default function AdminMailer() {
                 {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
                 Preview Recipients
               </Button>
+            </div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Sender Details</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs text-white/40 block">From</label>
+                <SelectInput
+                  value={senderId}
+                  onChange={(e) => { senderTouched.current = true; setSenderId(e.target.value); }}
+                  className="premium-input h-11 w-full rounded-md border border-white/10 px-3"
+                  data-testid="select-sender"
+                >
+                  {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{senderFrom(s)}</option>)}
+                  <option value="custom">Custom…</option>
+                </SelectInput>
+                {!fromSender && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input value={customFromName} onChange={e => setCustomFromName(e.target.value)} placeholder="Name the inbox shows" className="premium-input text-white/80" data-testid="input-from-name" />
+                    <Input value={customFromEmail} onChange={e => setCustomFromEmail(e.target.value)} placeholder="someone@cufc.co.nz" className="premium-input text-white/80" data-testid="input-from-email" />
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/40 block">Replies go to</label>
+                <SelectInput
+                  value={replyMode}
+                  onChange={(e) => setReplyMode(e.target.value)}
+                  className="premium-input h-11 w-full rounded-md border border-white/10 px-3"
+                  data-testid="select-reply-to"
+                >
+                  <option value="same">Same as From{fromAddress ? ` (${fromAddress})` : ""}</option>
+                  {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{s.email}</option>)}
+                  <option value="custom">Custom…</option>
+                </SelectInput>
+                {replyMode === "custom" && (
+                  <Input value={customReplyTo} onChange={e => setCustomReplyTo(e.target.value)} placeholder="replies@cufc.co.nz" className="premium-input text-white/80" data-testid="input-reply-to" />
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <p className="text-xs text-white/35" data-testid="text-sender-summary">
+                {senderValid
+                  ? <>Sends from <span className="text-white/60">{fromEmail}</span>{replyTo !== fromAddress && <> · replies to <span className="text-white/60">{replyTo}</span></>}</>
+                  : "Enter a valid From and reply address to continue."}
+              </p>
               <Button
                 onClick={() => setStep(1)}
                 disabled={!canProceedSetup}
@@ -521,32 +577,6 @@ export default function AdminMailer() {
                 Next: Content
                 <ChevronRight className="w-4 h-4 ml-2" />
               </Button>
-            </div>
-          </div>
-
-          <div className="glass-card rounded-2xl p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Sender Details</h2>
-            <div>
-              <label className="text-xs text-white/40 mb-1.5 block">Send as</label>
-              <SelectInput
-                value={senderId}
-                onChange={(e) => { senderTouched.current = true; if (e.target.value === "custom") setSenderId("custom"); else pickSender(e.target.value); }}
-                className="premium-input h-11 w-full sm:w-96 rounded-md border border-white/10 px-3"
-                data-testid="select-sender"
-              >
-                {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                <option value="custom">Custom…</option>
-              </SelectInput>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-white/40 mb-1.5 block">From</label>
-                <Input value={fromEmail} readOnly={senderId !== "custom"} onChange={e => setFromEmail(e.target.value)} className="premium-input text-white/80" data-testid="input-from-email" />
-              </div>
-              <div>
-                <label className="text-xs text-white/40 mb-1.5 block">Replies go to</label>
-                <Input value={replyTo} readOnly={senderId !== "custom"} onChange={e => setReplyTo(e.target.value)} className="premium-input text-white/80" data-testid="input-reply-to" />
-              </div>
             </div>
           </div>
 

@@ -25,6 +25,14 @@ import type { Express } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { hiddenContactIds } from "./registration-visibility";
+import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { ageGradeFor } from "@shared/parent";
+import { nzTodayIso } from "@shared/academy";
+import { viewerCanReachTab } from "@shared/knowledge-base";
+import { buildViewer } from "./rambo";
+
+/** One child shown under a parent, so two "Sarah Smith"s can be told apart. */
+export type PersonChild = { name: string; ageGroup: string | null; programme: string | null };
 
 export type PersonHit = {
   key: string;                    // contact-123
@@ -38,7 +46,26 @@ export type PersonHit = {
   /** Why there is no address, when there is none. */
   unreachable: string | null;
   detail: string | null;          // a programme, for telling two same-names apart
+  /** NZF age group of a player ("U9"), from the date of birth. */
+  ageGroup?: string | null;
+  /** A player's parent, named even when the player has their own address. */
+  parentName?: string | null;
+  /** A parent's children, each with their age group. */
+  children?: PersonChild[];
+  /** A sponsor's company, the contact's role and the logo (when one is saved). */
+  company?: string | null;
+  role?: string | null;
+  logoUrl?: string | null;
 };
+
+const grade = (dob: string | null | undefined, today: string) => {
+  const g = ageGradeFor(dob ?? null, today);
+  return g ? `U${g}` : null;
+};
+
+// A sponsor's "email" field is free text and sometimes holds two addresses with
+// notes ("nicky@… (group bookings); amy@… (F&B events)") — each is its own row.
+const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
   /**
@@ -58,9 +85,11 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
       // question is "who do I actually email for this person".
       const { rows }: any = await db.execute(sql`
         SELECT c.id, c.type::text AS type, c.first_name, c.last_name, c.email,
+               c.date_of_birth::text AS dob,
                g.id AS g_id, g.first_name AS g_first, g.last_name AS g_last, g.email AS g_email,
                (SELECT p.name FROM registrations r JOIN programs p ON p.id = r.program_id
-                 WHERE r.contact_id = c.id ORDER BY r.registered_at DESC LIMIT 1) AS programme
+                 WHERE r.contact_id = c.id AND r.status::text IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+                 ORDER BY r.registered_at DESC LIMIT 1) AS programme
         FROM contacts c
         LEFT JOIN contact_relationships cr ON cr.player_id = c.id
         LEFT JOIN contacts g ON g.id = cr.guardian_id AND g.email IS NOT NULL AND g.email <> ''
@@ -75,6 +104,7 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
           c.last_name NULLS LAST, c.first_name NULLS LAST
         LIMIT 40`);
 
+      const today = nzTodayIso();
       const seen = new Set<number>();
       // 🔴 Collapse the SAME PERSON recorded twice — same name, same resolved
       // address. ClubOS carries ~175 duplicate-people groups from the abandoned
@@ -107,14 +137,101 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         people.push({
           key: `contact-${r.id}`,
           contactId: r.id,
-          name: [r.first_name, r.last_name].filter(Boolean).join(" ").trim() || "(no name)",
+          // Blank, not "(no name)": the row then leads with the address instead.
+          name: [r.first_name, r.last_name].filter(Boolean).join(" ").trim(),
           type: r.type,
           email, emailOwner, unreachable,
           detail: r.programme ?? null,
+          ageGroup: r.type === "player" ? grade(r.dob, today) : null,
+          parentName: r.type === "player" ? (guardianName || null) : null,
         });
         if (people.length >= 20) break;
       }
-      res.json({ people });
+
+      // 🔴 A parent is known by their children. "Slava Meyn · Guardian" says
+      // nothing; "Slava Meyn — Aria U9, Lily U6" says which Slava. Read through
+      // all three links a child can have (contact_relationships, a paid
+      // registration's guardian_id, a camp child's parent_id), PAID only.
+      const guardianIds = people.filter(p => p.type === "guardian").map(p => p.contactId);
+      if (guardianIds.length) {
+        const ids = sql.join(guardianIds.map(id => sql`${id}`), sql`, `);
+        const { rows: kids }: any = await db.execute(sql`
+          SELECT g_id, first_name, last_name, dob, programme FROM (
+            SELECT cr.guardian_id AS g_id, ch.first_name, ch.last_name, ch.date_of_birth::text AS dob,
+                   (SELECT p.name FROM registrations r JOIN programs p ON p.id = r.program_id
+                     WHERE r.contact_id = ch.id AND r.status::text IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+                     ORDER BY r.registered_at DESC LIMIT 1) AS programme
+              FROM contact_relationships cr
+              JOIN contacts ch ON ch.id = cr.player_id AND ch.merged_into_contact_id IS NULL
+             WHERE cr.guardian_id IN (${ids})
+            UNION
+            SELECT r.guardian_id, ch.first_name, ch.last_name, ch.date_of_birth::text, p.name
+              FROM registrations r
+              JOIN contacts ch ON ch.id = r.contact_id AND ch.merged_into_contact_id IS NULL AND ch.id <> r.guardian_id
+              JOIN programs p ON p.id = r.program_id
+             WHERE r.guardian_id IN (${ids}) AND r.status::text IN ${sql.raw(REAL_REGISTRATION_STATUS_SQL)}
+            UNION
+            SELECT k.parent_id, k.first_name, k.last_name, k.date_of_birth::text, NULL
+              FROM children k WHERE k.parent_id IN (${ids})
+          ) x`);
+        const byGuardian = new Map<number, Map<string, PersonChild>>();
+        for (const k of kids) {
+          const name = [k.first_name, k.last_name].filter(Boolean).join(" ").trim();
+          if (!name) continue;
+          const m = byGuardian.get(k.g_id) ?? new Map<string, PersonChild>();
+          const prev = m.get(name.toLowerCase());
+          // One child per name; keep whichever record knows the most.
+          m.set(name.toLowerCase(), {
+            name,
+            ageGroup: prev?.ageGroup ?? grade(k.dob, today),
+            programme: prev?.programme ?? k.programme ?? null,
+          });
+          byGuardian.set(k.g_id, m);
+        }
+        for (const p of people) {
+          const m = byGuardian.get(p.contactId);
+          if (m) p.children = Array.from(m.values()).slice(0, 4);
+        }
+      }
+
+      // Sponsors: the people behind a signed partner. 🔴 Only for someone who
+      // can open USG → Sponsorship — the search must not hand a sponsor's
+      // contact details to a member of staff who could not see them otherwise.
+      const sponsors: PersonHit[] = [];
+      const viewer = req.session?.userId ? await buildViewer(req.session.userId) : null;
+      if (viewer && viewerCanReachTab(viewer, "sponsorship", "united-sports-group").allowed) {
+        const { rows: sp }: any = await db.execute(sql`
+          SELECT id, company, trading_name, primary_contact_name, primary_contact_role,
+                 primary_contact_email, logo_url
+            FROM sponsorship_partners
+           WHERE archived_at IS NULL
+             AND (lower(coalesce(company,'')) LIKE ${like} OR lower(coalesce(trading_name,'')) LIKE ${like}
+               OR lower(coalesce(primary_contact_name,'')) LIKE ${like}
+               OR lower(coalesce(primary_contact_email,'')) LIKE ${like})
+           ORDER BY company
+           LIMIT 10`);
+        for (const r of sp) {
+          const addresses: string[] = String(r.primary_contact_email ?? "").match(EMAIL_RE) ?? [];
+          const base = {
+            contactId: -r.id, type: "sponsor",
+            emailOwner: null, detail: null,
+            company: r.trading_name || r.company, role: r.primary_contact_role ?? null,
+            logoUrl: r.logo_url ?? null,
+          };
+          if (!addresses.length) {
+            sponsors.push({ ...base, key: `sponsor-${r.id}`, name: r.primary_contact_name ?? "",
+              email: null, unreachable: "no email on file for this sponsor" });
+          }
+          addresses.forEach((a, i) => sponsors.push({
+            ...base, key: `sponsor-${r.id}-${i}`,
+            // A second address belongs to a different person at the company; the
+            // primary name only goes on the first.
+            name: i === 0 ? (r.primary_contact_name ?? "") : "",
+            email: a.toLowerCase(), unreachable: null,
+          }));
+        }
+      }
+      res.json({ people: [...sponsors, ...people] });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
