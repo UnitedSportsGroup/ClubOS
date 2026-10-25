@@ -367,7 +367,8 @@ try {
           offer: has("Partner offer"),
           nextMatch: has("Match details"),
           unsubscribe: has("{{unsubscribe_url}}"),
-          mobileCss: has(".clubos-hdr-crest{text-align:center")
+          mobileCss: has(".clubos-hdr-crest{text-align:center"),
+          trimmedCrest: has("/mailer/crests/cufc.png")
         };
       })()`);
       ok("choosing the template saved the email on its own", exported.saved && exported.bytes > 1000, `${exported.bytes} bytes`);
@@ -377,6 +378,7 @@ try {
       ok("the export carries its own unsubscribe link", exported.unsubscribe);
       ok("the export stays under Gmail's clip", exported.bytes < 95 * 1024, `${Math.round(exported.bytes / 1024)}KB`);
       ok("the export carries the phone rule that centres the header", exported.mobileCss);
+      ok("the export uses the trimmed crest", exported.trimmedCrest);
       await page.screenshot({ path: join(OUT, `${label}-template-in-builder.png`) });
       console.log(`  → ${join(OUT, `${label}-template-in-builder.png`)}`);
 
@@ -421,8 +423,9 @@ try {
           var mid = function (r) { return Math.round((r.left + r.right) / 2); };
           var navMid = null;
           if (nav) { var range = document.createRange(); range.selectNodeContents(nav); navMid = mid(range.getBoundingClientRect()); }
-          return { w: w, crest: crest ? mid(crest.getBoundingClientRect()) : null, nav: navMid, crestClass: !!document.querySelector(".clubos-hdr-crest") };
-        })()`) as Promise<{ w: number; crest: number | null; nav: number | null; crestClass: boolean } | null>;
+          return { w: w, crest: crest ? mid(crest.getBoundingClientRect()) : null, nav: navMid, crestClass: !!document.querySelector(".clubos-hdr-crest"),
+            crestH: crest ? Math.round(crest.getBoundingClientRect().height) : null, crestSrc: crest ? (crest.getAttribute("src") || "") : "" };
+        })()`) as Promise<{ w: number; crest: number | null; nav: number | null; crestClass: boolean; crestH: number | null; crestSrc: string } | null>;
       };
       const mobBtn = await page.$('button[title="Mobile preview"]');
       if (mobBtn) await mobBtn.click();
@@ -442,6 +445,34 @@ try {
         // floor sits below the device width — the assertion is about the SHAPE.
         !!desk && desk.w >= 560 && desk.crest !== null && desk.crest < desk.w / 2 - 60 && desk.nav !== null && desk.nav > desk.w / 2 + 60,
         JSON.stringify(desk));
+      // The crest is the TRIMMED file (client/public/mailer/crests), drawn 64px
+      // tall — Daniel: "less empty space around the logo, allowing it to be
+      // bigger without actually taking up more space." The untrimmed original
+      // drew the ram 43px wide inside a 56px box.
+      ok("the crest fills its row: the trimmed file, 64px tall",
+        !!desk && desk.crestH !== null && desk.crestH >= 60 && desk.crestH <= 68 && /\\/mailer\\/crests\\/cufc\\.png$/.test(desk.crestSrc),
+        JSON.stringify({ h: desk?.crestH, src: desk?.crestSrc }));
+
+      // ── Save answers the press (2026-10-26) ──────────────────────────────
+      // Daniel: "nothing happening when clicking save … it can be subtle but it
+      // needs that loop." Saving… is held to a visible minimum, then Saved ✓
+      // in green with "Saved just now" beside it, then back to Save.
+      const readSave = () => page.evaluate(`(function () {
+        var b = document.querySelector('[data-testid="mkt-builder-save"]');
+        var s = document.querySelector('[data-testid="mkt-autosave-status"]');
+        return { btn: b ? (b.textContent || "").trim() : "", state: b ? b.getAttribute("data-state") : "", bg: b ? getComputedStyle(b).backgroundColor : "", status: s ? (s.textContent || "").trim() : "" };
+      })()`) as Promise<{ btn: string; state: string; bg: string; status: string }>;
+      const saveBtn = await page.$('[data-testid="mkt-builder-save"]');
+      if (saveBtn) await saveBtn.click();
+      await sleep(150);
+      const pressed = await readSave();
+      await sleep(1250);
+      const flashed = await readSave();
+      await sleep(2600);
+      const settled = await readSave();
+      ok("Save answers the press: Saving… → Saved ✓ in green with 'Saved just now' → Save",
+        pressed.btn === "Saving…" && pressed.state === "saving" && /^Saved/.test(flashed.btn) && flashed.state === "saved" && flashed.status === "Saved just now" && flashed.bg === "rgb(5, 150, 105)" && settled.btn === "Save" && settled.state === "idle",
+        JSON.stringify({ pressed, flashed, settled }));
     }
 
     const full = join(OUT, `${label}-full.png`);

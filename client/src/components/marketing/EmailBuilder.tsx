@@ -72,6 +72,12 @@ export interface EmailBuilderProps {
  *  compile MJML on every keystroke, short enough that a tab closed mid-thought
  *  loses almost nothing. */
 const AUTOSAVE_MS = 1500;
+/** A manual Save that lands in 50ms looks like nothing happened. The button
+ *  holds "Saving…" for at least this long, then shows "Saved ✓" for
+ *  SAVED_FLASH_MS (Daniel, 2026-10-26: "nothing happening when clicking save …
+ *  it can be subtle but it needs that loop"). */
+const MIN_SAVING_MS = 450;
+const SAVED_FLASH_MS = 1800;
 
 // Gmail clips emails whose raw HTML crosses ~102KB. Warn early, block before it.
 const WARN_BYTES = 80 * 1024;
@@ -190,6 +196,18 @@ export default function EmailBuilder({
 }: EmailBuilderProps) {
   const surfaceRef = useRef<EmailEditorSurfaceHandle | null>(null);
   const [saving, setSaving] = useState(false);
+  // The last save, and whether it was the automatic one, for the label beside
+  // the button; `savedFlash` is the brief "Saved ✓" that answers a press.
+  const [lastSave, setLastSave] = useState<{ at: Date; auto: boolean } | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+  const flashSaved = useCallback(() => {
+    setLastSave({ at: new Date(), auto: false });
+    setSavedFlash(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setSavedFlash(false), SAVED_FLASH_MS);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [sizeNote, setSizeNote] = useState<string | null>(null);
   const [surfaceKey, setSurfaceKey] = useState(0);
@@ -270,14 +288,14 @@ export default function EmailBuilder({
 
   // Shared guard + persist for BOTH desktop and mobile save paths.
   const commit = useCallback(
-    async (result: EmailBuilderResult): Promise<void> => {
+    async (result: EmailBuilderResult): Promise<boolean> => {
       const bytes = byteLength(result.html);
       if (bytes >= BLOCK_BYTES) {
         setError(
           `This email is ${kb(bytes)} — Gmail clips emails over 102KB. Trim images or content before sending.`,
         );
         setSizeNote(null);
-        return;
+        return false;
       }
       setSizeNote(
         bytes >= WARN_BYTES
@@ -285,6 +303,7 @@ export default function EmailBuilder({
           : null,
       );
       await onSave(result);
+      return true;
     },
     [onSave],
   );
@@ -301,25 +320,28 @@ export default function EmailBuilder({
     }
     setSaving(true);
     setError(null);
+    const started = Date.now();
     try {
       const result = await surface.getResult();
-      await commit(result);
+      const saved = await commit(result);
+      // The press must be SEEN: hold "Saving…" to a visible minimum, then flash "Saved ✓".
+      await new Promise((r) => setTimeout(r, Math.max(0, MIN_SAVING_MS - (Date.now() - started))));
+      if (saved) flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save the email.");
     } finally {
       setSaving(false);
     }
-  }, [commit]);
+  }, [commit, flashSaved]);
 
   // ── Automatic save ────────────────────────────────────────────────────────
   // Every change schedules one save; another change pushes it back. Errors are
   // shown exactly as a manual save would show them (the Gmail size guard).
-  const [autoSavedAt, setAutoSavedAt] = useState<Date | null>(null);
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
   const handleDirty = useCallback(() => {
     onDirty?.();
-    setAutoSavedAt(null);
+    setLastSave(null);
     if (!autoSave) return;
     if (autoTimer.current) clearTimeout(autoTimer.current);
     const run = async () => {
@@ -336,7 +358,7 @@ export default function EmailBuilder({
       try {
         const result = await surface.getResult();
         await commit(result);
-        setAutoSavedAt(new Date());
+        setLastSave({ at: new Date(), auto: true });
       } catch (e) {
         // A failed background save says so; the manual Save stays available.
         console.error("[EmailBuilder] auto-save failed", e);
@@ -372,18 +394,21 @@ export default function EmailBuilder({
     }
     setSaving(true);
     setError(null);
+    const started = Date.now();
     try {
-      await commit({
+      const saved = await commit({
         doc: { engine: "html", html: mobileHtml },
         html: mobileHtml,
         text: stripHtml(mobileHtml),
       });
+      await new Promise((r) => setTimeout(r, Math.max(0, MIN_SAVING_MS - (Date.now() - started))));
+      if (saved) flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save the email.");
     } finally {
       setSaving(false);
     }
-  }, [commit, mobileHtml, hadContentOnOpen]);
+  }, [commit, flashSaved, mobileHtml, hadContentOnOpen]);
 
   return (
     <div
@@ -452,9 +477,11 @@ export default function EmailBuilder({
           </span>
           {autoSave && !isNarrow && (
             <span className="hidden text-xs text-muted-foreground md:inline" data-testid="mkt-autosave-status">
-              {autoSavedAt
-                ? `Saved automatically ${autoSavedAt.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}`
-                : "Saves when you finish a block"}
+              {savedFlash
+                ? "Saved just now"
+                : lastSave
+                  ? `Saved ${lastSave.auto ? "automatically " : ""}${lastSave.at.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })}`
+                  : "Saves when you finish a block"}
             </span>
           )}
           <button
@@ -462,10 +489,15 @@ export default function EmailBuilder({
             onClick={isNarrow ? handleSaveMobile : handleSaveDesktop}
             disabled={saving}
             data-testid="mkt-builder-save"
+            data-state={saving ? "saving" : savedFlash ? "saved" : "idle"}
             // h-11 on a phone: 44px is the smallest thing a thumb hits reliably.
-            className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 md:h-auto md:py-1.5"
+            // A press is answered in three states — Saving… (held to a visible
+            // minimum) → Saved ✓ (green, briefly) → Save — so a click never looks dead.
+            className={`h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground transition-colors duration-300 disabled:opacity-70 md:h-auto md:py-1.5 ${
+              savedFlash ? "bg-emerald-600" : "bg-primary hover:opacity-90"
+            }`}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : savedFlash ? "Saved ✓" : "Save"}
           </button>
         </div>
       </div>

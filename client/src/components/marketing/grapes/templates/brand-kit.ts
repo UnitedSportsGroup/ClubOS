@@ -59,7 +59,7 @@ const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, 
 export const BRAND_KITS: Record<string, BrandKit> = {
   siu: {
     key: "siu",
-    crest: `${HOST}/logos/south-island-united.png`, crestWidth: 54,
+    crest: `${HOST}/mailer/crests/siu.png`, crestWidth: 64,
     site: "https://www.southislandunited.com",
     shop: "https://shop.southislandunited.com",
     action: { label: "Get tickets", href: "https://www.southislandunited.com" },
@@ -94,7 +94,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   cufc: {
     key: "cufc",
-    crest: `${HOST}/logos/christchurch-united.png`, crestWidth: 56,
+    crest: `${HOST}/mailer/crests/cufc.png`, crestWidth: 57,
     site: "https://cufc.co.nz",
     shop: "https://shop.cufc.co.nz",
     action: { label: "Register now", href: "https://cufc.co.nz/register" },
@@ -126,7 +126,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   cugc: {
     key: "cugc",
-    crest: `${HOST}/logos/united-gymnastics.png`, crestWidth: 56,
+    crest: `${HOST}/mailer/crests/cugc.png`, crestWidth: 64,
     site: "https://cugc.co.nz",
     action: { label: "Book a free session", href: "https://cugc.co.nz/free-session" },
     nav: [
@@ -151,7 +151,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   mfl: {
     key: "mfl",
-    crest: `${HOST}/logos/mini-football-leagues-crest.png`, crestWidth: 54,
+    crest: `${HOST}/mailer/crests/mfl.png`, crestWidth: 64,
     site: "https://minifootball.co.nz",
     shop: "https://shop.minifootball.co.nz",
     action: { label: "Enter a team", href: "https://join.minifootball.co.nz" },
@@ -176,7 +176,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   cic: {
     key: "cic",
-    crest: `${HOST}/logos/christchurch-international-cup.png`, crestWidth: 56,
+    crest: `${HOST}/mailer/crests/cic.png`, crestWidth: 64,
     site: "https://cicyouth.com",
     action: { label: "Register your interest", href: "https://cicyouth.com" },
     nav: [
@@ -201,7 +201,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   usc: {
     key: "usc",
-    crest: `${HOST}/logos/united-sports-group-royal.png`, crestWidth: 56,
+    crest: `${HOST}/mailer/crests/usg.png`, crestWidth: 108,
     site: "https://book.unitedsportscentre.com",
     action: { label: "Book a pitch", href: "https://book.unitedsportscentre.com" },
     nav: [{ label: "Book a pitch", href: "https://book.unitedsportscentre.com" }],
@@ -214,7 +214,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   usg: {
     key: "usg",
-    crest: `${HOST}/logos/united-sports-group-royal.png`, crestWidth: 56,
+    crest: `${HOST}/mailer/crests/usg.png`, crestWidth: 108,
     site: "https://app.usg.co.nz",
     nav: [],
     photos: [],
@@ -226,7 +226,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
   },
   prints: {
     key: "prints",
-    crest: `${HOST}/logos/united-prints-wordmark.png`, crestWidth: 150,
+    crest: `${HOST}/mailer/crests/prints.png`, crestWidth: 160,
     site: "https://unitedprints.co.nz",
     shop: "https://shop.unitedprints.co.nz",
     action: { label: "Get an instant quote", href: "https://unitedprints.co.nz/instant-quote" },
@@ -245,7 +245,7 @@ export const BRAND_KITS: Record<string, BrandKit> = {
 
 const NEUTRAL: BrandKit = {
   key: "neutral",
-  crest: `${HOST}/logos/united-sports-group-royal.png`, crestWidth: 56,
+  crest: `${HOST}/mailer/crests/usg.png`, crestWidth: 108,
   site: "https://app.usg.co.nz",
   nav: [],
   photos: [],

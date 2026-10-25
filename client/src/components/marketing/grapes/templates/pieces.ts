@@ -56,7 +56,12 @@ export function header(b: Brand, k: BrandKit): string {
             .join("&nbsp;&nbsp;&nbsp;·&nbsp;&nbsp;&nbsp;")}</mj-text>
         </mj-column>`
     : "";
-  return `    <mj-section background-color="${WHITE}" padding="22px 28px 16px" border-bottom="1px solid ${RULE}">
+  // The crest is sized by HEIGHT (64px at its trimmed aspect — see
+  // build-mailer-crests.py) and the row's padding came down from 22/16 to
+  // 16/12, so the artwork grew ~30% each way inside a row of the same height.
+  // Daniel: "less empty space around the logo, allowing it to be bigger
+  // without actually taking up more space."
+  return `    <mj-section background-color="${WHITE}" padding="16px 28px 12px" border-bottom="1px solid ${RULE}">
         <mj-column width="${nav ? "30%" : "100%"}" vertical-align="middle">
           <mj-image css-class="${HEADER_CREST_CLASS}" src="${escAttr(k.crest)}" alt="${escAttr(b.name)}" href="${escAttr(k.site)}" width="${k.crestWidth}px" align="${nav ? "left" : "center"}" padding="0" />
         </mj-column>
