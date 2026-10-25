@@ -213,6 +213,18 @@ try {
       const shell = small.filter((s) => SHELL.some((k) => s.includes(k)));
       ok("every Mailer control is at least 44px tall", mine.length === 0, mine.join(", "));
       if (shell.length) console.log(`  note  shared admin chrome under 44px (not this feature): ${shell.join(", ")}`);
+      // Inside the screen, not merely present: a non-wrapping tool group hid
+      // undo/redo past the right edge while every other check passed.
+      const offEdge: string[] = await page.evaluate(`(function () {
+        var out = [];
+        var nodes = document.querySelectorAll('[data-testid^="compose-"]');
+        for (var i = 0; i < nodes.length; i++) {
+          var r = nodes[i].getBoundingClientRect();
+          if (r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1)) out.push(nodes[i].getAttribute("data-testid") + ":" + Math.round(r.right));
+        }
+        return out;
+      })()`);
+      ok("every compose control is inside the phone's width", offEdge.length === 0, offEdge.join(", "));
       await page.screenshot({ path: join(OUT, `${label}-write.png`) });
       console.log(`  → ${join(OUT, `${label}-write.png`)}`);
 

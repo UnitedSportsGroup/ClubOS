@@ -157,7 +157,9 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
     <div className="rounded-xl border border-white/10 overflow-hidden" data-testid="simple-compose">
       {/* Toolbar: formatting on the left, quick tags, letterhead on the right. */}
       <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b border-white/10 bg-white/[0.03]">
-        <div className="flex items-center gap-0.5">
+        {/* Ten 44px tools do not fit a 390px row: the group wraps rather than
+            pushing undo/redo off the edge (seen in the first phone screenshot). */}
+        <div className="flex flex-wrap items-center gap-0.5">
           {tools.slice(0, 4).map((t) => (
             <button key={t.testId} type="button" title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={t.run} className={btn} data-testid={`compose-${t.testId}`}>
               <t.icon className="w-4 h-4" />
