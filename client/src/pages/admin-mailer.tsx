@@ -986,10 +986,11 @@ export default function AdminMailer() {
       <Dialog open={preview !== null} onOpenChange={o => { if (!o) setPreview(null); }}>
         <DialogContent className="max-w-2xl p-0 overflow-hidden" data-testid="dialog-preview-recipients">
           {preview && (
-            <div className="flex flex-col max-h-[80vh]">
+            <div className="flex flex-col max-h-[80vh] min-w-0">
               <div className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
                 <DialogTitle className="text-base font-semibold text-white/90">
-                  {preview.willSend === 1 ? "1 person will get this email" : `${preview.willSend.toLocaleString()} people will get this email`}
+                  {/* Honest headcount: nobody at a dead domain "gets" anything. */}
+                  {(() => { const n = Math.max(0, preview.willSend - preview.undeliverableCount); return n === 1 ? "1 person will get this email" : `${n.toLocaleString()} people will get this email`; })()}
                 </DialogTitle>
                 <div className="text-xs text-white/45 mt-1 flex flex-wrap gap-x-3 gap-y-1">
                   {preview.unsubscribedCount > 0 && <span className="text-amber-300/80">{preview.unsubscribedCount} unsubscribed — skipped</span>}
@@ -998,13 +999,13 @@ export default function AdminMailer() {
                   {preview.unsubscribedCount === 0 && preview.undeliverableCount === 0 && preview.count <= preview.shown && <span>Names come from the family's registration; children are who {"{{player_first_name}}"} will say.</span>}
                 </div>
               </div>
-              <div className="overflow-y-auto">
+              <div className="overflow-y-auto overflow-x-hidden min-w-0">
                 {preview.recipients.map((r) => {
                   const name = [r.firstName, r.lastName].filter(Boolean).join(" ");
                   const bad = r.deliverability.status === "no_domain" || r.deliverability.status === "bad_syntax";
                   const typo = r.deliverability.status === "typo";
                   return (
-                    <div key={r.email} className={`px-5 py-2 border-b border-white/[0.04] last:border-0 ${r.unsubscribed || bad ? "opacity-60" : ""}`} data-testid={`preview-row-${r.email}`}>
+                    <div key={r.email} className={`px-5 py-2 border-b border-white/[0.04] last:border-0 min-w-0 ${r.unsubscribed || bad ? "opacity-60" : ""}`} data-testid={`preview-row-${r.email}`}>
                       <div className="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap h-5">
                         <span className="text-[13px] text-white/90 truncate min-w-[4rem]">{name || <span className="text-white/35">No name on file</span>}</span>
                         {r.players.length > 0 && (
