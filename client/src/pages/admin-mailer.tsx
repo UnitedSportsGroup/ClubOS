@@ -880,6 +880,7 @@ export default function AdminMailer() {
                       brandKey={brandKey}
                       initialDoc={bodyDoc}
                       initialHtml={bodyHtml}
+                      openOnGallery={!bodyDoc}
                       onSave={handleDesignSave}
                       onDirty={() => setDesignSavedAt(null)}
                     />

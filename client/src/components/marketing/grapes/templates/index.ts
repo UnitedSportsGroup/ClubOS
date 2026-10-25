@@ -9,7 +9,7 @@
 // it in STARTER_TEMPLATES below.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { newsletterTemplate } from "./newsletter";
+import { clubNewsletterTemplate } from "./club-newsletter";
 import { matchdayTemplate } from "./matchday";
 import { welcomeTemplate } from "./welcome";
 import { registrationTemplate } from "./registration";
@@ -22,7 +22,7 @@ export * from "./types";
 
 /** The full library, ordered for display (most-used categories first). */
 export const STARTER_TEMPLATES: StarterTemplate[] = [
-  newsletterTemplate,
+  clubNewsletterTemplate,
   matchdayTemplate,
   registrationTemplate,
   eventTemplate,

@@ -62,6 +62,10 @@ export interface EmailBuilderProps {
   /** Save on its own a moment after every change, so no work depends on
    *  pressing Save. Off by default; the Mailer turns it on. */
   autoSave?: boolean;
+  /** A fresh design (no initialDoc) opens on the template gallery instead of
+   *  the blank page — Daniel, 2026-10-25: "this is the type of stuff we need in
+   *  templates". Ignored when a design is handed in. */
+  openOnGallery?: boolean;
 }
 
 /** How long after the last change an automatic save runs. Long enough not to
@@ -182,6 +186,7 @@ export default function EmailBuilder({
   onDirty,
   fillParent = false,
   autoSave = false,
+  openOnGallery = false,
 }: EmailBuilderProps) {
   const surfaceRef = useRef<EmailEditorSurfaceHandle | null>(null);
   const [saving, setSaving] = useState(false);
@@ -195,10 +200,11 @@ export default function EmailBuilder({
   // starting point is chosen, `activeDoc` is what the surface loads; the gallery
   // is reachable again from the toolbar (replaces the design after a confirm).
   const [activeDoc, setActiveDoc] = useState<unknown | null>(initialDoc ?? null);
-  // Daniel, 2026-10-09: "default option is start from blank not template". A new
-  // email opens straight onto the blank white page; templates stay one click away
-  // on the toolbar's Templates button.
-  const [chosen, setChosen] = useState<boolean>(true);
+  // Daniel, 2026-10-09: "default option is start from blank not template" — and
+  // 2026-10-25, with the club newsletter built: a DESIGNED email starts on the
+  // gallery (openOnGallery), because the templates are now the point. A design
+  // handed in (a past send, a template, a written email) opens straight on it.
+  const [chosen, setChosen] = useState<boolean>(!(openOnGallery && !initialDoc));
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
 
   const applyTemplate = useCallback((doc: StarterTemplateDoc) => {
