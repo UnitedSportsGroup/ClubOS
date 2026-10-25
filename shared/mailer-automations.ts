@@ -47,7 +47,7 @@ export interface TriggerMeta {
 export const TRIGGERS: Record<TriggerType, TriggerMeta> = {
   registration_paid: {
     type: "registration_paid",
-    label: "After someone pays",
+    label: "Post purchase",
     blurb: "Starts the moment a registration is paid for.",
     anchorPhrase: "after they pay",
     dateBased: false,
@@ -114,7 +114,7 @@ export const TRIGGER_ORDER: TriggerType[] = [
 ];
 
 export const GROUP_LABELS: Record<TriggerMeta["group"], string> = {
-  purchase: "After someone pays",
+  purchase: "Post purchase",
   unfinished: "Abandoned cart",
   welcome: "Welcome",
   dates: "Dates — start, end and birthdays",
@@ -307,7 +307,7 @@ const step = (
 export const STARTER_FLOWS: StarterFlow[] = [
   {
     key: "after_purchase",
-    name: "After they pay — what to expect",
+    name: "Post purchase",
     description: "Follow-ups after a family registers. The receipt still goes the moment they pay; these come after it.",
     trigger: "registration_paid",
     stopOnPayment: false,
