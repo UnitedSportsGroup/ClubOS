@@ -32,6 +32,8 @@ export interface BrandKit {
   nav: { label: string; href: string }[];
   /** Full-width photographs, 3:2, in the order the template uses them. */
   photos: { src: string; alt: string }[];
+  /** Product shots on white (the club shop's own), for the shop template. */
+  products?: { src: string; alt: string }[];
   socials: Partial<Record<SocialKey, string>>;
   /** One line under the socials. */
   address: string;
@@ -73,6 +75,11 @@ export const BRAND_KITS: Record<string, BrandKit> = {
       { src: `${HOST}/mailer/siu/kit.jpg`, alt: "The home jersey" },
       { src: `${HOST}/mailer/siu/bfc.jpg`, alt: "Bula FC v South Island United" },
     ],
+    products: [
+      { src: `${HOST}/mailer/siu/shop-home-jersey.jpg`, alt: "2026 home jersey" },
+      { src: `${HOST}/mailer/siu/shop-scarf.jpg`, alt: "Fan scarf" },
+      { src: `${HOST}/mailer/siu/shop-hoodie.jpg`, alt: "Casual hoodie" },
+    ],
     socials: {
       instagram: "https://www.instagram.com/southislandunited/",
       facebook: "https://www.facebook.com/SouthIslandUnited",
@@ -102,6 +109,11 @@ export const BRAND_KITS: Record<string, BrandKit> = {
       { src: `${HOST}/mailer/cufc/funino.jpg`, alt: "FUNiño U4–U8" },
       { src: `${HOST}/mailer/cufc/technification.jpg`, alt: "Technification" },
       { src: `${HOST}/mailer/cufc/photo-14.jpg`, alt: "Match day" },
+    ],
+    products: [
+      { src: `${HOST}/mailer/cufc/shop-set-adults.jpg`, alt: "Short-sleeve football set, adults" },
+      { src: `${HOST}/mailer/cufc/shop-set-kids.jpg`, alt: "Short-sleeve football set, kids" },
+      { src: `${HOST}/mailer/cufc/shop-jacket.jpg`, alt: "Full-zip training jacket" },
     ],
     socials: {
       instagram: "https://www.instagram.com/christchurchunitedfc",
@@ -175,6 +187,11 @@ export const BRAND_KITS: Record<string, BrandKit> = {
       { src: `${HOST}/mailer/cic/hero.jpg`, alt: "Christchurch International Cup" },
       { src: `${HOST}/mailer/cic/celebrate.jpg`, alt: "Celebrations" },
       { src: `${HOST}/mailer/cic/tournaments.jpg`, alt: "Tournament football" },
+    ],
+    products: [
+      { src: `${HOST}/mailer/cic/shop-hoodie.jpg`, alt: "Tournament hoodie" },
+      { src: `${HOST}/mailer/cic/shop-cap.jpg`, alt: "Tournament cap" },
+      { src: `${HOST}/mailer/cic/shop-pin.jpg`, alt: "Pin badge" },
     ],
     socials: {},
     address: ADDRESS_USC,

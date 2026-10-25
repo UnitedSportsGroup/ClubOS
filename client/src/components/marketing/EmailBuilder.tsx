@@ -207,17 +207,23 @@ export default function EmailBuilder({
   const [chosen, setChosen] = useState<boolean>(!(openOnGallery && !initialDoc));
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
 
+  // Choosing a template IS a change: without this the email sat unsaved and
+  // Next stayed disabled until somebody typed into it. handleDirty is defined
+  // further down (it needs the save machinery), so it is reached through a ref.
+  const handleDirtyRef = useRef<() => void>(() => {});
   const applyTemplate = useCallback((doc: StarterTemplateDoc) => {
     setActiveDoc(doc);
     setChosen(true);
     setGalleryOpen(false);
     setSurfaceKey((k) => k + 1); // remount the surface with the chosen doc
+    setTimeout(() => handleDirtyRef.current(), 0);
   }, []);
   const startBlank = useCallback(() => {
     setActiveDoc(null); // null → the on-brand blank starter (grapes/brand buildStarterMjml)
     setChosen(true);
     setGalleryOpen(false);
     setSurfaceKey((k) => k + 1);
+    setTimeout(() => handleDirtyRef.current(), 0);
   }, []);
   // Reopened from the toolbar — replacing existing work needs a confirm.
   const replaceWithTemplate = useCallback(
@@ -318,7 +324,10 @@ export default function EmailBuilder({
     if (autoTimer.current) clearTimeout(autoTimer.current);
     const run = async () => {
       const surface = surfaceRef.current;
-      if (!surface?.isReady()) return;
+      // Not mounted yet (a template was just chosen and the surface is still
+      // loading its chunk): come back, rather than dropping the save and
+      // leaving Next disabled on an email nobody has typed into.
+      if (!surface?.isReady()) { autoTimer.current = setTimeout(run, AUTOSAVE_MS); return; }
       // 🔴 Mid-edit, the block's newest words are not in the design yet —
       // saving now records the email as it was BEFORE them and labels it
       // "saved". Wait for the edit to end (GrapesJS then fires "update",
@@ -335,6 +344,7 @@ export default function EmailBuilder({
     };
     autoTimer.current = setTimeout(run, AUTOSAVE_MS);
   }, [autoSave, commit, onDirty]);
+  handleDirtyRef.current = handleDirty;
 
   // A click anywhere OUTSIDE the builder (the subject, Next, the page) ends the
   // text edit, so what was typed is in the design — and saved — before the

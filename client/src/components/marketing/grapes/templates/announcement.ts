@@ -1,42 +1,35 @@
-// Simple announcement — a clean, single-column notice. Restraint is the design.
-import {
-  brand,
-  mjmlDoc,
-  header,
-  eyebrow,
-  heading,
-  paragraph,
-  button,
-  footer,
-} from "./sections";
+// Announcement — one clear message, no photograph, one button.
+import { brand, mjmlDoc } from "./sections";
+import { brandKit } from "./brand-kit";
+import { section, header, label, headline, para, button, muted, footer, PAGE } from "./pieces";
 import type { StarterTemplate } from "./types";
 
 function build(brandKey: string): string {
   const b = brand(brandKey);
+  const k = brandKit(brandKey);
+  const act = k.action ?? { label: "Find out more", href: k.site };
   const sections = [
-    header(b),
-    eyebrow(b, "A quick note"),
-    heading(b, "Training is moving to Thursdays", { size: 28 }),
-    paragraph(
-      b,
-      `Hi {{first_name}}, from next week our midweek session shifts from Wednesday to <strong style="color:${b.heading};">Thursday, 6:00pm</strong>, same venue. Everything else stays the same.`,
+    header(b, k),
+    section(
+      [
+        label(b, k, "An update"),
+        headline(b, k, "The one thing", " you need to know"),
+        para(b, k, "Hi {{first_name}}, a short note with one clear message. Say what has changed, what it means for you, and what to do about it, in that order."),
+        para(b, k, "Keep it to two paragraphs. If there's more to say, link to it, and let the button do the rest.", undefined, 8),
+        button(b, k, act),
+      ],
+      { padding: "26px 28px 10px" },
     ),
-    paragraph(
-      b,
-      "If Thursdays don't work for your family, just reply to this email and we'll sort something out. Thanks for rolling with it.",
-      { padding: "14px 30px 0" },
-    ),
-    button(b, "See the updated schedule", "https://", { padding: "24px 30px 8px" }),
-    footer(b),
+    section([muted(b, "Sent to everyone this affects. Reply to this email if anything here doesn't look right.", 12, 0)], { padding: "18px 28px 30px", rule: true }),
+    footer(b, k),
   ].join("\n");
-
-  return mjmlDoc(b, sections, "Midweek training moves to Thursdays from next week.");
+  return mjmlDoc({ ...b, bg: PAGE }, sections, `A short update from ${b.name}.`);
 }
 
 export const announcementTemplate: StarterTemplate = {
   id: "simple-announcement",
-  name: "Simple announcement",
-  description: "A clean single-column notice for one clear message.",
+  name: "Announcement",
+  description: "One clear message, no photograph, one button.",
   category: "announcement",
   brandKeys: "all",
   build,
