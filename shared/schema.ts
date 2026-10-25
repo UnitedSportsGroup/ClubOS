@@ -3020,6 +3020,8 @@ export const sponsorshipPartners = pgTable("sponsorship_partners", {
   tradingName: text("trading_name"),
   website: text("website"),
   logoUrl: text("logo_url"),
+  // "light" = full-colour / ink artwork on white · "dark" = white artwork on the club navy.
+  logoGround: text("logo_ground").notNull().default("light"),
   brandTags: text("brand_tags").array().notNull().default(sql`ARRAY[]::text[]`),
   primaryContactName: text("primary_contact_name"),
   primaryContactRole: text("primary_contact_role"),

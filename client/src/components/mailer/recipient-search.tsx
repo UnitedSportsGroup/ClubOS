@@ -64,6 +64,8 @@ type PersonHit = {
   company?: string | null;
   role?: string | null;
   logoUrl?: string | null;
+  logoGround?: "light" | "dark" | null;
+  bounce?: { kind: string; label: string } | null;
 };
 
 // The mailboxes NZ families use, most common first. Kept short on purpose:
@@ -109,10 +111,12 @@ function ChildChips({ children }: { children: PersonChild[] }) {
   );
 }
 
-function SponsorMark({ company, logoUrl }: { company: string; logoUrl: string | null }) {
+function SponsorMark({ company, logoUrl, ground }: { company: string; logoUrl: string | null; ground?: "light" | "dark" | null }) {
   const initials = company.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join("");
+  // White artwork sits on the club navy; colour artwork on white — the same
+  // tile the Partners tab draws, so a sponsor looks the same everywhere.
   return logoUrl ? (
-    <img src={logoUrl} alt="" className="w-7 h-7 rounded-md object-contain bg-white/90 shrink-0" />
+    <img src={logoUrl} alt="" className={`w-7 h-7 rounded-md object-contain p-0.5 shrink-0 ${ground === "dark" ? "bg-[#0B1A3A]" : "bg-white"}`} />
   ) : (
     <span className="w-7 h-7 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-semibold flex items-center justify-center shrink-0">
       {initials || "S"}
@@ -187,13 +191,13 @@ export function RecipientSearch({
   // common domain (gmial.com), a domain that takes no mail. It FLAGS the chip
   // and offers the fix; it never refuses the address (the check can be
   // wrong, the person adding it is right there to decide).
-  type Flag = { status: string; reason: string | null; suggestion: string | null };
+  type Flag = { status: string; reason: string | null; suggestion: string | null; bounce?: { kind: string; label: string; dead: boolean } | null };
   const [flags, setFlags] = useState<Record<string, Flag>>({});
   const checkTyped = useCallback(async (e: string) => {
     try {
       const res = await workspaceFetch("/api/admin/mailer/check-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e }) });
       const f: Flag = await res.json();
-      if (f.status !== "ok" && f.status !== "unchecked") setFlags(prev => ({ ...prev, [e]: f }));
+      if ((f.status !== "ok" && f.status !== "unchecked") || f.bounce) setFlags(prev => ({ ...prev, [e]: f }));
     } catch { /* a failed check says nothing */ }
   }, []);
 
@@ -206,6 +210,8 @@ export function RecipientSearch({
     if (!p.email) return;                       // unreachable rows are not selectable
     const e = p.email.toLowerCase();
     if (!emails.includes(e)) onAdd(e);
+    // A known bounce rides onto the chip, so it is still visible after the pick.
+    if (p.bounce) setFlags(prev => ({ ...prev, [e]: { status: "ok", reason: null, suggestion: null, bounce: { ...p.bounce!, dead: p.bounce!.kind !== "transient" } } }));
     setQ(""); setHits([]); setOpen(false);
   }, [emails, onAdd]);
 
@@ -299,7 +305,7 @@ export function RecipientSearch({
           >
             <div className="flex items-center gap-2.5 min-w-0">
               {p.type === "sponsor"
-                ? <SponsorMark company={p.company ?? title} logoUrl={p.logoUrl ?? null} />
+                ? <SponsorMark company={p.company ?? title} logoUrl={p.logoUrl ?? null} ground={p.logoGround} />
                 : <span className={`w-2 h-2 rounded-full shrink-0 ${kind.dot}`} />}
               <div className="min-w-0 flex-1">
                 {/* Line one: who they are. One strip, no wrapping, clipped. */}
@@ -325,6 +331,7 @@ export function RecipientSearch({
                       {/* 🔴 Whose mailbox it is. A child's address is their parent's. */}
                       {p.emailOwner && <span className="text-white/35"> · via {p.emailOwner}</span>}
                       {p.type === "player" && !p.emailOwner && p.parentName && <span className="text-white/35"> · parent {p.parentName}</span>}
+                      {p.bounce && <span className={p.bounce.kind === "transient" ? "text-amber-300/80" : "text-red-300/80"}> · {p.bounce.label}</span>}
                     </>
                   ) : (
                     <span className="text-amber-300/60 inline-flex items-center gap-1">
@@ -372,17 +379,18 @@ export function RecipientSearch({
         <div className="flex flex-wrap gap-2">
           {emails.map(email => {
             const f = flags[email];
-            const bad = f && (f.status === "no_domain" || f.status === "bad_syntax");
+            const bad = f && (f.status === "no_domain" || f.status === "bad_syntax" || f.bounce?.dead);
+            const note = f?.bounce ? f.bounce.label : f?.reason;
             return (
               <Badge
                 key={email}
                 variant="outline"
-                title={f?.reason ?? undefined}
+                title={note ?? undefined}
                 className={`gap-1 pr-1 ${bad ? "border-red-500/30 text-red-300 bg-red-500/5" : f ? "border-amber-500/30 text-amber-300 bg-amber-500/5" : "border-blue-500/20 text-blue-400 bg-blue-500/5"}`}
                 data-testid={`chip-email-${email}`}
               >
                 {email}
-                {f?.reason && <span className="text-[10px] opacity-80 font-normal">· {bad ? "can't receive mail" : f.reason}</span>}
+                {note && <span className="text-[10px] opacity-80 font-normal">· {f?.bounce ? note : bad ? "can't receive mail" : note}</span>}
                 {f?.suggestion && (
                   <button
                     onClick={() => { onRemove(email); onAdd(f.suggestion!); setFlags(prev => { const n = { ...prev }; delete n[email]; return n; }); }}

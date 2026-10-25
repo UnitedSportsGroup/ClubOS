@@ -120,6 +120,7 @@ import { isOfficePaymentMethod } from "@shared/payments";
 import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
 import { resolveMailerAudience, lookupMailerRecipient } from "./mailer-audience";
 import { checkEmailDeliverability, checkManyDeliverability } from "./mailer-deliverability";
+import { bounceMap, bounceLabel, isDeadMailbox } from "./email-bounces";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
 import { behaviorEventsToInsert } from "@shared/behavior";
 import { isAllowedDestination, buildRedirectUrl, clickIdFromBytes, ipHashSeed, mainSiteForHost, isValidLinkKey, linkKeyFromBytes, CLUB_ROOT_DOMAINS, rootDomainForHost, isOurOrigin } from "@shared/short-links";
@@ -6690,13 +6691,17 @@ export async function registerRoutes(
       const LIMIT = 500;
       const shown = audience.emails.slice(0, LIMIT);
       const checks = await checkManyDeliverability(shown);
+      // Bounced before: a dead mailbox is left out of the send like a dead domain.
+      const bounces = await bounceMap(audience.emails);
       let unsubscribedCount = 0;
       for (const e of audience.emails) if (unsubscribed.has(e)) unsubscribedCount++;
       let undeliverable = 0;
+      for (const e of audience.emails) if (!shown.includes(e) && isDeadMailbox(bounces.get(e))) undeliverable++;
       const recipients = shown.map((email) => {
         const r = audience.byEmail.get(email);
         const d = checks.get(email) ?? { status: "unchecked", reason: null, suggestion: null };
-        if (d.status === "no_domain" || d.status === "bad_syntax") undeliverable++;
+        const b = bounces.get(email);
+        if (d.status === "no_domain" || d.status === "bad_syntax" || isDeadMailbox(b)) undeliverable++;
         return {
           email,
           firstName: r?.firstName ?? null,
@@ -6705,6 +6710,7 @@ export async function registerRoutes(
           registered: r?.registered ?? "none",
           unsubscribed: unsubscribed.has(email),
           deliverability: d,
+          bounce: b ? { kind: b.kind, label: bounceLabel(b), dead: isDeadMailbox(b) } : null,
         };
       });
       res.json({
@@ -6724,7 +6730,10 @@ export async function registerRoutes(
   // common domain, a domain that takes no mail). Flags, never blocks.
   app.post("/api/admin/mailer/check-email", requireAuth, async (req, res) => {
     try {
-      res.json(await checkEmailDeliverability(String(req.body?.email ?? "")));
+      const email = String(req.body?.email ?? "").trim().toLowerCase();
+      const d = await checkEmailDeliverability(email);
+      const b = (await bounceMap([email])).get(email);
+      res.json({ ...d, bounce: b ? { kind: b.kind, label: bounceLabel(b), dead: isDeadMailbox(b) } : null });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6834,9 +6843,10 @@ export async function registerRoutes(
       // and the address is sent to, so a resolver blip can never strike off a
       // real family. The skipped addresses are named in the log.
       const checks = await checkManyDeliverability(emails);
+      const bounced = await bounceMap(emails);
       const undeliverable = emails.filter((e) => {
         const st = checks.get(e)?.status;
-        return st === "no_domain" || st === "bad_syntax";
+        return st === "no_domain" || st === "bad_syntax" || isDeadMailbox(bounced.get(e));
       });
       if (undeliverable.length) {
         console.log(`[Camps mailer] skipping ${undeliverable.length} undeliverable: ${undeliverable.join(", ")}`);

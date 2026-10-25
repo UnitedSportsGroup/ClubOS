@@ -17,6 +17,7 @@
 //    and only if they happened AFTER the email was sent.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response } from "express";
+import { recordResendBounce } from "./email-bounces";
 import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
@@ -155,6 +156,12 @@ export function registerSalesEmailPublicRoutes(app: Express) {
     try {
       const type = RESEND_TYPES[String(req.body?.type ?? "")];
       const messageId = String(req.body?.data?.email_id ?? "");
+      // Every bounce and complaint, whatever sent the email, into the one
+      // address-level list the Mailer reads (server/email-bounces.ts). Never
+      // allowed to fail the webhook: Resend would retry it forever.
+      if (type === "bounced" || type === "complained") {
+        try { await recordResendBounce(req.body); } catch (err) { console.error("[email-bounces] record", err); }
+      }
       if (type && messageId) {
         const r: any = await db.execute(sql`SELECT id FROM sales_emails WHERE provider_message_id = ${messageId} LIMIT 1`);
         const row = r.rows?.[0];

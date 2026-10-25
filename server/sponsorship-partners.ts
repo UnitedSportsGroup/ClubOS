@@ -391,6 +391,8 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       const patch: any = { updatedAt: new Date() };
       if (b.company !== undefined) { const v = str(b.company, 200); if (!v) return res.status(400).json({ message: "Company name required" }); patch.company = v; }
       for (const f of ["tradingName", "website", "primaryContactName", "primaryContactRole", "primaryContactEmail", "primaryContactPhone", "xeroContactName", "logoUrl"]) if (b[f] !== undefined) patch[f] = str(b[f], 500);
+      // Which background the artwork was drawn for; anything else is ignored.
+      if (b.logoGround === "light" || b.logoGround === "dark") patch.logoGround = b.logoGround;
       if (b.notes !== undefined) patch.notes = str(b.notes, 10000);
       if (b.brandTags !== undefined) patch.brandTags = Array.isArray(b.brandTags) ? b.brandTags.map(String).slice(0, 12) : [];
       if (b.dealId !== undefined) patch.dealId = cents(b.dealId);

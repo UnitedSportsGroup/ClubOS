@@ -30,6 +30,7 @@ import { ageGradeFor } from "@shared/parent";
 import { nzTodayIso } from "@shared/academy";
 import { viewerCanReachTab } from "@shared/knowledge-base";
 import { buildViewer } from "./rambo";
+import { bounceMap, bounceLabel, type BounceKind } from "./email-bounces";
 
 /** One child shown under a parent, so two "Sarah Smith"s can be told apart. */
 export type PersonChild = { name: string; ageGroup: string | null; programme: string | null };
@@ -56,6 +57,9 @@ export type PersonHit = {
   company?: string | null;
   role?: string | null;
   logoUrl?: string | null;
+  logoGround?: "light" | "dark" | null;
+  /** This address has bounced before (Resend told us). */
+  bounce?: { kind: BounceKind; label: string } | null;
 };
 
 const grade = (dob: string | null | undefined, today: string) => {
@@ -202,7 +206,7 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
       if (viewer && viewerCanReachTab(viewer, "sponsorship", "united-sports-group").allowed) {
         const { rows: sp }: any = await db.execute(sql`
           SELECT id, company, trading_name, primary_contact_name, primary_contact_role,
-                 primary_contact_email, logo_url
+                 primary_contact_email, logo_url, logo_ground
             FROM sponsorship_partners
            WHERE archived_at IS NULL
              AND (lower(coalesce(company,'')) LIKE ${like} OR lower(coalesce(trading_name,'')) LIKE ${like}
@@ -217,6 +221,7 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
             emailOwner: null, detail: null,
             company: r.trading_name || r.company, role: r.primary_contact_role ?? null,
             logoUrl: r.logo_url ?? null,
+            logoGround: r.logo_ground === "dark" ? "dark" as const : "light" as const,
           };
           if (!addresses.length) {
             sponsors.push({ ...base, key: `sponsor-${r.id}`, name: r.primary_contact_name ?? "",
@@ -231,7 +236,15 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
           }));
         }
       }
-      res.json({ people: [...sponsors, ...people] });
+      const all = [...sponsors, ...people];
+      // Bounced before? Said on the row, so nobody picks an address Resend
+      // has already told us is dead.
+      const bounces = await bounceMap(all.map((p) => p.email).filter((e): e is string => !!e));
+      for (const p of all) {
+        const b = p.email ? bounces.get(p.email.toLowerCase()) : undefined;
+        p.bounce = b ? { kind: b.kind, label: bounceLabel(b) } : null;
+      }
+      res.json({ people: all });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

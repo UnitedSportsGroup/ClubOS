@@ -243,6 +243,7 @@ export default function AdminMailer() {
     registered: "current" | "past" | "none";
     unsubscribed: boolean;
     deliverability: { status: string; reason: string | null; suggestion: string | null };
+    bounce: { kind: string; label: string; dead: boolean } | null;
   };
   type Preview = { count: number; willSend: number; unsubscribedCount: number; undeliverableCount: number; shown: number; recipients: PreviewRow[] };
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -1006,7 +1007,7 @@ export default function AdminMailer() {
               <div className="overflow-y-auto overflow-x-hidden min-w-0">
                 {preview.recipients.map((r) => {
                   const name = [r.firstName, r.lastName].filter(Boolean).join(" ");
-                  const bad = r.deliverability.status === "no_domain" || r.deliverability.status === "bad_syntax";
+                  const bad = r.deliverability.status === "no_domain" || r.deliverability.status === "bad_syntax" || !!r.bounce?.dead;
                   const typo = r.deliverability.status === "typo";
                   return (
                     <div key={r.email} className={`px-5 py-2 border-b border-white/[0.04] last:border-0 min-w-0 ${r.unsubscribed || bad ? "opacity-60" : ""}`} data-testid={`preview-row-${r.email}`}>
@@ -1032,12 +1033,14 @@ export default function AdminMailer() {
                           </span>
                         )}
                         {r.unsubscribed && <span className="text-[10px] px-1.5 h-4 rounded-full bg-amber-500/10 text-amber-300 flex items-center shrink-0">Unsubscribed</span>}
-                        {bad && <span className="text-[10px] px-1.5 h-4 rounded-full bg-red-500/10 text-red-300 flex items-center shrink-0">Can't receive mail</span>}
+                        {bad && <span className="text-[10px] px-1.5 h-4 rounded-full bg-red-500/10 text-red-300 flex items-center shrink-0">{r.bounce?.dead ? "Bounced before" : "Can't receive mail"}</span>}
+                        {!bad && r.bounce && <span className="text-[10px] px-1.5 h-4 rounded-full bg-amber-500/10 text-amber-300 flex items-center shrink-0">Bounced before</span>}
                         {typo && <span className="text-[10px] px-1.5 h-4 rounded-full bg-amber-500/10 text-amber-300 flex items-center shrink-0">{r.deliverability.reason}</span>}
                       </div>
                       <div className="text-[11px] mt-0.5 truncate">
                         <span className="text-blue-300/70">{r.email}</span>
                         {bad && r.deliverability.reason && <span className="text-white/35"> · {r.deliverability.reason}</span>}
+                        {r.bounce && <span className="text-white/35"> · {r.bounce.label}</span>}
                       </div>
                     </div>
                   );

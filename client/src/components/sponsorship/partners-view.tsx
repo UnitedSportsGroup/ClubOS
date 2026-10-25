@@ -36,6 +36,7 @@ import {
 interface NodeView { id: number; name: string; openUrl: string; downloadUrl: string; sourceUrl: string | null }
 interface PartnerBase {
   id: number; company: string; tradingName: string | null; website: string | null; brandTags: string[];
+  logoUrl?: string | null; logoGround?: "light" | "dark" | null;
   primaryContactName: string | null; primaryContactRole: string | null; primaryContactEmail: string | null; primaryContactPhone: string | null;
   notes: string | null; archivedAt: string | null; dealId?: number | null;
 }
@@ -139,6 +140,18 @@ const invalidateAll = () => { queryClient.invalidateQueries({ queryKey: ["/api/a
 function StatusPill({ status }: { status: PartnerStatus }) {
   return <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap ${STATUS_STYLE[status]}`}>{PARTNER_STATUS_LABEL[status]}</span>;
 }
+/** The sponsor's mark on the ground it was drawn for — white artwork on the
+ *  club navy, colour artwork on white — or their initials until a logo is on
+ *  file. The Mailer's recipient search draws the same tile. */
+function LogoTile({ company, logoUrl, ground, size }: { company: string; logoUrl?: string | null; ground?: "light" | "dark" | null; size: "sm" | "lg" }) {
+  const dim = size === "lg" ? "w-16 h-16 rounded-xl p-1.5" : "w-9 h-9 rounded-lg p-1";
+  const initials = company.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
+  if (!logoUrl) {
+    return <span className={`${dim} shrink-0 bg-amber-500/10 text-amber-300 font-semibold flex items-center justify-center ${size === "lg" ? "text-base" : "text-[11px]"}`} title="No logo on file yet" data-testid="partner-logo-initials">{initials || "?"}</span>;
+  }
+  return <img src={logoUrl} alt={`${company} logo`} className={`${dim} shrink-0 object-contain ${ground === "dark" ? "bg-[#0B1A3A]" : "bg-white border border-black/10"}`} data-testid="partner-logo" />;
+}
+
 function BrandChips({ tags }: { tags: string[] }) {
   if (!tags?.length) return null;
   return (
@@ -314,9 +327,14 @@ export function PartnersView() {
                 {rows.map(p => (
                   <tr key={p.id} onClick={() => open(p.id)} data-testid={`partner-row-${p.id}`}
                     className={`border-b border-white/[0.04] cursor-pointer hover:bg-white/[0.03] align-top ${p.archivedAt ? "opacity-50" : ""}`}>
-                    <td className="px-2.5 py-2.5 min-w-[150px] max-w-[200px]">
-                      <div className="font-semibold text-white break-words">{p.company}</div>
-                      <BrandChips tags={p.brandTags} />
+                    <td className="px-2.5 py-2.5 min-w-[190px] max-w-[260px]">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <LogoTile company={p.company} logoUrl={p.logoUrl} ground={p.logoGround} size="sm" />
+                        <div className="min-w-0">
+                          <div className="font-semibold text-white break-words">{p.company}</div>
+                          <BrandChips tags={p.brandTags} />
+                        </div>
+                      </div>
                     </td>
                     {/* Signed is king: the file sits beside the name, never off the right edge */}
                     <td className="px-2.5 py-2.5 whitespace-nowrap"><OpenButton node={p.current?.node} /></td>
@@ -349,7 +367,10 @@ export function PartnersView() {
                 className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 min-h-[44px] ${p.archivedAt ? "opacity-50" : ""}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="font-semibold text-white break-words">{p.company}</div>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <LogoTile company={p.company} logoUrl={p.logoUrl} ground={p.logoGround} size="sm" />
+                      <div className="font-semibold text-white break-words min-w-0">{p.company}</div>
+                    </div>
                     <BrandChips tags={p.brandTags} />
                   </div>
                   <StatusPill status={p.status} />
@@ -476,9 +497,12 @@ function PartnerSheet({ id, onClose }: { id: number; onClose: () => void }) {
         {data && p && (
           <div className="space-y-6 pt-4 min-w-0">
             <SheetHeader className="text-left space-y-2">
-              <div className="flex items-start gap-2 flex-wrap pr-6">
-                <SheetTitle className="text-xl break-words min-w-0">{p.company}</SheetTitle>
-                <StatusPill status={p.status} />
+              <div className="flex items-start gap-3 pr-6 min-w-0">
+                <LogoTile company={p.company} logoUrl={p.logoUrl} ground={p.logoGround} size="lg" />
+                <div className="flex items-start gap-2 flex-wrap min-w-0">
+                  <SheetTitle className="text-xl break-words min-w-0">{p.company}</SheetTitle>
+                  <StatusPill status={p.status} />
+                </div>
               </div>
               <SheetDescription className="sr-only">Signed partner details</SheetDescription>
               {p.tradingName && <div className="text-xs text-white/50">Trading as {p.tradingName}</div>}
