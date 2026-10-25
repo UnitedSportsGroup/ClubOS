@@ -20,7 +20,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { SelectInput } from "@/components/ui/select-input";
 import { CUFC_MAILER_SENDERS, defaultSenderFor, senderFrom } from "@shared/mailer-senders";
 import { SimpleCompose } from "@/components/mailer/simple-compose";
-import { compileSimpleEmail, isSimpleDoc, signatureFor, simpleTextOf, simpleToMjml, type SimpleDoc } from "@/components/mailer/simple-email";
+import { compileSimpleEmail, isSimpleDoc, signatureFor, simpleTextOf, simpleToMjml, stripSignOff, type SimpleDoc } from "@/components/mailer/simple-email";
 import { LETTERHEADS } from "@/components/marketing/grapes/letterheads";
 import { cleanPastedHtml } from "@/components/marketing/grapes/clean-paste";
 
@@ -390,10 +390,13 @@ export default function AdminMailer() {
   const switchToSimple = () => {
     if (hasDesign && !window.confirm("Switch to a written email? The layout is dropped and the words are kept.")) return;
     const words = hasDesign
-      ? cleanPastedHtml(bodyHtml)
-          .replace(/<a href="\{\{unsubscribe_url\}\}"[^>]*>[^<]*<\/a>/gi, "")
-          .replace(/You(?:'|&#39;|’)re receiving this because[^<]*/gi, "")
-          .replace(/(<br>\s*)+$/i, "")
+      ? stripSignOff(
+          cleanPastedHtml(bodyHtml)
+            .replace(/<a href="\{\{unsubscribe_url\}\}"[^>]*>[^<]*<\/a>/gi, "")
+            .replace(/You(?:'|&#39;|’)re receiving this because[^<]*/gi, "")
+            .replace(/(<br>\s*)+$/i, ""),
+          signature,
+        )
       : "";
     setSimpleHtml(words);
     setSimpleKey((k) => k + 1);

@@ -59,6 +59,21 @@ export function signatureFor(fromName: string): SimpleSignature | null {
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/** Words coming BACK from the designer carry the sign-off the written email
+ *  drew under them ("<b>Daniel Meyn</b><br>Christchurch United FC" once a
+ *  paste-clean has run over the design). The compose box draws the sign-off
+ *  itself, so that trailing copy is dropped or the email would sign twice. */
+export function stripSignOff(words: string, signature: SimpleSignature | null): string {
+  if (!signature?.name) return words;
+  const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const textEsc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const name = reEsc(textEsc(signature.name));
+  const line = signature.line ? `(?:<br>\\s*${reEsc(textEsc(signature.line))})?` : "";
+  return words
+    .replace(new RegExp(`(?:<br>\\s*)*<b>\\s*${name}\\s*</b>${line}(?:<br>\\s*)*\\s*$`, "i"), "")
+    .replace(/(?:<br>\s*)+$/i, "");
+}
+
 /** The compose box only makes a small subset, but a drag-drop or an old paste
  *  can carry more. Anything that could run or restyle the page is dropped; the
  *  email's own styles are put on below. */
@@ -142,7 +157,7 @@ export function simpleToMjml(doc: SimpleDoc, brandKey: string): string {
   const sig = doc.signature && doc.signature.name ? doc.signature : null;
   return `<mjml>
   <mj-body background-color="#ffffff">
-    ${lh ? `<mj-section background-color="#ffffff" padding="28px 28px 0">
+    ${lh ? `<mj-section css-class="clubos-letterhead" background-color="#ffffff" padding="28px 28px 4px">
       <mj-column>
         <mj-image src="${lh.src}" width="${lh.width}px" alt="${esc(lh.label)}" align="center" padding="0" />
       </mj-column>
