@@ -234,13 +234,41 @@ export default function AdminMailer() {
     return {};
   }, [segmentType, manualEmails]);
 
+  // Preview = the actual list (Daniel, 2026-10-25: a toast saying "1 recipient
+  // found" is not a preview). The server reads the same audience + opt-out
+  // filter the send does, and flags any address whose domain takes no mail.
+  type PreviewRow = {
+    email: string; firstName: string | null; lastName: string | null;
+    players: { firstName: string; lastName: string }[];
+    unsubscribed: boolean;
+    deliverability: { status: string; reason: string | null; suggestion: string | null };
+  };
+  type Preview = { count: number; willSend: number; unsubscribedCount: number; undeliverableCount: number; shown: number; recipients: PreviewRow[] };
+  const [preview, setPreview] = useState<Preview | null>(null);
   const previewMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/mailer/preview-recipients", { segmentType, segmentConfig }),
-    onSuccess: async (res) => {
-      const data = await res.json();
-      toast({ title: `${data.count} recipient${data.count !== 1 ? "s" : ""} found` });
-    },
+    onSuccess: async (res) => setPreview(await res.json()),
+    onError: (e: any) => toast({ title: "Couldn't build the list", description: e?.message, variant: "destructive" }),
   });
+
+  // Subject merge tags go in AT THE CURSOR, not on the end (Daniel, 2026-10-25:
+  // "I put my cursor there, and then I click the button, and it still comes
+  // up at the end"). The buttons swallow mousedown so the input keeps its
+  // selection; the caret is put back after the tag.
+  const subjectRef = useRef<HTMLInputElement | null>(null);
+  const insertSubjectTag = (tag: string) => {
+    const el = subjectRef.current;
+    const cur = subject;
+    const start = el?.selectionStart ?? cur.length;
+    const end = el?.selectionEnd ?? cur.length;
+    const before = cur.slice(0, start);
+    const after = cur.slice(end);
+    const lead = before && !/\s$/.test(before) ? " " : "";
+    const trail = after && !/^\s/.test(after) ? " " : "";
+    setSubject(`${before}${lead}${tag}${trail}${after}`);
+    const caret = (before + lead + tag + trail).length;
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(caret, caret); });
+  };
 
   // The builder hands back the doc, the compiled email-safe HTML and a plain-text
   // version in one go. `hasEditorContent` gates the Next button, so it tracks the
@@ -590,6 +618,7 @@ export default function AdminMailer() {
           <div className="glass-card rounded-2xl p-6 space-y-4">
             <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Subject Line</h2>
             <Input
+              ref={subjectRef}
               value={subject}
               onChange={e => setSubject(e.target.value)}
               placeholder="Enter your email subject..."
@@ -605,7 +634,8 @@ export default function AdminMailer() {
                 <button
                   key={tag}
                   type="button"
-                  onClick={() => setSubject((s) => (s && !/\s$/.test(s) ? `${s} ${tag}` : `${s}${tag}`))}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => insertSubjectTag(tag)}
                   className="rounded-full border border-white/10 px-3 min-h-9 text-xs font-medium text-white/70 hover:bg-white/5"
                   title={`Adds ${tag} — swapped for each recipient at send`}
                   data-testid={`button-subject-tag-${tag.replace(/[{}]/g, "")}`}
@@ -952,6 +982,58 @@ export default function AdminMailer() {
           </div>
         </div>
       )}
+
+      <Dialog open={preview !== null} onOpenChange={o => { if (!o) setPreview(null); }}>
+        <DialogContent className="max-w-2xl p-0 overflow-hidden" data-testid="dialog-preview-recipients">
+          {preview && (
+            <div className="flex flex-col max-h-[80vh]">
+              <div className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+                <DialogTitle className="text-base font-semibold text-white/90">
+                  {preview.willSend === 1 ? "1 person will get this email" : `${preview.willSend.toLocaleString()} people will get this email`}
+                </DialogTitle>
+                <div className="text-xs text-white/45 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  {preview.unsubscribedCount > 0 && <span className="text-amber-300/80">{preview.unsubscribedCount} unsubscribed — skipped</span>}
+                  {preview.undeliverableCount > 0 && <span className="text-red-300/80">{preview.undeliverableCount} {preview.undeliverableCount === 1 ? "address" : "addresses"} can't receive mail</span>}
+                  {preview.count > preview.shown && <span>Showing the first {preview.shown} of {preview.count.toLocaleString()}</span>}
+                  {preview.unsubscribedCount === 0 && preview.undeliverableCount === 0 && preview.count <= preview.shown && <span>Names come from the family's registration; children are who {"{{player_first_name}}"} will say.</span>}
+                </div>
+              </div>
+              <div className="overflow-y-auto">
+                {preview.recipients.map((r) => {
+                  const name = [r.firstName, r.lastName].filter(Boolean).join(" ");
+                  const bad = r.deliverability.status === "no_domain" || r.deliverability.status === "bad_syntax";
+                  const typo = r.deliverability.status === "typo";
+                  return (
+                    <div key={r.email} className={`px-5 py-2 border-b border-white/[0.04] last:border-0 ${r.unsubscribed || bad ? "opacity-60" : ""}`} data-testid={`preview-row-${r.email}`}>
+                      <div className="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap h-5">
+                        <span className="text-[13px] text-white/90 truncate min-w-[4rem]">{name || <span className="text-white/35">No name on file</span>}</span>
+                        {r.players.length > 0 && (
+                          <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+                            {r.players.slice(0, 3).map((p) => (
+                              <span key={`${p.firstName} ${p.lastName}`} className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/60 flex items-center shrink-0">{p.firstName} {p.lastName}</span>
+                            ))}
+                            {r.players.length > 3 && <span className="text-[10px] px-1.5 h-4 rounded-full bg-white/[0.06] text-white/45 flex items-center shrink-0">+{r.players.length - 3}</span>}
+                          </span>
+                        )}
+                        {r.unsubscribed && <span className="text-[10px] px-1.5 h-4 rounded-full bg-amber-500/10 text-amber-300 flex items-center shrink-0">Unsubscribed</span>}
+                        {bad && <span className="text-[10px] px-1.5 h-4 rounded-full bg-red-500/10 text-red-300 flex items-center shrink-0">Can't receive mail</span>}
+                        {typo && <span className="text-[10px] px-1.5 h-4 rounded-full bg-amber-500/10 text-amber-300 flex items-center shrink-0">{r.deliverability.reason}</span>}
+                      </div>
+                      <div className="text-[11px] mt-0.5 truncate">
+                        <span className="text-blue-300/70">{r.email}</span>
+                        {bad && r.deliverability.reason && <span className="text-white/35"> · {r.deliverability.reason}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end">
+                <Button variant="outline" className="border-white/10 text-white/60 hover:bg-white/5" onClick={() => setPreview(null)} data-testid="button-close-preview">Close</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={openCampaignId !== null} onOpenChange={o => { if (!o) setOpenCampaignId(null); }}>
         <DialogContent className="max-w-3xl bg-[#0a0f1a] border border-white/10 text-white/90 max-h-[85vh] overflow-y-auto">

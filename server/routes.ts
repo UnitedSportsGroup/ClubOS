@@ -119,6 +119,7 @@ import {
 import { isOfficePaymentMethod } from "@shared/payments";
 import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
 import { resolveMailerAudience, lookupMailerRecipient } from "./mailer-audience";
+import { checkEmailDeliverability, checkManyDeliverability } from "./mailer-deliverability";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
 import { behaviorEventsToInsert } from "@shared/behavior";
 import { isAllowedDestination, buildRedirectUrl, clickIdFromBytes, ipHashSeed, mainSiteForHost, isValidLinkKey, linkKeyFromBytes, CLUB_ROOT_DOMAINS, rootDomainForHost, isOurOrigin } from "@shared/short-links";
@@ -6677,8 +6678,52 @@ export async function registerRoutes(
       if (!segmentType || !validSegments.includes(segmentType)) {
         return res.status(400).json({ message: "Invalid segment type" });
       }
-      const emails = await storage.getMailerSegmentEmails(segmentType, segmentConfig);
-      res.json({ count: emails.length });
+      // 🔴 A PREVIEW IS THE LIST, NOT A NUMBER (Daniel, 2026-10-25: "I just get
+      // this little notification saying '1 recipient found'. That's not a
+      // preview of the recipient"). Same decider as the send, same opt-out
+      // filter as the send, so what is shown is what goes out — each address
+      // with the parent's name and the children it stands for, and a flag
+      // where the domain cannot take mail.
+      const audience = await resolveMailerAudience(segmentType, segmentConfig);
+      const orgId = await predictorOrgId();
+      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const LIMIT = 500;
+      const shown = audience.emails.slice(0, LIMIT);
+      const checks = await checkManyDeliverability(shown);
+      let unsubscribedCount = 0;
+      for (const e of audience.emails) if (unsubscribed.has(e)) unsubscribedCount++;
+      let undeliverable = 0;
+      const recipients = shown.map((email) => {
+        const r = audience.byEmail.get(email);
+        const d = checks.get(email) ?? { status: "unchecked", reason: null, suggestion: null };
+        if (d.status === "no_domain" || d.status === "bad_syntax") undeliverable++;
+        return {
+          email,
+          firstName: r?.firstName ?? null,
+          lastName: r?.lastName ?? null,
+          players: r?.players ?? [],
+          unsubscribed: unsubscribed.has(email),
+          deliverability: d,
+        };
+      });
+      res.json({
+        count: audience.emails.length,
+        willSend: audience.emails.length - unsubscribedCount,
+        unsubscribedCount,
+        undeliverableCount: undeliverable,
+        shown: shown.length,
+        recipients,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // One typed address, checked the moment it is added (syntax, a slip of a
+  // common domain, a domain that takes no mail). Flags, never blocks.
+  app.post("/api/admin/mailer/check-email", requireAuth, async (req, res) => {
+    try {
+      res.json(await checkEmailDeliverability(String(req.body?.email ?? "")));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

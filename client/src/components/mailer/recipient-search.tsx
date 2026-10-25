@@ -158,10 +158,24 @@ export function RecipientSearch({
     return () => { window.removeEventListener("scroll", measure, true); window.removeEventListener("resize", measure); };
   }, [open, measure]);
 
+  // A typed address is checked the moment it is added — syntax, a slip of a
+  // common domain (gmial.com), a domain that takes no mail. It FLAGS the chip
+  // and offers the fix; it never refuses the address (the check can be
+  // wrong, the person adding it is right there to decide).
+  type Flag = { status: string; reason: string | null; suggestion: string | null };
+  const [flags, setFlags] = useState<Record<string, Flag>>({});
+  const checkTyped = useCallback(async (e: string) => {
+    try {
+      const res = await workspaceFetch("/api/admin/mailer/check-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: e }) });
+      const f: Flag = await res.json();
+      if (f.status !== "ok" && f.status !== "unchecked") setFlags(prev => ({ ...prev, [e]: f }));
+    } catch { /* a failed check says nothing */ }
+  }, []);
+
   const addRaw = useCallback(() => {
     const e = q.trim().toLowerCase();
-    if (e.includes("@") && !emails.includes(e)) { onAdd(e); setQ(""); setHits([]); setOpen(false); }
-  }, [q, emails, onAdd]);
+    if (e.includes("@") && !emails.includes(e)) { onAdd(e); setQ(""); setHits([]); setOpen(false); void checkTyped(e); }
+  }, [q, emails, onAdd, checkTyped]);
 
   const pick = useCallback((p: PersonHit) => {
     if (!p.email) return;                       // unreachable rows are not selectable
@@ -291,14 +305,34 @@ export function RecipientSearch({
 
       {emails.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {emails.map(email => (
-            <Badge key={email} variant="outline" className="border-blue-500/20 text-blue-400 bg-blue-500/5 gap-1 pr-1">
-              {email}
-              <button onClick={() => onRemove(email)} className="ml-1 hover:text-red-400" data-testid={`button-remove-${email}`}>
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          ))}
+          {emails.map(email => {
+            const f = flags[email];
+            const bad = f && (f.status === "no_domain" || f.status === "bad_syntax");
+            return (
+              <Badge
+                key={email}
+                variant="outline"
+                title={f?.reason ?? undefined}
+                className={`gap-1 pr-1 ${bad ? "border-red-500/30 text-red-300 bg-red-500/5" : f ? "border-amber-500/30 text-amber-300 bg-amber-500/5" : "border-blue-500/20 text-blue-400 bg-blue-500/5"}`}
+                data-testid={`chip-email-${email}`}
+              >
+                {email}
+                {f?.reason && <span className="text-[10px] opacity-80 font-normal">· {bad ? "can't receive mail" : f.reason}</span>}
+                {f?.suggestion && (
+                  <button
+                    onClick={() => { onRemove(email); onAdd(f.suggestion!); setFlags(prev => { const n = { ...prev }; delete n[email]; return n; }); }}
+                    className="ml-1 text-[10px] underline underline-offset-2 hover:text-white"
+                    data-testid={`button-fix-${email}`}
+                  >
+                    Use it
+                  </button>
+                )}
+                <button onClick={() => onRemove(email)} className="ml-1 hover:text-red-400" data-testid={`button-remove-${email}`}>
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            );
+          })}
         </div>
       )}
     </div>
