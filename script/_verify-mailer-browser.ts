@@ -312,6 +312,71 @@ try {
       ok("the designer's footer did not leak into the body", !returned.footerLeak);
       await page.screenshot({ path: join(OUT, `${label}-returned.png`) });
       console.log(`  → ${join(OUT, `${label}-returned.png`)}`);
+
+      // ── Design → gallery → Club newsletter → the builder's EXPORT keeps every word ──
+      // 🔴 grapesjs-mjml drops every sibling after a void element (mj-image,
+      // mj-divider) in a column: the canvas draws them, the export does not.
+      // The first live save of the newsletter went out without its stories.
+      // This reads what the page would SEND (the draft it keeps in this
+      // browser), never the canvas.
+      await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+      await sleep(2000);
+      await page.evaluate(() => {
+        Object.keys(localStorage).filter((k) => k.startsWith("clubos-mailer-draft:")).forEach((k) => localStorage.removeItem(k));
+      });
+      await page.goto(`${BASE}/admin/mailer`, { waitUntil: "networkidle2", timeout: 60000 });
+      await sleep(2000);
+      const seg2 = await page.$('[data-testid="button-segment-all"]');
+      if (seg2) await seg2.click();
+      await sleep(300);
+      const next2 = await page.$('[data-testid="button-next-content"]');
+      if (next2) await next2.click();
+      await sleep(1000);
+      const designCard = await page.$('[data-testid="button-mode-design"]');
+      if (designCard) await designCard.click();
+      await sleep(7000);
+      const gallery: any = await page.evaluate(`(function () {
+        var cards = Array.prototype.slice.call(document.querySelectorAll("button")).filter(function (b) { return /Use this template/i.test(b.textContent || ""); });
+        // The first CARD's own text, not the page's (the category chips say
+        // "Match day" above every card).
+        var card = cards[0]; for (var i = 0; i < 3 && card && card.parentElement; i++) card = card.parentElement;
+        return { count: cards.length, newsletterFirst: !!card && /Club newsletter/.test(card.textContent || "") };
+      })()`);
+      ok("Design opens on the gallery with the Club newsletter first", gallery.count >= 6 && gallery.newsletterFirst, JSON.stringify(gallery));
+      await page.screenshot({ path: join(OUT, `${label}-gallery.png`) });
+      console.log(`  → ${join(OUT, `${label}-gallery.png`)}`);
+      await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll("button")).find((b) => /Use this template/i.test(b.textContent || ""));
+        (btn as HTMLButtonElement | undefined)?.click();
+      });
+      await sleep(12000); // the builder chunk, the MJML parse, the autosave that a chosen template now triggers
+      const exported: any = await page.evaluate(`(function () {
+        var raw = Object.keys(localStorage).filter(function (k) { return k.indexOf("clubos-mailer-draft:") === 0; }).map(function (k) { return localStorage.getItem(k); })[0];
+        var d = raw ? JSON.parse(raw) : null;
+        var html = d && d.bodyHtml ? d.bodyHtml : "";
+        var has = function (s) { return html.indexOf(s) > -1; };
+        return {
+          saved: !!document.querySelector('[data-testid="text-design-saved"]'),
+          bytes: html.length,
+          photos: (html.match(/mailer\\/cufc\\/[a-z0-9-]+\\.jpg/g) || []).length,
+          icons: (html.match(/mailer\\/icons\\/[a-z]+\\.png/g) || []).length,
+          lead: has("Everything happening across"),
+          featured: has("Featured"),
+          story: has("Term 4 is under way"),
+          button: has("See the timetable"),
+          offer: has("Partner offer"),
+          nextMatch: has("Match details"),
+          unsubscribe: has("{{unsubscribe_url}}")
+        };
+      })()`);
+      ok("choosing the template saved the email on its own", exported.saved && exported.bytes > 1000, `${exported.bytes} bytes`);
+      ok("the export keeps the lead story, Featured, a photo story, its button, the offer and the next match",
+        exported.lead && exported.featured && exported.story && exported.button && exported.offer && exported.nextMatch, JSON.stringify(exported));
+      ok("the export keeps every photograph and both social icons", exported.photos >= 4 && exported.icons >= 2, `photos ${exported.photos}, icons ${exported.icons}`);
+      ok("the export carries its own unsubscribe link", exported.unsubscribe);
+      ok("the export stays under Gmail's clip", exported.bytes < 95 * 1024, `${Math.round(exported.bytes / 1024)}KB`);
+      await page.screenshot({ path: join(OUT, `${label}-template-in-builder.png`) });
+      console.log(`  → ${join(OUT, `${label}-template-in-builder.png`)}`);
     }
 
     const full = join(OUT, `${label}-full.png`);
