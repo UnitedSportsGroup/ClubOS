@@ -164,6 +164,8 @@ interface Person {
   dob: string | null; // yyyy-mm-dd
   programme: string;
   option: string | null;
+  /** 'confirmed' | 'refunded' | 'partially_refunded' — a refund stays registered (history). */
+  status: string;
 }
 
 /** Paid people on these programmes in this term. Academy = the contact on the
@@ -174,7 +176,7 @@ async function paidPeople(orgId: number, programmes: Programme[], term: Term | n
   const camps = programmes.filter((p) => p.type === "holiday_camp").map((p) => p.id);
   if (academy.length) {
     const rows = rowsOf(await db.execute(sql`
-      SELECT DISTINCT ON (c.id, p.id) c.id AS cid, c.first_name, c.last_name, c.date_of_birth::text AS dob, p.name AS programme, po.name AS option_name
+      SELECT DISTINCT ON (c.id, p.id) c.id AS cid, c.first_name, c.last_name, c.date_of_birth::text AS dob, p.name AS programme, po.name AS option_name, r.status
       FROM registrations r
       JOIN programs p ON p.id = r.program_id
       JOIN contacts c ON c.id = r.contact_id
@@ -185,12 +187,12 @@ async function paidPeople(orgId: number, programmes: Programme[], term: Term | n
       ORDER BY c.id, p.id, r.registered_at DESC`));
     for (const r of rows) {
       const key = `c:${r.cid}`;
-      if (!out.has(key)) out.set(key, { key, firstName: String(r.first_name ?? ""), lastName: String(r.last_name ?? ""), dob: r.dob ? String(r.dob).slice(0, 10) : null, programme: String(r.programme), option: r.option_name ? String(r.option_name) : null });
+      if (!out.has(key)) out.set(key, { key, firstName: String(r.first_name ?? ""), lastName: String(r.last_name ?? ""), dob: r.dob ? String(r.dob).slice(0, 10) : null, programme: String(r.programme), option: r.option_name ? String(r.option_name) : null, status: String(r.status) });
     }
   }
   if (camps.length) {
     const rows = rowsOf(await db.execute(sql`
-      SELECT DISTINCT ON (ch.id, p.id) ch.id AS kid, ch.first_name, ch.last_name, ch.date_of_birth::text AS dob, p.name AS programme
+      SELECT DISTINCT ON (ch.id, p.id) ch.id AS kid, ch.first_name, ch.last_name, ch.date_of_birth::text AS dob, p.name AS programme, r.status
       FROM registration_items ri
       JOIN registrations r ON r.id = ri.registration_id
       JOIN programs p ON p.id = r.program_id
@@ -201,7 +203,7 @@ async function paidPeople(orgId: number, programmes: Programme[], term: Term | n
       ORDER BY ch.id, p.id`));
     for (const r of rows) {
       const key = `k:${r.kid}`;
-      if (!out.has(key)) out.set(key, { key, firstName: String(r.first_name ?? ""), lastName: String(r.last_name ?? ""), dob: r.dob ? String(r.dob).slice(0, 10) : null, programme: String(r.programme), option: null });
+      if (!out.has(key)) out.set(key, { key, firstName: String(r.first_name ?? ""), lastName: String(r.last_name ?? ""), dob: r.dob ? String(r.dob).slice(0, 10) : null, programme: String(r.programme), option: null, status: String(r.status) });
     }
   }
   return Array.from(out.values());
@@ -216,7 +218,7 @@ function countBy<T>(items: T[], key: (t: T) => string): [string, number][] {
   return Array.from(m.entries());
 }
 
-const DECIDER_NOTE = "Counted as registered: paid and confirmed (refunds included as history). An unfinished online checkout is never counted.";
+const DECIDER_NOTE = "Registered means a paid, confirmed registration; an unfinished online checkout is never counted. A registration that was later refunded STILL counts as registered (it is history) and is reported separately when there are any.";
 
 // ── Tool: player numbers ─────────────────────────────────────────────────────
 
@@ -239,6 +241,8 @@ export async function runPlayerNumbers(viewer: Viewer, input: any): Promise<Tool
 
   const lines: string[] = [];
   lines.push(`${readAs}${term ? ` — ${termLabel(term)}` : " — all time"} (${scope.orgName}): **${people.length} registered ${people.length === 1 ? "player" : "players"}** (distinct people).`);
+  const refunded = people.filter((p) => p.status !== "confirmed").length;
+  if (refunded) lines.push(`Of those, ${refunded} had the registration refunded or partly refunded afterwards — included in the ${people.length}; say ${people.length - refunded} if the person wants only those still paid up.`);
   if (!people.length) lines.push("Nobody is registered there for that term.");
   else if (groupBy === "age") {
     const withAge = people.filter((p) => ageOf(p) != null);

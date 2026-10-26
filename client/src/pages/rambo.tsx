@@ -112,7 +112,7 @@ function ThreadRow(p: ThreadRowProps) {
           />
         </form>
       ) : (
-        <button type="button" onClick={p.onOpen} className="block w-full px-2.5 py-2 text-left" title={t.preview || t.title}>
+        <button type="button" onClick={p.onOpen} className="block w-full py-2 pl-2.5 pr-14 text-left" title={t.preview || t.title}>
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground" data-testid="rambo-thread-title">{t.title}</span>
             <span className="shrink-0 text-[10.5px] text-muted-foreground">{when(t.updatedAt)}</span>

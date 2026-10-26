@@ -37,6 +37,13 @@ async function ownSession(userId: number, id: number) {
   return s && s.userId === userId ? s : null;
 }
 
+/** The list shows the first line of the last answer as plain words. */
+function plainPreview(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const one = String(raw).replace(/\*\*|__|`|^#+\s*/g, "").replace(/^\s*[-*]\s+/gm, "").replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+  return one ? one.slice(0, 120) : null;
+}
+
 function shapeThread(s: any, preview?: string | null, count?: number) {
   return {
     id: s.id,
@@ -45,7 +52,7 @@ function shapeThread(s: any, preview?: string | null, count?: number) {
     brand: s.brand,
     createdAt: s.createdAt ?? s.created_at,
     updatedAt: s.updatedAt ?? s.updated_at,
-    preview: preview ?? null,
+    preview: plainPreview(preview),
     messages: count ?? undefined,
   };
 }
