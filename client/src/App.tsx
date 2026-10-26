@@ -326,7 +326,7 @@ function AdminRouter() {
   if (location.startsWith("/admin/rambo")) return <RamboPage />;
   // Content Studio — graphics, landing pages and video requests, made by
   // Rambo and owned by their maker, in every workspace (Daniel, 2026-10-27).
-  if (location.startsWith("/admin/studio")) return <StudioRoute />;
+  if (location.startsWith("/admin/content-studio")) return <StudioRoute />;
   // Club Drive — one file store for the whole organisation. Universal for the
   // same reason as the vault above: a contract is the club's document whichever
   // workspace you happen to be standing in when you need it.
@@ -409,10 +409,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/settings" component={AdminSettings} />
@@ -467,10 +467,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -512,10 +512,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -562,10 +562,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -617,10 +617,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -654,10 +654,10 @@ function AdminRouter() {
         <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
         <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
         <Route path="/admin/marketing" component={MarketingHome} />
-        <Route path="/admin/studio/new" component={StudioNew} />
-        <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-        <Route path="/admin/studio/:id" component={StudioEditor} />
-        <Route path="/admin/studio" component={StudioHome} />
+        <Route path="/admin/content-studio/new" component={StudioNew} />
+        <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+        <Route path="/admin/content-studio/:id" component={StudioEditor} />
+        <Route path="/admin/content-studio" component={StudioHome} />
         <Route path="/admin/esign" component={ESign} />
         <Route path="/admin/domains" component={AdminDomainSettings} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -749,10 +749,10 @@ function AdminRouter() {
       <Route path="/admin/marketing/campaigns/:id" component={MarketingCampaignDetail} />
       <Route path="/admin/marketing/flows/:id" component={MarketingFlowEditor} />
       <Route path="/admin/marketing" component={MarketingHome} />
-      <Route path="/admin/studio/new" component={StudioNew} />
-      <Route path="/admin/studio/:id/signal" component={StudioAnalytics} />
-      <Route path="/admin/studio/:id" component={StudioEditor} />
-      <Route path="/admin/studio" component={StudioHome} />
+      <Route path="/admin/content-studio/new" component={StudioNew} />
+      <Route path="/admin/content-studio/:id/signal" component={StudioAnalytics} />
+      <Route path="/admin/content-studio/:id" component={StudioEditor} />
+      <Route path="/admin/content-studio" component={StudioHome} />
       <Route component={NotFound} />
     </Switch>
   );

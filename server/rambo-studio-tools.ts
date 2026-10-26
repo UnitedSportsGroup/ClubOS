@@ -45,7 +45,7 @@ async function make(kind: "graphic" | "page", viewer: Viewer, input: any): Promi
     doc: out.doc as any, version: 1, brief, createdByUserId: viewer.userId,
   }).returning();
   await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: `from Rambo: ${brief.slice(0, 400)}`, createdByUserId: viewer.userId || null });
-  const link = `https://app.usg.co.nz/admin/studio/${piece.id}`;
+  const link = `https://app.usg.co.nz/admin/content-studio/${piece.id}`;
   const what = kind === "graphic" ? `a ${graphicSize(sizeKey).label.toLowerCase()} graphic` : "a landing page";
   const words = kind === "graphic" ? `Headline: "${(out.doc as any).headline}"${(out.doc as any).sub ? ` — ${(out.doc as any).sub}` : ""}.` : `${(out.doc as any).blocks?.length ?? 0} sections, starting "${(out.doc as any).blocks?.[0]?.headline ?? ""}".`;
   return {

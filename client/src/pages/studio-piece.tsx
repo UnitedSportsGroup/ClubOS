@@ -26,9 +26,9 @@ export function StudioPiece({ id }: { id: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const key = ["/api/admin/studio/pieces", id];
-  const { data, isLoading, error } = useQuery<Detail>({ queryKey: key, queryFn: async () => { const r = await workspaceFetch(`/api/admin/studio/pieces/${id}`); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Not found"); return r.json(); } });
-  const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/studio/usage")).json() });
+  const key = ["/api/admin/content-studio/pieces", id];
+  const { data, isLoading, error } = useQuery<Detail>({ queryKey: key, queryFn: async () => { const r = await workspaceFetch(`/api/admin/content-studio/pieces/${id}`); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Not found"); return r.json(); } });
+  const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/content-studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/usage")).json() });
   const piece = data?.piece;
   const [tab, setTab] = useState<Tab>("words");
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -61,9 +61,9 @@ export function StudioPiece({ id }: { id: number }) {
   }, [piece, liveDoc]);
   const dirty = Object.keys(edits).length > 0;
 
-  const invalidate = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["/api/admin/studio/pieces"] }); qc.invalidateQueries({ queryKey: ["/api/admin/studio/usage"] }); };
+  const invalidate = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/usage"] }); };
   const patch = useMutation({
-    mutationFn: async (body: any) => { const r = await apiRequest("PATCH", `/api/admin/studio/pieces/${id}`, body); return r.json(); },
+    mutationFn: async (body: any) => { const r = await apiRequest("PATCH", `/api/admin/content-studio/pieces/${id}`, body); return r.json(); },
     onSuccess: () => invalidate(),
     onError: (e: any) => toast({ title: "Couldn't save", description: e?.message, variant: "destructive" }),
   });
@@ -71,7 +71,7 @@ export function StudioPiece({ id }: { id: number }) {
 
   const askRambo = useMutation({
     mutationFn: async () => {
-      const r = await apiRequest("POST", `/api/admin/studio/pieces/${id}/ask`, { instruction: ask, history: chat });
+      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/ask`, { instruction: ask, history: chat });
       const j = JSON.parse((await r.text()).trim());
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that change.");
       return j;
@@ -80,20 +80,20 @@ export function StudioPiece({ id }: { id: number }) {
     onError: (e: any) => toast({ title: "Rambo", description: e?.message, variant: "destructive" }),
   });
   const publish = useMutation({
-    mutationFn: async (on: boolean) => (await apiRequest("POST", `/api/admin/studio/pieces/${id}/${on ? "publish" : "unpublish"}`, {})).json(),
+    mutationFn: async (on: boolean) => (await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/${on ? "publish" : "unpublish"}`, {})).json(),
     onSuccess: (j: any) => { invalidate(); toast({ title: j.url ? "Published" : "Taken down", description: j.url ?? "The page is a draft again." }); },
     onError: (e: any) => toast({ title: "Couldn't publish", description: e?.message, variant: "destructive" }),
   });
   const duplicate = useMutation({
-    mutationFn: async () => (await apiRequest("POST", `/api/admin/studio/pieces/${id}/duplicate`, {})).json(),
-    onSuccess: (j: any) => { qc.invalidateQueries({ queryKey: ["/api/admin/studio/pieces"] }); navigate(`/admin/studio/${j.piece.id}`); toast({ title: "Your copy", description: "Edit it as you like — the original is untouched." }); },
+    mutationFn: async () => (await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/duplicate`, {})).json(),
+    onSuccess: (j: any) => { qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); navigate(`/admin/content-studio/${j.piece.id}`); toast({ title: "Your copy", description: "Edit it as you like — the original is untouched." }); },
   });
   const archive = useMutation({
-    mutationFn: async () => (await apiRequest("DELETE", `/api/admin/studio/pieces/${id}`)).json(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/studio/pieces"] }); navigate("/admin/studio"); toast({ title: "Removed", description: "Its versions are kept." }); },
+    mutationFn: async () => (await apiRequest("DELETE", `/api/admin/content-studio/pieces/${id}`)).json(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); navigate("/admin/content-studio"); toast({ title: "Removed", description: "Its versions are kept." }); },
   });
   const restore = useMutation({
-    mutationFn: async (version: number) => { const r = await workspaceFetch(`/api/admin/studio/pieces/${id}/versions/${version}`); const v = await r.json(); return patch.mutateAsync({ doc: v.doc, note: `put back version ${version}` }); },
+    mutationFn: async (version: number) => { const r = await workspaceFetch(`/api/admin/content-studio/pieces/${id}/versions/${version}`); const v = await r.json(); return patch.mutateAsync({ doc: v.doc, note: `put back version ${version}` }); },
     onSuccess: () => toast({ title: "Put back", description: "That version is the current one again (as a new version)." }),
   });
 
@@ -111,9 +111,9 @@ export function StudioPiece({ id }: { id: number }) {
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       const fd = new FormData();
       fd.append("file", blob, "graphic.png");
-      const r = await workspaceFetch(`/api/admin/studio/pieces/${id}/render`, { method: "POST", body: fd });
+      const r = await workspaceFetch(`/api/admin/content-studio/pieces/${id}/render`, { method: "POST", body: fd });
       const j = await r.json();
-      if (j.ok) { setRenderUrl(j.url); qc.invalidateQueries({ queryKey: ["/api/admin/studio/pieces"] }); }
+      if (j.ok) { setRenderUrl(j.url); qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); }
     } catch (e: any) {
       toast({ title: "Couldn't export", description: e?.message, variant: "destructive" });
     } finally { setExporting(false); }
@@ -121,7 +121,7 @@ export function StudioPiece({ id }: { id: number }) {
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { toast({ title: "Copy this", description: text }); } };
 
   if (isLoading) return <div className="p-10 flex justify-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>;
-  if (error || !piece || !liveDoc) return <div className="p-6 text-sm text-muted-foreground">That piece isn't here. <button className="underline" onClick={() => navigate("/admin/studio")}>Back to Studio</button></div>;
+  if (error || !piece || !liveDoc) return <div className="p-6 text-sm text-muted-foreground">That piece isn't here. <button className="underline" onClick={() => navigate("/admin/content-studio")}>Back to Studio</button></div>;
 
   const pageHtml = piece.kind === "page" ? renderPage(liveDoc as PageDoc, piece.brand, { noindex: true, url: piece.publicUrl ?? undefined, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." }) : "";
   const video = piece.kind === "video" ? (liveDoc as VideoDoc) : null;
@@ -130,7 +130,7 @@ export function StudioPiece({ id }: { id: number }) {
     <div className="p-4 sm:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="outline" onClick={() => navigate("/admin/studio")} className="h-11 md:h-9 border-border" data-testid="studio-back"><ChevronLeft className="w-4 h-4 mr-1" />Studio</Button>
+          <Button variant="outline" onClick={() => navigate("/admin/content-studio")} className="h-11 md:h-9 border-border" data-testid="studio-back"><ChevronLeft className="w-4 h-4 mr-1" />Studio</Button>
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-foreground truncate" data-testid="studio-piece-title">{piece.title}</h1>
             <div className="text-xs text-muted-foreground">{studioKindLabel(piece.kind)} · {piece.ownerName || "someone"} · v{piece.version} · {whenLabel(piece.updatedAt)}{!canEdit ? " · someone else's — duplicate to edit" : ""}</div>
@@ -288,7 +288,7 @@ export function StudioPiece({ id }: { id: number }) {
 function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummary; liveDoc: any; canEdit: boolean; onPick: (path: string, url: string) => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data } = useQuery<{ pictures: { src: string; caption: string; brand: string }[] }>({ queryKey: ["/api/admin/studio/pictures", piece.brand], queryFn: async () => (await workspaceFetch(`/api/admin/studio/pictures?brand=${piece.brand}`)).json() });
+  const { data } = useQuery<{ pictures: { src: string; caption: string; brand: string }[] }>({ queryKey: ["/api/admin/content-studio/pictures", piece.brand], queryFn: async () => (await workspaceFetch(`/api/admin/content-studio/pictures?brand=${piece.brand}`)).json() });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   // Where a picture goes: a graphic's photo, or a page's hero / photo blocks / cards.
@@ -302,10 +302,10 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
     setUploading(true);
     try {
       const fd = new FormData(); fd.append("file", f);
-      const r = await workspaceFetch("/api/admin/studio/pictures", { method: "POST", body: fd });
+      const r = await workspaceFetch("/api/admin/content-studio/pictures", { method: "POST", body: fd });
       const j = await r.json();
       if (!j.ok) throw new Error(j.message);
-      qc.invalidateQueries({ queryKey: ["/api/admin/studio/pictures", piece.brand] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pictures", piece.brand] });
       if (slots[slot]) onPick(slots[slot].path, j.url);
       toast({ title: "Uploaded", description: `${j.width}×${j.height}, ${Math.round(j.bytes / 1024)}KB, hosted by ClubOS.` });
     } catch (e: any) { toast({ title: "Couldn't upload", description: e?.message, variant: "destructive" }); }

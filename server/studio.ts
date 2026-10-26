@@ -122,7 +122,7 @@ const uploadRender = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 
 export function registerStudioRoutes(app: Express) {
   /** Today's count against the shared allowance, the models, the brand here. */
-  app.get("/api/admin/studio/usage", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/usage", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -138,7 +138,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** The club's pictures this piece may use — every kit, plus uploads here. */
-  app.get("/api/admin/studio/pictures", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/pictures", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -148,7 +148,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Upload a picture of your own: shrunk and hosted the way the Mailer's are. */
-  app.post("/api/admin/studio/pictures", requireAuth, (req: Request, res: Response, next) => uploadPicture.single("file")(req, res, (err: any) => {
+  app.post("/api/admin/content-studio/pictures", requireAuth, (req: Request, res: Response, next) => uploadPicture.single("file")(req, res, (err: any) => {
     if (!err) return next();
     res.status(400).json({ ok: false, message: err?.code === "LIMIT_FILE_SIZE" ? `That file is over ${Math.round(MAILER_IMAGE_MAX_UPLOAD_BYTES / 1024 / 1024)}MB.` : (err?.message || "Upload failed") });
   }), async (req: Request, res: Response) => {
@@ -165,7 +165,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Everyone's pieces in this workspace, newest first. */
-  app.get("/api/admin/studio/pieces", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/pieces", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -187,7 +187,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** One prompt → a new graphic or page, as a draft of your own. */
-  app.post("/api/admin/studio/generate", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/generate", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ ok: false, message: "Unknown workspace" });
@@ -225,7 +225,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** A video request — no model, a brief and the footage for the editing kit. */
-  app.post("/api/admin/studio/video", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/video", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -241,7 +241,7 @@ export function registerStudioRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.get("/api/admin/studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -261,7 +261,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** A specific version's document (to look back, or to put it back). */
-  app.get("/api/admin/studio/pieces/:id/versions/:version", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/pieces/:id/versions/:version", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -274,7 +274,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Ask Rambo to change it (a re-prompt). Owner only; counts as a prompt. */
-  app.post("/api/admin/studio/pieces/:id/ask", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/pieces/:id/ask", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ ok: false, message: "Unknown workspace" });
@@ -308,7 +308,7 @@ export function registerStudioRoutes(app: Express) {
 
   /** Edit by hand: the document (a field changed), the title, the slug, the
    *  listing flag, a video's status. Owner only; a doc change is a version. */
-  app.patch("/api/admin/studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
+  app.patch("/api/admin/content-studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -350,7 +350,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Put a page on its brand's host. */
-  app.post("/api/admin/studio/pieces/:id/publish", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/pieces/:id/publish", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -368,7 +368,7 @@ export function registerStudioRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post("/api/admin/studio/pieces/:id/unpublish", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/pieces/:id/unpublish", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -383,7 +383,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Anyone in the workspace may make their own copy of a piece. */
-  app.post("/api/admin/studio/pieces/:id/duplicate", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/admin/content-studio/pieces/:id/duplicate", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -401,7 +401,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** Archive (never a hard delete — versions and renders stay). Owner only. */
-  app.delete("/api/admin/studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
+  app.delete("/api/admin/content-studio/pieces/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).json({ message: "Unknown workspace" });
@@ -416,7 +416,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** The browser drew the graphic; keep the PNG so a link exists. */
-  app.post("/api/admin/studio/pieces/:id/render", requireAuth, (req: Request, res: Response, next) => uploadRender.single("file")(req, res, (err: any) => {
+  app.post("/api/admin/content-studio/pieces/:id/render", requireAuth, (req: Request, res: Response, next) => uploadRender.single("file")(req, res, (err: any) => {
     if (!err) return next();
     res.status(400).json({ ok: false, message: err?.code === "LIMIT_FILE_SIZE" ? "That picture is over 8MB." : (err?.message || "Upload failed") });
   }), async (req: Request, res: Response) => {
@@ -456,7 +456,7 @@ export function registerStudioRoutes(app: Express) {
   });
 
   /** A page as it will look, for the editor's preview (drafts included). */
-  app.get("/api/admin/studio/pieces/:id/html", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/admin/content-studio/pieces/:id/html", requireAuth, async (req: Request, res: Response) => {
     try {
       const w = await whereFor(req);
       if (!w) return res.status(400).send("Unknown workspace");

@@ -6,7 +6,7 @@
 // subdomains … nobody deleting or overriding other people's content."
 //
 // This file is the front door (make something · everyone's pieces); the
-// piece editor is studio-piece.tsx. One route, /admin/studio[/<id>].
+// piece editor is studio-piece.tsx. One route, /admin/content-studio[/<id>].
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,8 +49,8 @@ function StudioHome() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/studio/usage")).json() });
-  const { data: list, isLoading } = useQuery<{ pieces: PieceSummary[] }>({ queryKey: ["/api/admin/studio/pieces"], queryFn: async () => (await workspaceFetch("/api/admin/studio/pieces")).json() });
+  const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/content-studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/usage")).json() });
+  const { data: list, isLoading } = useQuery<{ pieces: PieceSummary[] }>({ queryKey: ["/api/admin/content-studio/pieces"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/pieces")).json() });
   const [filter, setFilter] = useState<"all" | "mine" | StudioKind>("all");
   const [composer, setComposer] = useState<StudioKind | null>(null);
   const [brief, setBrief] = useState("");
@@ -63,20 +63,20 @@ function StudioHome() {
   const make = useMutation({
     mutationFn: async () => {
       if (composer === "video") {
-        const res = await apiRequest("POST", "/api/admin/studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length });
+        const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length });
         return res.json();
       }
-      const res = await apiRequest("POST", "/api/admin/studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined });
+      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined });
       const j = JSON.parse((await res.text()).trim());
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that.");
       return j;
     },
     onSuccess: (j: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/admin/studio/pieces"] });
-      qc.invalidateQueries({ queryKey: ["/api/admin/studio/usage"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/usage"] });
       setBrief(""); setFootage("");
       if (j.reply) toast({ title: "Rambo", description: j.reply });
-      navigate(`/admin/studio/${j.piece.id}`);
+      navigate(`/admin/content-studio/${j.piece.id}`);
     },
     onError: (e: any) => toast({ title: "Couldn't make it", description: e?.message, variant: "destructive" }),
   });
@@ -206,7 +206,7 @@ function StudioHome() {
           <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground" data-testid="studio-empty">Nothing here yet. Pick a card above and tell Rambo what you want.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" data-testid="studio-pieces">
-            {pieces.map((p) => <PieceCard key={p.id} piece={p} onOpen={() => navigate(`/admin/studio/${p.id}`)} />)}
+            {pieces.map((p) => <PieceCard key={p.id} piece={p} onOpen={() => navigate(`/admin/content-studio/${p.id}`)} />)}
           </div>
         )}
       </div>

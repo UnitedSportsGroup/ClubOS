@@ -138,7 +138,12 @@ const knowledgeBaseSecondary = { tab: "knowledge-base", title: "Knowledge Base",
 // universal pattern: every workspace, requireAuth server-side, the brand
 // follows the workspace, and a piece is seen by the workspace and changed
 // only by the person who made it.
-const studioSecondary = { tab: "studio", title: "Studio", url: "/admin/studio", icon: Palette };
+// 🔴 "content-studio", not "studio": the July USG Studio (proposal pages +
+// Signal) still owns the `studio` tab slug, /admin/studio and
+// /api/admin/studio/:id — its tables were never applied on prod, and its
+// param route swallowed this tab's first deploy ("relation studio_documents
+// does not exist"). Different paths, no collision.
+const studioSecondary = { tab: "content-studio", title: "Content Studio", url: "/admin/content-studio", icon: Palette };
 // Universal "QR Code Generator" — tracked links and QR posters for every
 // business, in ONE place. It used to be a "Links" tab copied into all seven
 // workspace navs, listing only that workspace's links; it is universal now
@@ -297,7 +302,7 @@ const venueNav = [
 ];
 
 const campsSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -340,7 +345,7 @@ const leagueNav = [
 ];
 
 const venueSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -348,7 +353,7 @@ const venueSecondary = [
 ];
 
 const leagueSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -382,7 +387,7 @@ const tournamentNav = [
 ];
 
 const tournamentSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -432,7 +437,7 @@ const gymnasticsNav = [
 ];
 
 const gymnasticsSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -488,7 +493,7 @@ const groupNav = [
 ];
 
 const groupSecondary = [
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
@@ -526,7 +531,7 @@ const printsNav = [
 
 const printsSecondary = [
   { tab: "integrations", title: "Integrations", url: "/admin/integrations", icon: Globe },
-  { tab: "studio", title: "Studio", url: "/admin/studio", icon: Sparkles },
+  { tab: "studio", title: "Studio", url: "/admin/content-studio", icon: Sparkles },
   { tab: "esign", title: "E-Sign", url: "/admin/esign", icon: FileSignature },
   { tab: "team", title: "Team", url: "/admin/team", icon: Users },
   { tab: "domains", title: "Domains", url: "/admin/domains", icon: Globe },
