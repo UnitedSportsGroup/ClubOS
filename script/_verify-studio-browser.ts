@@ -91,9 +91,9 @@ try {
       for (let i = 0; i < 90 && !opened; i++) {
         await sleep(1000);
         const loc = await page.evaluate(() => location.pathname);
-        if (/^\/admin\/studio\/\d+$/.test(loc)) opened = loc;
+        if (/^\/admin\/content-studio\/\d+$/.test(loc)) opened = loc;
       }
-      ok("Rambo made it and the piece opened", /^\/admin\/studio\/\d+$/.test(opened), opened);
+      ok("Rambo made it and the piece opened", /^\/admin\/content-studio\/\d+$/.test(opened), opened);
       pieceId = opened ? Number(opened.split("/").pop()) : null;
       await sleep(2500);
       const piece: any = await page.evaluate(`(function(){

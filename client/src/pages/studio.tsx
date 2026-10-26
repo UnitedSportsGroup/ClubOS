@@ -40,7 +40,7 @@ export function whenLabel(iso: string | null | undefined): string {
 
 export default function StudioRoute() {
   const [location] = useLocation();
-  const m = /^\/admin\/studio\/(\d+)/.exec(location);
+  const m = /^\/admin\/content-studio\/(\d+)/.exec(location);
   if (m) return <StudioPiece id={Number(m[1])} />;
   return <StudioHome />;
 }
