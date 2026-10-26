@@ -23,9 +23,47 @@ export function RamboMarkdown({ text }: { text: string }) {
       </span>
     );
   };
+  // A markdown table (Rambo reaches for one for an age breakdown): consecutive
+  // lines that start with "|", the "|---|" row dropped.
+  const groups = useMemo(() => {
+    const result: ({ kind: "line"; text: string; i: number } | { kind: "table"; rows: string[][]; i: number })[] = [];
+    let table: string[][] | null = null;
+    blocks.forEach((line, i) => {
+      const t = line.trim();
+      if (t.startsWith("|") && t.endsWith("|")) {
+        const cells = t.slice(1, -1).split("|").map((c) => c.trim());
+        if (cells.every((c) => /^:?-{2,}:?$/.test(c))) return; // the separator row
+        if (!table) { table = []; result.push({ kind: "table", rows: table, i }); }
+        table.push(cells);
+        return;
+      }
+      table = null;
+      result.push({ kind: "line", text: line, i });
+    });
+    return result;
+  }, [blocks]);
   return (
     <div className="space-y-2 text-[14px] leading-relaxed text-foreground/85">
-      {blocks.map((line, i) => {
+      {groups.map((g) => {
+        if (g.kind === "table") {
+          const [head, ...rows] = g.rows;
+          return (
+            <div key={`t${g.i}`} className="overflow-x-auto">
+              <table className="my-1 min-w-[240px] border-collapse text-[13px]">
+                <thead>
+                  <tr>{head.map((h, j) => <th key={j} className="border-b px-2 py-1 text-left font-semibold text-foreground">{inline(h, j)}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, k) => (
+                    <tr key={k} className="odd:bg-muted/30">{r.map((c, j) => <td key={j} className="px-2 py-1 align-top tabular-nums">{inline(c, j)}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        const line = g.text;
+        const i = g.i;
         const t = line.trim();
         if (!t) return <div key={i} className="h-1" />;
         if (t.startsWith("### ")) return <h4 key={i} className="pt-2 text-[14px] font-semibold text-foreground">{t.slice(4)}</h4>;

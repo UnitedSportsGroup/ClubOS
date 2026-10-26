@@ -73,6 +73,81 @@ function speechRecognition(): any | null {
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
 }
 
+interface ThreadRowProps {
+  t: Thread;
+  active: boolean;
+  otherWorkspace: boolean;
+  renaming: boolean;
+  renameText: string;
+  confirmDelete: boolean;
+  onOpen: () => void;
+  onRenameText: (v: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+  onRenameStart: () => void;
+  onDeleteAsk: () => void;
+  onDeleteKeep: () => void;
+  onDeleteYes: () => void;
+}
+
+/** One chat in the list. 🔴 Top-level on purpose: defined inside the page it
+ *  was a new component every render, so the rename box remounted on each
+ *  keystroke and typed letters landed out of order. */
+function ThreadRow(p: ThreadRowProps) {
+  const { t, active, otherWorkspace, renaming, renameText, confirmDelete } = p;
+  return (
+    <div className={`group relative rounded-lg ${active ? "bg-primary/10" : "hover:bg-muted"}`} data-testid="rambo-thread" data-active={active ? "1" : "0"}>
+      {renaming ? (
+        <form className="p-1.5" onSubmit={(e) => { e.preventDefault(); p.onRenameCommit(); }}>
+          <input
+            autoFocus
+            value={renameText}
+            onChange={(e) => p.onRenameText(e.target.value)}
+            onBlur={p.onRenameCommit}
+            onKeyDown={(e) => { if (e.key === "Escape") p.onRenameCancel(); }}
+            className="w-full rounded-md border bg-background px-2 py-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+            maxLength={80}
+            aria-label="Chat name"
+            data-testid="rambo-rename-input"
+          />
+        </form>
+      ) : (
+        <button type="button" onClick={p.onOpen} className="block w-full px-2.5 py-2 text-left" title={t.preview || t.title}>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground" data-testid="rambo-thread-title">{t.title}</span>
+            <span className="shrink-0 text-[10.5px] text-muted-foreground">{when(t.updatedAt)}</span>
+          </div>
+          {(t.preview || otherWorkspace) && (
+            <div className="mt-0.5 flex items-center gap-1.5">
+              {otherWorkspace && <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">{t.workspaceSlug}</span>}
+              <span className="truncate text-[11.5px] text-muted-foreground">{t.preview}</span>
+            </div>
+          )}
+        </button>
+      )}
+      {!renaming && (
+        <div className={`absolute right-1 top-1 flex gap-0.5 ${active ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
+          {confirmDelete ? (
+            <>
+              <button type="button" className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white" onClick={p.onDeleteYes} data-testid="rambo-thread-delete-yes">Delete</button>
+              <button type="button" className="rounded bg-muted px-1.5 py-0.5 text-[11px]" onClick={p.onDeleteKeep}>Keep</button>
+            </>
+          ) : (
+            <>
+              <button type="button" title="Rename" aria-label="Rename chat" className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" onClick={p.onRenameStart} data-testid="rambo-thread-menu-rename">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+              </button>
+              <button type="button" title="Delete" aria-label="Delete chat" className="rounded p-1 text-muted-foreground hover:bg-background hover:text-red-600" onClick={p.onDeleteAsk} data-testid="rambo-thread-menu-delete">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RamboPage() {
   const [location, navigate] = useLocation();
   const search = useSearch();
@@ -260,67 +335,6 @@ export default function RamboPage() {
   const firstName = usage?.firstName || "";
   const micAvailable = !!speechRecognition();
 
-  const ThreadRow = ({ t }: { t: Thread }) => {
-    const active = t.id === threadId;
-    const otherWorkspace = t.workspaceSlug && currentOrg?.slug && t.workspaceSlug !== currentOrg.slug;
-    return (
-      <div className={`group relative rounded-lg ${active ? "bg-primary/10" : "hover:bg-muted"}`} data-testid="rambo-thread" data-active={active ? "1" : "0"}>
-        {renaming === t.id ? (
-          <form className="p-1.5" onSubmit={(e) => { e.preventDefault(); void rename(t.id, renameText); }}>
-            <input
-              autoFocus
-              value={renameText}
-              onChange={(e) => setRenameText(e.target.value)}
-              onBlur={() => void rename(t.id, renameText)}
-              onKeyDown={(e) => { if (e.key === "Escape") setRenaming(null); }}
-              className="w-full rounded-md border bg-background px-2 py-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/30"
-              maxLength={80}
-              aria-label="Chat name"
-              data-testid="rambo-rename-input"
-            />
-          </form>
-        ) : (
-          <button
-            type="button"
-            onClick={() => { navigate(`/admin/rambo/${t.id}`); setListOpen(false); }}
-            className="block w-full px-2.5 py-2 text-left"
-            title={t.preview || t.title}
-          >
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground" data-testid="rambo-thread-title">{t.title}</span>
-              <span className="shrink-0 text-[10.5px] text-muted-foreground">{when(t.updatedAt)}</span>
-            </div>
-            {(t.preview || otherWorkspace) && (
-              <div className="mt-0.5 flex items-center gap-1.5">
-                {otherWorkspace && <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">{t.workspaceSlug}</span>}
-                <span className="truncate text-[11.5px] text-muted-foreground">{t.preview}</span>
-              </div>
-            )}
-          </button>
-        )}
-        {renaming !== t.id && (
-          <div className={`absolute right-1 top-1 flex gap-0.5 ${active ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
-            {confirmDelete === t.id ? (
-              <>
-                <button type="button" className="rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white" onClick={() => void remove(t.id)} data-testid="rambo-thread-delete-yes">Delete</button>
-                <button type="button" className="rounded bg-muted px-1.5 py-0.5 text-[11px]" onClick={() => setConfirmDelete(null)}>Keep</button>
-              </>
-            ) : (
-              <>
-                <button type="button" title="Rename" aria-label="Rename chat" className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" onClick={() => { setRenaming(t.id); setRenameText(t.title); }} data-testid="rambo-thread-menu-rename">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                </button>
-                <button type="button" title="Delete" aria-label="Delete chat" className="rounded p-1 text-muted-foreground hover:bg-background hover:text-red-600" onClick={() => setConfirmDelete(t.id)} data-testid="rambo-thread-menu-delete">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const list = (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-2 p-3">
@@ -350,7 +364,27 @@ export default function RamboPage() {
           groups.map((g) => (
             <div key={g.label} className="mb-3">
               <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{g.label}</p>
-              <div className="space-y-0.5">{g.items.map((t) => <ThreadRow key={t.id} t={t} />)}</div>
+              <div className="space-y-0.5">
+                {g.items.map((t) => (
+                  <ThreadRow
+                    key={t.id}
+                    t={t}
+                    active={t.id === threadId}
+                    otherWorkspace={!!(t.workspaceSlug && currentOrg?.slug && t.workspaceSlug !== currentOrg.slug)}
+                    renaming={renaming === t.id}
+                    renameText={renameText}
+                    confirmDelete={confirmDelete === t.id}
+                    onOpen={() => { navigate(`/admin/rambo/${t.id}`); setListOpen(false); }}
+                    onRenameText={setRenameText}
+                    onRenameCommit={() => void rename(t.id, renameText)}
+                    onRenameCancel={() => setRenaming(null)}
+                    onRenameStart={() => { setRenaming(t.id); setRenameText(t.title); }}
+                    onDeleteAsk={() => setConfirmDelete(t.id)}
+                    onDeleteKeep={() => setConfirmDelete(null)}
+                    onDeleteYes={() => void remove(t.id)}
+                  />
+                ))}
+              </div>
             </div>
           ))
         )}
