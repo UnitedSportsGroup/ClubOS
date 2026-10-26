@@ -21,7 +21,8 @@ async function person(tabs: string[] | null, role: "admin" | "team_member", last
   const email = `_ramboaccess_${last.toLowerCase()}_${Date.now()}@usg.co.nz`, pw = `T${Math.random().toString(36).slice(2)}!aA9`;
   const { rows } = await pool.query(`INSERT INTO users (email,first_name,last_name,password,role,active) VALUES ($1,'Probe',$2,$3,'team_member',true) RETURNING id`, [email, last, await bcrypt.hash(pw, 10)]);
   users.push(rows[0].id);
-  await pool.query(`INSERT INTO user_organizations (user_id,organization_id,role,tabs) VALUES ($1,1,$2,$3)`, [rows[0].id, role, tabs]);
+  // `tabs` is a JSON column — pg would write a JS array as a Postgres array literal.
+  await pool.query(`INSERT INTO user_organizations (user_id,organization_id,role,tabs) VALUES ($1,1,$2,$3)`, [rows[0].id, role, tabs ? JSON.stringify(tabs) : null]);
   const login = await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: pw }) });
   if (!login.ok) throw new Error(`login HTTP ${login.status}`);
   return (login.headers.get("set-cookie") || "").split(";")[0];
