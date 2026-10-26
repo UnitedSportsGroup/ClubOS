@@ -169,7 +169,6 @@ export default function RamboPage() {
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameText, setRenameText] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const [showScopes, setShowScopes] = useState(false);
   const [listening, setListening] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const boxRef = useRef<HTMLTextAreaElement | null>(null);
@@ -423,30 +422,10 @@ export default function RamboPage() {
               {usage.used} of {usage.limit} today
             </span>
           )}
-          <button type="button" onClick={() => setShowScopes((v) => !v)} className="hidden shrink-0 text-[11px] text-muted-foreground underline sm:inline" data-testid="rambo-cansee-toggle">
-            What can Rambo see?
-          </button>
         </header>
-
-        {showScopes && usage && (
-          <div className="shrink-0 border-b bg-muted/30 px-5 py-3 text-[12px]" data-testid="rambo-cansee">
-            <p className="mb-1 text-muted-foreground">Rambo can only tell you what you could already find yourself in ClubOS. Your access decides this.</p>
-            <p><span className="font-medium">Can see:</span> {usage.canSee.map((t) => t.title).join(" · ")}</p>
-            {usage.cannotSee.length > 0 && <p className="text-muted-foreground"><span className="font-medium">Can't see for you:</span> {usage.cannotSee.map((t) => t.title).join(" · ")}</p>}
-            {usage.people && (
-              <details className="mt-2">
-                <summary className="cursor-pointer font-medium">Usage this month, everyone ({usage.model})</summary>
-                <table className="mt-1 w-full max-w-md">
-                  <tbody>
-                    {usage.people.map((p) => (
-                      <tr key={`${p.userId}-${p.label}`}><td className="py-0.5 pr-3">{p.label}</td><td className="py-0.5 pr-3 text-right tabular-nums">{p.prompts} prompt{p.prompts === 1 ? "" : "s"}</td><td className="py-0.5 text-right tabular-nums text-muted-foreground">US${(p.cents / 100).toFixed(2)}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-              </details>
-            )}
-          </div>
-        )}
+        {/* "What can Rambo see?" and its panel were removed on Daniel's ask
+            (2026-10-27). Access is still decided server-side per message; the
+            Knowledge Base tab keeps its own Access note. */}
 
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6" data-testid="rambo-messages">
           {messages.length === 0 && !busy ? (
