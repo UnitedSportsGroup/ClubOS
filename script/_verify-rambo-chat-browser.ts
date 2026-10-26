@@ -122,8 +122,9 @@ try {
       const renameBtn = await page.$('[data-testid="rambo-thread"][data-active="1"] [data-testid="rambo-thread-menu-rename"]');
       if (renameBtn) await renameBtn.click();
       await sleep(300);
+      // The box opens focused with the whole name selected — just type.
       const renameInput = await page.$('[data-testid="rambo-rename-input"]');
-      if (renameInput) { await renameInput.click({ clickCount: 3 }); await page.keyboard.type("Term 4 numbers"); await page.keyboard.press("Enter"); }
+      if (renameInput) { await page.keyboard.type("Term 4 numbers"); await page.keyboard.press("Enter"); }
       await sleep(1200);
       const renamed: any = await page.evaluate(`(function(){ return Array.from(document.querySelectorAll('[data-testid="rambo-thread-title"]')).map(function(x){ return (x.textContent||'').trim(); }); })()`);
       ok("a chat can be renamed from the list", renamed.includes("Term 4 numbers"), renamed.join(" | "));

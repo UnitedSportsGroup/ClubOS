@@ -101,6 +101,9 @@ function ThreadRow(p: ThreadRowProps) {
         <form className="p-1.5" onSubmit={(e) => { e.preventDefault(); p.onRenameCommit(); }}>
           <input
             autoFocus
+            // The whole name is selected when the box opens (ChatGPT does the
+            // same): typing replaces it, an arrow key edits it.
+            onFocus={(e) => e.currentTarget.select()}
             value={renameText}
             onChange={(e) => p.onRenameText(e.target.value)}
             onBlur={p.onRenameCommit}
