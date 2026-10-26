@@ -81,6 +81,30 @@ async function main() {
   const sqBad = await CLUB_TOOL_HANDLERS.squad_payment_status(daniel, { squad: "U99 Dragons" });
   ok("an unknown squad lists the real ones", /couldn't match/.test(sqBad.text) && /U9 Kiwis/.test(sqBad.text), sqBad.text);
 
+  // ── money taken (2026-10-27: "how much money have we made off fundamentals camp this year") ──
+  const money = (s: string, re: RegExp) => { const m = re.exec(s); return m ? Number(m[1].replace(/,/g, "")) : NaN; };
+  const camp$ = await CLUB_TOOL_HANDLERS.programme_revenue(daniel, { programme: "fundamentals camp", period: "this year" });
+  const campTaken = money(camp$.text, /\$([\d,]+\.\d\d) taken/);
+  ok("the fundamentals camps this year answer with taken, refunded and net in dollars", /holiday camps — \d{4}: \$[\d,]+\.\d\d taken, \$[\d,]+\.\d\d refunded, \$[\d,]+\.\d\d net/.test(camp$.text) && campTaken > 0, camp$.text);
+  const year = new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" }).slice(0, 4);
+  const truth$ = (await pool.query(`
+    SELECT coalesce(sum(r.total_cents),0)::bigint AS cents FROM registrations r JOIN programs p ON p.id = r.program_id
+    WHERE p.organization_id = 1 AND p.type = 'holiday_camp' AND r.status IN ('confirmed','refunded','partially_refunded')
+      AND (coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AT TIME ZONE 'Pacific/Auckland')::date BETWEEN ($1 || '-01-01')::date AND ($1 || '-12-31')::date`, [year])).rows[0];
+  ok("…and the taken figure is the decider's own sum of paid camp registrations this year", Math.abs(campTaken * 100 - Number(truth$.cents)) < 1, `${campTaken} vs ${Number(truth$.cents) / 100}`);
+  ok("…it lists each camp with children and days booked", /By programme/.test(camp$.text) && /\d+ children · \d+ full days? \+ \d+ half days? booked/.test(camp$.text), camp$.text);
+  ok("…and says what Taken means and that Xero is not in it", /Xero invoices/.test(camp$.text) && /dashboard's Revenue card/.test(camp$.text));
+  const all$ = await CLUB_TOOL_HANDLERS.programme_revenue(daniel, {});
+  ok("with nothing named it answers for every programme this year, highest first", /every programme in Christchurch United — \d{4}/.test(all$.text) && /By programme \(highest first\)/.test(all$.text), all$.text);
+  const term$ = await CLUB_TOOL_HANDLERS.programme_revenue(daniel, { programme: "U4-U8", period: "Term 3 2026" });
+  ok("a term is honoured for an academy programme", /Term 3 2026: \$[\d,]+\.\d\d taken/.test(term$.text) && /payers?\./.test(term$.text), term$.text);
+  const ever$ = await CLUB_TOOL_HANDLERS.programme_revenue(daniel, { programme: "holiday camps", period: "all" });
+  ok("'all' is all time, and is at least this year's figure", /all time: \$/.test(ever$.text) && money(ever$.text, /\$([\d,]+\.\d\d) taken/) >= campTaken, ever$.text);
+  const badPeriod = await CLUB_TOOL_HANDLERS.programme_revenue(daniel, { programme: "camps", period: "the olden days" });
+  ok("an unknown period lists the real choices", /don't know a period/.test(badPeriod.text) && /Term 4 2026/.test(badPeriod.text), badPeriod.text);
+  const refused$ = await CLUB_TOOL_HANDLERS.programme_revenue(noRegs, { programme: "fundamentals camp" });
+  ok("a person without the Registrations tab gets no money figure, only the refusal", /don't have the Registrations area/.test(refused$.text) && !/\$/.test(refused$.text), refused$.text);
+
   // ── the gate, per workspace ─────────────────────────────────────────────────
   const refused = await CLUB_TOOL_HANDLERS.player_numbers(noRegs, { programme: "U4-U8" });
   ok("a person without the Registrations tab is refused by name, not answered", /don't have the Registrations area/.test(refused.text) && !/registered player/.test(refused.text), refused.text);

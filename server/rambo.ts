@@ -293,6 +293,7 @@ async function runProgrammeList(_viewer: Viewer, input: any): Promise<ToolResult
 
   const rows = await db
     .select({
+      id: programs.id,
       name: programs.name,
       type: programs.type,
       slug: programs.slug,
@@ -308,14 +309,32 @@ async function runProgrammeList(_viewer: Viewer, input: any): Promise<ToolResult
 
   if (!rows.length) return { text: "No active programmes found for that brand." };
 
+  // A holiday camp has no term price — it sells DAYS (camp_pricing: full day,
+  // morning, afternoon). Before 2026-10-27 this read "not set on this
+  // programme" for every camp, and Rambo told Daniel the camps had no price.
+  const campIds = rows.filter((r) => r.type === "holiday_camp").map((r) => r.id);
+  const campPrices = new Map<number, string>();
+  if (campIds.length) {
+    const prices = ((await db.execute(sql`SELECT camp_id, product_type, price_cents FROM camp_pricing WHERE camp_id IN (${sql.join(campIds.map((id) => sql`${id}`), sql`, `)}) ORDER BY camp_id, price_cents DESC`)) as any);
+    const list = (prices?.rows ?? prices ?? []) as any[];
+    const label: Record<string, string> = { FULL_DAY: "full day", MORNING: "morning", AFTERNOON: "afternoon" };
+    for (const p of list) {
+      const id = Number(p.camp_id);
+      const part = `${label[String(p.product_type)] ?? String(p.product_type).toLowerCase()} ${money(Number(p.price_cents))}`;
+      campPrices.set(id, campPrices.has(id) ? `${campPrices.get(id)}, ${part}` : part);
+    }
+  }
+
   return {
     text: rows
       .map(
         (r) =>
           `- ${r.name} (${r.orgName ?? "—"}, type ${r.type}) — registration ${
             r.registrationOpen ? "OPEN" : "CLOSED"
-          }, capacity ${r.capacity ?? "not set"}, term price ${
-            r.termPriceCents ? money(r.termPriceCents) : "not set on this programme"
+          }, capacity ${r.capacity ?? "not set"}, ${
+            r.type === "holiday_camp"
+              ? `day prices ${campPrices.get(r.id) ?? "not set on this camp"}`
+              : `term price ${r.termPriceCents ? money(r.termPriceCents) : "not set on this programme"}`
           }`,
       )
       .join("\n"),

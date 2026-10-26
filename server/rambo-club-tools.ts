@@ -436,9 +436,142 @@ export async function runSquadPaymentStatus(viewer: Viewer, input: any): Promise
   return { text: lines.join("\n") };
 }
 
+// ── Money taken ──────────────────────────────────────────────────────────────
+//
+// Daniel, 2026-10-27, after Rambo answered "how much money have we made off
+// fundamentals camp this year" with budget spreadsheets: "He should have all
+// the data because it's just all there in our programme registrations."
+// It is: registrations.total_cents on every paid row, and the refund ledger.
+// Rambo had no tool that read them, so it reached for the knowledge base.
+
+interface Period {
+  kind: "year" | "term" | "all";
+  label: string;
+  /** Inclusive yyyy-mm-dd bounds for a year; the term for a term. */
+  start?: string;
+  end?: string;
+  term?: Term;
+}
+
+/** "this year" (default) · "last year" · "2025" · "current" / "last term" /
+ *  "Term 3 2026" · "all". Years are NZ calendar years. */
+function resolvePeriod(terms: Term[], text: string | undefined | null): Period | null {
+  const q = String(text ?? "").trim().toLowerCase();
+  const thisYear = Number(nzToday().slice(0, 4));
+  const year = (y: number): Period => ({ kind: "year", label: String(y), start: `${y}-01-01`, end: `${y}-12-31` });
+  if (!q || /^(this year|year|ytd|year to date|so far this year)$/.test(q)) return year(thisYear);
+  if (/^(last year|previous year)$/.test(q)) return year(thisYear - 1);
+  if (/^(all|ever|all time|all-time|everything|total)$/.test(q)) return { kind: "all", label: "all time" };
+  const y = /^(\d{4})$/.exec(q);
+  if (y) return year(Number(y[1]));
+  const term = resolveTerm(terms, q);
+  if (term) return { kind: "term", label: termLabel(term), term };
+  return null;
+}
+
+const dollars = (cents: number) => `$${(Math.round(Number(cents)) / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const MONEY_NOTE =
+  "Taken = the total of paid, confirmed registrations in ClubOS (an unfinished checkout is $0), dated by the payment, or the registration where ClubOS has no payment date; a registration later refunded still counts here and its refund shows separately. " +
+  "Refunded = the refund ledger. Net = taken minus refunded. This is money ClubOS took online or at the office counter — Xero invoices, bank deposits and anything paid outside ClubOS are not in it. " +
+  "The dashboard's Revenue card counts confirmed registrations only, by registration date, so it can read a little lower than Taken.";
+
+async function runProgrammeRevenue(viewer: Viewer, input: any): Promise<ToolResult> {
+  const s = await scopeFor(viewer, input);
+  if (!s.ok) return { text: s.text };
+  const { orgId, orgName } = s.scope;
+  const all = await programmesFor(orgId);
+  const { matched, readAs } = matchProgrammes(all, input?.programme);
+  if (!matched.length) {
+    return { text: `I couldn't match "${readAs}" to a programme in ${orgName}. The programmes are: ${all.map((p) => p.name).join(", ")}. Say one of those, or "all".` };
+  }
+  const terms = await termsFor(orgId);
+  const period = resolvePeriod(terms, input?.period);
+  if (!period) {
+    return { text: `I don't know a period called "${input?.period}". Say "this year", "last year", a year like 2025, "current" or "last term", one of ${terms.map(termLabel).join(", ")}, or "all".` };
+  }
+  const ids = sql.join(matched.map((p) => sql`${p.id}`), sql`, `);
+  // The date a registration's money counts on: the payment when ClubOS has
+  // one, else the registration. registered_at is a NAIVE timestamp holding
+  // UTC wall-clock time; paid_at is timestamptz — both are read in NZ time.
+  const when = sql`(coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AT TIME ZONE 'Pacific/Auckland')::date`;
+  const periodWhere =
+    period.kind === "year"
+      ? sql`AND ${when} BETWEEN ${period.start}::date AND ${period.end}::date`
+      : period.kind === "term"
+        ? sql`AND ((p.type <> 'holiday_camp' AND r.term_id = ${period.term!.id}) OR (p.type = 'holiday_camp' AND p.start_date BETWEEN ${period.term!.start}::date AND ${period.term!.end}::date))`
+        : sql``;
+  const rows = rowsOf(await db.execute(sql`
+    SELECT p.id, p.name, p.type, p.start_date::text AS start_date, p.end_date::text AS end_date,
+           count(r.id)::int AS regs,
+           count(DISTINCT r.contact_id)::int AS payers,
+           count(r.id) FILTER (WHERE r.total_cents IS NULL)::int AS no_amount,
+           count(r.id) FILTER (WHERE r.status <> 'confirmed')::int AS refunded_regs,
+           coalesce(sum(r.total_cents), 0)::bigint AS taken_cents,
+           coalesce(sum(f.refunded), 0)::bigint AS refunded_cents
+    FROM registrations r
+    JOIN programs p ON p.id = r.program_id
+    LEFT JOIN LATERAL (SELECT sum(amount_cents) AS refunded FROM registration_refunds f WHERE f.registration_id = r.id) f ON true
+    WHERE p.organization_id = ${orgId} AND r.status IN ${REAL} AND r.program_id IN (${ids}) ${periodWhere}
+    GROUP BY p.id, p.name, p.type, p.start_date, p.end_date
+    ORDER BY taken_cents DESC, p.name`));
+  // Camps: the children and the days behind the money.
+  const campIds = matched.filter((p) => p.type === "holiday_camp").map((p) => p.id);
+  const campRows = campIds.length
+    ? rowsOf(await db.execute(sql`
+        SELECT r.program_id, count(DISTINCT ri.child_id)::int AS children,
+               count(*) FILTER (WHERE ri.product_type = 'FULL_DAY')::int AS full_days,
+               count(*) FILTER (WHERE ri.product_type IN ('MORNING','AFTERNOON'))::int AS half_days
+        FROM registration_items ri
+        JOIN registrations r ON r.id = ri.registration_id
+        JOIN programs p ON p.id = r.program_id
+        WHERE p.organization_id = ${orgId} AND r.status IN ${REAL} AND ri.child_id IS NOT NULL
+          AND r.program_id IN (${sql.join(campIds.map((id) => sql`${id}`), sql`, `)}) ${periodWhere}
+        GROUP BY r.program_id`))
+    : [];
+  const campBy = new Map<number, any>(campRows.map((c) => [Number(c.program_id), c]));
+
+  const total = rows.reduce((a, r) => ({ regs: a.regs + Number(r.regs), taken: a.taken + Number(r.taken_cents), refunded: a.refunded + Number(r.refunded_cents), noAmount: a.noAmount + Number(r.no_amount) }), { regs: 0, taken: 0, refunded: 0, noAmount: 0 });
+  const lines: string[] = [];
+  const title = matched.length === all.length ? `every programme in ${orgName}` : readAs;
+  if (rows.length === 0) {
+    lines.push(`**${title} — ${period.label}: nothing taken in ClubOS.** No paid registrations fall in that period.`);
+    if (period.kind === "year") {
+      const anyEver = rowsOf(await db.execute(sql`SELECT count(*)::int AS n FROM registrations r JOIN programs p ON p.id = r.program_id WHERE p.organization_id = ${orgId} AND r.status IN ${REAL} AND r.program_id IN (${ids})`))[0];
+      if (Number(anyEver?.n ?? 0) > 0) lines.push(`There are ${anyEver.n} paid registrations on these programmes in other periods — ask for "all" or another year.`);
+    }
+    lines.push(MONEY_NOTE);
+    return { text: lines.join("\n") };
+  }
+  lines.push(`**${title} — ${period.label}: ${dollars(total.taken)} taken, ${dollars(total.refunded)} refunded, ${dollars(total.taken - total.refunded)} net** across ${total.regs} paid registration${total.regs === 1 ? "" : "s"}.`);
+  if (rows.length > 1) {
+    lines.push("By programme (highest first):");
+    for (const r of rows.slice(0, 40)) {
+      const camp = campBy.get(Number(r.id));
+      const bits = [`${Number(r.regs)} registration${Number(r.regs) === 1 ? "" : "s"}`];
+      if (camp) bits.push(`${camp.children} children`, `${camp.full_days} full day${camp.full_days === 1 ? "" : "s"} + ${camp.half_days} half day${camp.half_days === 1 ? "" : "s"} booked`);
+      else bits.push(`${Number(r.payers)} payer${Number(r.payers) === 1 ? "" : "s"}`);
+      if (Number(r.refunded_cents) > 0) bits.push(`${dollars(r.refunded_cents)} refunded (${r.refunded_regs})`);
+      const when = r.type === "holiday_camp" && r.start_date ? ` (ran ${String(r.start_date).slice(0, 10)}${r.end_date ? ` to ${String(r.end_date).slice(0, 10)}` : ""})` : "";
+      lines.push(`- ${r.name}${when}: ${dollars(r.taken_cents)} · ${bits.join(" · ")}`);
+    }
+    if (rows.length > 40) lines.push(`…and ${rows.length - 40} more programmes.`);
+  } else {
+    const r = rows[0];
+    const camp = campBy.get(Number(r.id));
+    if (camp) lines.push(`${camp.children} children, ${camp.full_days} full days and ${camp.half_days} half days booked${r.start_date ? ` (ran ${String(r.start_date).slice(0, 10)}${r.end_date ? ` to ${String(r.end_date).slice(0, 10)}` : ""})` : ""}.`);
+    else lines.push(`${Number(r.payers)} payer${Number(r.payers) === 1 ? "" : "s"}.`);
+    if (Number(r.refunded_cents) > 0) lines.push(`${r.refunded_regs} of those were refunded in part or in full: ${dollars(r.refunded_cents)} back.`);
+  }
+  if (total.noAmount > 0) lines.push(`${total.noAmount} registration${total.noAmount === 1 ? "" : "s"} carr${total.noAmount === 1 ? "ies" : "y"} no amount in ClubOS (older imports) and count as $0 here.`);
+  lines.push(MONEY_NOTE);
+  return { text: lines.join("\n") };
+}
+
 export const CLUB_TOOL_HANDLERS: Record<string, (viewer: Viewer, input: any) => Promise<ToolResult>> = {
   player_numbers: runPlayerNumbers,
   payment_status: runPaymentStatus,
   camp_overlap: runCampOverlap,
   squad_payment_status: runSquadPaymentStatus,
+  programme_revenue: runProgrammeRevenue,
 };

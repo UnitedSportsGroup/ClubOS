@@ -374,6 +374,24 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
     },
   },
   {
+    name: "programme_revenue",
+    title: "Money taken",
+    description:
+      "How much money a programme (or every programme) has taken in ClubOS: the total of paid registrations, what was refunded, and the net — by programme, for a year, a term, or all time; " +
+      "holiday camps also show children and days booked. Use for 'how much have we made off the fundamentals camp this year', 'academy revenue this term', 'what did Term 3 bring in', 'camp takings'. " +
+      "This is money ClubOS took online or at the office counter; it does not see Xero invoices or bank deposits.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programme: { type: "string", description: "Programme name or nickname — 'fundamentals camp', 'holiday camps', 'U4-U8', 'pre-academy', 'academy', 'technification' — or 'all' (default)." },
+        period: { type: "string", description: "'this year' (default), 'last year', a year like '2025', 'current' or 'last term', 'Term 3 2026', or 'all' for all time." },
+        brand: { type: "string", description: "Only if the person asks about a DIFFERENT workspace than the one they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+      required: [],
+    },
+  },
+  {
     name: "search_drive",
     title: "Club Drive files",
     description:
