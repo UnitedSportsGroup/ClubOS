@@ -100,15 +100,16 @@ try {
   const blocks: any[] = pg.j.piece?.doc?.blocks ?? [];
   ok("…with four to twelve blocks and every link a full address", blocks.length >= 4 && blocks.length <= 12 && blocks.every((b) => !b.cta?.href || /^https?:\/\//.test(b.cta.href)) && blocks.every((b) => !b.button?.href || /^https?:\/\//.test(b.button.href)), `${blocks.length} blocks: ${blocks.map((b) => b.type).join(",")}`);
   ok("…and every picture on the club's hosts", blocks.every((b) => [b.photo, b.src, ...(Array.isArray(b.items) ? b.items.map((i: any) => i?.photo) : [])].every((u) => !u || /^https:\/\/app\.usg\.co\.nz\//.test(u))));
-  const draft404 = await fetch(`${BASE}/p/${pg.j.piece.slug || "nothing"}`, { headers: { host: "join.cufc.co.nz" } });
+  // 🔴 Node's fetch drops a hand-set Host header, so the brand hosts are hit by their REAL names.
+  const draft404 = await fetch(`https://join.cufc.co.nz/p/${pg.j.piece.slug || "nothing"}`);
   ok("a draft is not served on the public host", draft404.status === 404, String(draft404.status));
   const pub = await api(zach.cookie, "POST", `/api/admin/content-studio/pieces/${pId}/publish`, { slug: `studio-probe-${Date.now().toString(36)}` });
   ok("publishing gives it an address on join.cufc.co.nz", pub.status === 200 && /^https:\/\/join\.cufc\.co\.nz\/p\/studio-probe-/.test(pub.j.url || ""), JSON.stringify(pub.j).slice(0, 160));
   const slug = pub.j.piece?.slug as string;
-  const live = await fetch(`${BASE}/p/${slug}`, { headers: { host: "join.cufc.co.nz" } });
+  const live = await fetch(`https://join.cufc.co.nz/p/${slug}`);
   const liveHtml = await live.text();
   ok("the public page answers on the brand host with the brand's crest, the headline and noindex", live.status === 200 && /text\/html/.test(live.headers.get("content-type") || "") && /mailer\/crests\/cufc\.png/.test(liveHtml) && liveHtml.includes(blocks[0].headline.replace(/&/g, "&amp;")) && /noindex/.test(liveHtml), `${live.status}`);
-  const wrongHost = await fetch(`${BASE}/p/${slug}`, { headers: { host: "join.minifootball.co.nz" } });
+  const wrongHost = await fetch(`https://join.minifootball.co.nz/p/${slug}`);
   ok("…and not on another brand's host", wrongHost.status === 404, String(wrongHost.status));
   const appHost = await fetch(`${BASE}/p/${slug}?b=cufc`);
   ok("…and on the app host when the brand is named", appHost.status === 200, String(appHost.status));
@@ -123,14 +124,14 @@ try {
   const asked = await api(zach.cookie, "POST", `/api/admin/content-studio/pieces/${gId}/ask`, { instruction: "Change the headline to exactly: Camp spots are nearly gone", history: [] });
   ok("a re-prompt changes the words and is a new version on the edit model", asked.status === 200 && asked.j.ok === true && /nearly gone/i.test(asked.j.piece?.doc?.headline || "") && asked.j.piece.version === 3 && /sonnet/.test(asked.j.model), JSON.stringify(asked.j).slice(0, 200));
   const unpub = await api(zach.cookie, "POST", `/api/admin/content-studio/pieces/${pId}/unpublish`, {});
-  const gone = await fetch(`${BASE}/p/${slug}`, { headers: { host: "join.cufc.co.nz" } });
+  const gone = await fetch(`https://join.cufc.co.nz/p/${slug}`);
   ok("taking the page down makes the address a 404 again", unpub.status === 200 && gone.status === 404, `${unpub.status} ${gone.status}`);
 
   // ── Rambo makes a graphic from the chat ──────────────────────────────────
   const t = await api(zach.cookie, "POST", "/api/admin/rambo/threads", {});
   const chat = await api(zach.cookie, "POST", `/api/admin/rambo/threads/${t.j.thread.id}/ask`, { question: "Make me a square graphic: a big-number style post saying 162 players are registered for U4-U8 this term. Pointer cufc.co.nz. Just make it, no questions." });
   const content = String(chat.j.message?.content ?? "");
-  const m = /\/admin\/studio\/(\d+)/.exec(content);
+  const m = /\/admin\/content-studio\/(\d+)/.exec(content);
   ok("Rambo in the chat made a graphic and linked to it", chat.j.ok === true && !!m && /make_graphic/.test(JSON.stringify(chat.j.message?.toolsUsed || "")), content.slice(0, 200));
   if (m) {
     pieces.push(Number(m[1]));

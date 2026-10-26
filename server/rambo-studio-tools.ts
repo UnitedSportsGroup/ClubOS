@@ -15,7 +15,7 @@ import { db } from "./db";
 import { studioPieces, studioVersions } from "@shared/schema";
 import { graphicSize, STUDIO_TITLE_MAX, studioBrand, studioBrandForOrgSlug } from "@shared/studio";
 import type { Viewer } from "@shared/knowledge-base";
-import { generateStudioPiece } from "./studio-ai";
+import { generateStudioPiece, stampGeneration } from "./studio-ai";
 
 interface ToolResult { text: string; sources?: { id: number; title: string; brand: string }[] }
 const rowsOf = (r: any): any[] => (r?.rows ?? r ?? []) as any[];
@@ -45,6 +45,7 @@ async function make(kind: "graphic" | "page", viewer: Viewer, input: any): Promi
     doc: out.doc as any, version: 1, brief, createdByUserId: viewer.userId,
   }).returning();
   await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: `from Rambo: ${brief.slice(0, 400)}`, createdByUserId: viewer.userId || null });
+  await stampGeneration(out.generationId, piece.id);
   const link = `https://app.usg.co.nz/admin/content-studio/${piece.id}`;
   const what = kind === "graphic" ? `a ${graphicSize(sizeKey).label.toLowerCase()} graphic` : "a landing page";
   const words = kind === "graphic" ? `Headline: "${(out.doc as any).headline}"${(out.doc as any).sub ? ` — ${(out.doc as any).sub}` : ""}.` : `${(out.doc as any).blocks?.length ?? 0} sections, starting "${(out.doc as any).blocks?.[0]?.headline ?? ""}".`;

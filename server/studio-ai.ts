@@ -11,7 +11,7 @@
  * Fly with no deploy.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
 import { studioGenerations } from "@shared/schema";
 import { mailerAiCostCents, type MailerAiTokenUsage } from "@shared/mailer-ai";
@@ -113,6 +113,9 @@ export interface StudioGenerateResult {
   model: string;
   usage: MailerAiTokenUsage;
   costCents: number;
+  /** The usage row — a first generation is written before its piece exists;
+   *  the caller stamps the piece id on it once the piece is saved. */
+  generationId: number | null;
   error?: string;
 }
 
@@ -120,6 +123,12 @@ function parseJson(res: Anthropic.Message): any | null {
   const text = res.content.filter((c): c is Anthropic.TextBlock => c.type === "text").map((c) => c.text).join("").trim();
   if (!text) return null;
   try { return JSON.parse(text); } catch { return null; }
+}
+
+/** Stamp the piece on the usage row written before the piece existed. */
+export async function stampGeneration(generationId: number | null, pieceId: number): Promise<void> {
+  if (!generationId) return;
+  try { await db.update(studioGenerations).set({ pieceId }).where(eq(studioGenerations.id, generationId)); } catch { /* bookkeeping */ }
 }
 
 export async function generateStudioPiece(input: StudioGenerateInput): Promise<StudioGenerateResult> {
@@ -139,14 +148,16 @@ export async function generateStudioPiece(input: StudioGenerateInput): Promise<S
     },
   ];
 
+  let generationId: number | null = null;
   const record = async (ok: boolean, error: string | null, reply: string | null) => {
     try {
-      await db.insert(studioGenerations).values({
+      const [row] = await db.insert(studioGenerations).values({
         pieceId: input.pieceId ?? null, userId: input.userId, userLabel: input.userLabel, organizationId: input.orgId, brand: input.brandKey,
         kind: input.kind, model, instruction: input.brief.slice(0, 4000),
         inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, cacheWriteTokens: usage.cacheWrite,
         costUsdCents: String(mailerAiCostCents(model, usage)), durationMs: Date.now() - started, ok, error: error ?? (ok ? null : reply),
-      });
+      }).returning({ id: studioGenerations.id });
+      generationId = row?.id ?? null;
     } catch (e) { console.error("[studio] usage row failed:", e); }
   };
 
@@ -164,7 +175,7 @@ export async function generateStudioPiece(input: StudioGenerateInput): Promise<S
       usage.output += res.usage.output_tokens ?? 0;
       usage.cacheRead += (res.usage as any).cache_read_input_tokens ?? 0;
       usage.cacheWrite += (res.usage as any).cache_creation_input_tokens ?? 0;
-      if (res.stop_reason === "refusal") { await record(false, "refused", null); return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), error: "Rambo declined that brief." }; }
+      if (res.stop_reason === "refusal") { await record(false, "refused", null); return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), generationId, error: "Rambo declined that brief." }; }
       const out = parseJson(res);
       const problems: string[] = [];
       if (res.stop_reason === "max_tokens") problems.push("the answer was cut off — keep the page to nine blocks and the words short");
@@ -184,14 +195,14 @@ export async function generateStudioPiece(input: StudioGenerateInput): Promise<S
       if (!problems.length && out && doc) {
         await record(true, null, out.reply);
         const title = input.kind === "graphic" ? String(out.title || (doc as GraphicDoc).headline || "Graphic").slice(0, 120) : String((doc as PageDoc).title || "Page").slice(0, 120);
-        return { ok: true, reply: String(out.reply), title, doc, model, usage, costCents: mailerAiCostCents(model, usage) };
+        return { ok: true, reply: String(out.reply), title, doc, model, usage, costCents: mailerAiCostCents(model, usage), generationId };
       }
       lastProblems = problems;
       messages.push({ role: "assistant", content: out ? JSON.stringify(out) : "(no valid answer)" });
       messages.push({ role: "user", content: `That document could not be used:\n- ${problems.join("\n- ")}\n\nReturn the corrected document. Use only pictures from the list, links from the facts, and the limits given.` });
     }
     await record(false, lastProblems[0] ?? "no usable answer", null);
-    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), error: `Rambo couldn't make a version that passes the checks (${lastProblems[0] || "no usable answer"}). Try a shorter or more specific brief.` };
+    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), generationId, error: `Rambo couldn't make a version that passes the checks (${lastProblems[0] || "no usable answer"}). Try a shorter or more specific brief.` };
   } catch (e: any) {
     const msg = String(e?.message || e || "");
     await record(false, msg.slice(0, 500), null);
@@ -199,6 +210,6 @@ export async function generateStudioPiece(input: StudioGenerateInput): Promise<S
       : e?.status === 429 ? "Rambo is busy right now (rate limited). Try again in a minute."
       : /credit|balance|billing/i.test(msg) ? "The club's Anthropic account is out of credit. Top it up at console.anthropic.com."
       : `Rambo hit a snag: ${msg.slice(0, 200)}`;
-    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), error: friendly };
+    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), generationId, error: friendly };
   }
 }

@@ -33,7 +33,7 @@ import {
   type GraphicDoc, type PageDoc, type StudioKind, type VideoDoc,
 } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
-import { generateStudioPiece, pictureLibrary, STUDIO_EDIT_MODEL, STUDIO_MODEL } from "./studio-ai";
+import { generateStudioPiece, pictureLibrary, stampGeneration, STUDIO_EDIT_MODEL, STUDIO_MODEL } from "./studio-ai";
 import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
 import { shrinkForEmail } from "./mailer-image-shrink";
 import { storeMailerImage } from "./mailer-images";
@@ -215,6 +215,7 @@ export function registerStudioRoutes(app: Express) {
           organizationId: w.orgId, brand: brandKey, kind, title: (out.title || "Untitled").slice(0, STUDIO_TITLE_MAX), size: sizeKey, status: "draft", doc: out.doc as any, version: 1, brief, createdByUserId: user.id,
         }).returning();
         await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: brief.slice(0, 500), createdByUserId: user.id });
+        await stampGeneration(out.generationId, piece.id);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, piece: shapePiece(piece, { ownerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(), canEdit: true }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
       } catch (e: any) {
