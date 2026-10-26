@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, bigint, smallint, boolean, timestamp, date, decimal, numeric, doublePrecision, real, pgEnum, uniqueIndex, unique, index, time, jsonb, serial, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, smallint, boolean, timestamp, date, decimal, numeric, doublePrecision, real, pgEnum, uniqueIndex, unique, index, time, jsonb, serial, uuid, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { HiringQuestion } from "./hiring";
@@ -10257,3 +10257,27 @@ export const mailerAiUsage = pgTable("mailer_ai_usage", {
   orgIdx: index("mailer_ai_usage_org_idx").on(t.organizationId, t.createdAt),
 }));
 export type MailerAiUsageRow = typeof mailerAiUsage.$inferSelect;
+
+// ── Pictures uploaded into the Mailer — shrunk, hosted at /mailer/img/<key> ──
+// Daniel, 2026-10-26: "file upload … make sure it doesn't become big and slow".
+// Bytes in Postgres behind one adapter (server/mailer-images.ts); the CHECKs
+// in the migration are the shrinking rules made structural (≤1200px, ≤2MB).
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
+export const mailerImages = pgTable("mailer_images", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "restrict" }),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  /** First 24 hex chars of the stored bytes' SHA-256 — one row per picture, unguessable. */
+  key: text("key").notNull().unique(),
+  mime: text("mime").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  bytes: integer("bytes").notNull(),
+  data: bytea("data").notNull(),
+  originalName: text("original_name"),
+  originalBytes: integer("original_bytes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  orgIdx: index("mailer_images_org_idx").on(t.organizationId, t.createdAt),
+}));
+export type MailerImageRow = typeof mailerImages.$inferSelect;

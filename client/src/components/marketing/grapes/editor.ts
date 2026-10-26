@@ -25,6 +25,7 @@ import { registerBlocks } from "./blocks";
 import { registerClubBlocks } from "./club-blocks";
 import { LETTERHEADS } from "./letterheads";
 import { CLUB_LOGOS } from "./templates/brand-kit";
+import { workspaceFetch } from "@/lib/queryClient";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
 import { installCleanPaste } from "./clean-paste";
 import { MOBILE_EMAIL_CSS, withMobileCss } from "./mobile-css";
@@ -236,16 +237,54 @@ function wireLogoPicker(editor: Editor, shell: Shell): { refresh: () => void } {
   host.innerHTML = `
     <p class="ce-logos-title">Club logos</p>
     <div class="ce-logos-grid"></div>
-    <p class="ce-logos-hint">Or a picture of your own, by link:</p>
-    <form class="ce-logos-link" data-testid="ce-logo-link">
-      <input type="url" placeholder="https://…/picture.png" aria-label="Link to your own picture" data-testid="ce-logo-link-input" />
-      <button type="submit" data-testid="ce-logo-link-use">Use</button>
-    </form>
+    <p class="ce-logos-hint">Or a picture of your own:</p>
+    <div class="ce-logos-own">
+      <button type="button" class="ce-logos-upload" data-testid="ce-logo-upload">Upload a picture</button>
+      <input type="file" accept="image/*" class="ce-logos-file" aria-label="Upload a picture" data-testid="ce-logo-upload-input" />
+      <form class="ce-logos-link" data-testid="ce-logo-link">
+        <input type="url" placeholder="or paste a link https://…" aria-label="Link to your own picture" data-testid="ce-logo-link-input" />
+        <button type="submit" data-testid="ce-logo-link-use">Use</button>
+      </form>
+    </div>
+    <p class="ce-logos-status ce-hidden" data-testid="ce-logo-upload-status" aria-live="polite"></p>
   `;
   const grid = host.querySelector<HTMLElement>(".ce-logos-grid")!;
-  // A picture of your own. 🔴 By link only: the builder has no image home yet
-  // (R2 is the open item), and a file read into base64 would blow Gmail's 102KB
-  // clip on the first photo.
+  // A picture of your own — uploaded and SHRUNK on the server (rotated upright,
+  // camera data stripped, ≤1200px, progressive JPEG / palette PNG), then hosted
+  // at app.usg.co.nz so the email stays light; or linked. Never base64: Gmail
+  // clips the HTML at 102KB and one phone photo is 4MB.
+  const uploadBtn = host.querySelector<HTMLButtonElement>(".ce-logos-upload")!;
+  const fileInput = host.querySelector<HTMLInputElement>(".ce-logos-file")!;
+  const status = host.querySelector<HTMLElement>(".ce-logos-status")!;
+  let statusTimer: number | null = null;
+  const say = (text: string, kind: "busy" | "ok" | "error", holdMs = 6000) => {
+    status.textContent = text;
+    status.className = `ce-logos-status is-${kind}`;
+    if (statusTimer) window.clearTimeout(statusTimer);
+    if (kind !== "busy") statusTimer = window.setTimeout(() => status.classList.add("ce-hidden"), holdMs);
+  };
+  uploadBtn.onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    if (!isImageComponent(editor.getSelected())) { say("Select a picture on the canvas first.", "error"); return; }
+    uploadBtn.disabled = true;
+    say(`Shrinking ${file.name}…`, "busy");
+    try {
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      const r = await workspaceFetch("/api/admin/mailer/images", { method: "POST", body: fd });
+      const data: any = await r.json().catch(() => ({}));
+      if (!r.ok || !data?.ok || !data?.url) { say(data?.message || `Upload failed (HTTP ${r.status}).`, "error", 9000); return; }
+      setSrc(data.url);
+      say(`Done — ${data.note}, ${data.width}×${data.height}, ${data.reason}. Hosted on ClubOS.`, "ok", 8000);
+    } catch (e) {
+      say(e instanceof Error ? e.message : "Upload failed.", "error", 9000);
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  };
   const linkForm = host.querySelector<HTMLFormElement>(".ce-logos-link")!;
   const linkInput = linkForm.querySelector<HTMLInputElement>("input")!;
   const setSrc = (src: string, alt?: string, width?: string) => {

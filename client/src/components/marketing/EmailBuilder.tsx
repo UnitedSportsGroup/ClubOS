@@ -311,10 +311,16 @@ export default function EmailBuilder({
     surfaceRef.current?.insertText(tag);
   }, []);
 
+  // The live size gauge (beehiiv calls it "a live email-size gauge that warns
+  // you before gmail clips your newsletter"). It measures the HTML — what Gmail
+  // clips at 102KB. Pictures are hosted, so they never count against it.
+  const [sizeBytes, setSizeBytes] = useState<number | null>(null);
+
   // Shared guard + persist for BOTH desktop and mobile save paths.
   const commit = useCallback(
     async (result: EmailBuilderResult): Promise<boolean> => {
       const bytes = byteLength(result.html);
+      setSizeBytes(bytes);
       if (bytes >= BLOCK_BYTES) {
         setError(
           `This email is ${kb(bytes)} — Gmail clips emails over 102KB. Trim images or content before sending.`,
@@ -551,6 +557,22 @@ export default function EmailBuilder({
             />
             {brand.name}
           </span>
+          {!isNarrow && sizeBytes != null && (
+            <span
+              className={`hidden rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums md:inline ${
+                sizeBytes >= BLOCK_BYTES
+                  ? "border-red-300 bg-red-50 text-red-700"
+                  : sizeBytes >= WARN_BYTES
+                    ? "border-amber-300 bg-amber-50 text-amber-800"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+              title={`This email's HTML is ${kb(sizeBytes)}. Gmail clips emails over 102KB. Pictures are hosted on ClubOS and don't count.`}
+              data-testid="mkt-size-gauge"
+              data-state={sizeBytes >= BLOCK_BYTES ? "over" : sizeBytes >= WARN_BYTES ? "warn" : "ok"}
+            >
+              {kb(sizeBytes)} of 102KB
+            </span>
+          )}
           {autoSave && !isNarrow && (
             <span className="hidden text-xs text-muted-foreground md:inline" data-testid="mkt-autosave-status">
               {savedFlash

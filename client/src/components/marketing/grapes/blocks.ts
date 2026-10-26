@@ -52,6 +52,8 @@ export interface EmailBlockDef {
   content: string;
   /** optional attributes applied to the dropped component */
   attributes?: Record<string, unknown>;
+  /** select the dropped component at once (a picture, so the logo/upload picker is right there) */
+  select?: boolean;
 }
 
 /** Context handed to block builders — the resolved brand canvas theme. */
@@ -70,6 +72,7 @@ export function registerBlock(editor: Editor, def: EmailBlockDef): void {
     media: def.media,
     content: def.content,
     attributes: { class: "ce-block-tile", ...(def.attributes ?? {}) },
+    ...(def.select ? { select: true } : {}),
   });
 }
 
@@ -173,6 +176,7 @@ function coreBlocks(c: BlockContext): EmailBlockDef[] {
       category: CAT_CONTENT,
       media: svgImage(),
       content: `<mj-image src="${IMG_PLACEHOLDER}" alt="" border-radius="8px" padding="10px 0" />`,
+      select: true, // the logo/upload picker opens on the dropped picture
     },
     {
       id: "email-logo",
@@ -180,6 +184,7 @@ function coreBlocks(c: BlockContext): EmailBlockDef[] {
       category: CAT_CONTENT,
       media: svgLogo(),
       content: `<mj-image src="${b.logoUrl ?? IMG_PLACEHOLDER}" alt="${escapeAttr(b.name)}" width="150px" align="left" padding="6px 0" />`,
+      select: true,
     },
 
     // ── Blocks ────────────────────────────────────────────────────────────

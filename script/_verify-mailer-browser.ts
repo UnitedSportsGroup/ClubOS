@@ -17,8 +17,10 @@
 import pg from "pg";
 import bcrypt from "bcryptjs";
 import puppeteer from "puppeteer-core";
-import { mkdirSync } from "fs";
+import { mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
+import { tmpdir } from "os";
+import sharp from "sharp";
 
 const BASE = process.env.VERIFY_BASE || "https://app.usg.co.nz";
 const WORKSPACE = "christchurch-united";
@@ -520,8 +522,38 @@ try {
       if (useBtn) await useBtn.click();
       await sleep(600);
       ok("a link to a picture of your own goes on the selected picture", (await srcOnCanvas()) === ownPic, await srcOnCanvas());
+
+      // ── Upload a picture of your own (26 Oct, late) ──────────────────────
+      // Daniel: "file upload … make sure it doesn't become big and slow to
+      // load." A 4000×3000 JPEG with camera EXIF goes through the file input →
+      // shrunk on the server → hosted at /mailer/img/<key>.jpg → on the canvas.
+      // Fetched back from the browser it is 1200 wide, progressive, EXIF-free,
+      // under 250KB and cached for a year. An SVG is refused with the PNG
+      // advice. The live size gauge reads KB of 102KB.
+      const bigPath = join(tmpdir(), `mailer-probe-${Date.now()}.jpg`);
+      {
+        const noise = Buffer.alloc(4000 * 3000 * 3);
+        for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24;
+        await sharp(noise, { raw: { width: 4000, height: 3000, channels: 3 } }).jpeg({ quality: 95 }).withMetadata({ exif: { IFD0: { Make: "ProbeCam" } } }).toFile(bigPath);
+      }
+      const fileInput = await page.$('[data-testid="ce-logo-upload-input"]');
+      if (fileInput) await (fileInput as any).uploadFile(bigPath);
+      let hosted = "";
+      for (let i = 0; i < 60; i++) { await sleep(500); hosted = await srcOnCanvas(); if (/\/mailer\/img\/[a-f0-9]{24}\.jpg$/.test(hosted)) break; }
+      const uploadNote: any = await page.evaluate(`(function(){ var s = document.querySelector('[data-testid="ce-logo-upload-status"]'); return s ? (s.textContent || '').trim() : ''; })()`);
+      ok("a 4000×3000 photo uploads, is shrunk, and lands on the canvas hosted at /mailer/img", /\/mailer\/img\/[a-f0-9]{24}\.jpg$/.test(hosted), JSON.stringify({ hosted, uploadNote }));
+      const fetched: any = await page.evaluate(`(async function(u){ try { var r = await fetch(u, { cache: 'no-store' }); var b = await r.arrayBuffer(); var bytes = new Uint8Array(b); var bin = ''; for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]); return { status: r.status, type: r.headers.get('content-type'), cache: r.headers.get('cache-control'), etag: r.headers.get('etag'), length: bytes.length, b64: btoa(bin) }; } catch (e) { return { error: String(e) }; } })(${JSON.stringify(hosted)})`);
+      const got = fetched && fetched.b64 ? Buffer.from(fetched.b64, "base64") : Buffer.alloc(0);
+      const gotMeta = got.length ? await sharp(got).metadata().catch(() => null) : null;
+      ok("…served as image/jpeg with a year-long immutable cache", fetched.status === 200 && fetched.type === "image/jpeg" && /immutable/.test(fetched.cache || "") && !!fetched.etag, JSON.stringify({ status: fetched.status, type: fetched.type, cache: fetched.cache, error: fetched.error }));
+      ok("…1200 wide, progressive, no EXIF, under 250KB", !!gotMeta && gotMeta.width === 1200 && gotMeta.height === 900 && gotMeta.isProgressive === true && !gotMeta.exif && got.length <= 250 * 1024, gotMeta ? `${gotMeta.width}×${gotMeta.height} ${Math.round(got.length / 1024)}KB exif=${!!gotMeta.exif}` : "no bytes");
+      const svgRefusal: any = await page.evaluate(`(async function(){ var fd = new FormData(); fd.append('file', new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'], { type: 'image/svg+xml' }), 'logo.svg'); var r = await fetch('/api/admin/mailer/images', { method: 'POST', body: fd, credentials: 'include', headers: { 'X-Workspace-Slug': ${JSON.stringify(WORKSPACE)} } }); var j = await r.json().catch(function(){ return {}; }); return { status: r.status, message: j.message || '' }; })()`);
+      ok("an SVG upload is refused with the PNG advice", svgRefusal.status === 400 && /PNG/.test(svgRefusal.message), JSON.stringify(svgRefusal));
+      const gauge: any = await page.evaluate(`(function(){ var g = document.querySelector('[data-testid="mkt-size-gauge"]'); return g ? { text: (g.textContent || '').trim(), state: g.getAttribute('data-state') } : null; })()`);
+      ok("the live size gauge reads the email's KB of 102KB and is green", !!gauge && /^\d+KB of 102KB$/.test(gauge.text) && gauge.state === "ok", JSON.stringify(gauge));
       await page.screenshot({ path: join(OUT, `${label}-logo-picker.png`) });
       console.log(`  → ${join(OUT, `${label}-logo-picker.png`)}`);
+      try { unlinkSync(bigPath); } catch { /* temp file */ }
       const cufcTile2 = await page.$('[data-testid="ce-logo-cufc"]');
       if (cufcTile2) await cufcTile2.click();
       await sleep(300);

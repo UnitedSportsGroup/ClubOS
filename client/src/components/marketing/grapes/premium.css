@@ -428,6 +428,45 @@
   line-height: 1.35;
   color: var(--ce-muted);
 }
+.ce-logos-own {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ce-logos-file {
+  display: none;
+}
+.ce-logos-upload {
+  height: 30px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--ce-accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ce-logos-upload:hover {
+  filter: brightness(1.08);
+}
+.ce-logos-upload:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ce-logos-status {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.ce-logos-status.is-busy {
+  color: var(--ce-muted);
+}
+.ce-logos-status.is-ok {
+  color: #047857;
+}
+.ce-logos-status.is-error {
+  color: #b91c1c;
+}
 .ce-logos-link {
   display: flex;
   gap: 6px;
