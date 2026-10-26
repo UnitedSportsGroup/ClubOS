@@ -50,6 +50,17 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
     // keep the latest onDirty without re-running the init effect
     const onDirtyRef = useRef(onDirty);
     onDirtyRef.current = onDirty;
+    // 🔴 A text edit reaches the MODEL asynchronously when it ends:
+    // ComponentTextView.disableEditing awaits the RTE before syncContent. An
+    // export run straight after endEditing() therefore reads the block as it
+    // was before the last words — which is how a flush on the way out of the
+    // page wrote the draft without them (2026-10-26). getResult() waits for
+    // the newest disable before it exports.
+    const disablingRef = useRef<Promise<unknown>>(Promise.resolve());
+    // Exports still in flight when the surface unmounts (that flush is exactly
+    // this case): the editor is destroyed only once they have read it.
+    const inflightRef = useRef(0);
+    const destroyOnIdleRef = useRef<Editor | null>(null);
 
     useEffect(() => {
       if (initedRef.current || !holderRef.current) return;
@@ -76,10 +87,14 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
       editor.on("rte:enable", watchTyping);
 
       return () => {
-        try {
-          editor.destroy();
-        } catch {
-          /* ignore teardown races */
+        if (inflightRef.current > 0) {
+          destroyOnIdleRef.current = editor; // getResult's finally destroys it
+        } else {
+          try {
+            editor.destroy();
+          } catch {
+            /* ignore teardown races */
+          }
         }
         editorRef.current = null;
         initedRef.current = false;
@@ -100,7 +115,8 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
         endEditing: () => {
           try {
             const comp: any = (editorRef.current as any)?.getEditing?.();
-            comp?.getView?.()?.disableEditing?.();
+            const p = comp?.getView?.()?.disableEditing?.();
+            if (p && typeof p.then === "function") disablingRef.current = p.catch(() => undefined);
           } catch { /* nothing being edited */ }
         },
         setLetterhead: (id: string | null) => {
@@ -118,7 +134,18 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
         getResult: async (): Promise<EmailBuilderResult> => {
           const editor = editorRef.current;
           if (!editor) throw new Error("The editor is still loading — try again in a moment.");
-          return exportResult(editor);
+          inflightRef.current++;
+          try {
+            await disablingRef.current; // the last words of an edit that just ended
+            return exportResult(editor);
+          } finally {
+            inflightRef.current--;
+            const late = destroyOnIdleRef.current;
+            if (late && inflightRef.current === 0) {
+              destroyOnIdleRef.current = null;
+              try { late.destroy(); } catch { /* ignore teardown races */ }
+            }
+          }
         },
       }),
       [],

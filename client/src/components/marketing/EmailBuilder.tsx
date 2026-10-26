@@ -344,6 +344,11 @@ export default function EmailBuilder({
   const unsaved = useRef(false);
   const commitRef = useRef(commit);
   commitRef.current = commit;
+  // GrapesJS reports the edit it was syncing AFTER this component is gone, and
+  // that "update" would schedule a save that finds no surface and re-schedules
+  // itself every 1.5s for the life of the tab. Nothing is scheduled once we
+  // have unmounted.
+  const unmounted = useRef(false);
   // 🔴 A sidebar click, Back or a closed tab used to throw away the last
   // 1.5 seconds of editing: the timer was cleared on unmount and the edit
   // never reached the page (Daniel, 2026-10-26, on Friendly Manager losing an
@@ -367,15 +372,17 @@ export default function EmailBuilder({
       window.removeEventListener("pagehide", flush);
       if (autoTimer.current) clearTimeout(autoTimer.current);
       flush();
+      unmounted.current = true;
     };
   }, []);
   const handleDirty = useCallback(() => {
     onDirty?.();
     setLastSave(null);
-    if (!autoSave) return;
+    if (!autoSave || unmounted.current) return;
     unsaved.current = true;
     if (autoTimer.current) clearTimeout(autoTimer.current);
     const run = async () => {
+      if (unmounted.current) return;
       const surface = surfaceRef.current;
       // Not mounted yet (a template was just chosen and the surface is still
       // loading its chunk): come back, rather than dropping the save and

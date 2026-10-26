@@ -483,9 +483,16 @@ try {
     // the email in the box; Discard removes the draft, says so, and is still
     // gone after a reload; a draft with no subject is named by its first words.
     const DRAFT_KEY = `clubos-mailer-draft:${WORKSPACE}`;
-    const seedDraft = (subject: string, doc: unknown, html: string) => page.evaluate((k: string, s: string, d: unknown, h: string) => {
-      localStorage.setItem(k, JSON.stringify({ subject: s, bodyDoc: d, bodyHtml: h, savedAt: new Date().toISOString() }));
-    }, DRAFT_KEY, subject, doc, html);
+    // 🔴 Seed from a NEUTRAL page: the Mailer flushes the email it holds on the
+    // way out (pagehide included), so a draft seeded while a Mailer page is
+    // still open is overwritten by that page's own email the moment we leave.
+    const seedDraft = async (subject: string, doc: unknown, html: string) => {
+      await page.goto(`${BASE}/admin`, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await sleep(800);
+      await page.evaluate((k: string, s: string, d: unknown, h: string) => {
+        localStorage.setItem(k, JSON.stringify({ subject: s, bodyDoc: d, bodyHtml: h, savedAt: new Date().toISOString() }));
+      }, DRAFT_KEY, subject, doc, html);
+    };
     const readBanner = () => page.evaluate(`(function () {
       var b = document.querySelector('[data-testid="mailer-draft-recover"]');
       var pills = Array.prototype.slice.call(document.querySelectorAll('[data-testid^="button-step-"]'));
@@ -579,6 +586,8 @@ try {
     const flushBox = await page.$('[data-testid="compose-body"]');
     if (flushBox) { await flushBox.click(); await page.keyboard.press("End"); await page.keyboard.type(" Flushed on the way out"); }
     // Straight to the sidebar — no wait for the 500ms compile or the 400ms write.
+    // On a phone the sidebar sits behind its toggle, so open it first.
+    if (mobile) { const tog = await page.$('[data-testid="button-sidebar-toggle"]'); if (tog) await tog.click(); await sleep(400); }
     await page.evaluate(() => (Array.from(document.querySelectorAll("a")).find((a) => (a.textContent || "").trim() === "Dashboard") as HTMLAnchorElement | undefined)?.click());
     await sleep(1500);
     const flushed = await page.evaluate(`(function () {
