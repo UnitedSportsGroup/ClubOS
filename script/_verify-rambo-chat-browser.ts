@@ -116,7 +116,9 @@ try {
         second = await page.evaluate(`(function(){ var all = document.querySelectorAll('[data-testid="rambo-message-assistant"], [data-testid="rambo-error"]'); if (all.length < 2) return null; var a = all[all.length - 1]; return { error: a.getAttribute('data-testid') === 'rambo-error', text: (a.textContent||'').trim().slice(0, 300) }; })()`);
         if (second) break;
       }
-      ok("a follow-up in the same chat answers with ages", !!second && !second.error && /\d\s*(yrs|year)/i.test(second.text), second ? second.text : "no second answer");
+      // Rambo answers this as a list OR a table ("Age | Players"); both carry
+      // the ages and the counts — assert the shape, not the phrasing.
+      ok("a follow-up in the same chat answers with ages", !!second && !second.error && /\d/.test(second.text) && /(year|yrs|\bage\b)/i.test(second.text), second ? second.text : "no second answer");
 
       // ── Rename ─────────────────────────────────────────────────────────────
       const renameBtn = await page.$('[data-testid="rambo-thread"][data-active="1"] [data-testid="rambo-thread-menu-rename"]');
