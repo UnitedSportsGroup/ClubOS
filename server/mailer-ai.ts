@@ -47,6 +47,8 @@ import {
 import { brandKit, BRAND_KITS, CLUB_LOGOS, SOCIAL_ICON } from "../client/src/components/marketing/grapes/templates/brand-kit";
 import { clubNewsletterTemplate } from "../client/src/components/marketing/grapes/templates/club-newsletter";
 import { LETTERHEADS } from "../client/src/components/marketing/grapes/letterheads";
+import { programmeFactsFor } from "./brand-facts";
+import { brandVoice, HOUSE_VOICE } from "@shared/studio-voice";
 
 const MODEL = process.env.MAILER_AI_MODEL || MAILER_AI_DEFAULT_MODEL;
 const EFFORT = (process.env.MAILER_AI_EFFORT || "medium") as "low" | "medium" | "high";
@@ -146,13 +148,21 @@ HARD RULES
 - Preserve everything the person did not ask to change — their words, their links, their pictures.
 - "Make it modern" means: more white space, one clear hero, bigger photo, tighter copy, one strong button, consistent spacing, fewer competing elements. Not more decoration.`;
 
-const promptCache = new Map<string, string>();
+const promptCache = new Map<string, { at: number; text: string }>();
+const PROMPT_TTL_MS = 10 * 60_000;
 
-function systemPromptFor(brandKey: string): string {
+async function systemPromptFor(brandKey: string, orgId: number | null): Promise<string> {
   const key = (brandKey || "").toLowerCase();
-  const hit = promptCache.get(key);
-  if (hit) return hit;
+  const cacheKey = `${key}:${orgId ?? 0}`;
+  const hit = promptCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < PROMPT_TTL_MS) return hit.text;
   const kit = brandKit(key);
+  // The FACTS (live programmes: dates, prices, booking links) and the VOICE
+  // (how this brand writes), so a one-prompt email carries the real price
+  // and sounds like the club (Daniel, 2026-10-27).
+  let facts = "";
+  try { if (orgId) facts = await programmeFactsFor(orgId); } catch { facts = ""; }
+  const voice = `${HOUSE_VOICE}\n\n${brandVoice(key)}`;
   const kitForModel = {
     brand: kit.key,
     crest: kit.crest,
@@ -182,13 +192,13 @@ function systemPromptFor(brandKey: string): string {
     .filter((k) => k.key !== kit.key && (k.photos.length > 0 || (k.products ?? []).length > 0))
     .map((k) => ({ brand: k.key, name: CLUB_LOGOS.find((l) => l.key === k.key)?.label ?? k.key, site: k.site, photos: k.photos, products: k.products ?? [] }));
   const text =
-    `${RULES}\n\nBRAND KIT (JSON — this email's brand; its pictures are the ones you may use, plus the other brands' pictures and the club logos below):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
+    `${RULES}\n\n${voice}\n\n${facts ? `${facts}\n\n` : ""}BRAND KIT (JSON — this email's brand; its pictures are the ones you may use, plus the other brands' pictures and the club logos below):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
     `OTHER BRANDS' PICTURES (JSON — the club's other brands; use one of these ONLY when the email is about that brand, and pick by caption):\n${JSON.stringify(others, null, 1)}\n\n` +
     `CLUB LOGOS (JSON — every brand of the club, crest URL and the width its own header uses):\n${JSON.stringify(CLUB_LOGOS, null, 1)}\n\n` +
     (reference
       ? `HOUSE STYLE — this brand's newsletter template as MJML. Copy its shapes, spacing, fonts and conventions when you build or restyle:\n${reference}`
       : "");
-  promptCache.set(key, text);
+  promptCache.set(cacheKey, { at: Date.now(), text });
   return text;
 }
 
@@ -228,10 +238,12 @@ async function runAssistant(opts: {
   instruction: string;
   history: { role: "user" | "assistant"; content: string }[];
   totals: MailerAiTokenUsage;
+  /** The workspace's organisation — its live programme facts ride in the prompt. */
+  orgId?: number | null;
 }): Promise<RunOutcome> {
   const { brandKey, mjml, instruction, totals } = opts;
   const allowed = allowedImagesFor(brandKey, mjml);
-  const system = systemPromptFor(brandKey);
+  const system = await systemPromptFor(brandKey, opts.orgId ?? null);
 
   const messages: Anthropic.MessageParam[] = [
     ...opts.history.slice(-8).map((m) => ({ role: m.role, content: m.content })),
@@ -396,7 +408,7 @@ export function registerMailerAiRoutes(app: Express) {
     const totals: MailerAiTokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     let outcome: RunOutcome;
     try {
-      outcome = await runAssistant({ brandKey, mjml, instruction, history, totals });
+      outcome = await runAssistant({ brandKey, mjml, instruction, history, totals, orgId: org });
     } catch (e: any) {
       console.error("[mailer-ai] failed:", e?.message || e);
       outcome = { error: friendly(e) };

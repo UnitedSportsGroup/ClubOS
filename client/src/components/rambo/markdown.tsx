@@ -7,19 +7,29 @@ import { useMemo } from "react";
 
 export function RamboMarkdown({ text }: { text: string }) {
   const blocks = useMemo(() => (text || "").replace(/\r\n/g, "\n").split("\n"), [text]);
+  // Links are drawn only to ClubOS's own hosts — Rambo's Studio tools hand
+  // back /admin/studio/<id>; a link to anywhere else is left as text.
+  const link = (text: string, href: string, i: number) => {
+    const ours = /^https:\/\/app\.usg\.co\.nz\//.test(href) || href.startsWith("/admin/");
+    if (!ours) return <span key={i}>{text}</span>;
+    const path = href.replace(/^https:\/\/app\.usg\.co\.nz/, "");
+    return <a key={i} href={path} className="font-semibold text-blue-600 underline underline-offset-2 hover:text-blue-700" data-testid="rambo-link">{text}</a>;
+  };
   const inline = (s: string, key: number) => {
-    const parts = s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+    const parts = s.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g).filter(Boolean);
     return (
       <span key={key}>
-        {parts.map((p, i) =>
-          p.startsWith("**") && p.endsWith("**") ? (
+        {parts.map((p, i) => {
+          const m = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(p);
+          if (m) return link(m[1], m[2], i);
+          return p.startsWith("**") && p.endsWith("**") ? (
             <strong key={i} className="font-semibold text-foreground">{p.slice(2, -2)}</strong>
           ) : p.startsWith("`") && p.endsWith("`") ? (
             <code key={i} className="rounded bg-muted px-1.5 py-0.5 text-[12px] font-mono">{p.slice(1, -1)}</code>
           ) : (
             <span key={i}>{p}</span>
-          ),
-        )}
+          );
+        })}
       </span>
     );
   };

@@ -392,6 +392,39 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
     },
   },
   {
+    name: "make_graphic",
+    title: "Make a graphic (Studio)",
+    description:
+      "Make an on-brand social graphic from a brief and save it as the person's own draft in Content Studio — a post, a story, an event card, a big number, a chart of figures you have just looked up. " +
+      "Use when they ask to MAKE, CREATE, DESIGN or 'give me a visual of' something. Put any numbers you looked up INTO the brief so the chart is drawn from them. Never for a photo or a video.",
+    requiredTab: null,
+    inputSchema: {
+      type: "object",
+      properties: {
+        brief: { type: "string", description: "What it is for, who it is for, what it should say, any numbers to show (with their labels), and what the reader should do." },
+        size: { type: "string", enum: ["square", "portrait", "story", "landscape"], description: "square (default) for a post or WhatsApp; story for Stories; landscape for a screen or an email header." },
+        brand: { type: "string", description: "Only when the piece is for a different brand than the workspace they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+      required: ["brief"],
+    },
+  },
+  {
+    name: "make_page",
+    title: "Make a landing page (Studio)",
+    description:
+      "Build a landing page from a brief and save it as the person's own draft in Content Studio, ready to publish on the club's own site (join.cufc.co.nz/p/…). " +
+      "Use when they ask to BUILD or MAKE a page, a landing page, a sign-up page, a page for a programme or an event. The page's prices, dates and booking links come from the live programme facts — never invent them.",
+    requiredTab: null,
+    inputSchema: {
+      type: "object",
+      properties: {
+        brief: { type: "string", description: "What the page is for, who it is for, what it should cover, and what the reader should do (which programme to book, who to contact)." },
+        brand: { type: "string", description: "Only when the page is for a different brand than the workspace they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+      required: ["brief"],
+    },
+  },
+  {
     name: "search_drive",
     title: "Club Drive files",
     description:

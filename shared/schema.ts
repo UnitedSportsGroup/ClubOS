@@ -10359,3 +10359,83 @@ export const mailerImages = pgTable("mailer_images", {
   orgIdx: index("mailer_images_org_idx").on(t.organizationId, t.createdAt),
 }));
 export type MailerImageRow = typeof mailerImages.$inferSelect;
+
+// ── Content Studio (2026-10-27) ─────────────────────────────────────────────
+// A piece is a graphic, a landing page or a video request; its DOCUMENT is
+// what the renderer draws and what a person edits in place. Owned by its
+// maker; every saved document is a numbered version; a graphic's exported PNG
+// is kept so a link exists; every paid call is a generation row counted into
+// the person's daily allowance. Rules: shared/studio.ts · migration
+// migrations/2026-10-27_studio.sql.
+export const studioPieces = pgTable("studio_pieces", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "restrict" }),
+  brand: text("brand").notNull(),
+  kind: text("kind").notNull(), // 'graphic' | 'page' | 'video'
+  title: text("title").notNull(),
+  slug: text("slug"),
+  size: text("size"),
+  status: text("status").notNull().default("draft"), // 'draft' | 'published' | 'archived'
+  unlisted: boolean("unlisted").notNull().default(true),
+  doc: jsonb("doc").notNull(),
+  version: integer("version").notNull().default(1),
+  brief: text("brief"),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  publicViews: integer("public_views").notNull().default(0),
+});
+export type StudioPiece = typeof studioPieces.$inferSelect;
+
+export const studioVersions = pgTable("studio_versions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  pieceId: integer("piece_id").notNull().references(() => studioPieces.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  doc: jsonb("doc").notNull(),
+  how: text("how").notNull(), // 'made' | 'asked' | 'edited' | 'duplicated'
+  note: text("note"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  pieceVersionUnq: uniqueIndex("studio_versions_piece_id_version_key").on(t.pieceId, t.version),
+}));
+export type StudioVersion = typeof studioVersions.$inferSelect;
+
+export const studioRenders = pgTable("studio_renders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  pieceId: integer("piece_id").notNull().references(() => studioPieces.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  key: text("key").notNull(),
+  mime: text("mime").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  bytes: integer("bytes").notNull(),
+  data: bytea("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  keyUnq: uniqueIndex("studio_renders_key_key").on(t.key),
+}));
+export type StudioRender = typeof studioRenders.$inferSelect;
+
+export const studioGenerations = pgTable("studio_generations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  pieceId: integer("piece_id").references(() => studioPieces.id, { onDelete: "set null" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  userLabel: text("user_label"),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "restrict" }),
+  brand: text("brand"),
+  kind: text("kind").notNull(),
+  model: text("model").notNull(),
+  instruction: text("instruction").notNull().default(""),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  costUsdCents: numeric("cost_usd_cents", { precision: 12, scale: 4 }).notNull().default("0"),
+  durationMs: integer("duration_ms").notNull().default(0),
+  ok: boolean("ok").notNull().default(true),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type StudioGeneration = typeof studioGenerations.$inferSelect;

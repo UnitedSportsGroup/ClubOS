@@ -96,6 +96,7 @@ import {
   Megaphone,
   HelpCircle,
   HardDrive,
+  Palette,
   QrCode,
   TrendingUp,
   KanbanSquare,
@@ -131,6 +132,13 @@ const taskTrackerSecondary = { tab: "task-tracker", title: "Task Tracker", url: 
 // filter INSIDE the tab, not a workspace, because "how United Prints sizes a
 // banner" is the same fact whichever workspace you happen to be standing in.
 const knowledgeBaseSecondary = { tab: "knowledge-base", title: "Knowledge Base", url: "/admin/knowledge-base", icon: BookOpen };
+// Universal "Studio" tab — Content Studio: graphics, landing pages and video
+// requests, made by Rambo and owned by their maker (Daniel, 2026-10-27:
+// "empower all of our staff to actually be building it in here"). Same
+// universal pattern: every workspace, requireAuth server-side, the brand
+// follows the workspace, and a piece is seen by the workspace and changed
+// only by the person who made it.
+const studioSecondary = { tab: "studio", title: "Studio", url: "/admin/studio", icon: Palette };
 // Universal "QR Code Generator" — tracked links and QR posters for every
 // business, in ONE place. It used to be a "Links" tab copied into all seven
 // workspace navs, listing only that workspace's links; it is universal now
@@ -853,6 +861,7 @@ export function AppSidebar() {
         navFilter(item),
     ),
     taskTrackerSecondary,
+    studioSecondary,
     knowledgeBaseSecondary,
     qrSecondary,
     chatSecondary,

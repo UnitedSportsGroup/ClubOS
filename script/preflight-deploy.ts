@@ -180,6 +180,7 @@ const CANARIES: Canary[] = [
   { feature: "mailer assistant",     path: "/api/admin/mailer/ai/usage",                expect: [401] },
   { feature: "mailer pictures",      path: "/api/admin/mailer/images",                  expect: [401] },
   { feature: "mailer a/b tests",     path: "/api/admin/mailer/tests",                   expect: [401] },
+  { feature: "content studio",       path: "/api/admin/studio/usage",                   expect: [401] },
   { feature: "rambo chat",           path: "/api/admin/rambo/threads",                  expect: [401] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
@@ -201,6 +202,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/mailer/ai/usage":           { file: "server/mailer-ai.ts",           needle: "/api/admin/mailer/ai/usage" },
   "/api/admin/mailer/images":             { file: "server/mailer-images.ts",       needle: "/api/admin/mailer/images" },
   "/api/admin/mailer/tests":              { file: "server/mailer-tests.ts",        needle: "/api/admin/mailer/tests" },
+  "/api/admin/studio/usage":              { file: "server/studio.ts",              needle: "/api/admin/studio/usage" },
   "/api/admin/rambo/threads":             { file: "server/rambo-routes.ts",        needle: "/api/admin/rambo/threads" },
   "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },

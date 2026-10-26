@@ -53,6 +53,7 @@ import {
   type Viewer,
 } from "@shared/knowledge-base";
 import { CLUB_TOOL_HANDLERS } from "./rambo-club-tools";
+import { STUDIO_TOOL_HANDLERS } from "./rambo-studio-tools";
 import { RAMBO_DEFAULT_MODEL, type RamboUsageTotals } from "@shared/rambo-chat";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -538,6 +539,9 @@ const HANDLERS: Record<string, (viewer: Viewer, input: any) => Promise<ToolResul
   // The club's numbers — registrations, payments, ages, camps, squads
   // (server/rambo-club-tools.ts). Daniel, 2026-10-26.
   ...CLUB_TOOL_HANDLERS,
+  // Content Studio from the chat — a graphic or a landing page as the asker's
+  // own draft (server/rambo-studio-tools.ts). Daniel, 2026-10-27.
+  ...STUDIO_TOOL_HANDLERS,
 };
 
 // ── The prompt ──────────────────────────────────────────────────────────────

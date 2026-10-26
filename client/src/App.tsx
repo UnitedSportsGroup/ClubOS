@@ -261,6 +261,7 @@ const Feedback = lazy(() => import("@/pages/feedback"));
 const TaskTracker = lazy(() => import("@/pages/task-tracker"));
 const KnowledgeBase = lazy(() => import("@/pages/knowledge-base"));
 const RamboPage = lazy(() => import("@/pages/rambo"));
+const StudioRoute = lazy(() => import("@/pages/studio"));
 const Drive = lazy(() => import("@/pages/drive"));
 const StaffChat = lazy(() => import("@/pages/staff-chat"));
 const NotificationSettings = lazy(() => import("@/pages/notification-settings"));
@@ -323,6 +324,9 @@ function AdminRouter() {
   // Rambo's own page — the same assistant with his own door above Navigation
   // in every workspace; chats belong to the person (Daniel, 2026-10-26).
   if (location.startsWith("/admin/rambo")) return <RamboPage />;
+  // Content Studio — graphics, landing pages and video requests, made by
+  // Rambo and owned by their maker, in every workspace (Daniel, 2026-10-27).
+  if (location.startsWith("/admin/studio")) return <StudioRoute />;
   // Club Drive — one file store for the whole organisation. Universal for the
   // same reason as the vault above: a contract is the club's document whichever
   // workspace you happen to be standing in when you need it.
