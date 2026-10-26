@@ -48,7 +48,7 @@ interface Scope {
 /** Which workspace the question is about: the one the person is standing in
  *  (X-Workspace-Slug), else the brand the model named, else their only
  *  workspace. Then: may they see registrations THERE? */
-async function scopeFor(viewer: Viewer, input: any): Promise<{ ok: true; scope: Scope } | { ok: false; text: string }> {
+export async function scopeFor(viewer: Viewer, input: any): Promise<{ ok: true; scope: Scope } | { ok: false; text: string }> {
   let slug: string | null = viewer.workspaceSlug ?? null;
   if (!slug && typeof input?.brand === "string") slug = KB_BRANDS.find((b) => b.key === input.brand)?.orgSlug ?? null;
   if (!slug && viewer.memberships.length === 1) slug = viewer.memberships[0].orgSlug;
@@ -65,9 +65,9 @@ async function scopeFor(viewer: Viewer, input: any): Promise<{ ok: true; scope: 
 
 // ── Programmes + terms ───────────────────────────────────────────────────────
 
-interface Programme { id: number; name: string; slug: string; type: string; academySection: string | null; startDate: string | null; seasonYear: number | null; termId: number | null }
+export interface Programme { id: number; name: string; slug: string; type: string; academySection: string | null; startDate: string | null; seasonYear: number | null; termId: number | null }
 
-async function programmesFor(orgId: number): Promise<Programme[]> {
+export async function programmesFor(orgId: number): Promise<Programme[]> {
   return rowsOf(await db.execute(sql`
     SELECT id, name, slug, type, academy_section, start_date::text AS start_date, season_year, term_id
     FROM programs WHERE organization_id = ${orgId} ORDER BY type, name`)).map((r) => ({
@@ -93,7 +93,7 @@ const ALIASES: { test: RegExp; slugs?: string[]; type?: string; section?: string
 
 /** Match a nickname to programmes. Returns every match (a camp family has
  *  several) plus what it was read as, so the answer can say so. */
-function matchProgrammes(all: Programme[], text: string | undefined | null): { matched: Programme[]; readAs: string } {
+export function matchProgrammes(all: Programme[], text: string | undefined | null): { matched: Programme[]; readAs: string } {
   const q = String(text ?? "").trim();
   if (!q || /^(all|everything|every programme|everyone)$/i.test(q)) return { matched: all, readAs: "every programme" };
   for (const a of ALIASES) {
@@ -120,7 +120,7 @@ async function termsFor(orgId: number): Promise<Term[]> {
   }));
 }
 
-function nzToday(): string {
+export function nzToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
 }
 
@@ -474,7 +474,8 @@ const dollars = (cents: number) => `$${(Math.round(Number(cents)) / 100).toLocal
 const MONEY_NOTE =
   "Taken = the total of paid, confirmed registrations in ClubOS (an unfinished checkout is $0), dated by the payment, or the registration where ClubOS has no payment date; a registration later refunded still counts here and its refund shows separately. " +
   "Refunded = the refund ledger. Net = taken minus refunded. This is money ClubOS took online or at the office counter — Xero invoices, bank deposits and anything paid outside ClubOS are not in it. " +
-  "The dashboard's Revenue card counts confirmed registrations only, by registration date, so it can read a little lower than Taken.";
+  "The dashboard's Revenue card counts confirmed registrations only, by registration date, so it can read a little lower than Taken. " +
+  "🔴 ClubOS only started selling registrations itself in 2026 (holiday camps from April 2026, term programmes from Term 1 2026), so this figure is NOT a whole year and never a year before 2026: the January 2026 camps were sold through Shopify and everything earlier through Friendly Manager or Xero. For a whole year, an earlier year, growth or 'over the years', use camp_history or programme_history — they read every system and count each payment once. Do not add this figure to theirs; they already include ClubOS.";
 
 async function runProgrammeRevenue(viewer: Viewer, input: any): Promise<ToolResult> {
   const s = await scopeFor(viewer, input);

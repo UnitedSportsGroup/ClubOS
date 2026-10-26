@@ -377,9 +377,10 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
     name: "programme_revenue",
     title: "Money taken",
     description:
-      "How much money a programme (or every programme) has taken in ClubOS: the total of paid registrations, what was refunded, and the net — by programme, for a year, a term, or all time; " +
-      "holiday camps also show children and days booked. Use for 'how much have we made off the fundamentals camp this year', 'academy revenue this term', 'what did Term 3 bring in', 'camp takings'. " +
-      "This is money ClubOS took online or at the office counter; it does not see Xero invoices or bank deposits.",
+      "How much money a programme (or every programme) has taken through ClubOS's OWN checkouts: the total of paid registrations, what was refunded, and the net — by programme, for a term, this year, or all time; " +
+      "holiday camps also show children and days booked. Use for 'what did Term 3 bring in', 'how are camp sales going', 'what was refunded'. " +
+      "🔴 ClubOS only started selling in 2026 (camps from April 2026, term programmes from Term 1 2026), so this is never a whole year and never an earlier year — the January 2026 camps and everything before are in camp_history / programme_history, which include this figure. " +
+      "For 'how much did X make this year / last year / in 2024', growth, or 'over the years', call camp_history or programme_history instead. This is the only place refunds are netted.",
     requiredTab: "registrations",
     inputSchema: {
       type: "object",
@@ -389,6 +390,105 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
         brand: { type: "string", description: "Only if the person asks about a DIFFERENT workspace than the one they are in: " + KB_BRAND_KEYS.join(", ") },
       },
       required: [],
+    },
+  },
+  // ── The club's HISTORY (Daniel, 2026-10-27: "he's only giving me data for
+  // April and October because that's what went through ClubOS, but we have the
+  // data loaded in … the historical data, the lifetime value, and the cycles of
+  // the customers"). Hand-written in server/rambo-history-tools.ts over the SAME
+  // deciders the History tabs and the MFL Analytics tab use. Registrations-tab
+  // gated in the workspace asked about; MFL's on its Analytics tab.
+  {
+    name: "camp_history",
+    title: "Holiday camp history",
+    description:
+      "Every holiday camp the club has run since 2017 — FUNdamentals (U4–U8), World Cup (U9–U13), or all — by holiday (the Dec–Jan summer camp, April, July, Sep–Oct) and by calendar year: money, children, which system sold it (Friendly Manager, Shopify, Xero, ClubOS), growth against the same holiday last year, and Xero's yearly camp income as a check. " +
+      "USE THIS for 'how much have we made off the fundamentals camp this year' (a year = the camp that ran in January + April + July + Sep–Oct), 'last year', '2024', 'how have the camps grown', 'over the years'. It already includes what ClubOS sold — never add programme_revenue to it.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        series: { type: "string", description: "'fundamentals' (U4–U8), 'world cup' (U9–U13), or 'all' (default)." },
+        year: { type: "string", description: "One calendar year: '2026', 'this year', 'last year'. Omit for every year." },
+        from_year: { type: "string", description: "Earliest year to show when no single year is asked for (default 2017)." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+    },
+  },
+  {
+    name: "programme_history",
+    title: "Term programme history",
+    description:
+      "Every term programme since 2017 — U4–U8 (FUNiño), Pre-Academy (U9–U12), Academy (U13+), Technification, Goalkeeper, Morning, or all — by term or by year: money, children, which system sold it, growth against the same term last year, and the fee actually charged each term per age group. " +
+      "USE THIS for 'how much did the academy make in 2025', 'U4-U8 revenue over the years', 'what did pre-academy cost in 2023', 'how have term numbers grown'. Includes what ClubOS sold — never add programme_revenue to it. Holiday camps are on camp_history.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programme: { type: "string", description: "'U4-U8', 'pre-academy', 'academy', 'technification', 'goalkeeper', 'morning', or 'all' (default)." },
+        by: { type: "string", enum: ["term", "year"], description: "'term' lists every term; 'year' adds them up per calendar year (default for 'all')." },
+        year: { type: "string", description: "One calendar year: '2025', 'this year', 'last year'. Omit for every year." },
+        from_year: { type: "string", description: "Earliest year to show (default 2017)." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+    },
+  },
+  {
+    name: "customer_lifetime",
+    title: "Customer lifetime & cycles",
+    description:
+      "The lifetime of a youth football child with the club, computed live from every system since 2017: " +
+      "view='cohort' — children whose first programme was X: age at joining, how many terms they stay, what share move up to Pre-Academy / Academy / a camp, lifetime revenue per child (mean and median) and where it comes from; " +
+      "'retention' — term-to-term retention for a programme (stayed / moved up / gone), best and worst steps; " +
+      "'year' — a year in a programme: per term how many children, new vs returning, brand-new to the club; " +
+      "'funnel' — the pathway U4–U8 → Pre-Academy → Academy with the share who make each step and what each path is worth; " +
+      "'tenure' — years with us, one-and-done share, survival by join year; " +
+      "'journey' — after a child's first programme or camp, what they buy next and where the money goes; " +
+      "'conversion' — a transition like FUNdamentals camp → U4–U8, how many convert, how fast, which holiday converts best, by age; " +
+      "'totals' — every programme and camp by year with distinct children. " +
+      "USE THIS for 'lifetime value', 'how long do families stay', 'what is a U4-U8 kid worth', 'how many camp kids join a programme', 'retention', 'new vs returning', 'customer cycles', 'churn'. Christchurch United only; MFL has league_lifetime.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view: { type: "string", enum: ["cohort", "retention", "year", "funnel", "tenure", "journey", "conversion", "totals"], description: "Which question (see the description). Default 'cohort'." },
+        programme: { type: "string", description: "The programme the child STARTED in: 'U4-U8', 'pre-academy', 'academy', 'technification', 'goalkeeper', 'fundamentals camp', 'world cup camp'. Default U4-U8 (journey: fundamentals camp)." },
+        cohort: { type: "string", enum: ["clean", "all", "mature"], description: "'clean' (default: joined 2021–2024, two years to come back), 'all' (every child ever), 'mature' (joined at least four terms ago)." },
+        year: { type: "string", description: "For 'year': the calendar year (default the current one). For 'cohort': only children who joined that year. For 'retention'/'totals': start from that year." },
+        transition: { type: "string", description: "For 'conversion': e.g. 'fundamentals camp to U4-U8', 'world cup to pre-academy', 'U4-U8 to pre-academy', 'pre-academy to academy', 'camp to any term programme'." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+    },
+  },
+  {
+    name: "league_lifetime",
+    title: "MFL team lifetime value",
+    description:
+      "Mini Football Leagues: how long a team stays (mean/median terms), retention term to term, lifetime revenue and gross profit per team, contribution per team-term, forward LTGP, entries by format, and acquisition — ad spend, new teams, cost per new team, LTGP:CAC — for all time or one league term. " +
+      "USE THIS for 'what is an MFL team worth', 'MFL retention', 'cost to win a team', 'LTV CAC for the leagues'. The customer is the TEAM.",
+    requiredTab: "analytics",
+    workspaceSlug: "mini-football-leagues",
+    inputSchema: {
+      type: "object",
+      properties: {
+        term: { type: "string", description: "A league term like '2026-T3', or 'all' (default)." },
+      },
+    },
+  },
+  {
+    name: "person_history",
+    title: "A person's whole record",
+    description:
+      "One family's or child's whole history with the club across every system since 2017: every programme and term they did, every payment, first and last activity, and a link to their page. " +
+      "USE THIS for 'has the Smith family been with us before', 'what has Jack Zhu done with us', 'how long has this family been a member', 'what have they paid over the years'. Searches by name; returns the closest matches.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The person's name — a child, a parent, or a surname." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+      required: ["name"],
     },
   },
   {
