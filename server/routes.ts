@@ -159,6 +159,7 @@ import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
 import { registerMailerAiRoutes } from "./mailer-ai";
 import { registerMailerImageRoutes } from "./mailer-images";
+import { registerRamboRoutes } from "./rambo-routes";
 import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
@@ -27456,6 +27457,7 @@ export async function registerRoutes(
   registerMailerTemplateRoutes(app);
   registerMailerAiRoutes(app);
   registerMailerImageRoutes(app);
+  registerRamboRoutes(app);
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {

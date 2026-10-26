@@ -9028,6 +9028,8 @@ export const kbChatSessions = pgTable("kb_chat_sessions", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   brand: text("brand").notNull().default("all"),
   title: text("title"),
+  /** The workspace the chat was started in (Rambo's own page, 2026-10-26). NULL = the Knowledge Base tab. */
+  workspaceSlug: text("workspace_slug"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
@@ -9042,6 +9044,14 @@ export const kbChatMessages = pgTable("kb_chat_messages", {
   content: text("content").notNull().default(""),
   toolsUsed: jsonb("tools_used").notNull().default(sql`'[]'::jsonb`),
   sources: jsonb("sources").notNull().default(sql`'[]'::jsonb`),
+  /** What the answer cost (on the assistant row): every Rambo prompt is a paid call. */
+  model: text("model"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  costUsdCents: numeric("cost_usd_cents", { precision: 12, scale: 4 }).notNull().default("0"),
+  durationMs: integer("duration_ms").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
   sessionIdx: index("kb_chat_messages_session_idx").on(t.sessionId, t.createdAt),

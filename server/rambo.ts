@@ -52,13 +52,16 @@ import {
   type RamboToolDef,
   type Viewer,
 } from "@shared/knowledge-base";
+import { CLUB_TOOL_HANDLERS } from "./rambo-club-tools";
+import { RAMBO_DEFAULT_MODEL, type RamboUsageTotals } from "@shared/rambo-chat";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Sonnet is the right tier: this is retrieval + plain-English explanation over
 // material we hand it, not open-ended reasoning. Overridable so the model can
 // be moved without a deploy.
-const MODEL = process.env.RAMBO_MODEL || "claude-sonnet-5";
+const MODEL = process.env.RAMBO_MODEL || RAMBO_DEFAULT_MODEL;
+export const RAMBO_MODEL = MODEL;
 const MAX_TOOL_ROUNDS = 5;
 
 // ── Building the viewer ─────────────────────────────────────────────────────
@@ -513,14 +516,28 @@ const HANDLERS: Record<string, (viewer: Viewer, input: any) => Promise<ToolResul
   registration_counts: runRegistrationCounts,
   sponsorship_summary: runSponsorshipSummary,
   budget_summary: runBudgetSummary,
+  // The club's numbers — registrations, payments, ages, camps, squads
+  // (server/rambo-club-tools.ts). Daniel, 2026-10-26.
+  ...CLUB_TOOL_HANDLERS,
 };
 
 // ── The prompt ──────────────────────────────────────────────────────────────
-function systemPrompt(viewer: Viewer, allowed: RamboToolDef[], brand: string): string {
-  const denied = RAMBO_TOOLS.filter((t) => !allowed.some((a) => a.name === t.name));
-  return `You are Rambo, the assistant for the United Sports Group knowledge base — the shared vault of how this football organisation does things. You are talking to ${viewer.name}, a staff member.
+export type RamboSurface = "kb" | "chat";
 
-United Sports Group runs Christchurch United FC, South Island United, Mini Football Leagues, the Christchurch International Cup, United Gymnastics, United Prints and the United Sports Centre. The person is currently browsing the "${brand === "all" ? "All brands" : brand}" section.
+function systemPrompt(viewer: Viewer, allowed: RamboToolDef[], brand: string, surface: RamboSurface = "kb"): string {
+  const denied = RAMBO_TOOLS.filter((t) => !allowed.some((a) => a.name === t.name));
+  const where = viewer.workspaceSlug
+    ? viewer.memberships.find((m) => m.orgSlug === viewer.workspaceSlug)?.orgName ?? viewer.workspaceSlug
+    : null;
+  const opening =
+    surface === "chat"
+      ? `You are Rambo, the club's own assistant inside ClubOS, the admin system of Christchurch United FC Inc. You are talking to ${viewer.name}, a staff member${where ? `, who is in the ${where} workspace right now` : ""}.
+
+United Sports Group runs Christchurch United FC, South Island United, Mini Football Leagues, the Christchurch International Cup, United Gymnastics, United Prints and the United Sports Centre. You answer two kinds of question: HOW the club does things (the knowledge base and Club Drive) and the club's LIVE NUMBERS (registrations, who has paid, ages, holiday camps, squads) through your tools. A question about numbers means: call the tool, then answer with the figures in plain English — lead with the number that was asked for, then the breakdown. The tools already count the right way (paid and confirmed only; an unfinished checkout is not a player) and say so; repeat that caveat only when it changes the answer. If a tool says it could not match a programme, term or squad, ask which one they meant and list the options it gave you. Questions about THIS workspace need no brand; only name a brand when they ask about another part of the group.`
+      : `You are Rambo, the assistant for the United Sports Group knowledge base — the shared vault of how this football organisation does things. You are talking to ${viewer.name}, a staff member.
+
+United Sports Group runs Christchurch United FC, South Island United, Mini Football Leagues, the Christchurch International Cup, United Gymnastics, United Prints and the United Sports Centre. The person is currently browsing the "${brand === "all" ? "All brands" : brand}" section.`;
+  return `${opening}
 
 HOW YOU ANSWER
 - Answer from the tools and the retrieved knowledge base results, and only from those. You have no reliable knowledge of this club from anywhere else. If nothing comes back on a topic, say so plainly: "There's nothing written down about that yet." Then suggest who might know or that someone should add an article. Never fill a gap with a plausible guess — a made-up print specification costs real money when someone prints to it.
@@ -551,6 +568,9 @@ export interface RamboReply {
   content: string;
   sources: { id: number; title: string; brand: string }[];
   toolsUsed: string[];
+  /** Tokens across every round of this answer — a prompt is a paid call. */
+  usage: RamboUsageTotals;
+  model: string;
 }
 
 export async function askRambo(opts: {
@@ -558,8 +578,15 @@ export async function askRambo(opts: {
   brand: string;
   history: { role: "user" | "assistant"; content: string }[];
   question: string;
+  /** "kb" (the Knowledge Base tab, default) or "chat" (Rambo's own page / the home box). */
+  surface?: RamboSurface;
+  /** The workspace the person is standing in — the club-data tools answer about it. */
+  workspaceSlug?: string | null;
 }): Promise<RamboReply> {
   const { viewer, brand, question } = opts;
+  const surface: RamboSurface = opts.surface ?? "kb";
+  if (opts.workspaceSlug !== undefined) viewer.workspaceSlug = opts.workspaceSlug;
+  const usage: RamboUsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return {
@@ -567,6 +594,8 @@ export async function askRambo(opts: {
         "Rambo isn't switched on yet — the ANTHROPIC_API_KEY isn't set on the server. The knowledge base articles still work; searching them is unaffected.",
       sources: [],
       toolsUsed: [],
+      usage,
+      model: MODEL,
     };
   }
 
@@ -612,7 +641,9 @@ export async function askRambo(opts: {
     const res = await client.messages.create({
       model: MODEL,
       max_tokens: 2000,
-      system: systemPrompt(viewer, allowed, brand),
+      // The system prompt is stable for a person; caching it makes the second
+      // question in a chat a fraction of the first's input cost.
+      system: [{ type: "text", text: systemPrompt(viewer, allowed, brand, surface), cache_control: { type: "ephemeral" } }],
       tools: allowed.map((t) => ({
         name: t.name,
         description: t.description,
@@ -620,6 +651,10 @@ export async function askRambo(opts: {
       })),
       messages,
     });
+    usage.input += res.usage?.input_tokens ?? 0;
+    usage.output += res.usage?.output_tokens ?? 0;
+    usage.cacheRead += (res.usage as any)?.cache_read_input_tokens ?? 0;
+    usage.cacheWrite += (res.usage as any)?.cache_creation_input_tokens ?? 0;
 
     const toolUses = res.content.filter((c): c is Anthropic.ToolUseBlock => c.type === "tool_use");
 
@@ -629,7 +664,7 @@ export async function askRambo(opts: {
         .map((c) => c.text)
         .join("\n")
         .trim();
-      return { content: text || "I couldn't put an answer together for that one.", sources, toolsUsed };
+      return { content: text || "I couldn't put an answer together for that one.", sources, toolsUsed, usage, model: MODEL };
     }
 
     messages.push({ role: "assistant", content: res.content });
@@ -687,5 +722,7 @@ export async function askRambo(opts: {
       "I went round in circles on that one. Try asking it in a more specific way, or search the knowledge base directly.",
     sources,
     toolsUsed,
+    usage,
+    model: MODEL,
   };
 }

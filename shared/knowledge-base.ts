@@ -92,6 +92,9 @@ export interface Viewer {
   /** Global role — only "super_admin" is special. */
   globalRole: string | null;
   memberships: ViewerMembership[];
+  /** The workspace the person is standing in (X-Workspace-Slug) — the club-data
+   *  tools answer about THIS organisation and re-check the tab there. */
+  workspaceSlug?: string | null;
 }
 
 /**
@@ -293,6 +296,81 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
       properties: {
         year: { type: "number", description: "Financial year, e.g. 2026. Defaults to the current year." },
       },
+    },
+  },
+  // ── The club's numbers (Daniel, 2026-10-26: "how many under-4 to 8s … by
+  // age … how many were in the holiday camps … on the roll but not paid …
+  // percentage of academy payments … U13 Blue"). Every query is hand-written
+  // in server/rambo-club-tools.ts; the model only names a programme, a term
+  // and a grouping. All four sit behind the Registrations tab, re-checked in
+  // the workspace being asked about.
+  {
+    name: "player_numbers",
+    title: "Player numbers",
+    description:
+      "How many players are REGISTERED (paid) on a programme for a term, as distinct people, with a breakdown by programme, by age in years, by age grade (U9, U10 …) or by the option the family chose. " +
+      "Use for 'how many U4–U8s do we have', 'how many 5-year-olds', 'how many in the academy this term', 'how many at the camps'. " +
+      "programme takes the names staff use: 'U4-U8' / 'FUNiño', 'pre-academy' / 'U9-U12', 'academy' / 'U13-U17', 'technification', 'goalkeeper', 'holiday camps', or 'all'. " +
+      "term: 'current' (default), 'last term', 'Term 3 2026', or 'all' for all time.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programme: { type: "string", description: "Programme name or nickname, e.g. 'U4-U8', 'pre-academy', 'academy', 'holiday camps', 'all'." },
+        term: { type: "string", description: "'current' (default), 'last term', 'next term', 'Term 3 2026', a year, or 'all'." },
+        group_by: { type: "string", enum: ["programme", "age", "grade", "option"], description: "'age' = years old today; 'grade' = U-grade by year of birth; 'option' = the age band / option the family picked." },
+        brand: { type: "string", description: "Only if the person asks about a DIFFERENT workspace than the one they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+    },
+  },
+  {
+    name: "payment_status",
+    title: "Who has paid",
+    description:
+      "For a programme and term: how many have PAID and are registered, how many are ON THE ROLL (marked present or checked in at a session this term) but have NOT paid — with their names — how many started an online checkout and never paid, and the paid share as a percentage. " +
+      "Use for 'who is on the roll but hasn't paid', 'what percentage of the academy / pre-academy has paid', 'how are payments going for U4-U8'. For a specific squad like 'U13 Blue' use squad_payment_status instead.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programme: { type: "string", description: "Programme name or nickname; 'core academy' for every core academy programme together (the default)." },
+        term: { type: "string", description: "'current' (default), 'last term', or 'Term 3 2026'." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+    },
+  },
+  {
+    name: "camp_overlap",
+    title: "Camp crossover",
+    description:
+      "How many of a programme's registered players have ALSO been to one of the club's holiday camps (any camp on record, or a given year), which camps, and the share as a percentage. " +
+      "Use for 'how many of them were in the holiday camps', 'how many academy kids came to a camp'. Matches by name and date of birth and says so.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programme: { type: "string", description: "The academy programme, e.g. 'U4-U8', 'pre-academy', 'academy'." },
+        term: { type: "string", description: "The programme's term: 'current' (default), 'last term', 'Term 3 2026'." },
+        year: { type: "number", description: "Only count camps that ran in this year. Omit for any camp on record." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+    },
+  },
+  {
+    name: "squad_payment_status",
+    title: "Squad payments",
+    description:
+      "For a named squad or team (e.g. 'U13 Blue', 'U9 Kiwis', or 'all'): who on its roster has a paid academy registration for the term and who has not, by name, with the paid percentage per squad. " +
+      "Use for 'U13 Blue specific', 'which of the U10s haven't paid', 'payments by team'.",
+    requiredTab: "registrations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        squad: { type: "string", description: "Squad name as the club writes it ('U13 Blue', 'U9 Kiwis'), a grade ('U10' = every U10 squad), or 'all'." },
+        term: { type: "string", description: "'current' (default), 'last term', or 'Term 3 2026'." },
+        brand: { type: "string", description: "Only for a different workspace than the one they are in." },
+      },
+      required: ["squad"],
     },
   },
   {

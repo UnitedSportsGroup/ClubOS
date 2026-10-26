@@ -560,6 +560,29 @@ function PreviewPublicSiteLink({ orgId, orgSlug }: { orgId: number; orgSlug: str
   );
 }
 
+function RamboSidebarButton() {
+  const [location] = useLocation();
+  const active = location.startsWith("/admin/rambo");
+  return (
+    <Link
+      href="/admin/rambo"
+      className={`flex items-center gap-2.5 rounded-xl border px-2.5 py-2 transition-all duration-300 ${
+        active
+          ? "border-blue-500/40 bg-blue-600/15"
+          : "border-blue-500/[0.12] bg-blue-500/[0.05] hover:bg-blue-500/10 hover:border-blue-500/25"
+      }`}
+      data-testid="button-rambo"
+      aria-current={active ? "page" : undefined}
+    >
+      <img src="/mailer/rambo.png" alt="" className="h-8 w-8 shrink-0 object-contain" />
+      <span className="min-w-0">
+        <span className="block text-[14px] font-semibold leading-tight text-white">Rambo</span>
+        <span className="block truncate text-[11px] leading-tight text-blue-200/50">Ask the club anything</span>
+      </span>
+    </Link>
+  );
+}
+
 function WorkspaceSwitcher() {
   const { currentOrg, setCurrentOrg, organizations, setOrganizations } = useWorkspace();
   const [open, setOpen] = useState(false);
@@ -879,6 +902,10 @@ export function AppSidebar() {
             2026-09-02): the workspace switcher immediately below already says
             where you are, and the app's name is not news to someone inside it. */}
         <WorkspaceSwitcher />
+        {/* Rambo — his own door, above Navigation in EVERY workspace (Daniel,
+            2026-10-26: "its own sit-alone button above the regular navigation,
+            but below the workspace selector"). */}
+        <RamboSidebarButton />
         {isTournament && <CicViewToggle />}
         {isVenue && currentOrg?.slug && (
           <PreviewPublicSiteLink orgId={currentOrg.id} orgSlug={currentOrg.slug} />

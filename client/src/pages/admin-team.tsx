@@ -501,8 +501,8 @@ function ManageMembershipsModal({
           r.mailerAiDailyLimit == null
             ? `${member?.firstName} is back on the default of ${MAILER_AI_DEFAULT_DAILY_LIMIT} prompts a day.`
             : r.mailerAiDailyLimit === 0
-              ? `Rambo in the Mailer is switched off for ${member?.firstName}.`
-              : `${member?.firstName} can send Rambo ${r.mailerAiDailyLimit} prompts a day in the Mailer.`,
+              ? `Rambo is switched off for ${member?.firstName}.`
+              : `${member?.firstName} can ask Rambo ${r.mailerAiDailyLimit} questions a day.`,
       });
     },
     onError: (e: Error) => toast({ title: "Couldn't save the limit", description: e.message, variant: "destructive" }),
@@ -594,11 +594,11 @@ function ManageMembershipsModal({
 
           {/* The Mailer assistant's daily cap — every prompt is a paid API call. */}
           <div>
-            <h4 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3">Rambo in the Mailer</h4>
+            <h4 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3">Rambo</h4>
             <div className="p-3.5 rounded-xl border bg-white/[0.02] border-white/[0.07]">
               <p className="text-sm text-white/85 font-medium">Prompts a day</p>
               <p className="text-[11px] text-white/45 mt-0.5 mb-3 leading-relaxed">
-                How many times a day {member.firstName} can ask Rambo to change an email in the Mailer. Each prompt is a
+                How many questions a day {member.firstName} can ask Rambo — on his own page, from the home dashboard, in the Knowledge Base and in the Mailer's builder, all counted together. Each one is a
                 small paid call on the club's AI account. Leave it empty for the default of {MAILER_AI_DEFAULT_DAILY_LIMIT};
                 0 switches it off for them.
               </p>

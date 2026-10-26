@@ -62,7 +62,7 @@ async function main() {
   ok("a filename parses back to key + format", !!parsed && parsed.key === key && parsed.format === "png");
   ok("a stray path does not parse", parseMailerImageFile("../../etc/passwd") === null && parseMailerImageFile(`${key}.svg`) === null);
   ok("a foreign URL is not a Mailer picture", !isMailerImageUrl("https://example.com/mailer/img/" + key + ".jpg"));
-  ok("the shrink note reads naturally", describeShrink(4_200_000, 140_000) === "4.0 MB → 137 KB (−97%)", describeShrink(4_200_000, 140_000));
+  ok("the shrink note reads naturally and never says −100%", describeShrink(4_200_000, 140_000) === "4.0 MB → 137 KB (−96%)" && /−99%\)$/.test(describeShrink(10_700_000, 29_000)), `${describeShrink(4_200_000, 140_000)} · ${describeShrink(10_700_000, 29_000)}`);
   ok("the gauge states: ok / warn / over", mailerHtmlSizeState(50 * 1024) === "ok" && mailerHtmlSizeState(90 * 1024) === "warn" && mailerHtmlSizeState(102 * 1024) === "over");
 
   // ── The real pipeline ───────────────────────────────────────────────────────

@@ -179,6 +179,7 @@ const CANARIES: Canary[] = [
   // The Mailer's assistant (2026-10-26): a chat box beside the canvas. 401 = live.
   { feature: "mailer assistant",     path: "/api/admin/mailer/ai/usage",                expect: [401] },
   { feature: "mailer pictures",      path: "/api/admin/mailer/images",                  expect: [401] },
+  { feature: "rambo chat",           path: "/api/admin/rambo/threads",                  expect: [401] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
   // paid Player Pay bookings — the same tree carries both.
@@ -198,6 +199,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/mailer/templates":          { file: "server/mailer-templates-routes.ts", needle: "/api/admin/mailer/templates" },
   "/api/admin/mailer/ai/usage":           { file: "server/mailer-ai.ts",           needle: "/api/admin/mailer/ai/usage" },
   "/api/admin/mailer/images":             { file: "server/mailer-images.ts",       needle: "/api/admin/mailer/images" },
+  "/api/admin/rambo/threads":             { file: "server/rambo-routes.ts",        needle: "/api/admin/rambo/threads" },
   "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },

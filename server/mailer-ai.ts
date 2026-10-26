@@ -31,6 +31,7 @@ import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
 import { requireTab } from "./auth";
+import { ramboUsedToday } from "./rambo-usage";
 import { mailerAiUsage } from "@shared/schema";
 import {
   MAILER_AI_DEFAULT_MODEL,
@@ -62,12 +63,10 @@ async function orgIdFor(req: Request): Promise<number | null> {
   return r[0] ? Number(r[0].id) : null;
 }
 
+// One allowance for every door Rambo has (the Mailer's builder, the Knowledge
+// Base tab, Rambo's own page) — counted in server/rambo-usage.ts.
 async function usedToday(userId: number): Promise<number> {
-  const r = rowsOf(await db.execute(sql`
-    SELECT count(*)::int AS n FROM mailer_ai_usage
-    WHERE user_id = ${userId}
-      AND (created_at AT TIME ZONE 'Pacific/Auckland')::date = (now() AT TIME ZONE 'Pacific/Auckland')::date`));
-  return Number(r[0]?.n ?? 0);
+  return ramboUsedToday(userId);
 }
 
 // ── What the model is told ────────────────────────────────────────────────────

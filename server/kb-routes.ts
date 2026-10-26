@@ -31,6 +31,7 @@ import {
   type Viewer,
 } from "@shared/knowledge-base";
 import { askRambo, buildViewer } from "./rambo";
+import { ramboCostCents, ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
 
 const clean = (v: unknown): string | undefined =>
   typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
@@ -413,6 +414,17 @@ export function registerKnowledgeBaseRoutes(app: Express) {
       const question = clean(req.body?.question);
       if (!question) return res.status(400).json({ message: "Ask Rambo something" });
       const brand = isKbBrand(req.body?.brand) ? req.body.brand : "all";
+      // One allowance for every door Rambo has (Daniel, 2026-10-26).
+      const asker = await storage.getUser(viewer.userId);
+      const limit = ramboDailyLimitFor((asker as any)?.mailerAiDailyLimit);
+      const used = await ramboUsedToday(viewer.userId);
+      if (used >= limit) {
+        return res.status(429).json({
+          message: limit === 0
+            ? "Rambo is switched off for your account. A super admin can turn it on in Team."
+            : `You've used today's ${limit} prompt${limit === 1 ? "" : "s"}. It resets at midnight NZ time, or a super admin can raise your limit in Team.`,
+        });
+      }
 
       // Continue a conversation, or start one.
       let sessionId: number | null =
@@ -438,6 +450,7 @@ export function registerKnowledgeBaseRoutes(app: Express) {
 
       await db.insert(kbChatMessages).values({ sessionId, role: "user", content: question });
 
+      const started = Date.now();
       const reply = await askRambo({
         viewer,
         brand,
@@ -445,6 +458,8 @@ export function registerKnowledgeBaseRoutes(app: Express) {
           .filter((m) => m.content.trim() !== "")
           .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
         question,
+        surface: "kb",
+        workspaceSlug: String(req.headers["x-workspace-slug"] || "") || null,
       });
 
       const [saved] = await db
@@ -455,6 +470,13 @@ export function registerKnowledgeBaseRoutes(app: Express) {
           content: reply.content,
           toolsUsed: reply.toolsUsed,
           sources: reply.sources,
+          model: reply.model,
+          inputTokens: reply.usage.input,
+          outputTokens: reply.usage.output,
+          cacheReadTokens: reply.usage.cacheRead,
+          cacheWriteTokens: reply.usage.cacheWrite,
+          costUsdCents: String(ramboCostCents(reply.model, reply.usage)),
+          durationMs: Date.now() - started,
         })
         .returning();
 

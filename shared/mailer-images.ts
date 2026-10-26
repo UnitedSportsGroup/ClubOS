@@ -122,7 +122,7 @@ export function isMailerImageUrl(src: string): boolean {
 export function describeShrink(originalBytes: number, bytes: number): string {
   const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   if (originalBytes <= 0) return kb(bytes);
-  const saved = Math.round((1 - bytes / originalBytes) * 100);
+  const saved = Math.min(99, Math.floor((1 - bytes / originalBytes) * 100));
   return saved > 0 ? `${kb(originalBytes)} → ${kb(bytes)} (−${saved}%)` : kb(bytes);
 }
 

@@ -31,6 +31,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PeriodPicker } from "@/components/dashboard/period-picker";
 import { RevenueWidget } from "@/components/dashboard/revenue-widget";
+import { RamboPromptBox } from "@/components/rambo/rambo-prompt-box";
 import {
   DASHBOARD_PERIODS,
   resolvePeriod,
@@ -105,6 +106,9 @@ export function MetricDashboard({
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto space-y-6">
+      {/* Rambo first (Daniel, 2026-10-26, with Shopify's home open): ask the
+          club anything from the front door; the stats stay below. */}
+      <RamboPromptBox />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1
