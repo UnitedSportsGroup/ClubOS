@@ -195,6 +195,17 @@ export default function EmailBuilder({
   openOnGallery = false,
 }: EmailBuilderProps) {
   const surfaceRef = useRef<EmailEditorSurfaceHandle | null>(null);
+  // 🔴 React empties `surfaceRef` in the unmount's mutation phase, BEFORE any
+  // effect cleanup runs — so a flush in a cleanup found no surface and did
+  // nothing (proven on prod: the word was on the canvas, the draft written at
+  // the click had no trace of it). This ref is ours: it keeps the last live
+  // handle and ignores the null React hands back on detach. The surface's
+  // own editor is still alive at that point (its cleanup runs after ours).
+  const lastSurface = useRef<EmailEditorSurfaceHandle | null>(null);
+  const attachSurface = useCallback((h: EmailEditorSurfaceHandle | null) => {
+    surfaceRef.current = h;
+    if (h) lastSurface.current = h;
+  }, []);
   const [saving, setSaving] = useState(false);
   // The last save, and whether it was the automatic one, for the label beside
   // the button; `savedFlash` is the brief "Saved ✓" that answers a press.
@@ -359,7 +370,7 @@ export default function EmailBuilder({
   useEffect(() => {
     const flush = () => {
       if (!unsaved.current) return;
-      const surface = surfaceRef.current;
+      const surface = lastSurface.current; // never surfaceRef here — see its comment
       if (!surface?.isReady()) return;
       try {
         if (surface.isEditing()) surface.endEditing();
@@ -607,7 +618,7 @@ export default function EmailBuilder({
             <Suspense fallback={<LoadingSurface />}>
               <LazySurface
                 key={surfaceKey}
-                ref={surfaceRef}
+                ref={attachSurface}
                 brandKey={brandKey}
                 initialDoc={activeDoc}
                 onDirty={handleDirty}
