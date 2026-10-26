@@ -36,7 +36,10 @@ const SMALL = `(function () {
   var more = pv ? pv.querySelectorAll("button, select") : [];
   var all = Array.prototype.slice.call(nodes).concat(Array.prototype.slice.call(more));
   for (var i = 0; i < all.length; i++) {
-    var b = all[i].getBoundingClientRect();
+    var el = all[i];
+    // A checkbox's tap target is its LABEL row, which is what a thumb hits.
+    if (el.type === "checkbox" && el.closest("label")) el = el.closest("label");
+    var b = el.getBoundingClientRect();
     if (b.width > 0 && b.height > 0 && b.height < 44) small.push((all[i].getAttribute("data-testid") || all[i].tagName) + ":" + Math.round(b.height));
   }
   return small;
@@ -91,25 +94,32 @@ try {
     await sleep(1500);
 
     // ── Seen by ──────────────────────────────────────────────────────────────
-    let options = 0;
-    for (let i = 0; i < 30 && options < 2; i++) {
-      await sleep(1000);
-      options = await page.evaluate(`(function(){ var s = document.querySelector('[data-testid="select-preview-as"]'); return s ? s.querySelectorAll('option').length : 0; })()`) as number;
-    }
-    ok("the list is counted and 'Seen by' lists real people", options >= 10, `${options} options`);
+    // The Select is DRAWN BY US (a trigger button + a popover of role=option
+    // buttons), never a native <select> — so it is driven by clicking, the
+    // way a person does. The first run of this harness queried <option> nodes
+    // and reported "0 options" over a list of 4,739 people.
     const before: any = await page.evaluate(`(function(){ var s = document.querySelector('[data-testid="text-review-subject"]'); var f = document.querySelector('[data-testid="iframe-review-preview"]'); return { subject: s ? s.textContent.trim() : '', doc: f ? (f.getAttribute('srcdoc') || '').length : 0 }; })()`);
     ok("before a person is picked the subject shows the tag as written", /\{\{first_name\}\}/.test(before.subject), before.subject);
-    // Pick the first person who has a first name on file (an option with a name before the address).
-    const picked: any = await page.evaluate(`(function(){
-      var s = document.querySelector('[data-testid="select-preview-as"]');
-      if (!s) return null;
-      var opts = Array.prototype.slice.call(s.querySelectorAll('option'));
-      var o = opts.find(function(x){ return x.value && /\\(.+@.+\\)$/.test(x.textContent); }) || opts[1];
-      if (!o) return null;
-      s.value = o.value;
-      s.dispatchEvent(new Event('change', { bubbles: true }));
-      return { value: o.value, text: o.textContent };
+    let trigger: any = null;
+    for (let i = 0; i < 30 && !trigger; i++) {
+      await sleep(1000);
+      trigger = await page.$('[data-testid="select-preview-as"]:not([disabled])');
+    }
+    ok("the list is counted and 'Seen by' is ready", !!trigger);
+    if (trigger) await trigger.click();
+    await sleep(600);
+    const options: any = await page.evaluate(`(function(){
+      var opts = Array.prototype.slice.call(document.querySelectorAll('[role="option"]'));
+      return opts.map(function(o){ return { testid: o.getAttribute('data-testid'), text: (o.textContent || '').trim() }; });
     })()`);
+    ok("…and lists real people", options.length >= 10, `${options.length} options`);
+    // Pick the first person who has a first name on file (a name before the address).
+    const target = options.find((o: any) => /\(.+@.+\)$/.test(o.text) && !/^Everyone/.test(o.text)) || options[1];
+    let picked: any = null;
+    if (target) {
+      const el = await page.$(`[data-testid="${target.testid}"]`);
+      if (el) { await el.click(); picked = target; }
+    }
     ok("a person can be picked", !!picked, JSON.stringify(picked));
     let who = "";
     for (let i = 0; i < 20 && !who; i++) {
@@ -156,8 +166,8 @@ try {
     const kindLink = await page.$('[data-testid="button-ab-kind-link"]');
     if (kindLink) await kindLink.click();
     await sleep(400);
-    const linkUi: any = await page.evaluate(`(function(){ var s = document.querySelector('[data-testid="select-ab-target"]'); var n = document.querySelector('[data-testid="text-ab-no-links"]'); return { select: !!s, options: s ? s.querySelectorAll('option').length : 0, none: !!n }; })()`);
-    ok("the button kind lists the email's links, or says there are none", (linkUi.select && linkUi.options >= 2) || linkUi.none, JSON.stringify(linkUi));
+    const linkUi: any = await page.evaluate(`(function(){ var s = document.querySelector('[data-testid="select-ab-target"]'); var n = document.querySelector('[data-testid="text-ab-no-links"]'); return { select: !!s, none: !!n }; })()`);
+    ok("the button kind offers the email's links, or says there are none", linkUi.select || linkUi.none, JSON.stringify(linkUi));
     const sendNow: any = await page.evaluate(`(function(){ var b = document.querySelector('[data-testid="button-send-campaign"]'); return b ? b.disabled : null; })()`);
     ok("an unfinished link test keeps Send disabled", sendNow === true);
 

@@ -337,6 +337,14 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
   /** The tracked link. Logs the click, flags a scanner, sends the person on. */
   app.get("/e/c/:campaignId/:recipientId/:idx/:sig", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    // Express answers HEAD with the GET handler. A scanner's HEAD probe is not a
+    // click: answer it and log nothing. (Found live — the first build logged
+    // it as a bot click and redirected.)
+    if (req.method === "HEAD") {
+      res.setHeader("Content-Type", "image/gif");
+      res.setHeader("Content-Length", String(ONE_PIXEL.length));
+      return res.status(200).end();
+    }
     const campaignId = parseInt(String(req.params.campaignId), 10);
     const recipientId = parseInt(String(req.params.recipientId), 10);
     const idx = parseInt(String(req.params.idx), 10);
@@ -352,9 +360,11 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
       if (!link || !rcpt) return res.status(404).send("This link has expired.");
 
       const ua = String(req.headers["user-agent"] || "");
-      let bot = req.method === "HEAD" || isSuspectedBotUserAgent(ua);
+      let bot = isSuspectedBotUserAgent(ua);
       // A sweep: this person "clicked" a DIFFERENT link seconds ago. A reader
-      // does not do that; a scanner walking every link does. Flag both.
+      // does not do that; a scanner walking every link does. Flag both, and
+      // put the person's click count and first-click back to what the real
+      // clicks say (the earlier click had already been counted).
       if (!bot) {
         const recent = rowsOf(await db.execute(sql`
           SELECT id FROM email_campaign_clicks WHERE recipient_id = ${recipientId} AND link_id <> ${link.id}
@@ -362,7 +372,11 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
         if (recent.length > 0) {
           bot = true;
           for (const r of recent) await db.update(emailCampaignClicks).set({ suspectedBot: true }).where(eq(emailCampaignClicks.id, Number(r.id)));
-          await db.execute(sql`UPDATE email_campaign_recipients SET click_count = GREATEST(0, click_count - ${recent.length}) WHERE id = ${recipientId}`);
+          await db.execute(sql`
+            UPDATE email_campaign_recipients r SET
+              click_count = (SELECT count(*) FROM email_campaign_clicks k WHERE k.recipient_id = r.id AND k.suspected_bot = false),
+              first_clicked_at = (SELECT min(k.clicked_at) FROM email_campaign_clicks k WHERE k.recipient_id = r.id AND k.suspected_bot = false)
+            WHERE r.id = ${recipientId}`);
         }
       }
       await db.insert(emailCampaignClicks).values({ campaignId, linkId: link.id, recipientId, variant: rcpt.variant ?? null, userAgent: ua.slice(0, 500) || null, suspectedBot: bot });
@@ -387,14 +401,6 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
       console.error("[mailer click] error:", e);
       return res.status(404).send("This link has expired.");
     }
-  });
-
-  /** A transparent pixel for a HEAD probe on the click path — some scanners
-   *  ask for one; answering keeps them from retrying with GET. */
-  app.head("/e/c/:campaignId/:recipientId/:idx/:sig", (_req: Request, res: Response) => {
-    res.setHeader("Content-Type", "image/gif");
-    res.setHeader("Content-Length", String(ONE_PIXEL.length));
-    res.status(200).end();
   });
 
   /** The email exactly as ONE person would get it — their names in the tags,

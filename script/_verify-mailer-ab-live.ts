@@ -137,7 +137,9 @@ try {
   ok("B's email reads 'Save my spot' and nothing else changed", !!bMail && bMail.body.includes(">Save my spot</a>") && !bMail.body.includes(">Register now</a>") && bMail.body.includes("See the programmes"), bMail ? "" : "no log");
   const trackedRe = /https:\/\/app\.usg\.co\.nz\/e\/c\/(\d+)\/(\d+)\/(\d+)\/([a-f0-9]+)/g;
   const aLinks = Array.from((aMail?.body || "").matchAll(trackedRe));
-  ok("every link in A's email is a tracked redirect carrying the campaign and the row id, never the address", aLinks.length === 2 && aLinks.every((m) => Number(m[1]) === c1) && !(aMail?.body || "").includes(encodeURIComponent(aPerson.email)), String(aLinks.length));
+  // (The open pixel has always carried the address in its query; the tracked
+  // links are what must not.)
+  ok("every link in A's email is a tracked redirect carrying the campaign and the row id, never the address", aLinks.length === 2 && aLinks.every((m) => Number(m[1]) === c1 && !m[0].includes("@") && !m[0].includes("%40")), String(aLinks.length));
   ok("the unsubscribe link is NOT wrapped", /\/api\/public\/unsubscribe\?o=/.test(aMail?.body || ""));
   ok("the open pixel is still there", /\/api\/public\/email\/open\?c=/.test(aMail?.body || ""));
   ok("the subject carries no test change on a link test", aMail?.subject === subj1 && bMail?.subject === subj1, `${aMail?.subject} | ${bMail?.subject}`);
@@ -164,9 +166,9 @@ try {
   await fetch(bLinks[0], { redirect: "manual", headers: { "user-agent": PHONE_UA } });
   await fetch(bLinks[1], { redirect: "manual", headers: { "user-agent": PHONE_UA } });
   await wait(1500);
-  const bRow = (await pool.query(`SELECT click_count FROM email_campaign_recipients WHERE campaign_id=$1 AND email=$2`, [c1, bPerson.email])).rows[0];
+  const bRow = (await pool.query(`SELECT click_count, first_clicked_at FROM email_campaign_recipients WHERE campaign_id=$1 AND email=$2`, [c1, bPerson.email])).rows[0];
   const bClicks = (await pool.query(`SELECT suspected_bot FROM email_campaign_clicks k JOIN email_campaign_recipients r ON r.id = k.recipient_id WHERE r.email=$1 ORDER BY k.id`, [bPerson.email])).rows;
-  ok("two different links within three seconds is a scanner's sweep: both flagged, nothing counted", bRow.click_count === 0 && bClicks.length === 2 && bClicks.every((k) => k.suspected_bot), JSON.stringify({ count: bRow.click_count, clicks: bClicks }));
+  ok("two different links within three seconds is a scanner's sweep: both flagged, nothing counted, no first click left on the person", bRow.click_count === 0 && bRow.first_clicked_at === null && bClicks.length === 2 && bClicks.every((k) => k.suspected_bot), JSON.stringify({ count: bRow.click_count, first: bRow.first_clicked_at, clicks: bClicks }));
   // Tampering.
   const forged = await fetch(aButton.replace(/[a-f0-9]+$/, "deadbeefdeadbeefdeadbeef"), { redirect: "manual" });
   ok("a forged signature is a 404, not a redirect", forged.status === 404, String(forged.status));
