@@ -135,10 +135,15 @@ export const BRAND_KITS: Record<string, BrandKit> = {
       { label: "Enrol", href: "https://cugc.co.nz/enrol" },
     ],
     photos: [
-      { src: `${HOST}/mailer/cugc/hero.jpg`, alt: "United Gymnastics class" },
-      { src: `${HOST}/mailer/cugc/program-2.jpg`, alt: "Gymnasts training" },
-      { src: `${HOST}/mailer/cugc/club.jpg`, alt: "The gym" },
-      { src: `${HOST}/mailer/cugc/program-3.jpg`, alt: "Holiday programme" },
+      // Captions say WHO is in the picture and how old they look — Rambo
+      // picks a picture by its caption, and "the gym" chose nothing when
+      // Daniel asked for gymnastics kids in the 4–8 range (2026-10-27).
+      { src: `${HOST}/mailer/cugc/hero.jpg`, alt: "Beginner class: kids about 5 to 8 in United Gymnastics tees doing floor work in the gym — best for U4–U8, free sessions and holiday programmes" },
+      { src: `${HOST}/mailer/cugc/program-2.jpg`, alt: "Two rhythmic gymnasts about 9 to 11 with hoops on the competition floor" },
+      { src: `${HOST}/mailer/cugc/club.jpg`, alt: "The competitive squad: eleven gymnasts in leotards, team photo in the gym" },
+      { src: `${HOST}/mailer/cugc/program-3.jpg`, alt: "Older gymnasts about 10 to 14 lined up in competition leotards" },
+      { src: `${HOST}/mailer/cugc/autumn-glory.jpg`, alt: "Four young gymnasts jumping for joy on the podium at the Autumn Glory competition, balloons and the United Gymnastics banner behind them" },
+      { src: `${HOST}/mailer/cugc/show.jpg`, alt: "Gymnasts in red and black performance costumes gathered on the floor at a show" },
     ],
     socials: {
       instagram: "https://www.instagram.com/unitedgymnasticsnz/",

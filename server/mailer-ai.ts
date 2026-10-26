@@ -135,7 +135,7 @@ HOW TO ANSWER
 
 HARD RULES
 - Only these tags: mjml, mj-body, mj-wrapper, mj-section, mj-group, mj-column, mj-text, mj-image, mj-button, mj-divider, mj-spacer, mj-social, mj-social-element, mj-raw. No mj-head, mj-style, mj-attributes, mj-font, no <script>. Styling is attributes and inline styles inside mj-text.
-- Pictures: ONLY image URLs from the brand kit below, the CLUB LOGOS list below, or ones already in the current email. Never invent or hotlink a picture.
+- Pictures: ONLY image URLs from the brand kit below, the OTHER BRANDS' PICTURES list below, the CLUB LOGOS list below, or ones already in the current email. Never invent or hotlink a picture. Choose by the CAPTION: match the people and the age group the email is about (an email about a holiday programme for 4–8 year olds wants a picture of young children, not the competitive squad). When the email is about another brand of the club — a gymnastics free session sent to football families, say — use THAT brand's pictures, never football ones.
 - Club logos: the CLUB LOGOS list holds the crest of EVERY brand the club runs (Christchurch United, South Island United, United Gymnastics/CUGC, Mini Football Leagues, the Christchurch International Cup, United Sports Group, United Prints). When someone asks for a brand's logo, crest or badge, use that brand's URL as an mj-image at about its listed width, in its own column. Never leave a text placeholder like [CUGC logo] for a brand that is in the list. Two crests side by side = one mj-section with two mj-columns, one mj-image in each.
 - In a column, an mj-image, mj-divider or mj-spacer must be the LAST child — the builder's export drops everything after one. Put a picture in its own column or section, or last. For a rule between things use border-top / border-bottom on the section or column.
 - Keep merge tags exactly as they are: ${MAILER_AI_MERGE_TAGS.map((t) => `{{${t}}}`).join(", ")}. Do not invent new ones. {{first_name}} is the parent; {{player_first_name}} is their registered child.
@@ -175,8 +175,15 @@ function systemPromptFor(brandKey: string): string {
   } catch {
     reference = "";
   }
+  // Every OTHER brand's pictures, with their captions, so an email about a
+  // sister brand (a gymnastics free session in a football email) can show
+  // the right people. Brands with no pictures are left out.
+  const others = Object.values(BRAND_KITS)
+    .filter((k) => k.key !== kit.key && (k.photos.length > 0 || (k.products ?? []).length > 0))
+    .map((k) => ({ brand: k.key, name: CLUB_LOGOS.find((l) => l.key === k.key)?.label ?? k.key, site: k.site, photos: k.photos, products: k.products ?? [] }));
   const text =
-    `${RULES}\n\nBRAND KIT (JSON — this email's brand; its pictures are the ones you may use, plus the club logos below):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
+    `${RULES}\n\nBRAND KIT (JSON — this email's brand; its pictures are the ones you may use, plus the other brands' pictures and the club logos below):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
+    `OTHER BRANDS' PICTURES (JSON — the club's other brands; use one of these ONLY when the email is about that brand, and pick by caption):\n${JSON.stringify(others, null, 1)}\n\n` +
     `CLUB LOGOS (JSON — every brand of the club, crest URL and the width its own header uses):\n${JSON.stringify(CLUB_LOGOS, null, 1)}\n\n` +
     (reference
       ? `HOUSE STYLE — this brand's newsletter template as MJML. Copy its shapes, spacing, fonts and conventions when you build or restyle:\n${reference}`
@@ -193,7 +200,13 @@ function allowedImagesFor(brandKey: string, mjml: string): Set<string> {
   (kit.products ?? []).forEach((p) => set.add(p.src));
   // Every brand's crest — "add the CUGC logo" on a CUFC email is a real picture.
   CLUB_LOGOS.forEach((l) => set.add(l.src));
-  Object.values(BRAND_KITS).forEach((k) => set.add(k.crest));
+  // …and every brand's pictures: a gymnastics free session in a football
+  // email shows gymnasts (2026-10-27). The prompt says when to reach for them.
+  Object.values(BRAND_KITS).forEach((k) => {
+    set.add(k.crest);
+    k.photos.forEach((p) => set.add(p.src));
+    (k.products ?? []).forEach((p) => set.add(p.src));
+  });
   Object.values(SOCIAL_ICON).forEach((s) => set.add(s.src));
   LETTERHEADS.forEach((l) => set.add(l.src));
   mjmlImageSrcs(mjml).forEach((s) => set.add(s));
