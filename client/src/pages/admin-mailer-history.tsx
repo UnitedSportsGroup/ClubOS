@@ -11,13 +11,15 @@
 // search box, sortable Date / Subject / Sender / Recipients, the recipient count
 // as a link, View Message, and "Showing X to Y of Z entries".
 import { useState, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle, BadgeCheck, UserPen } from "lucide-react";
+import { ChevronUp, ChevronDown, Mail, Search, Check, X as XIcon, AlertTriangle, BadgeCheck, UserPen, FlaskConical, MousePointerClick, Clock } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { waitLabel } from "@shared/mailer-tests";
 
 type Campaign = {
   id: number; subject: string; fromEmail: string | null; segmentType: string | null;
@@ -163,6 +165,115 @@ function SortHead({ label, k, sort, dir, onSort, className = "" }: {
   );
 }
 
+/** The A/B test's scoreboard, and the button that ends the wait. */
+function TestResults({ campaignId, results, status }: { campaignId: number; results: any; status: string | null }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const t = results?.test;
+  const v = results?.variants;
+  const decide = useMutation({
+    mutationFn: async (winner?: "A" | "B") => {
+      const r = await workspaceFetch(`/api/admin/mailer/campaigns/${campaignId}/test/decide`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(winner ? { winner } : {}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || "Could not pick the winner");
+      return j;
+    },
+    onSuccess: (j) => {
+      toast({ title: `${j.winner} is going to everyone waiting`, description: j.decidedBy === "hand" ? "Picked by hand. It sends steadily from now." : `Picked by ${j.decidedBy}. It sends steadily from now.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/mailer/campaigns", campaignId, "recipients"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/mailer/campaigns"] });
+    },
+    onError: (e: any) => toast({ title: "Couldn't pick the winner", description: e?.message, variant: "destructive" }),
+  });
+  if (!t || !v) return null;
+  const pct = (hits: number, sent: number) => (sent > 0 ? `${Math.round((hits / sent) * 100)}%` : "—");
+  const hitsOf = (x: any) => (t.metric === "opens" ? x.opened : t.kind === "link" ? x.targetClicked : x.clicked);
+  const noun = t.metric === "opens" ? "opened" : t.kind === "link" ? "clicked it" : "clicked";
+  const waiting = status === "testing" && !t.decidedAt && t.restCount > 0;
+  const decideAt = t.decideAt ? new Date(t.decideAt) : null;
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.05] p-4 space-y-3" data-testid="ab-results">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-white/85">
+          <FlaskConical className="w-4 h-4 text-violet-400" />
+          {t.kind === "subject" ? "Subject line test" : "Button wording test"} · {t.samplePct === 100 ? "everyone, half and half" : `${t.samplePct}% of the list`} · judged by {t.metric}
+        </div>
+        {t.decidedAt ? (
+          <span className="text-[12px] text-emerald-400" data-testid="ab-verdict">
+            {t.winner} won{t.decidedBy === "tie" ? " (a tie keeps A)" : t.decidedBy === "hand" ? ", picked by hand" : ` by ${t.decidedBy}`} · {whenLabel(t.decidedAt)}
+            {t.restSentAt ? ` · sent to the other ${t.restCount.toLocaleString()}` : t.restCount > 0 ? " · sending to the rest now" : ""}
+          </span>
+        ) : waiting ? (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-amber-300/90" data-testid="ab-waiting">
+            <Clock className="w-3.5 h-3.5" />
+            {t.restCount.toLocaleString()} waiting · the winner is picked {decideAt ? `at ${whenLabel(t.decideAt)}` : `after ${waitLabel(t.waitMinutes)}`} · {t.leading} is ahead
+          </span>
+        ) : (
+          <span className="text-[12px] text-white/50" data-testid="ab-no-holdout">Nobody waited for a winner — {t.leading} did better{t.leadingReason === "tie" ? " (a tie)" : ""}.</span>
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {(["A", "B"] as const).map((k) => {
+          const x = v[k];
+          const words = k === "A" ? t.variantA : t.variantB;
+          const lead = (t.winner ?? t.leading) === k;
+          return (
+            <div key={k} className={`rounded-lg border px-3 py-2 ${lead ? "border-emerald-500/40 bg-emerald-500/[0.06]" : "border-white/[0.08] bg-white/[0.02]"}`} data-testid={`ab-variant-${k}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] uppercase tracking-wider text-white/45">Version {k}{lead ? " · ahead" : ""}</span>
+                <span className="text-[13px] font-semibold text-white/85 tabular-nums">{pct(hitsOf(x), x.sent)}</span>
+              </div>
+              <div className="text-[13px] text-white/80 mt-0.5 break-words">“{words}”</div>
+              <div className="text-[11px] text-white/45 mt-1 tabular-nums">{hitsOf(x).toLocaleString()} of {x.sent.toLocaleString()} {noun} · {x.opened.toLocaleString()} opened · {x.clicked.toLocaleString()} clicked</div>
+            </div>
+          );
+        })}
+      </div>
+      {waiting && (
+        <div className="flex flex-wrap gap-2" data-testid="ab-decide">
+          <Button size="sm" onClick={() => decide.mutate(undefined)} disabled={decide.isPending} className="h-9 bg-violet-600 hover:bg-violet-700 text-white" data-testid="button-ab-decide-now">
+            Pick the winner now ({t.leading})
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => decide.mutate("A")} disabled={decide.isPending} className="h-9 border-white/10 text-white/70" data-testid="button-ab-send-a">Send A to the rest</Button>
+          <Button size="sm" variant="outline" onClick={() => decide.mutate("B")} disabled={decide.isPending} className="h-9 border-white/10 text-white/70" data-testid="button-ab-send-b">Send B to the rest</Button>
+        </div>
+      )}
+      {v.rest?.sent > 0 && (
+        <div className="text-[11px] text-white/45 tabular-nums" data-testid="ab-rest">
+          The other {v.rest.sent.toLocaleString()} got {t.winner ?? "the winner"}: {v.rest.opened.toLocaleString()} opened · {v.rest.clicked.toLocaleString()} clicked.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Every link the email carried and how many people clicked it. */
+function LinkResults({ links }: { links: any[] }) {
+  const withClicks = links.filter((l) => l.label || l.people > 0);
+  if (withClicks.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-blue-500/[0.08] px-4 py-3" data-testid="link-results">
+      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold text-blue-300/30 mb-2">
+        <MousePointerClick className="w-3.5 h-3.5" /> Links
+      </div>
+      <div className="space-y-1">
+        {withClicks.map((l) => (
+          <div key={l.id} className="flex items-center justify-between gap-3 text-[12px]" data-testid={`link-result-${l.idx}`}>
+            <span className="min-w-0 truncate text-white/75">
+              {l.kind === "button" ? <span className="text-white/40">Button · </span> : l.kind === "image" ? <span className="text-white/40">Picture · </span> : null}
+              {l.label || l.url}
+              {l.isTarget && <span className="ml-1.5 text-[10px] px-1.5 rounded-full bg-violet-500/15 text-violet-300">tested</span>}
+            </span>
+            <span className="shrink-0 tabular-nums text-white/60">{l.people.toLocaleString()} {l.people === 1 ? "person" : "people"}{l.clicks > l.people ? ` · ${l.clicks.toLocaleString()} clicks` : ""}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Everyone one campaign went to, by name, and whether they opened it. */
 function RecipientsDialog({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
   const { data, isLoading } = useQuery<any>({
@@ -172,25 +283,32 @@ function RecipientsDialog({ campaign, onClose }: { campaign: Campaign; onClose: 
       if (!r.ok) throw new Error("Could not load the recipients");
       return r.json();
     },
+    // A test in progress moves; keep the scoreboard fresh while it is open.
+    refetchInterval: (query) => ((query.state.data as any)?.status === "testing" || (query.state.data as any)?.status === "sending" ? 15_000 : false),
   });
   const [q, setQ] = useState("");
   const people: any[] = data?.people ?? [];
   const shown = people.filter(p =>
     !q.trim() || `${p.name ?? ""} ${p.email}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const hasTest = !!data?.results?.test;
+  const cols = hasTest ? 5 : 4;
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-[15px]">Recipients: {campaign.subject}</DialogTitle>
         </DialogHeader>
 
         {isLoading ? <Skeleton className="h-40 w-full rounded-xl bg-blue-500/[0.04]" /> : (
           <div className="space-y-3">
+            {data?.results && <TestResults campaignId={campaign.id} results={data.results} status={data.status ?? campaign.status} />}
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-4 text-[12px]">
-                <span className="text-white/50">{data?.recipientCount ?? 0} sent</span>
+                <span className="text-white/50">{data?.sentCount ?? data?.recipientCount ?? 0} sent</span>
                 <span className="text-emerald-500">{data?.openedCount ?? 0} opened</span>
+                <span className="text-blue-400" data-testid="text-clicked-count">{data?.clickedCount ?? 0} clicked</span>
+                {!!data?.queuedCount && <span className="text-amber-300/90" data-testid="text-queued-count">{data.queuedCount} waiting</span>}
                 {!!data?.failedCount && <span className="text-red-500">{data.failedCount} failed</span>}
               </div>
               {people.length > 8 && (
@@ -219,8 +337,10 @@ function RecipientsDialog({ campaign, onClose }: { campaign: Campaign; onClose: 
                   <thead className="sticky top-0 bg-[hsl(var(--background))]">
                     <tr className="border-b border-blue-500/[0.08]">
                       <th className="px-4 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-blue-300/30">Name</th>
+                      {hasTest && <th className="px-4 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-blue-300/30">Version</th>}
                       <th className="px-4 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-blue-300/30">Sent</th>
                       <th className="px-4 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-blue-300/30">Opened</th>
+                      <th className="px-4 py-2 text-left text-[11px] uppercase tracking-wider font-semibold text-blue-300/30">Clicked</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -233,28 +353,45 @@ function RecipientsDialog({ campaign, onClose }: { campaign: Campaign; onClose: 
                             ? <span className="text-[13px] text-white/80">{p.name} <span className="text-white/35">&lt;{p.email}&gt;</span></span>
                             : <span className="text-[13px] text-white/55">{p.email}</span>}
                         </td>
+                        {hasTest && (
+                          <td className="px-4 py-2">
+                            {p.variant
+                              ? <span className={`text-[11px] font-semibold ${p.inTest ? "text-violet-300" : "text-white/55"}`} title={p.inTest ? "In the test sample" : "Got the winner"}>{p.variant}{p.inTest ? "" : " (winner)"}</span>
+                              : <span className="text-[11px] text-white/30">—</span>}
+                          </td>
+                        )}
                         <td className="px-4 py-2">
                           {p.status === "failed"
                             ? <span className="inline-flex items-center gap-1 text-[11px] text-red-500"><XIcon className="w-3 h-3" />Failed</span>
-                            : p.sentAt
-                              ? <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500"><Check className="w-3 h-3" />Sent</span>
-                              : <span className="text-[11px] text-white/30">—</span>}
+                            : p.status === "queued"
+                              ? <span className="inline-flex items-center gap-1 text-[11px] text-amber-300/90"><Clock className="w-3 h-3" />{hasTest ? "Waiting for the winner" : "Queued"}</span>
+                              : p.sentAt
+                                ? <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500"><Check className="w-3 h-3" />Sent</span>
+                                : <span className="text-[11px] text-white/30">—</span>}
                         </td>
                         <td className="px-4 py-2">
                           {p.firstOpenedAt
                             ? <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500"><Check className="w-3 h-3" />
                                 {whenLabel(p.firstOpenedAt)}{p.openCount > 1 ? ` · ${p.openCount}×` : ""}</span>
-                            : <span className="text-[11px] text-white/30">Not opened</span>}
+                            : <span className="text-[11px] text-white/30">{p.status === "queued" ? "—" : "Not opened"}</span>}
+                        </td>
+                        <td className="px-4 py-2">
+                          {p.firstClickedAt
+                            ? <span className="inline-flex items-center gap-1 text-[11px] text-blue-400"><MousePointerClick className="w-3 h-3" />
+                                {whenLabel(p.firstClickedAt)}{p.clickCount > 1 ? ` · ${p.clickCount}×` : ""}</span>
+                            : <span className="text-[11px] text-white/30">{p.status === "queued" ? "—" : "No clicks"}</span>}
                         </td>
                       </tr>
                     ))}
                     {shown.length === 0 && (
-                      <tr><td colSpan={3} className="px-4 py-6 text-center text-[12px] text-white/25">Nobody matches “{q}”.</td></tr>
+                      <tr><td colSpan={cols} className="px-4 py-6 text-center text-[12px] text-white/25">Nobody matches “{q}”.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             )}
+
+            {data?.results?.links?.length > 0 && <LinkResults links={data.results.links} />}
 
             {/* 🔴 The honest caveat, and it is not boilerplate. "Sent" means
                 Resend accepted it — there is no delivery webhook, so a hard
@@ -263,7 +400,8 @@ function RecipientsDialog({ campaign, onClose }: { campaign: Campaign; onClose: 
             <p className="text-[11px] text-white/35 leading-relaxed">
               “Sent” means our email provider accepted the message — it is not proof it reached an inbox.
               Opens are counted by an image load, and Apple Mail loads images automatically, so treat them
-              as a guide rather than a headcount.
+              as a guide rather than a headcount. Clicks are people who followed a link; the clicks mail
+              scanners make are left out.
             </p>
           </div>
         )}
@@ -404,7 +542,10 @@ export default function AdminMailerHistory() {
                 return (
                   <tr key={c.id} className="border-b border-blue-500/[0.03] hover:bg-blue-500/[0.03] transition-colors" data-testid={`row-campaign-${c.id}`}>
                     <td className="px-4 py-3 text-[13px] text-white/60 whitespace-nowrap">{whenLabel(c.sentAt ?? c.createdAt)}</td>
-                    <td className="px-4 py-3 text-[13px] text-white/80">{c.subject}</td>
+                    <td className="px-4 py-3 text-[13px] text-white/80">
+                      {c.subject}
+                      {c.status === "testing" && <span className="ml-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 align-middle" data-testid={`badge-testing-${c.id}`}><FlaskConical className="w-3 h-3" />A/B test running</span>}
+                    </td>
                     <td className="px-4 py-3"><Sender c={c} canEdit={canEdit} onSet={() => setSetSenderOn(c)} /></td>
                     <td className="px-4 py-3">
                       <button onClick={() => setSeeRecipients(c)}

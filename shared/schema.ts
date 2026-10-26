@@ -2250,16 +2250,84 @@ export const emailCampaignRecipients = pgTable("email_campaign_recipients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   campaignId: integer("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
   email: text("email").notNull(),
-  status: text("status").notNull().default("sent"), // 'sent' | 'failed'
+  // 'queued' (written before the send — the person is on the list and either
+  // waiting their turn or waiting for a test's winner) | 'sent' | 'failed'.
+  status: text("status").notNull().default("sent"),
   sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
   firstOpenedAt: timestamp("first_opened_at", { withTimezone: true }),
   lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
   openCount: integer("open_count").notNull().default(0),
+  // A/B tests (2026-10-27): which version this person got, and whether they
+  // were in the sample that decided it (the rest get the winner, in_test false).
+  variant: text("variant"), // 'A' | 'B' | null
+  inTest: boolean("in_test").notNull().default(false),
+  firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
+  clickCount: integer("click_count").notNull().default(0),
 }, (t) => ({
   campaignIdx: index("email_campaign_recipients_campaign_idx").on(t.campaignId),
 }));
 
 export type EmailCampaignRecipient = typeof emailCampaignRecipients.$inferSelect;
+
+// One row per campaign that ran an A/B test (shared/mailer-tests.ts holds the
+// rules). The verdict is derived from opens or clicks, then STAMPED here with
+// the reason and the time, so history can always say who won and why.
+export const emailCampaignTests = pgTable("email_campaign_tests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campaignId: integer("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),     // 'subject' | 'link'
+  metric: text("metric").notNull(), // 'opens' | 'clicks'
+  variantA: text("variant_a").notNull(),
+  variantB: text("variant_b").notNull(),
+  samplePct: integer("sample_pct").notNull(),
+  waitMinutes: integer("wait_minutes").notNull(),
+  aCount: integer("a_count").notNull().default(0),
+  bCount: integer("b_count").notNull().default(0),
+  restCount: integer("rest_count").notNull().default(0),
+  decideAt: timestamp("decide_at", { withTimezone: true }),
+  decidingAt: timestamp("deciding_at", { withTimezone: true }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  winner: text("winner"),         // 'A' | 'B'
+  decidedBy: text("decided_by"),  // 'opens' | 'clicks' | 'tie' | 'hand'
+  decidedByUserId: integer("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  restSentAt: timestamp("rest_sent_at", { withTimezone: true }),
+  attachments: jsonb("attachments"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  campaignUnq: uniqueIndex("email_campaign_tests_campaign_id_key").on(t.campaignId),
+}));
+export type EmailCampaignTest = typeof emailCampaignTests.$inferSelect;
+
+// The links an email went out with. The public click redirect resolves a link
+// by (campaign, idx) and sends the person to the URL stored HERE — never to a
+// URL carried in the request, so it cannot be used as an open redirect.
+export const emailCampaignLinks = pgTable("email_campaign_links", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campaignId: integer("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
+  idx: integer("idx").notNull(),
+  url: text("url").notNull(),
+  label: text("label").notNull().default(""),
+  kind: text("kind").notNull().default("link"), // 'button' | 'link' | 'image'
+}, (t) => ({
+  campaignIdxUnq: uniqueIndex("email_campaign_links_campaign_id_idx_key").on(t.campaignId, t.idx),
+}));
+export type EmailCampaignLink = typeof emailCampaignLinks.$inferSelect;
+
+// Every click, with the mail-scanner ones flagged rather than dropped.
+export const emailCampaignClicks = pgTable("email_campaign_clicks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  campaignId: integer("campaign_id").notNull().references(() => emailCampaigns.id, { onDelete: "cascade" }),
+  linkId: integer("link_id").notNull().references(() => emailCampaignLinks.id, { onDelete: "cascade" }),
+  recipientId: integer("recipient_id").notNull().references(() => emailCampaignRecipients.id, { onDelete: "cascade" }),
+  variant: text("variant"),
+  clickedAt: timestamp("clicked_at", { withTimezone: true }).defaultNow().notNull(),
+  userAgent: text("user_agent"),
+  suspectedBot: boolean("suspected_bot").notNull().default(false),
+}, (t) => ({
+  campaignLinkIdx: index("email_campaign_clicks_campaign_idx").on(t.campaignId, t.linkId),
+  recipientIdx: index("email_campaign_clicks_recipient_idx").on(t.recipientId, t.clickedAt),
+}));
+export type EmailCampaignClick = typeof emailCampaignClicks.$inferSelect;
 
 export const insertEmailCampaignSchema = createInsertSchema(emailCampaigns).omit({ id: true, createdAt: true, sentAt: true });
 export const insertEmailUnsubscribeSchema = createInsertSchema(emailUnsubscribes).omit({ id: true, createdAt: true });

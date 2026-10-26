@@ -159,6 +159,9 @@ import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
 import { registerMailerAiRoutes } from "./mailer-ai";
 import { registerMailerImageRoutes } from "./mailer-images";
+import { registerMailerTestRoutes, startMailerTests, queueRecipients, recordCampaignLinks, renderTrackedForRecipient, subjectForVariant, campaignResults } from "./mailer-tests";
+import { validateMailerTest, splitForTest, describeTestPlan, type MailerVariant } from "@shared/mailer-tests";
+import { emailCampaignTests } from "@shared/schema";
 import { registerRamboRoutes } from "./rambo-routes";
 import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
@@ -6594,8 +6597,11 @@ export async function registerRoutes(
       const campaign = await storage.getEmailCampaign(id);
       if (!campaign) return res.status(404).json({ message: "Campaign not found" });
       const people = await storage.getCampaignRecipients(id);
+      // The A/B test (if one ran), each version's numbers, every link's clicks.
+      const results = await campaignResults(id).catch(() => null);
       res.json({
         subject: campaign.subject,
+        status: campaign.status,
         // 🔴 The per-person list only exists for sends that went through the
         // broadcast queue. An older campaign has a COUNT and no list, and the
         // page must say that rather than render an empty table that reads as
@@ -6605,6 +6611,9 @@ export async function registerRoutes(
         sentCount: campaign.sentCount ?? 0,
         failedCount: campaign.failedCount ?? 0,
         openedCount: people.filter(p => p.firstOpenedAt).length,
+        clickedCount: people.filter(p => p.firstClickedAt).length,
+        queuedCount: people.filter(p => p.status === "queued").length,
+        results,
         people,
       });
     } catch (error: any) {
@@ -6827,6 +6836,16 @@ export async function registerRoutes(
       // half-made send in the history.
       const att = readMailerAttachments(req.body.attachments);
       if (!att.ok) return res.status(400).json({ message: att.message });
+      // An A/B test (2026-10-27): two subject lines judged by opens, or one
+      // link's wording judged by clicks. Checked here, before anything is
+      // written — a second version that is blank, identical, or names a link
+      // the email no longer has is refused with the reason.
+      let testPlan: ReturnType<typeof validateMailerTest> extends infer R ? (R extends { ok: true; plan: infer P } ? P : never) : never = null as any;
+      if (req.body?.test) {
+        const v = validateMailerTest(req.body.test, subject, body);
+        if (!v.ok) return res.status(400).json({ message: v.message });
+        testPlan = v.plan;
+      }
 
       // ONE decider for who this goes to and whose names ride on each address:
       // the parent's for {{first_name}}, the registered children's for
@@ -6898,6 +6917,39 @@ export async function registerRoutes(
         return res.status(500).json({ message: "RESEND_API_KEY not configured" });
       }
 
+      // ── Everyone on the list first, then the links (2026-10-27) ─────────
+      // Every recipient is written as 'queued' BEFORE a single email goes,
+      // so each tracked link can carry the row's id (never the address) and
+      // the people waiting for a test's winner are on the list from minute
+      // one. The split is seeded by the campaign id — a resumed send gets the
+      // same halves.
+      const split = testPlan ? splitForTest(emails, testPlan.samplePct, campaign.id) : null;
+      const variantOf = new Map<string, MailerVariant>();
+      if (split) {
+        for (const e of split.a) variantOf.set(e, "A");
+        for (const e of split.b) variantOf.set(e, "B");
+      }
+      const recipientId = await queueRecipients(campaign.id, emails.map((e) => ({ email: e, variant: variantOf.get(e) ?? null, inTest: variantOf.has(e) })));
+      const links = await recordCampaignLinks(campaign.id, body);
+      let testDecideAt: Date | null = null;
+      if (testPlan && split) {
+        const restCount = split.rest.length;
+        testDecideAt = restCount > 0 ? new Date(Date.now() + testPlan.waitMinutes * 60_000) : null;
+        await db.insert(emailCampaignTests).values({
+          campaignId: campaign.id, kind: testPlan.kind, metric: testPlan.metric,
+          variantA: testPlan.variantA, variantB: testPlan.variantB,
+          samplePct: testPlan.samplePct, waitMinutes: testPlan.waitMinutes,
+          aCount: split.a.length, bCount: split.b.length, restCount,
+          decideAt: testDecideAt,
+          // The rest go out hours later with the same files.
+          attachments: restCount > 0 && att.files.length ? att.files : null,
+        });
+      }
+      // The sample now, A and B interleaved so neither half is sent first.
+      const toSendNow = split
+        ? split.a.flatMap((a, i) => (split.b[i] !== undefined ? [a, split.b[i]] : [a])).concat(split.b.slice(split.a.length))
+        : emails;
+
       // ── Send through the shared queue, not a burst ──────────────────────
       //
       // 🔴 What was here fired **50 requests at once** and then slept a second:
@@ -6920,7 +6972,7 @@ export async function registerRoutes(
       // one had simply never been moved across.
       void runBroadcastQueue(
         campaign.id,
-        emails,
+        toSendNow,
         // 🔴 NAME THE SECOND ARGUMENT. Written as `(email) => …` this still
         // compiles and still sends — it just embeds no pixel, so every open is
         // invisible. That is exactly how the CUFC mailer shipped, and why
@@ -6935,19 +6987,28 @@ export async function registerRoutes(
             unsubscribeUrl: cufcUnsubUrl(orgId, email),
             pixelUrl,
           };
+          const variant = variantOf.get(email) ?? null;
+          const rid = recipientId.get(email.trim().toLowerCase());
           const ok = await sendEmail({
             to: email,
             from: senderEmail,
             replyTo: replyAddress,
-            // The subject takes the same tags, as plain text.
-            subject: applyMergeTagsText(subject, ctx),
-            // Per recipient: merge tags resolved, an unsubscribe link
+            // The subject takes the same tags, as plain text — version B's
+            // subject for the B half of a subject test.
+            subject: applyMergeTagsText(subjectForVariant(testPlan, subject, variant), ctx),
+            // Per recipient: their version's words, every link wrapped in their
+            // own tracked redirect, merge tags resolved, an unsubscribe link
             // guaranteed even when the design forgot one, and the open pixel.
-            html: renderForRecipient(body, ctx),
+            html: rid
+              ? renderTrackedForRecipient({ campaignId: campaign.id, recipientId: rid, body, links, plan: testPlan, variant, ctx })
+              : renderForRecipient(body, ctx),
             attachments: att.files.length ? att.files : undefined,
           });
           return ok;
         },
+        // A test with people waiting ends this phase 'testing'; the tick (or a
+        // hand) sends the winner and marks it 'sent'.
+        { finalStatus: testPlan && split && split.rest.length > 0 ? "testing" : "sent" },
       ).catch((e) => console.error("[Camps mailer queue] error:", e));
 
       res.json({
@@ -6960,6 +7021,12 @@ export async function registerRoutes(
         undeliverableCount: undeliverable.length,
         queued: true,
         status: "sending",
+        test: testPlan && split ? {
+          kind: testPlan.kind, metric: testPlan.metric,
+          aCount: split.a.length, bCount: split.b.length, restCount: split.rest.length,
+          decideAt: testDecideAt ? testDecideAt.toISOString() : null,
+          plan: describeTestPlan(emails.length, testPlan),
+        } : null,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -27457,6 +27524,10 @@ export async function registerRoutes(
   registerMailerTemplateRoutes(app);
   registerMailerAiRoutes(app);
   registerMailerImageRoutes(app);
+  // A/B tests, click tracking and "preview as a person" (2026-10-27).
+  const mailerTestDeps = { runBroadcastQueue, cufcUnsubUrl, predictorOrgId, getUnsubscribedEmails };
+  registerMailerTestRoutes(app, mailerTestDeps);
+  startMailerTests(mailerTestDeps);
   registerRamboRoutes(app);
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
@@ -28800,7 +28871,7 @@ async function runBroadcastQueue(
   campaignId: number,
   recipients: string[],
   sendOne: (email: string, pixelUrl: string) => Promise<boolean>,
-  opts?: { pixelHost?: string },
+  opts?: { pixelHost?: string; finalStatus?: string },
 ): Promise<void> {
   const SPACING_MS = 650;   // ~1.5 req/s — Resend's limit is 10/s (verified 2026-09-04)
   const RETRIES = 3;
@@ -28837,10 +28908,23 @@ async function runBroadcastQueue(
     ok ? sent++ : failed++;
     // Row-level record of who this went to — the spine open tracking hangs off.
     // Best-effort on purpose: a bookkeeping failure must never halt a send.
+    // A row written as 'queued' before the send (the CUFC Mailer does this, so
+    // its tracked links can carry the row's id) is moved on; anyone else gets
+    // a row now.
     try {
-      await db.insert(emailCampaignRecipients)
-        .values({ campaignId, email: email.trim().toLowerCase(), status: ok ? "sent" : "failed" })
-        .onConflictDoNothing();
+      const moved = await db.update(emailCampaignRecipients)
+        .set({ status: ok ? "sent" : "failed", sentAt: new Date() })
+        .where(and(
+          eq(emailCampaignRecipients.campaignId, campaignId),
+          sql`lower(${emailCampaignRecipients.email}) = ${email.trim().toLowerCase()}`,
+          eq(emailCampaignRecipients.status, "queued"),
+        ))
+        .returning({ id: emailCampaignRecipients.id });
+      if (moved.length === 0) {
+        await db.insert(emailCampaignRecipients)
+          .values({ campaignId, email: email.trim().toLowerCase(), status: ok ? "sent" : "failed" })
+          .onConflictDoNothing();
+      }
     } catch { /* keep sending */ }
     if ((i + 1) % 10 === 0) {
       try {
@@ -28850,7 +28934,8 @@ async function runBroadcastQueue(
     }
     if (i < recipients.length - 1) await broadcastSleep(SPACING_MS);
   }
-  await db.update(emailCampaigns).set({ sentCount: sent, failedCount: failed, status: "sent", sentAt: new Date() })
+  // An A/B test's first phase ends 'testing', not 'sent' — the rest are waiting.
+  await db.update(emailCampaigns).set({ sentCount: sent, failedCount: failed, status: opts?.finalStatus ?? "sent", sentAt: new Date() })
     .where(eq(emailCampaigns.id, campaignId));
 }
 

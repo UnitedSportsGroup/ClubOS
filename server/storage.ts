@@ -547,7 +547,7 @@ export interface IStorage {
   getEmailCampaigns(): Promise<EmailCampaign[]>;
   searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
   getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
-  getCampaignRecipients(campaignId: number): Promise<{ email: string; name: string | null; status: string | null; sentAt: Date | null; firstOpenedAt: Date | null; openCount: number }[]>;
+  getCampaignRecipients(campaignId: number): Promise<{ email: string; name: string | null; status: string | null; sentAt: Date | null; firstOpenedAt: Date | null; openCount: number; variant: string | null; inTest: boolean; firstClickedAt: Date | null; clickCount: number }[]>;
   createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
   updateEmailCampaign(id: number, data: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined>;
 
@@ -2531,6 +2531,7 @@ export class DatabaseStorage implements IStorage {
   async getCampaignRecipients(campaignId: number): Promise<{
     email: string; name: string | null; status: string | null;
     sentAt: Date | null; firstOpenedAt: Date | null; openCount: number;
+    variant: string | null; inTest: boolean; firstClickedAt: Date | null; clickCount: number;
   }[]> {
     const rows = await db.select().from(emailCampaignRecipients)
       .where(eq(emailCampaignRecipients.campaignId, campaignId))
@@ -2558,6 +2559,10 @@ export class DatabaseStorage implements IStorage {
       sentAt: r.sentAt ?? null,
       firstOpenedAt: r.firstOpenedAt ?? null,
       openCount: Number(r.openCount ?? 0),
+      variant: (r as any).variant ?? null,
+      inTest: !!(r as any).inTest,
+      firstClickedAt: (r as any).firstClickedAt ?? null,
+      clickCount: Number((r as any).clickCount ?? 0),
     }));
   }
 

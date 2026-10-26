@@ -23,6 +23,8 @@ import { SimpleCompose } from "@/components/mailer/simple-compose";
 import { compileSimpleEmail, isSimpleDoc, signatureFor, simpleTextOf, simpleToMjml, stripSignOff, type SimpleDoc } from "@/components/mailer/simple-email";
 import { LETTERHEADS } from "@/components/marketing/grapes/letterheads";
 import { cleanPastedHtml } from "@/components/marketing/grapes/clean-paste";
+import { AbTestCard, EMPTY_TEST, PreviewAsPicker, type PreviewRendered, type TestState } from "@/components/mailer/send-extras";
+import { replaceLinkText, type MailerVariant } from "@shared/mailer-tests";
 
 // The visual builder is a ~725KB GrapesJS bundle. Lazy so the Mailer's Setup
 // and Send steps stay light and it only streams in when you reach Content.
@@ -297,6 +299,54 @@ export default function AdminMailer() {
     onError: (e: any) => toast({ title: "Couldn't build the list", description: e?.message, variant: "destructive" }),
   });
 
+  // ── The Send step's extras (2026-10-27) ──────────────────────────────────
+  // The list is counted the moment the Send step opens — it feeds "Seen by"
+  // (preview as one real person) and the test's plan ("A to 380 and B to
+  // 380 now…"). Same decider as the send, so the number is the number.
+  const { data: audienceList, isFetching: audienceLoading } = useQuery<Preview>({
+    queryKey: ["/api/admin/mailer/preview-recipients", "send-step", segmentType, JSON.stringify(segmentConfig)],
+    enabled: step === 2,
+    staleTime: 60_000,
+    queryFn: async () => (await apiRequest("POST", "/api/admin/mailer/preview-recipients", { segmentType, segmentConfig })).json(),
+  });
+  const audienceCount = audienceList ? Math.max(0, audienceList.willSend - audienceList.undeliverableCount) : null;
+  const [test, setTest] = useState<TestState>(EMPTY_TEST);
+  const testValid = !test.on || (
+    test.b.trim().length > 0 && (
+      test.kind === "subject" ? test.b.trim() !== subject.trim() : (test.target.length > 0 && test.target !== test.b.trim())
+    )
+  );
+  const testPayload = test.on
+    ? { kind: test.kind, b: test.b.trim(), target: test.kind === "link" ? test.target : undefined, samplePct: test.samplePct, waitMinutes: test.waitMinutes }
+    : undefined;
+  // Which real person the review shows, and which version (A or B).
+  const [previewAs, setPreviewAs] = useState("");
+  const [previewVariant, setPreviewVariant] = useState<MailerVariant>("A");
+  const [previewRendered, setPreviewRendered] = useState<PreviewRendered | null>(null);
+  const previewAsMutation = useMutation({
+    mutationFn: (args: { email: string; variant: MailerVariant }) =>
+      apiRequest("POST", "/api/admin/mailer/preview-as", {
+        email: args.email, subject, body: bodyHtml, variant: args.variant,
+        test: test.on && testValid ? { kind: test.kind, variantA: test.kind === "subject" ? subject : test.target, variantB: test.b.trim() } : undefined,
+      }),
+    onSuccess: async (res) => setPreviewRendered(await res.json()),
+    onError: (e: any) => toast({ title: "Couldn't render that person's email", description: e?.message, variant: "destructive" }),
+  });
+  const previewAsKey = `${previewAs}|${previewVariant}|${test.on ? `${test.kind}|${test.target}|${test.b}` : ""}|${subject}`;
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!previewAs) { setPreviewRendered(null); return; }
+    const t = setTimeout(() => previewAsMutation.mutate({ email: previewAs, variant: previewVariant }), 150);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewAsKey, step]);
+  // With nobody picked the review still shows version B locally: a subject
+  // test swaps the subject line, a link test rewords the button.
+  const reviewSubject = previewRendered?.subject
+    ?? (test.on && test.kind === "subject" && previewVariant === "B" && test.b.trim() ? test.b.trim() : subject);
+  const reviewHtml = previewRendered?.html
+    ?? (test.on && test.kind === "link" && previewVariant === "B" && test.target && test.b.trim() ? replaceLinkText(bodyHtml, test.target, test.b.trim()).html : bodyHtml);
+
   // Subject merge tags go in AT THE CURSOR, not on the end (Daniel, 2026-10-25:
   // "I put my cursor there, and then I click the button, and it still comes
   // up at the end"). The buttons swallow mousedown so the input keeps its
@@ -551,10 +601,15 @@ export default function AdminMailer() {
         segmentConfig,
         manualEmails: manualEmails.length > 0 ? manualEmails : undefined,
         attachments: attachmentPayload,
+        test: testPayload,
       }),
     onSuccess: async (res) => {
       const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mailer/campaigns"] });
+      setTest(EMPTY_TEST);
+      setPreviewAs("");
+      setPreviewRendered(null);
+      setPreviewVariant("A");
       // The send is a QUEUE now, not a burst that finishes inside the request —
       // it paces at ~1.5/s to stay under Resend's 10/s limit, so 3,861 people
       // takes about 40 minutes. Claiming "sent!" the instant the button is
@@ -563,8 +618,10 @@ export default function AdminMailer() {
       if (data.suppressedCount > 0) skipped.push(`${data.suppressedCount} unsubscribed`);
       if (data.undeliverableCount > 0) skipped.push(`${data.undeliverableCount} at ${data.undeliverableCount === 1 ? "an address" : "addresses"} that can't receive mail`);
       toast({
-        title: "Sending started",
-        description: `${data.recipientCount} ${data.recipientCount === 1 ? "person" : "people"} queued. It sends steadily — watch the count on this page climb.${skipped.length ? ` Skipped ${skipped.join(" and ")}.` : ""}`,
+        title: data.test ? "A/B test started" : "Sending started",
+        description: data.test
+          ? `${data.test.plan} Results are on the History page.${skipped.length ? ` Skipped ${skipped.join(" and ")}.` : ""}`
+          : `${data.recipientCount} ${data.recipientCount === 1 ? "person" : "people"} queued. It sends steadily — watch the count on this page climb.${skipped.length ? ` Skipped ${skipped.join(" and ")}.` : ""}`,
       });
       setStep(0);
       setSubject("");
@@ -1123,8 +1180,10 @@ export default function AdminMailer() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                <div className="text-xs text-white/40 mb-1">Subject</div>
-                <div className="text-sm text-white/80" data-testid="text-review-subject">{subject}</div>
+                <div className="text-xs text-white/40 mb-1">
+                  Subject{test.on && test.kind === "subject" && test.b.trim() ? ` — version ${previewVariant}` : ""}{previewRendered ? " — as this person sees it" : ""}
+                </div>
+                <div className="text-sm text-white/80" data-testid="text-review-subject">{reviewSubject}</div>
               </div>
               <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
                 <div className="text-xs text-white/40 mb-1">From</div>
@@ -1149,6 +1208,21 @@ export default function AdminMailer() {
               )}
             </div>
 
+            {/* The review as ONE person's inbox (Daniel, 2026-10-27: "send-time
+                preview per recipient"): pick anyone on the list and the greeting,
+                the player tag and the subject become theirs. */}
+            <PreviewAsPicker
+              people={audienceList?.recipients ?? null}
+              loading={audienceLoading && !audienceList}
+              value={previewAs}
+              onChange={setPreviewAs}
+              rendered={previewRendered}
+              variant={previewVariant}
+              onVariant={setPreviewVariant}
+              hasTest={test.on && testValid}
+              rendering={previewAsMutation.isPending}
+            />
+
             <div className="rounded-xl border border-white/10 overflow-hidden">
               <div className="bg-gray-50 p-4">
                 {/* An iframe, not a div. The builder compiles a COMPLETE email
@@ -1157,7 +1231,7 @@ export default function AdminMailer() {
                     so the review would not show what the recipient gets. */}
                 <iframe
                   title="Email preview"
-                  srcDoc={bodyHtml}
+                  srcDoc={reviewHtml}
                   sandbox=""
                   className="w-full max-w-[640px] mx-auto block bg-white rounded-lg shadow-sm border border-gray-100"
                   style={{ height: 560 }}
@@ -1166,6 +1240,8 @@ export default function AdminMailer() {
               </div>
             </div>
           </div>
+
+          <AbTestCard subject={subject} bodyHtml={bodyHtml} test={test} onChange={setTest} audienceCount={audienceCount} />
 
           <div className="glass-card rounded-2xl p-4 space-y-2">
             <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Send yourself a test first</h2>
@@ -1226,7 +1302,8 @@ export default function AdminMailer() {
             </Button>
             <Button
               onClick={() => sendMutation.mutate()}
-              disabled={sendMutation.isPending || (segmentType === "all" && !confirmAll)}
+              disabled={sendMutation.isPending || (segmentType === "all" && !confirmAll) || !testValid}
+              title={!testValid ? "Finish the test's second version, or untick it" : undefined}
               className="h-11 md:h-9 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6"
               data-testid="button-send-campaign"
             >
@@ -1238,7 +1315,7 @@ export default function AdminMailer() {
               ) : (
                 <>
                   <Send className="w-4 h-4 mr-2" />
-                  Send Campaign
+                  {test.on ? "Send A/B test" : "Send Campaign"}
                 </>
               )}
             </Button>
