@@ -236,9 +236,36 @@ function wireLogoPicker(editor: Editor, shell: Shell): { refresh: () => void } {
   host.innerHTML = `
     <p class="ce-logos-title">Club logos</p>
     <div class="ce-logos-grid"></div>
-    <p class="ce-logos-hint">Your own picture: double-click it on the canvas to upload one or paste a link.</p>
+    <p class="ce-logos-hint">Or a picture of your own, by link:</p>
+    <form class="ce-logos-link" data-testid="ce-logo-link">
+      <input type="url" placeholder="https://…/picture.png" aria-label="Link to your own picture" data-testid="ce-logo-link-input" />
+      <button type="submit" data-testid="ce-logo-link-use">Use</button>
+    </form>
   `;
   const grid = host.querySelector<HTMLElement>(".ce-logos-grid")!;
+  // A picture of your own. 🔴 By link only: the builder has no image home yet
+  // (R2 is the open item), and a file read into base64 would blow Gmail's 102KB
+  // clip on the first photo.
+  const linkForm = host.querySelector<HTMLFormElement>(".ce-logos-link")!;
+  const linkInput = linkForm.querySelector<HTMLInputElement>("input")!;
+  const setSrc = (src: string, alt?: string, width?: string) => {
+    const comp: any = editor.getSelected();
+    if (!isImageComponent(comp)) return;
+    // Both the model prop (what the core image view draws) and the attribute
+    // (what the MJML export writes).
+    comp.set("src", src);
+    comp.addAttributes({ src, ...(alt ? { alt } : {}), ...(width ? { width } : {}) });
+    refresh();
+  };
+  linkForm.onsubmit = (e) => {
+    e.preventDefault();
+    const url = linkInput.value.trim();
+    if (!/^https?:\/\/\S+$/i.test(url)) { linkInput.setCustomValidity("Paste a full link starting with https://"); linkInput.reportValidity(); return; }
+    linkInput.setCustomValidity("");
+    setSrc(url);
+    linkInput.value = "";
+  };
+  linkInput.oninput = () => linkInput.setCustomValidity("");
   const tiles: HTMLButtonElement[] = CLUB_LOGOS.map((logo) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -247,15 +274,8 @@ function wireLogoPicker(editor: Editor, shell: Shell): { refresh: () => void } {
     b.dataset.testid = `ce-logo-${logo.key}`;
     b.dataset.src = logo.src;
     b.innerHTML = `<img src="${logo.src}" alt=""><span>${logo.label}</span>`;
-    b.onclick = () => {
-      const comp: any = editor.getSelected();
-      if (!isImageComponent(comp)) return;
-      // Both the model prop (what the core image view draws) and the attribute
-      // (what the MJML export writes). Width follows the brand's own header.
-      comp.set("src", logo.src);
-      comp.addAttributes({ src: logo.src, alt: logo.label, width: `${logo.width}px` });
-      refresh();
-    };
+    // Width follows the brand's own header.
+    b.onclick = () => setSrc(logo.src, logo.label, `${logo.width}px`);
     grid.append(b);
     return b;
   });

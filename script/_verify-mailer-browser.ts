@@ -510,11 +510,20 @@ try {
       if (cufcTile) await cufcTile.click();
       await sleep(400);
       ok("…and Christchurch United puts it back", /\/mailer\/crests\/cufc\.png$/.test(await srcOnCanvas()), await srcOnCanvas());
-      if (frameLogo) await frameLogo.click("img", { clickCount: 2 });
-      await sleep(700);
-      const uploadBox: any = await page.evaluate(`(function(){ var m = document.querySelector('.gjs-mdl-container'); var open = !!m && getComputedStyle(m).display !== 'none'; var t = m ? m.querySelector('.gjs-mdl-title') : null; return { open: open, title: t ? (t.textContent || '').trim() : '' }; })()`);
-      ok("double-clicking the picture opens the box for a picture of your own", uploadBox.open, JSON.stringify(uploadBox));
-      await page.evaluate(`(function(){ var c = document.querySelector('.gjs-mdl-btn-close'); if (c) c.click(); })()`);
+      // A picture of your own, by link (no image home yet — R2 is the open item;
+      // grapesjs-mjml's image has NO double-click upload, which a first draft of
+      // this check found out). Paste a link → Use → it is on the canvas.
+      const ownPic = "https://app.usg.co.nz/mailer/siu/hero.jpg";
+      const linkInput = await page.$('[data-testid="ce-logo-link-input"]');
+      if (linkInput) { await linkInput.click(); await page.keyboard.type(ownPic); }
+      const useBtn = await page.$('[data-testid="ce-logo-link-use"]');
+      if (useBtn) await useBtn.click();
+      await sleep(600);
+      ok("a link to a picture of your own goes on the selected picture", (await srcOnCanvas()) === ownPic, await srcOnCanvas());
+      await page.screenshot({ path: join(OUT, `${label}-logo-picker.png`) });
+      console.log(`  → ${join(OUT, `${label}-logo-picker.png`)}`);
+      const cufcTile2 = await page.$('[data-testid="ce-logo-cufc"]');
+      if (cufcTile2) await cufcTile2.click();
       await sleep(300);
 
       const askBtn = await page.$('[data-testid="mkt-ask-toggle"]');

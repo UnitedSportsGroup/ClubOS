@@ -423,10 +423,43 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ce-accent) 25%, transparent);
 }
 .ce-logos-hint {
-  margin: 8px 0 0;
+  margin: 8px 0 4px;
   font-size: 10.5px;
   line-height: 1.35;
   color: var(--ce-muted);
+}
+.ce-logos-link {
+  display: flex;
+  gap: 6px;
+}
+.ce-logos-link input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--ce-text);
+  background: #ffffff;
+  border: 1px solid var(--ce-border);
+  border-radius: 6px;
+}
+.ce-logos-link input:focus {
+  outline: none;
+  border-color: var(--ce-accent);
+}
+.ce-logos-link button {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ce-accent);
+  background: color-mix(in srgb, var(--ce-accent) 12%, transparent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ce-logos-link button:hover {
+  background: color-mix(in srgb, var(--ce-accent) 20%, transparent);
 }
 .ce-empty {
   padding: 52px 26px;
