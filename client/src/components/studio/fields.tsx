@@ -31,7 +31,7 @@ export function FieldList({ fields, values, onChange, disabled }: {
                 value={v}
                 onChange={(e) => onChange(f.path, e.target.value)}
                 disabled={disabled}
-                className={`h-10 text-[14px] ${f.href ? "font-mono text-[12px]" : ""}`}
+                className={`h-11 md:h-10 text-[14px] ${f.href ? "font-mono text-[12px]" : ""}`}
                 data-testid={`studio-field-${f.path}`}
               />
             )}

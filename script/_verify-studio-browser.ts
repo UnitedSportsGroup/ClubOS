@@ -114,11 +114,20 @@ try {
       await sleep(300);
       const live: any = await page.evaluate(`(function(){ var art = document.querySelector('[data-testid="studio-artboard"] .sgx'); return art ? art.textContent : ''; })()`);
       ok("the preview follows the keystrokes before saving", /Last spots for October/.test(live));
+      // Record what the save request actually answered, so a miss names its cause.
+      const saved: { status: number; body: string }[] = [];
+      const onResp = async (r: any) => { try { if (r.request().method() === "PATCH" && /content-studio\/pieces\//.test(r.url())) saved.push({ status: r.status(), body: (await r.text()).slice(0, 300) }); } catch { /* gone */ } };
+      page.on("response", onResp);
       const save = await page.$('[data-testid="studio-save-words"]');
-      if (save) await save.click();
-      await sleep(2500);
-      const afterSave: any = await page.evaluate(`(function(){ var t = document.querySelector('[data-testid="studio-piece-title"]'); var meta = t ? t.parentElement.textContent : ''; return { meta: meta }; })()`);
-      ok("saving made version 2 (no model, no wait)", /v2/.test(afterSave.meta), afterSave.meta);
+      const saveState = save ? await page.evaluate((el: any) => ({ disabled: el.disabled, top: Math.round(el.getBoundingClientRect().top) }), save) : null;
+      if (save) { await page.evaluate((el: any) => el.scrollIntoView({ block: "center" }), save); await save.click(); }
+      let afterSave: any = { meta: "" };
+      for (let i = 0; i < 16 && !/v2/.test(afterSave.meta); i++) {
+        await sleep(500);
+        afterSave = await page.evaluate(`(function(){ var t = document.querySelector('[data-testid="studio-piece-title"]'); var meta = t ? t.parentElement.textContent : ''; return { meta: meta }; })()`);
+      }
+      page.off("response", onResp);
+      ok("saving made version 2 (no model, no wait)", /v2/.test(afterSave.meta), `${afterSave.meta} · button ${JSON.stringify(saveState)} · PATCH ${JSON.stringify(saved)}`);
 
       // ── Export the PNG; the link appears ──────────────────────────────────
       const dl = await page.$('[data-testid="studio-download"]');

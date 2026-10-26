@@ -191,14 +191,16 @@ export function StudioPiece({ id }: { id: number }) {
           <div className="p-4 overflow-y-auto max-h-[70vh]">
             {tab === "words" && (
               <div className="space-y-3">
-                <FieldList fields={fields} values={edits} onChange={(path, v) => setEdits((e) => ({ ...e, [path]: v }))} disabled={!canEdit} />
+                {/* The save bar sits on TOP, sticky: twenty fields on a phone
+                    must never bury the one button that matters. */}
                 {canEdit && (
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="sticky -top-4 z-10 -mx-4 px-4 py-2 bg-card border-b border-border flex items-center gap-2" data-testid="studio-save-bar">
                     <Button onClick={saveWords} disabled={!dirty || patch.isPending} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-save-words">{patch.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}Save words</Button>
-                    {dirty && <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setEdits({})}>Discard</button>}
+                    {dirty && <button type="button" className="text-xs text-muted-foreground underline min-h-11 md:min-h-9" onClick={() => setEdits({})}>Discard</button>}
                     {!dirty && <span className="text-xs text-muted-foreground">Change any box and save. No re-prompt, no wait.</span>}
                   </div>
                 )}
+                <FieldList fields={fields} values={edits} onChange={(path, v) => setEdits((e) => ({ ...e, [path]: v }))} disabled={!canEdit} />
               </div>
             )}
             {tab === "rambo" && (
@@ -234,7 +236,7 @@ export function StudioPiece({ id }: { id: number }) {
               <div className="space-y-4" data-testid="studio-settings">
                 <label className="block">
                   <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Name</span>
-                  <Input defaultValue={piece.title} disabled={!canEdit} onBlur={(e) => { const t = e.target.value.trim(); if (canEdit && t && t !== piece.title) patch.mutate({ title: t }); }} className="h-10" data-testid="studio-settings-title" />
+                  <Input defaultValue={piece.title} disabled={!canEdit} onBlur={(e) => { const t = e.target.value.trim(); if (canEdit && t && t !== piece.title) patch.mutate({ title: t }); }} className="h-11 md:h-10" data-testid="studio-settings-title" />
                 </label>
                 {piece.kind === "graphic" && (
                   <div>
@@ -251,7 +253,7 @@ export function StudioPiece({ id }: { id: number }) {
                   <>
                     <label className="block">
                       <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Address — {usage?.brand.host ?? "the club's site"}/p/…</span>
-                      <Input defaultValue={piece.slug ?? ""} disabled={!canEdit} placeholder="football-in-schools" onBlur={(e) => { const s = e.target.value.trim(); if (canEdit && s && s !== piece.slug) patch.mutate({ slug: s }); }} className="h-10 font-mono text-[13px]" data-testid="studio-settings-slug" />
+                      <Input defaultValue={piece.slug ?? ""} disabled={!canEdit} placeholder="football-in-schools" onBlur={(e) => { const s = e.target.value.trim(); if (canEdit && s && s !== piece.slug) patch.mutate({ slug: s }); }} className="h-11 md:h-10 font-mono text-[13px]" data-testid="studio-settings-slug" />
                     </label>
                     <label className="flex items-start gap-3 cursor-pointer">
                       <input type="checkbox" checked={!piece.unlisted} disabled={!canEdit} onChange={(e) => patch.mutate({ unlisted: !e.target.checked })} className="mt-1 w-5 h-5 accent-blue-600" data-testid="studio-settings-listed" />
@@ -269,7 +271,7 @@ export function StudioPiece({ id }: { id: number }) {
                         <button key={s} type="button" onClick={() => patch.mutate({ status: s })} className={`rounded-full border px-3 min-h-9 text-xs font-medium ${video.status === s ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground"}`}>{s === "in_progress" ? "being cut" : s}</button>
                       ))}
                     </div>
-                    <Input defaultValue={video.deliveredUrl ?? ""} placeholder="https://… the finished video" onBlur={(e) => patch.mutate({ status: "delivered", deliveredUrl: e.target.value.trim() })} className="h-10 font-mono text-[12px]" data-testid="studio-video-delivered-url" />
+                    <Input defaultValue={video.deliveredUrl ?? ""} placeholder="https://… the finished video" onBlur={(e) => patch.mutate({ status: "delivered", deliveredUrl: e.target.value.trim() })} className="h-11 md:h-10 font-mono text-[12px]" data-testid="studio-video-delivered-url" />
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
