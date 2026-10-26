@@ -20,7 +20,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { Component, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getBrandMeta } from "./brand-themes";
+import EmailAssistant from "./EmailAssistant";
 import TemplateGallery from "./TemplateGallery";
 import type { StarterTemplateDoc } from "./grapes/templates";
 import type { EmailEditorSurfaceHandle } from "./email-editor-surface";
@@ -223,6 +225,18 @@ export default function EmailBuilder({
   const [sizeNote, setSizeNote] = useState<string | null>(null);
   const [surfaceKey, setSurfaceKey] = useState(0);
   const isNarrow = useIsNarrow();
+  // The shell's Ask pane, once the editor is up. The assistant's chat box is
+  // rendered INTO it through a portal, so it sits beside Style / Settings /
+  // Layers and keeps its conversation while the person switches tabs.
+  const [askPane, setAskPane] = useState<HTMLElement | null>(null);
+  const askGetMjml = useCallback(async () => {
+    const s = surfaceRef.current;
+    if (!s?.isReady()) throw new Error("The editor is still loading — try again in a moment.");
+    return s.getMjml();
+  }, []);
+  const askApplyMjml = useCallback((mjml: string) => {
+    surfaceRef.current?.applyMjml(mjml); // the surface reports the change (autosave)
+  }, []);
 
   // Template gallery: a fresh builder (no meaningful initialDoc) opens on the
   // "start from a template or blank" screen instead of a blank canvas. Once a
@@ -507,6 +521,17 @@ export default function EmailBuilder({
           {!isNarrow && chosen && (
             <button
               type="button"
+              onClick={() => surfaceRef.current?.openAsk()}
+              className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+              data-testid="mkt-ask-toggle"
+              title="Tell the assistant what to change and it changes on the canvas"
+            >
+              Ask ✦
+            </button>
+          )}
+          {!isNarrow && chosen && (
+            <button
+              type="button"
               onClick={() => setGalleryOpen(true)}
               className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted"
               data-testid="mkt-open-template-gallery"
@@ -622,9 +647,15 @@ export default function EmailBuilder({
                 brandKey={brandKey}
                 initialDoc={activeDoc}
                 onDirty={handleDirty}
+                onAskPane={setAskPane}
               />
             </Suspense>
           </SurfaceErrorBoundary>
+          {askPane &&
+            createPortal(
+              <EmailAssistant brandKey={brandKey} getMjml={askGetMjml} applyMjml={askApplyMjml} />,
+              askPane,
+            )}
           {galleryOpen && (
             <TemplateGallery
               variant="modal"

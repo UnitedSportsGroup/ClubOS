@@ -157,6 +157,7 @@ import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
 import { registerMailerTemplateRoutes } from "./mailer-templates-routes";
+import { registerMailerAiRoutes } from "./mailer-ai";
 import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
@@ -1085,6 +1086,7 @@ export async function registerRoutes(
         globalRole: u.role,
         active: u.active,
         canIssueRefunds: !!(u as any).canIssueRefunds,
+        mailerAiDailyLimit: (u as any).mailerAiDailyLimit ?? null,
         createdAt: u.createdAt,
         memberships: u.memberships,
       })));
@@ -1354,11 +1356,19 @@ export async function registerRoutes(
       // strictly a boolean — `if (req.body.x)` would silently ignore `false` and
       // make the permission impossible to REVOKE through the UI.
       if (typeof req.body.canIssueRefunds === "boolean") updates.canIssueRefunds = req.body.canIssueRefunds;
+      // The Mailer assistant's daily prompt cap. null = back to the default;
+      // 0 = switched off for them; otherwise a whole number of prompts a day.
+      if ("mailerAiDailyLimit" in req.body) {
+        const v = req.body.mailerAiDailyLimit;
+        if (v === null) updates.mailerAiDailyLimit = null;
+        else if (Number.isInteger(v) && v >= 0 && v <= 10000) updates.mailerAiDailyLimit = v;
+        else return res.status(400).json({ message: "The assistant limit must be a whole number from 0 to 10,000, or empty for the default." });
+      }
       if (req.body.password) updates.password = await hashPassword(req.body.password);
 
       const updated = await storage.updateUser(userId, updates);
       if (!updated) return res.status(404).json({ message: "User not found" });
-      res.json({ id: updated.id, email: updated.email, firstName: updated.firstName, lastName: updated.lastName, role: updated.role, active: updated.active, canIssueRefunds: !!updated.canIssueRefunds });
+      res.json({ id: updated.id, email: updated.email, firstName: updated.firstName, lastName: updated.lastName, role: updated.role, active: updated.active, canIssueRefunds: !!updated.canIssueRefunds, mailerAiDailyLimit: updated.mailerAiDailyLimit ?? null });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -27443,6 +27453,7 @@ export async function registerRoutes(
   registerFamilyRoutes(app);
   registerMailerPeopleSearch(app, requireAuth);
   registerMailerTemplateRoutes(app);
+  registerMailerAiRoutes(app);
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {

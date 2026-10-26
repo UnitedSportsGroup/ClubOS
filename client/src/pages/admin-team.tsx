@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { tabsForOrgSlug, type TabDef } from "@shared/tabs";
+import { MAILER_AI_DEFAULT_DAILY_LIMIT } from "@shared/mailer-ai";
 
 // hiringBrands: null = every brand (the default, and what every membership
 // predating brand scoping means). [] = none. See the Hiring tab's brand scope
@@ -25,6 +26,9 @@ interface TeamMember {
   // Global, not per-workspace: this person may send money back to a customer's
   // card anywhere in ClubOS. Deliberately separate from every role.
   canIssueRefunds: boolean;
+  // How many prompts a day they may send the Mailer's assistant (each one is
+  // a paid API call). null = the default; 0 = switched off for them.
+  mailerAiDailyLimit: number | null;
   createdAt: string;
   memberships: Membership[];
 }
@@ -479,6 +483,31 @@ function ManageMembershipsModal({
     onError: (e: Error) => toast({ title: "Couldn't change refund access", description: e.message, variant: "destructive" }),
   });
 
+  // The Mailer assistant's daily cap for this person. Typed as text so the box
+  // can be emptied (= back to the default) without fighting a number input.
+  const [aiLimitInput, setAiLimitInput] = useState<string>(
+    member?.mailerAiDailyLimit == null ? "" : String(member.mailerAiDailyLimit),
+  );
+  const setAiLimit = useMutation({
+    mutationFn: async (mailerAiDailyLimit: number | null) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${memberId}`, { mailerAiDailyLimit });
+      return res.json();
+    },
+    onSuccess: (r: { mailerAiDailyLimit: number | null }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/team"] });
+      toast({
+        title: "Assistant limit saved",
+        description:
+          r.mailerAiDailyLimit == null
+            ? `${member?.firstName} is back on the default of ${MAILER_AI_DEFAULT_DAILY_LIMIT} prompts a day.`
+            : r.mailerAiDailyLimit === 0
+              ? `The Mailer assistant is switched off for ${member?.firstName}.`
+              : `${member?.firstName} can send the Mailer assistant ${r.mailerAiDailyLimit} prompts a day.`,
+      });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't save the limit", description: e.message, variant: "destructive" }),
+  });
+
   const resetPassword = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/admin/team/${memberId}/reset-password`, { sendEmail: true });
@@ -561,6 +590,54 @@ function ManageMembershipsModal({
                 </p>
               </div>
             </button>
+          </div>
+
+          {/* The Mailer assistant's daily cap — every prompt is a paid API call. */}
+          <div>
+            <h4 className="text-xs uppercase tracking-wider font-semibold text-white/40 mb-3">Email assistant</h4>
+            <div className="p-3.5 rounded-xl border bg-white/[0.02] border-white/[0.07]">
+              <p className="text-sm text-white/85 font-medium">Prompts a day</p>
+              <p className="text-[11px] text-white/45 mt-0.5 mb-3 leading-relaxed">
+                How many times a day {member.firstName} can ask the Mailer's assistant to change an email. Each prompt is a
+                small paid call on the club's AI account. Leave it empty for the default of {MAILER_AI_DEFAULT_DAILY_LIMIT};
+                0 switches it off for them.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  step={1}
+                  inputMode="numeric"
+                  value={aiLimitInput}
+                  onChange={(e) => setAiLimitInput(e.target.value)}
+                  placeholder={`Default (${MAILER_AI_DEFAULT_DAILY_LIMIT})`}
+                  className="h-10 w-40 bg-white/5 border-white/10 text-white"
+                  data-testid="input-mailer-ai-limit"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={setAiLimit.isPending}
+                  onClick={() => {
+                    const t = aiLimitInput.trim();
+                    if (t === "") return setAiLimit.mutate(null);
+                    const n = Number(t);
+                    if (!Number.isInteger(n) || n < 0 || n > 10000) {
+                      toast({ title: "A whole number from 0 to 10,000, or empty for the default", variant: "destructive" });
+                      return;
+                    }
+                    setAiLimit.mutate(n);
+                  }}
+                  data-testid="button-save-mailer-ai-limit"
+                >
+                  {setAiLimit.isPending ? "Saving…" : "Save"}
+                </Button>
+                <span className="text-[11px] text-white/40">
+                  Now: {member.mailerAiDailyLimit == null ? `default (${MAILER_AI_DEFAULT_DAILY_LIMIT})` : member.mailerAiDailyLimit === 0 ? "off" : `${member.mailerAiDailyLimit} a day`}
+                </span>
+              </div>
+            </div>
           </div>
 
           <div>

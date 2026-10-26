@@ -49,6 +49,9 @@ export interface CreateEmailEditorOpts {
   container: HTMLElement;
   brandKey: string;
   initialDoc?: unknown | null;
+  /** The shell's Ask pane (the assistant's chat box, rendered by React into it)
+   *  and a way to switch the inspector to it. */
+  onShellReady?: (s: { paneAsk: HTMLElement; selectTab: (id: RightTab) => void }) => void;
 }
 
 const SCOPE_CLASS = "clubos-gjs";
@@ -65,6 +68,7 @@ interface Shell {
   paneStyle: HTMLElement;
   paneSettings: HTMLElement;
   paneLayers: HTMLElement;
+  paneAsk: HTMLElement;
   emptyHint: HTMLElement;
 }
 
@@ -96,6 +100,7 @@ function buildShell(container: HTMLElement, brand: ReturnType<typeof brandCanvas
             <div class="ce-pane" data-ce="pane-style"></div>
             <div class="ce-pane" data-ce="pane-settings"></div>
             <div class="ce-pane" data-ce="pane-layers"></div>
+            <div class="ce-pane ce-pane-ask ce-hidden" data-ce="pane-ask" data-testid="ce-pane-ask"></div>
           </div>
         </aside>
       </div>
@@ -112,6 +117,7 @@ function buildShell(container: HTMLElement, brand: ReturnType<typeof brandCanvas
     paneStyle: q("pane-style"),
     paneSettings: q("pane-settings"),
     paneLayers: q("pane-layers"),
+    paneAsk: q("pane-ask"),
     emptyHint: q("empty"),
   };
 }
@@ -200,14 +206,16 @@ function wireToolbar(editor: Editor, shell: Shell): void {
   shell.toolbarRight.append(grp1, grp2);
 }
 
-type RightTab = "style" | "settings" | "layers";
+export type RightTab = "style" | "settings" | "layers" | "ask";
 
-function wireInspector(editor: Editor, shell: Shell): void {
+function wireInspector(editor: Editor, shell: Shell): { select: (id: RightTab) => void } {
   let activeTab: RightTab = "style";
   const tabs: { id: RightTab; label: string }[] = [
     { id: "style", label: "Style" },
     { id: "settings", label: "Settings" },
     { id: "layers", label: "Layers" },
+    // The assistant — Daniel, 2026-10-26: "make it agentic like chatbox type".
+    { id: "ask", label: "Ask ✦" },
   ];
   const tabBtns: Record<string, HTMLButtonElement> = {};
   tabs.forEach((t) => {
@@ -215,6 +223,7 @@ function wireInspector(editor: Editor, shell: Shell): void {
     btn.type = "button";
     btn.className = "ce-tab";
     btn.textContent = t.label;
+    btn.dataset.testid = `ce-tab-${t.id}`;
     btn.onclick = () => {
       activeTab = t.id;
       update();
@@ -228,25 +237,36 @@ function wireInspector(editor: Editor, shell: Shell): void {
   const update = () => {
     Object.entries(tabBtns).forEach(([id, btn]) => btn.classList.toggle("is-active", id === activeTab));
     const sel = hasSelection();
+    const showAsk = activeTab === "ask";
     const showLayers = activeTab === "layers";
     const showStyle = activeTab === "style" && sel;
     const showSettings = activeTab === "settings" && sel;
-    const showEmpty = !showLayers && !sel;
+    const showEmpty = !showLayers && !showAsk && !sel;
     shell.paneLayers.classList.toggle("ce-hidden", !showLayers);
     shell.paneStyle.classList.toggle("ce-hidden", !showStyle);
     shell.paneSettings.classList.toggle("ce-hidden", !showSettings);
+    shell.paneAsk.classList.toggle("ce-hidden", !showAsk);
     shell.emptyHint.classList.toggle("ce-hidden", !showEmpty);
+    // The chat needs more room than a style inspector.
+    shell.paneAsk.parentElement?.parentElement?.classList.toggle("is-ask", showAsk);
   };
 
   editor.on("component:selected", update);
   editor.on("component:deselected", update);
   editor.on("load", update);
   update();
+  return {
+    select: (id: RightTab) => {
+      activeTab = id;
+      update();
+    },
+  };
 }
 
 // ── public: create ─────────────────────────────────────────────────────────────
 
-export function createEmailEditor({ container, brandKey, initialDoc }: CreateEmailEditorOpts): Editor {
+export function createEmailEditor(opts: CreateEmailEditorOpts): Editor {
+  const { container, brandKey, initialDoc } = opts;
   const brand = brandCanvasTheme(brandKey);
   const shell = buildShell(container, brand);
 
@@ -293,7 +313,8 @@ export function createEmailEditor({ container, brandKey, initialDoc }: CreateEma
   loadDoc(editor, initialDoc, brandKey);
 
   wireToolbar(editor, shell);
-  wireInspector(editor, shell);
+  const inspector = wireInspector(editor, shell);
+  opts.onShellReady?.({ paneAsk: shell.paneAsk, selectTab: inspector.select });
 
   // Clean paste — see clean-paste.ts. Installed on the canvas document when it
   // loads and again whenever text editing starts (the frame can be rebuilt by a

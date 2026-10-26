@@ -473,6 +473,66 @@ try {
       ok("Save answers the press: Saving… → Saved ✓ in green with 'Saved just now' → Save",
         pressed.btn === "Saving…" && pressed.state === "saving" && /^Saved/.test(flashed.btn) && flashed.state === "saved" && flashed.status === "Saved just now" && flashed.bg === "rgb(5, 150, 105)" && settled.btn === "Save" && settled.state === "idle",
         JSON.stringify({ pressed, flashed, settled }));
+
+      // ── The assistant (2026-10-26) ───────────────────────────────────────
+      // Daniel: "make it agentic like chatbox type so i can prompt it to make
+      // it modern". One REAL prompt (a paid call, cents): Ask ✦ opens the chat
+      // beside Style / Settings / Layers with today's count, the words land on
+      // the canvas, Undo takes them away, the count moved. Then the cap: this
+      // user's limit set to 1 (the one just used) and the next prompt is
+      // refused with the Team hint.
+      const askBtn = await page.$('[data-testid="mkt-ask-toggle"]');
+      if (askBtn) await askBtn.click();
+      await sleep(800);
+      const askOpen: any = await page.evaluate(`(function () {
+        var pane = document.querySelector('[data-testid="ce-pane-ask"]');
+        var tab = document.querySelector('[data-testid="ce-tab-ask"]');
+        var usage = document.querySelector('[data-testid="mailer-assistant-usage"]');
+        var right = pane ? pane.closest('.ce-right') : null;
+        return { visible: !!pane && pane.offsetParent !== null, tabActive: !!tab && tab.classList.contains('is-active'), usage: usage ? (usage.textContent || '').trim() : '', width: right ? Math.round(right.getBoundingClientRect().width) : 0, starters: document.querySelectorAll('[data-testid="mailer-assistant-starter"]').length };
+      })()`);
+      ok("Ask ✦ opens the assistant beside Style / Settings / Layers with today's count", askOpen.visible && askOpen.tabActive && /of \d+ today/.test(askOpen.usage) && askOpen.starters >= 3, JSON.stringify(askOpen));
+      ok("…and the panel is wider than the style inspector", askOpen.width >= 340, `${askOpen.width}px`);
+      const askInput = await page.$('[data-testid="mailer-assistant-input"]');
+      if (askInput) { await askInput.click(); await page.keyboard.type("Change the big headline at the top so it says Hello from the harness. Nothing else."); await page.keyboard.press("Enter"); }
+      let replied: any = null;
+      for (let i = 0; i < 90; i++) {
+        await sleep(1000);
+        replied = await page.evaluate(`(function () {
+          var r = document.querySelector('[data-testid="mailer-assistant-reply"], [data-testid="mailer-assistant-error"]');
+          if (!r) return null;
+          var f = document.querySelector('.clubos-gjs iframe');
+          var canvas = f && f.contentDocument ? f.contentDocument.body.innerText : '';
+          var usage = document.querySelector('[data-testid="mailer-assistant-usage"]');
+          return { error: r.getAttribute('data-testid') === 'mailer-assistant-error', text: (r.textContent || '').trim().slice(0, 200), onCanvas: /Hello from the harness/.test(canvas), undo: !!document.querySelector('[data-testid="mailer-assistant-undo"]'), usage: usage ? (usage.textContent || '').trim() : '' };
+        })()`);
+        if (replied) break;
+      }
+      ok("a prompt changes the words on the canvas and offers Undo", !!replied && !replied.error && replied.onCanvas && replied.undo, JSON.stringify(replied));
+      ok("…and the count moved", !!replied && /^1 of/.test(replied.usage), replied ? replied.usage : "no reply");
+      await page.screenshot({ path: join(OUT, `${label}-assistant.png`) });
+      console.log(`  → ${join(OUT, `${label}-assistant.png`)}`);
+      const undoBtn = await page.$('[data-testid="mailer-assistant-undo"]');
+      if (undoBtn) await undoBtn.click();
+      await sleep(2500);
+      const undone: any = await page.evaluate(`(function () {
+        var f = document.querySelector('.clubos-gjs iframe');
+        var canvas = f && f.contentDocument ? f.contentDocument.body.innerText : '';
+        return { gone: !/Hello from the harness/.test(canvas), label: /Undone/.test(document.body.innerText), redo: !!document.querySelector('[data-testid="mailer-assistant-redo"]') };
+      })()`);
+      ok("Undo puts the old headline back and offers to put the change back", undone.gone && undone.label && undone.redo, JSON.stringify(undone));
+      await pool.query(`UPDATE users SET mailer_ai_daily_limit = 1 WHERE id = $1`, [users[0]]);
+      const askInput2 = await page.$('[data-testid="mailer-assistant-input"]');
+      if (askInput2) { await askInput2.click(); await page.keyboard.type("Make the button say Join us"); await page.keyboard.press("Enter"); }
+      await sleep(3000);
+      const capped: any = await page.evaluate(`(function () {
+        var errs = document.querySelectorAll('[data-testid="mailer-assistant-error"]');
+        var last = errs[errs.length - 1];
+        var input = document.querySelector('[data-testid="mailer-assistant-input"]');
+        return { text: last ? (last.textContent || '').trim() : '', box: !!document.querySelector('[data-testid="mailer-assistant-capped"]'), disabled: !!(input && input.disabled) };
+      })()`);
+      ok("past the daily cap the next prompt is refused and names Team", /used today's 1 prompt/.test(capped.text) && capped.box && capped.disabled, JSON.stringify(capped));
+      await pool.query(`UPDATE users SET mailer_ai_daily_limit = NULL WHERE id = $1`, [users[0]]);
     }
 
     // ── The unsent-email banner answers both buttons (2026-10-26) ─────────

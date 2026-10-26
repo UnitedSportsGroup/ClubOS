@@ -90,6 +90,10 @@ export const users = pgTable("users", {
   // camp, including next term's), ids cover a named exception (U4–U8).
   refundProgrammeKinds: jsonb("refund_programme_kinds").$type<string[] | null>(),
   refundProgramIds: jsonb("refund_program_ids").$type<number[] | null>(),
+  // How many prompts a day this person may send the Mailer's assistant
+  // (each one is a paid API call). NULL = the default in shared/mailer-ai.ts;
+  // 0 = switched off for them. Set per person in /admin/team, no deploy.
+  mailerAiDailyLimit: integer("mailer_ai_daily_limit"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -10224,3 +10228,32 @@ export const registrationRefunds = pgTable("registration_refunds", {
   backfilled: boolean("backfilled").notNull().default(false),
 });
 export type RegistrationRefund = typeof registrationRefunds.$inferSelect;
+
+// Every prompt sent to the Mailer's assistant, one row each — who, which
+// workspace, the model, the tokens and what it cost in US cents. The per-person
+// daily cap is COUNTED from this table (NZ day), never kept as a counter that
+// could drift. A failed call still cost money, so it is still a row (ok=false).
+// See migrations/2026-10-26_mailer_ai.sql and shared/mailer-ai.ts.
+export const mailerAiUsage = pgTable("mailer_ai_usage", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  userLabel: text("user_label"),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "restrict" }),
+  brand: text("brand"),
+  model: text("model").notNull(),
+  instruction: text("instruction").notNull().default(""),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  costUsdCents: numeric("cost_usd_cents", { precision: 12, scale: 4 }).notNull().default("0"),
+  durationMs: integer("duration_ms").notNull().default(0),
+  ok: boolean("ok").notNull().default(true),
+  changed: boolean("changed").notNull().default(false),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  userIdx: index("mailer_ai_usage_user_idx").on(t.userId, t.createdAt),
+  orgIdx: index("mailer_ai_usage_org_idx").on(t.organizationId, t.createdAt),
+}));
+export type MailerAiUsageRow = typeof mailerAiUsage.$inferSelect;

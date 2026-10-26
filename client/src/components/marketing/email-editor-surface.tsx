@@ -15,7 +15,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Editor } from "grapesjs";
-import { createEmailEditor, currentLetterhead, exportResult, insertMergeTag, setLetterhead } from "./grapes/editor";
+import { createEmailEditor, currentLetterhead, exportResult, insertMergeTag, setLetterhead, type RightTab } from "./grapes/editor";
 import type { EmailBuilderResult } from "./EmailBuilder";
 
 export interface EmailEditorSurfaceHandle {
@@ -34,22 +34,35 @@ export interface EmailEditorSurfaceHandle {
   setLetterhead: (id: string | null) => void;
   /** The letterhead the design carries now, if any. */
   getLetterhead: () => string | null;
+  /** The design as MJML, with any text edit in progress finished first — what
+   *  the assistant reads. */
+  getMjml: () => Promise<string>;
+  /** Replace the design with this MJML (the assistant's answer, or an undo). */
+  applyMjml: (mjml: string) => void;
+  /** Switch the inspector to the Ask tab. */
+  openAsk: () => void;
 }
 
 interface SurfaceProps {
   brandKey: string;
   initialDoc?: unknown | null;
   onDirty?: () => void;
+  /** The shell's Ask pane once the editor is up (null again on teardown), so
+   *  the wrapper can render the assistant's chat box into it. */
+  onAskPane?: (el: HTMLElement | null) => void;
 }
 
 const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
-  function EmailEditorSurface({ brandKey, initialDoc, onDirty }, ref) {
+  function EmailEditorSurface({ brandKey, initialDoc, onDirty, onAskPane }, ref) {
     const holderRef = useRef<HTMLDivElement | null>(null);
     const editorRef = useRef<Editor | null>(null);
     const initedRef = useRef(false);
     // keep the latest onDirty without re-running the init effect
     const onDirtyRef = useRef(onDirty);
     onDirtyRef.current = onDirty;
+    const onAskPaneRef = useRef(onAskPane);
+    onAskPaneRef.current = onAskPane;
+    const selectTabRef = useRef<((id: RightTab) => void) | null>(null);
     // 🔴 A text edit reaches the MODEL asynchronously when it ends:
     // ComponentTextView.disableEditing awaits the RTE before syncContent. An
     // export run straight after endEditing() therefore reads the block as it
@@ -70,6 +83,10 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
         container: holderRef.current,
         brandKey,
         initialDoc,
+        onShellReady: (s) => {
+          selectTabRef.current = s.selectTab;
+          onAskPaneRef.current?.(s.paneAsk);
+        },
       });
       editorRef.current = editor;
       editor.on("update", () => onDirtyRef.current?.());
@@ -87,6 +104,8 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
       editor.on("rte:enable", watchTyping);
 
       return () => {
+        onAskPaneRef.current?.(null);
+        selectTabRef.current = null;
         if (inflightRef.current > 0) {
           destroyOnIdleRef.current = editor; // getResult's finally destroys it
         } else {
@@ -131,6 +150,28 @@ const EmailEditorSurface = forwardRef<EmailEditorSurfaceHandle, SurfaceProps>(
           const editor = editorRef.current;
           if (editor) insertMergeTag(editor, text);
         },
+        getMjml: async (): Promise<string> => {
+          const editor = editorRef.current;
+          if (!editor) throw new Error("The editor is still loading — try again in a moment.");
+          // Finish a text edit in progress so its words are in what is read.
+          try {
+            const comp: any = (editor as any).getEditing?.();
+            const p = comp?.getView?.()?.disableEditing?.();
+            if (p && typeof p.then === "function") disablingRef.current = p.catch(() => undefined);
+          } catch { /* nothing being edited */ }
+          await disablingRef.current;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw = editor.runCommand("mjml-code") as any;
+          return typeof raw === "string" ? raw : raw?.code ?? raw?.mjml ?? "";
+        },
+        applyMjml: (mjml: string) => {
+          const editor = editorRef.current;
+          if (!editor) return;
+          try { editor.select(); } catch { /* nothing selected */ }
+          editor.setComponents(mjml);
+          onDirtyRef.current?.();
+        },
+        openAsk: () => selectTabRef.current?.("ask"),
         getResult: async (): Promise<EmailBuilderResult> => {
           const editor = editorRef.current;
           if (!editor) throw new Error("The editor is still loading — try again in a moment.");
