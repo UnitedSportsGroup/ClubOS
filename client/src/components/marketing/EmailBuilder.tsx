@@ -522,11 +522,12 @@ export default function EmailBuilder({
             <button
               type="button"
               onClick={() => surfaceRef.current?.openAsk()}
-              className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
               data-testid="mkt-ask-toggle"
-              title="Tell the assistant what to change and it changes on the canvas"
+              title="Tell Rambo what to change and it changes on the canvas"
             >
-              Ask ✦
+              <img src="/mailer/rambo.png" alt="" className="h-5 w-5 object-contain" />
+              Rambo
             </button>
           )}
           {!isNarrow && chosen && (

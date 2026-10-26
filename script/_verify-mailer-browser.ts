@@ -481,6 +481,42 @@ try {
       // the canvas, Undo takes them away, the count moved. Then the cap: this
       // user's limit set to 1 (the one just used) and the next prompt is
       // refused with the Team hint.
+      // ── Club-logo quick picker + Rambo branding (26 Oct, 9pm) ────────────
+      // Daniel: "change it to Rambo, not ask … if it's a logo section, it
+      // should be a quick, easy selector where I can select quickly from our
+      // brands." Select the header crest on the canvas → a tile per brand above
+      // Style; tap United Gymnastics → the picture IS the CUGC crest; tap
+      // Christchurch United → back. Double-click still opens the upload box.
+      const fhLogo = await page.$(".clubos-gjs iframe");
+      const frameLogo = fhLogo ? await fhLogo.contentFrame() : null;
+      if (frameLogo) await frameLogo.click("img");
+      await sleep(600);
+      const pickerOpen: any = await page.evaluate(`(function () {
+        var p = document.querySelector('[data-testid="ce-logo-picker"]');
+        var tab = document.querySelector('[data-testid="ce-tab-ask"]');
+        return { visible: !!p && p.offsetParent !== null, tiles: document.querySelectorAll('[data-testid^="ce-logo-"]').length, rambo: tab ? (tab.textContent || '').trim() : '', face: !!(tab && tab.querySelector('img.ce-tab-icon')) };
+      })()`);
+      ok("selecting a picture shows the club-logo picker above Style, one tile per brand", pickerOpen.visible && pickerOpen.tiles >= 7, JSON.stringify(pickerOpen));
+      ok("the fourth inspector tab is Rambo with his face on it", pickerOpen.rambo === "Rambo" && pickerOpen.face, JSON.stringify({ rambo: pickerOpen.rambo, face: pickerOpen.face }));
+      const srcOnCanvas = async (): Promise<string> => (frameLogo ? String(await frameLogo.evaluate(`(function(){ var i = document.querySelector('img'); return i ? (i.getAttribute('src') || '') : ''; })()`)) : "");
+      const beforeSrc = await srcOnCanvas();
+      const cugcTile = await page.$('[data-testid="ce-logo-cugc"]');
+      if (cugcTile) await cugcTile.click();
+      await sleep(600);
+      const afterSrc = await srcOnCanvas();
+      const activeTile: any = await page.evaluate(`(function(){ var a = document.querySelector('.ce-logo.is-active'); return a ? a.getAttribute('data-testid') : ''; })()`);
+      ok("tapping United Gymnastics puts the CUGC crest on the selected picture", /\/mailer\/crests\/cugc\.png$/.test(afterSrc) && afterSrc !== beforeSrc && activeTile === "ce-logo-cugc", JSON.stringify({ beforeSrc, afterSrc, activeTile }));
+      const cufcTile = await page.$('[data-testid="ce-logo-cufc"]');
+      if (cufcTile) await cufcTile.click();
+      await sleep(400);
+      ok("…and Christchurch United puts it back", /\/mailer\/crests\/cufc\.png$/.test(await srcOnCanvas()), await srcOnCanvas());
+      if (frameLogo) await frameLogo.click("img", { clickCount: 2 });
+      await sleep(700);
+      const uploadBox: any = await page.evaluate(`(function(){ var m = document.querySelector('.gjs-mdl-container'); var open = !!m && getComputedStyle(m).display !== 'none'; var t = m ? m.querySelector('.gjs-mdl-title') : null; return { open: open, title: t ? (t.textContent || '').trim() : '' }; })()`);
+      ok("double-clicking the picture opens the box for a picture of your own", uploadBox.open, JSON.stringify(uploadBox));
+      await page.evaluate(`(function(){ var c = document.querySelector('.gjs-mdl-btn-close'); if (c) c.click(); })()`);
+      await sleep(300);
+
       const askBtn = await page.$('[data-testid="mkt-ask-toggle"]');
       if (askBtn) await askBtn.click();
       await sleep(800);
@@ -491,7 +527,7 @@ try {
         var right = pane ? pane.closest('.ce-right') : null;
         return { visible: !!pane && pane.offsetParent !== null, tabActive: !!tab && tab.classList.contains('is-active'), usage: usage ? (usage.textContent || '').trim() : '', width: right ? Math.round(right.getBoundingClientRect().width) : 0, starters: document.querySelectorAll('[data-testid="mailer-assistant-starter"]').length };
       })()`);
-      ok("Ask ✦ opens the assistant beside Style / Settings / Layers with today's count", askOpen.visible && askOpen.tabActive && /of \d+ today/.test(askOpen.usage) && askOpen.starters >= 3, JSON.stringify(askOpen));
+      ok("the Rambo button opens the chat beside Style / Settings / Layers with today's count", askOpen.visible && askOpen.tabActive && /of \d+ today/.test(askOpen.usage) && askOpen.starters >= 3, JSON.stringify(askOpen));
       ok("…and the panel is wider than the style inspector", askOpen.width >= 340, `${askOpen.width}px`);
       const askInput = await page.$('[data-testid="mailer-assistant-input"]');
       if (askInput) { await askInput.click(); await page.keyboard.type("Change the big headline at the top so it says Hello from the harness. Nothing else."); await page.keyboard.press("Enter"); }

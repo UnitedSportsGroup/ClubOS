@@ -112,7 +112,7 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
           ]);
           setUsage((u) => (u ? { ...u, used: data.usage.used, limit: data.usage.limit } : u));
         } else {
-          const msg = (data as any).message || "The assistant couldn't answer that.";
+          const msg = (data as any).message || "Rambo couldn't answer that.";
           setTurns((t) => [...t, { id: nextId++, role: "assistant", text: msg, error: true }]);
           const u = (data as any).usage;
           if (u) setUsage((prev) => (prev ? { ...prev, used: u.used, limit: u.limit } : prev));
@@ -150,7 +150,10 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
     <div className="flex h-full min-h-0 flex-col text-[13px]" data-testid="mailer-assistant">
       <div className="shrink-0 border-b px-3 py-2">
         <div className="flex items-center justify-between gap-2">
-          <p className="font-semibold">Ask the assistant</p>
+          <p className="flex items-center gap-1.5 font-semibold">
+            <img src="/mailer/rambo.png" alt="" className="h-6 w-6 object-contain" />
+            Rambo
+          </p>
           {usage && (
             <span className="text-[11px] text-muted-foreground" data-testid="mailer-assistant-usage">
               {usage.used} of {usage.limit} today
@@ -158,7 +161,7 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
           )}
         </div>
         <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-          Say what you want changed and it changes on the canvas. Every change has an Undo.
+          Tell Rambo what to change and it changes on the canvas. Every change has an Undo.
         </p>
       </div>
 
@@ -224,13 +227,13 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
       <div className="shrink-0 border-t px-3 py-2">
         {off && (
           <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-900">
-            The assistant isn't switched on for this server yet.
+            Rambo isn't switched on for this server yet.
           </p>
         )}
         {capped && !off && (
           <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-900" data-testid="mailer-assistant-capped">
             {usage!.limit === 0
-              ? "The assistant is switched off for your account. A super admin can turn it on in Team."
+              ? "Rambo is switched off for your account. A super admin can turn it on in Team."
               : `You've used today's ${usage!.limit} prompt${usage!.limit === 1 ? "" : "s"}. It resets at midnight, or a super admin can raise your limit in Team.`}
           </p>
         )}
@@ -246,7 +249,7 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
           }}
           rows={3}
           disabled={disabled}
-          placeholder={disabled ? "" : "e.g. Make the hero photo full width and add a Register button"}
+          placeholder={disabled ? "" : "e.g. Put the CUGC crest beside ours in the header and make both a bit bigger"}
           className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
           data-testid="mailer-assistant-input"
         />

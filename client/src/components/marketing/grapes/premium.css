@@ -359,6 +359,75 @@
   color: var(--ce-accent);
   background: color-mix(in srgb, var(--ce-accent) 15%, transparent);
 }
+/* Rambo's tab carries his face (the club's ram mascot). */
+.ce-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.ce-tab-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex: none;
+}
+/* Club-logo quick picker — above Style/Settings when a picture is selected. */
+.ce-logos {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--ce-border);
+}
+.ce-logos-title {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ce-muted);
+}
+.ce-logos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.ce-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 64px;
+  padding: 8px 4px 6px;
+  background: #ffffff;
+  border: 1px solid var(--ce-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ce-logo img {
+  height: 30px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.ce-logo span {
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--ce-text);
+}
+.ce-logo:hover {
+  border-color: var(--ce-accent);
+}
+.ce-logo.is-active {
+  border-color: var(--ce-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ce-accent) 25%, transparent);
+}
+.ce-logos-hint {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ce-muted);
+}
 .ce-empty {
   padding: 52px 26px;
   text-align: center;

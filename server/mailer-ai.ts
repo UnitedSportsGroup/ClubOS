@@ -43,7 +43,7 @@ import {
   validateMailerAiMjml,
   type MailerAiTokenUsage,
 } from "@shared/mailer-ai";
-import { brandKit, SOCIAL_ICON } from "../client/src/components/marketing/grapes/templates/brand-kit";
+import { brandKit, BRAND_KITS, CLUB_LOGOS, SOCIAL_ICON } from "../client/src/components/marketing/grapes/templates/brand-kit";
 import { clubNewsletterTemplate } from "../client/src/components/marketing/grapes/templates/club-newsletter";
 import { LETTERHEADS } from "../client/src/components/marketing/grapes/letterheads";
 
@@ -127,7 +127,7 @@ function parseAnswer(res: Anthropic.Message): AnswerT | null {
   }
 }
 
-const RULES = `You are the email design assistant inside ClubOS, the admin system of Christchurch United FC Inc. in Christchurch, New Zealand. A member of staff is building an email in a drag-and-drop builder that stores the design as MJML. You change that MJML to do what they ask, quickly and well.
+const RULES = `You are Rambo, the club's own assistant, here inside the email builder of ClubOS, the admin system of Christchurch United FC Inc. in Christchurch, New Zealand. A member of staff is building an email in a drag-and-drop builder that stores the design as MJML. You change that MJML to do what they ask, quickly and well.
 
 HOW TO ANSWER
 - A small change (wording, one block, a colour, a button, moving a couple of things): return "edits" — exact "find" strings copied from the current email that occur ONCE each, with their "replace". Keep them minimal. Leave "mjml" null.
@@ -136,7 +136,8 @@ HOW TO ANSWER
 
 HARD RULES
 - Only these tags: mjml, mj-body, mj-wrapper, mj-section, mj-group, mj-column, mj-text, mj-image, mj-button, mj-divider, mj-spacer, mj-social, mj-social-element, mj-raw. No mj-head, mj-style, mj-attributes, mj-font, no <script>. Styling is attributes and inline styles inside mj-text.
-- Pictures: ONLY image URLs from the brand kit below, or ones already in the current email. Never invent or hotlink a picture.
+- Pictures: ONLY image URLs from the brand kit below, the CLUB LOGOS list below, or ones already in the current email. Never invent or hotlink a picture.
+- Club logos: the CLUB LOGOS list holds the crest of EVERY brand the club runs (Christchurch United, South Island United, United Gymnastics/CUGC, Mini Football Leagues, the Christchurch International Cup, United Sports Group, United Prints). When someone asks for a brand's logo, crest or badge, use that brand's URL as an mj-image at about its listed width, in its own column. Never leave a text placeholder like [CUGC logo] for a brand that is in the list. Two crests side by side = one mj-section with two mj-columns, one mj-image in each.
 - In a column, an mj-image, mj-divider or mj-spacer must be the LAST child — the builder's export drops everything after one. Put a picture in its own column or section, or last. For a rule between things use border-top / border-bottom on the section or column.
 - Keep merge tags exactly as they are: ${MAILER_AI_MERGE_TAGS.map((t) => `{{${t}}}`).join(", ")}. Do not invent new ones. {{first_name}} is the parent; {{player_first_name}} is their registered child.
 - Email-safe only: 600px body, no CSS grid or flex, web-safe font stacks (use the kit's), no background images unless already there, buttons as mj-button.
@@ -176,7 +177,8 @@ function systemPromptFor(brandKey: string): string {
     reference = "";
   }
   const text =
-    `${RULES}\n\nBRAND KIT (JSON — the only pictures you may use are the URLs in here):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
+    `${RULES}\n\nBRAND KIT (JSON — this email's brand; its pictures are the ones you may use, plus the club logos below):\n${JSON.stringify(kitForModel, null, 1)}\n\n` +
+    `CLUB LOGOS (JSON — every brand of the club, crest URL and the width its own header uses):\n${JSON.stringify(CLUB_LOGOS, null, 1)}\n\n` +
     (reference
       ? `HOUSE STYLE — this brand's newsletter template as MJML. Copy its shapes, spacing, fonts and conventions when you build or restyle:\n${reference}`
       : "");
@@ -190,6 +192,9 @@ function allowedImagesFor(brandKey: string, mjml: string): Set<string> {
   set.add(kit.crest);
   kit.photos.forEach((p) => set.add(p.src));
   (kit.products ?? []).forEach((p) => set.add(p.src));
+  // Every brand's crest — "add the CUGC logo" on a CUFC email is a real picture.
+  CLUB_LOGOS.forEach((l) => set.add(l.src));
+  Object.values(BRAND_KITS).forEach((k) => set.add(k.crest));
   Object.values(SOCIAL_ICON).forEach((s) => set.add(s.src));
   LETTERHEADS.forEach((l) => set.add(l.src));
   mjmlImageSrcs(mjml).forEach((s) => set.add(s));
@@ -239,7 +244,7 @@ async function runAssistant(opts: {
     totals.cacheRead += (res.usage as any).cache_read_input_tokens ?? 0;
     totals.cacheWrite += (res.usage as any).cache_creation_input_tokens ?? 0;
 
-    if (res.stop_reason === "refusal") return { error: "The assistant declined that request." };
+    if (res.stop_reason === "refusal") return { error: "Rambo declined that request." };
 
     const out = parseAnswer(res);
     const problems: string[] = [];
@@ -273,7 +278,7 @@ async function runAssistant(opts: {
     });
   }
   return {
-    error: `The assistant couldn't make a change that passes the checks (${lastProblems[0] || "no usable answer"}). Try describing it differently.`,
+    error: `Rambo couldn't make a change that passes the checks (${lastProblems[0] || "no usable answer"}). Try describing it differently.`,
   };
 }
 
@@ -282,11 +287,11 @@ export const mailerAiRunForProbe = runAssistant;
 
 function friendly(e: any): string {
   const msg = String(e?.message || e || "");
-  if (e?.status === 401 || /authentication/i.test(msg)) return "The assistant's API key was refused. Check ANTHROPIC_API_KEY on the server.";
-  if (e?.status === 429 || /rate limit/i.test(msg)) return "The assistant is busy right now (rate limited). Try again in a minute.";
+  if (e?.status === 401 || /authentication/i.test(msg)) return "Rambo's API key was refused. Check ANTHROPIC_API_KEY on the server.";
+  if (e?.status === 429 || /rate limit/i.test(msg)) return "Rambo is busy right now (rate limited). Try again in a minute.";
   if (/credit|balance|billing/i.test(msg)) return "The club's Anthropic account is out of credit. Top it up at console.anthropic.com.";
   if (e?.status >= 500 || /overloaded/i.test(msg)) return "Anthropic's service is having a moment. Try again shortly.";
-  return `The assistant hit a snag: ${msg.slice(0, 200)}`;
+  return `Rambo hit a snag: ${msg.slice(0, 200)}`;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -334,7 +339,7 @@ export function registerMailerAiRoutes(app: Express) {
     }
     if (!user || !org) return res.status(400).json({ ok: false, message: "Unknown workspace" });
     if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(503).json({ ok: false, message: "The assistant isn't switched on — ANTHROPIC_API_KEY isn't set on the server." });
+      return res.status(503).json({ ok: false, message: "Rambo isn't switched on — ANTHROPIC_API_KEY isn't set on the server." });
     }
 
     const body = req.body ?? {};
@@ -350,7 +355,7 @@ export function registerMailerAiRoutes(app: Express) {
     if (!instruction) return res.status(400).json({ ok: false, message: "Say what you'd like changed." });
     if (instruction.length > 4000) return res.status(400).json({ ok: false, message: "That's a long request — keep it under 4,000 characters." });
     if (!mjml.trim() || !/<mjml[\s>]/i.test(mjml)) return res.status(400).json({ ok: false, message: "The design hasn't loaded yet — try again in a moment." });
-    if (mjml.length > MAILER_AI_MAX_MJML_CHARS * 2) return res.status(400).json({ ok: false, message: "This design is too large for the assistant to read." });
+    if (mjml.length > MAILER_AI_MAX_MJML_CHARS * 2) return res.status(400).json({ ok: false, message: "This design is too large for Rambo to read." });
 
     const limit = mailerAiDailyLimitFor(user.mailerAiDailyLimit);
     const used = await usedToday(userId);
@@ -359,7 +364,7 @@ export function registerMailerAiRoutes(app: Express) {
         ok: false,
         message:
           limit === 0
-            ? "The assistant is switched off for your account. A super admin can turn it on in Team."
+            ? "Rambo is switched off for your account. A super admin can turn it on in Team."
             : `You've used today's ${limit} prompt${limit === 1 ? "" : "s"}. It resets at midnight NZ time, or a super admin can raise your limit in Team.`,
         usage: { used, limit },
       });

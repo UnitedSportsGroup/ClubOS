@@ -24,6 +24,7 @@ import "./premium.css";
 import { registerBlocks } from "./blocks";
 import { registerClubBlocks } from "./club-blocks";
 import { LETTERHEADS } from "./letterheads";
+import { CLUB_LOGOS } from "./templates/brand-kit";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
 import { installCleanPaste } from "./clean-paste";
 import { MOBILE_EMAIL_CSS, withMobileCss } from "./mobile-css";
@@ -69,6 +70,8 @@ interface Shell {
   paneSettings: HTMLElement;
   paneLayers: HTMLElement;
   paneAsk: HTMLElement;
+  /** The club-logo quick picker, shown above Style/Settings when a picture is selected. */
+  logos: HTMLElement;
   emptyHint: HTMLElement;
 }
 
@@ -97,6 +100,7 @@ function buildShell(container: HTMLElement, brand: ReturnType<typeof brandCanvas
               <p class="ce-empty-title">Nothing selected</p>
               <p class="ce-empty-sub">Click any block on the canvas to style it, or drag a new one from the left.</p>
             </div>
+            <div class="ce-logos ce-hidden" data-ce="logos" data-testid="ce-logo-picker"></div>
             <div class="ce-pane" data-ce="pane-style"></div>
             <div class="ce-pane" data-ce="pane-settings"></div>
             <div class="ce-pane" data-ce="pane-layers"></div>
@@ -118,6 +122,7 @@ function buildShell(container: HTMLElement, brand: ReturnType<typeof brandCanvas
     paneSettings: q("pane-settings"),
     paneLayers: q("pane-layers"),
     paneAsk: q("pane-ask"),
+    logos: q("logos"),
     emptyHint: q("empty"),
   };
 }
@@ -208,21 +213,85 @@ function wireToolbar(editor: Editor, shell: Shell): void {
 
 export type RightTab = "style" | "settings" | "layers" | "ask";
 
+/** Rambo's face — the club's ram mascot, the same one the staff app uses. Every
+ *  in-house AI tool is branded Rambo (Daniel, 2026-10-26). */
+export const RAMBO_FACE = "/mailer/rambo.png";
+
+/** Is this component a picture the logo picker can swap? grapesjs-mjml types
+ *  its images `mj-image`; the tag name is the fallback for a freshly parsed doc. */
+function isImageComponent(comp: any): boolean {
+  if (!comp) return false;
+  const type = String(comp.get?.("type") ?? "");
+  const tag = String(comp.get?.("tagName") ?? "").toLowerCase();
+  return type === "mj-image" || tag === "mj-image";
+}
+
+/** The club-logo quick picker. Daniel, 2026-10-26, after Rambo left a "[CUGC
+ *  logo]" placeholder: "if it's a logo section … it should be a quick, easy
+ *  selector where I can select quickly from our brands." One tile per brand;
+ *  tapping one puts that crest on the selected picture at the width the
+ *  brand's own header uses. Your own picture is still a double-click away. */
+function wireLogoPicker(editor: Editor, shell: Shell): { refresh: () => void } {
+  const host = shell.logos;
+  host.innerHTML = `
+    <p class="ce-logos-title">Club logos</p>
+    <div class="ce-logos-grid"></div>
+    <p class="ce-logos-hint">Your own picture: double-click it on the canvas to upload one or paste a link.</p>
+  `;
+  const grid = host.querySelector<HTMLElement>(".ce-logos-grid")!;
+  const tiles: HTMLButtonElement[] = CLUB_LOGOS.map((logo) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ce-logo";
+    b.title = `Use the ${logo.label} crest`;
+    b.dataset.testid = `ce-logo-${logo.key}`;
+    b.dataset.src = logo.src;
+    b.innerHTML = `<img src="${logo.src}" alt=""><span>${logo.label}</span>`;
+    b.onclick = () => {
+      const comp: any = editor.getSelected();
+      if (!isImageComponent(comp)) return;
+      // Both the model prop (what the core image view draws) and the attribute
+      // (what the MJML export writes). Width follows the brand's own header.
+      comp.set("src", logo.src);
+      comp.addAttributes({ src: logo.src, alt: logo.label, width: `${logo.width}px` });
+      refresh();
+    };
+    grid.append(b);
+    return b;
+  });
+  const refresh = () => {
+    const comp: any = editor.getSelected();
+    const src = isImageComponent(comp) ? String(comp.getAttributes?.()?.src ?? comp.get?.("src") ?? "") : "";
+    tiles.forEach((t) => t.classList.toggle("is-active", !!src && t.dataset.src === src));
+  };
+  return { refresh };
+}
+
 function wireInspector(editor: Editor, shell: Shell): { select: (id: RightTab) => void } {
   let activeTab: RightTab = "style";
-  const tabs: { id: RightTab; label: string }[] = [
+  const tabs: { id: RightTab; label: string; icon?: string }[] = [
     { id: "style", label: "Style" },
     { id: "settings", label: "Settings" },
     { id: "layers", label: "Layers" },
-    // The assistant — Daniel, 2026-10-26: "make it agentic like chatbox type".
-    { id: "ask", label: "Ask ✦" },
+    // Rambo — Daniel, 2026-10-26: "make it agentic like chatbox type", then
+    // "change it to Rambo, not Ask … brand all of our own AI tools as Rambo".
+    { id: "ask", label: "Rambo", icon: RAMBO_FACE },
   ];
   const tabBtns: Record<string, HTMLButtonElement> = {};
   tabs.forEach((t) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ce-tab";
-    btn.textContent = t.label;
+    if (t.icon) {
+      const img = document.createElement("img");
+      img.className = "ce-tab-icon";
+      img.src = t.icon;
+      img.alt = "";
+      btn.append(img);
+    }
+    const text = document.createElement("span");
+    text.textContent = t.label;
+    btn.append(text);
     btn.dataset.testid = `ce-tab-${t.id}`;
     btn.onclick = () => {
       activeTab = t.id;
@@ -232,6 +301,7 @@ function wireInspector(editor: Editor, shell: Shell): { select: (id: RightTab) =
     shell.rightTabs.append(btn);
   });
 
+  const logos = wireLogoPicker(editor, shell);
   const hasSelection = () => !!editor.getSelected();
 
   const update = () => {
@@ -242,10 +312,13 @@ function wireInspector(editor: Editor, shell: Shell): { select: (id: RightTab) =
     const showStyle = activeTab === "style" && sel;
     const showSettings = activeTab === "settings" && sel;
     const showEmpty = !showLayers && !showAsk && !sel;
+    const showLogos = (showStyle || showSettings) && isImageComponent(editor.getSelected());
     shell.paneLayers.classList.toggle("ce-hidden", !showLayers);
     shell.paneStyle.classList.toggle("ce-hidden", !showStyle);
     shell.paneSettings.classList.toggle("ce-hidden", !showSettings);
     shell.paneAsk.classList.toggle("ce-hidden", !showAsk);
+    shell.logos.classList.toggle("ce-hidden", !showLogos);
+    if (showLogos) logos.refresh();
     shell.emptyHint.classList.toggle("ce-hidden", !showEmpty);
     // The chat needs more room than a style inspector.
     shell.paneAsk.parentElement?.parentElement?.classList.toggle("is-ask", showAsk);

@@ -261,6 +261,31 @@ export function brandKit(brandKey: string | null | undefined): BrandKit {
   return BRAND_KITS[k] ?? NEUTRAL;
 }
 
+/** Every brand's crest, for the quick picker on a logo in the builder and for
+ *  Rambo (who must know "the CUGC logo" is a real picture, not a placeholder).
+ *  Daniel, 2026-10-26: "we need at least our logos just as the quick selects,
+ *  because those are the ones we're going to be using the most." One list, read
+ *  off the kits, so a renamed crest file cannot leave one of them behind. USC
+ *  wears the USG crest and is deliberately not a second tile. */
+export interface ClubLogo {
+  key: string;
+  label: string;
+  src: string;
+  /** The width the brand's own header draws it at. */
+  width: number;
+}
+export const CLUB_LOGOS: ClubLogo[] = (
+  [
+    ["cufc", "Christchurch United"],
+    ["siu", "South Island United"],
+    ["cugc", "United Gymnastics"],
+    ["mfl", "Mini Football Leagues"],
+    ["cic", "Christchurch International Cup"],
+    ["usg", "United Sports Group"],
+    ["prints", "United Prints"],
+  ] as const
+).map(([key, label]) => ({ key, label, src: BRAND_KITS[key].crest, width: BRAND_KITS[key].crestWidth }));
+
 /** The white glyphs the dark footer uses, served by ClubOS. */
 export const SOCIAL_ICON: Record<SocialKey, { src: string; label: string }> = {
   instagram: { src: `${HOST}/mailer/icons/instagram.png`, label: "Instagram" },
