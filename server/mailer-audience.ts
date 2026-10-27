@@ -34,7 +34,7 @@
  * Only REAL registrations are read (@shared/registrations): an unfinished
  * checkout is not a player and never reaches a list.
  */
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./db";
 import {
@@ -50,7 +50,8 @@ import {
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { ageGradeFor, gradesForOptionName } from "@shared/parent";
 import { seriesName } from "@shared/programme-series";
-import { nzTodayIso } from "@shared/academy";
+import { nzTodayIso, ageGradeFor as gradeForSeason } from "@shared/academy";
+import { gradesInName, parseAudienceGroups, type AudienceCatalogue, type AudienceGroup } from "@shared/mailer-audiences";
 
 export type MailerPlayer = {
   firstName: string;
@@ -150,10 +151,24 @@ type Scope =
   | { kind: "all" }
   | { kind: "program"; programId: number }
   | { kind: "items"; programId: number; campDateId: number; productType: string | null }
+  /** "programme" (Zach, 27 Oct 2026: "send to the 4-8s", "all pre academy",
+   *  "all u9"): any number of programmes / age groups / camp editions at once,
+   *  within the chosen terms (null = any time; camps ignore it — a camp
+   *  edition IS its time). */
+  | { kind: "groups"; groups: AudienceGroup[]; termIds: number[] | null }
   | { kind: "none" };
+
+const ids = (v: unknown): number[] =>
+  Array.isArray(v) ? Array.from(new Set(v.map(Number).filter((n) => Number.isInteger(n) && n > 0))) : [];
 
 function scopeOf(segmentType: string, cfg: any): Scope {
   if (segmentType === "all") return { kind: "all" };
+  if (segmentType === "programme") {
+    const groups = parseAudienceGroups(cfg?.groups);
+    if (!groups.length) return { kind: "none" };
+    const termIds = ids(cfg?.termIds);
+    return { kind: "groups", groups, termIds: termIds.length ? termIds : null };
+  }
   const programId = Number(cfg?.campId);
   if (segmentType === "camp" && programId) return { kind: "program", programId };
   const campDateId = Number(cfg?.campDateId);
@@ -252,7 +267,15 @@ async function foldRegistrations(
 
   const regWhere = and(
     inArray(registrations.status, REAL),
-    scope.kind !== "all" ? eq(registrations.programId, scope.programId) : undefined,
+    scope.kind === "program" || scope.kind === "items" ? eq(registrations.programId, scope.programId) : undefined,
+    scope.kind === "groups"
+      ? inArray(registrations.programId, Array.from(new Set(scope.groups.map((g) => g.programId))))
+      : undefined,
+    // A term filter only means something for a term programme: a camp
+    // edition is already its own time, and its rows carry no term.
+    scope.kind === "groups" && scope.termIds
+      ? or(isNull(programs.scheduleType), ne(programs.scheduleType, "term"), inArray(registrations.termId, scope.termIds))
+      : undefined,
     scope.kind === "items"
       ? inArray(
           registrations.id,
@@ -270,9 +293,12 @@ async function foldRegistrations(
       : undefined,
   );
 
-  const regRows = await db
+  const allRows = await db
     .select({
       regId: registrations.id,
+      programId: registrations.programId,
+      optionId: registrations.programOptionId,
+      regTermStart: regTerm.startDate,
       registrantId: contacts.id,
       registrantType: contacts.type,
       registrantFirst: contacts.firstName,
@@ -297,6 +323,7 @@ async function foldRegistrations(
     .where(regWhere)
     .orderBy(registrations.id);
 
+  const regRows = scope.kind === "groups" ? await keepByAgeGroup(allRows, scope.groups) : allRows;
   if (regRows.length === 0) return;
 
   // Which addresses each registration reaches — the children below fan out
@@ -360,6 +387,147 @@ async function foldRegistrations(
         { programme: r.programmeName ?? null, optionName: r.optionName ?? null, dob: r.registrantDob ? String(r.registrantDob) : null, current: registrationIsCurrent(r, today) });
     }
   }
+}
+
+type GroupRow = {
+  programId: number | null;
+  optionId: number | null;
+  regTermStart: unknown;
+  registrantDob: unknown;
+};
+
+/** Keep the registrations an age-group pick covers. A whole-programme pick
+ *  keeps every row. An age-group pick keeps the rows on that option — and a
+ *  row on a retired PAIRED option ("U9–U10", the shape Pre-Academy sold until
+ *  19 Sep 2026) when the child's own NZF grade for the season says they are
+ *  that age. A child with no date of birth on a paired option is left out
+ *  rather than guessed into the wrong age group; "all Pre-Academy" still
+ *  reaches them. */
+export async function keepByAgeGroup<T extends GroupRow>(rows: T[], groups: AudienceGroup[]): Promise<T[]> {
+  const wanted = new Map<number, Set<number> | null>();
+  for (const g of groups) {
+    if (!g.optionIds) { wanted.set(g.programId, null); continue; }
+    const cur = wanted.get(g.programId);
+    if (cur === null) continue;
+    const s = cur ?? new Set<number>();
+    g.optionIds.forEach((id) => s.add(id));
+    wanted.set(g.programId, s);
+  }
+  const need = new Set<number>();
+  wanted.forEach((s) => s && s.forEach((id) => need.add(id)));
+  for (const r of rows) if (r.optionId) need.add(r.optionId);
+  const opts = need.size
+    ? await db.select({ id: programOptions.id, name: programOptions.name }).from(programOptions).where(inArray(programOptions.id, Array.from(need)))
+    : [];
+  const gradesOf = new Map<number, number[]>(opts.map((o) => [o.id, gradesInName(o.name)] as [number, number[]]));
+  const today = nzTodayIso();
+  return rows.filter((r) => {
+    const want = r.programId == null ? undefined : wanted.get(r.programId);
+    if (want === undefined) return false;
+    if (want === null) return true;
+    if (r.optionId && want.has(r.optionId)) return true;
+    const rowGrades = r.optionId ? gradesOf.get(r.optionId) ?? [] : [];
+    if (rowGrades.length < 2) return false;
+    const seasonYear = Number(String(r.regTermStart ?? today).slice(0, 4));
+    const grade = gradeForSeason(r.registrantDob ? String(r.registrantDob) : null, seasonYear);
+    if (grade === null || !rowGrades.includes(grade)) return false;
+    return Array.from(want).some((id) => {
+      const g = gradesOf.get(id) ?? [];
+      return g.length === 1 && g[0] === grade;
+    });
+  });
+}
+
+/** What the Mailer's programme picker draws: every programme the workspace
+ *  owns with the number of FAMILIES (distinct addresses, the same guardian-
+ *  or-registrant rule the send uses) in it — overall and per term, whole
+ *  and per age group. One pass over distinct (programme, option, term,
+ *  address) rows, aggregated here so any grouping is exact. */
+export async function mailerAudienceCatalogue(orgId: number): Promise<AudienceCatalogue> {
+  const today = nzTodayIso();
+  const progs = await db
+    .select({
+      id: programs.id, name: programs.name, type: programs.type, scheduleType: programs.scheduleType,
+      academySection: programs.academySection, startDate: programs.startDate, endDate: programs.endDate,
+      isActive: programs.isActive, ageMin: programs.ageMin,
+    })
+    .from(programs)
+    .where(eq(programs.organizationId, orgId))
+    .orderBy(programs.id);
+  const progIds = progs.map((p) => p.id);
+  const opts = progIds.length
+    ? await db.select({ id: programOptions.id, programId: programOptions.programId, name: programOptions.name, isActive: programOptions.isActive })
+        .from(programOptions).where(inArray(programOptions.programId, progIds)).orderBy(programOptions.id)
+    : [];
+  const termRows = await db
+    .select({ id: terms.id, name: terms.name, startDate: terms.startDate, endDate: terms.endDate })
+    .from(terms).where(eq(terms.organizationId, orgId)).orderBy(terms.startDate);
+  const guardian = alias(contacts, "cat_guardian");
+  const rows = progIds.length
+    ? await db
+        .selectDistinct({
+          programId: registrations.programId,
+          optionId: registrations.programOptionId,
+          termId: registrations.termId,
+          email: sql<string>`lower(trim(coalesce(nullif(${guardian.email}, ''), ${contacts.email})))`,
+        })
+        .from(registrations)
+        .innerJoin(contacts, eq(registrations.contactId, contacts.id))
+        .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
+        .where(and(
+          inArray(registrations.programId, progIds),
+          inArray(registrations.status, REAL),
+          sql`coalesce(nullif(${guardian.email}, ''), nullif(${contacts.email}, '')) is not null`,
+        ))
+    : [];
+  const iso = (d: unknown) => (d == null ? null : String(d).slice(0, 10));
+  const termList = termRows.map((t) => {
+    const s = iso(t.startDate), e = iso(t.endDate);
+    const yr = s ? s.slice(0, 4) : "";
+    const nm = t.name ?? "Term";
+    return { id: t.id, name: yr && !/\d{4}/.test(nm) ? `${nm} ${yr}` : nm, startDate: s, endDate: e, current: !!(s && e && s <= today && today <= e) };
+  });
+  const currentTermId = termList.find((t) => t.current)?.id ?? null;
+
+  type Tally = { all: Set<string>; byTerm: Map<string, Set<string>> };
+  const tally = (): Tally => ({ all: new Set(), byTerm: new Map() });
+  const put = (t: Tally, termId: number | null, email: string) => {
+    if (!email.includes("@")) return;
+    t.all.add(email);
+    const k = String(termId ?? "none");
+    const s = t.byTerm.get(k) ?? new Set<string>();
+    s.add(email);
+    t.byTerm.set(k, s);
+  };
+  const byProg = new Map<number, Tally>();
+  const byOpt = new Map<number, Tally>();
+  for (const r of rows) {
+    if (r.programId == null) continue;
+    const p = byProg.get(r.programId) ?? tally();
+    put(p, r.termId, r.email);
+    byProg.set(r.programId, p);
+    if (r.optionId != null) {
+      const o = byOpt.get(r.optionId) ?? tally();
+      put(o, r.termId, r.email);
+      byOpt.set(r.optionId, o);
+    }
+  }
+  const counts = (t: Tally | undefined) => ({
+    all: t ? t.all.size : 0,
+    byTerm: t ? Object.fromEntries(Array.from(t.byTerm.entries()).map(([k, s]) => [k, s.size])) : {},
+  });
+  return {
+    today,
+    currentTermId,
+    terms: termList,
+    programmes: progs.map((p) => ({
+      id: p.id, name: p.name, type: String(p.type), scheduleType: p.scheduleType ?? null, academySection: p.academySection ?? null,
+      startDate: iso(p.startDate), endDate: iso(p.endDate), isActive: p.isActive ?? null, ageMin: p.ageMin ?? null,
+      options: opts.filter((o) => o.programId === p.id).map((o) => ({ id: o.id, name: o.name, isActive: o.isActive ?? null })),
+      families: counts(byProg.get(p.id)),
+      optionFamilies: Object.fromEntries(opts.filter((o) => o.programId === p.id && byOpt.has(o.id)).map((o) => [String(o.id), counts(byOpt.get(o.id))])),
+    })),
+  };
 }
 
 /** Parent names for addresses that no registration named: first a

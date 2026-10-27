@@ -84,6 +84,10 @@ function safeBody(html: string): string {
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/(href\s*=\s*["']?)\s*javascript:[^"'>\s]*/gi, "$1#")
+    // An embedded picture (a data: URL pasted in from a document) would
+    // balloon the email past Gmail's clip and most clients block it anyway;
+    // the Picture button hosts a copy instead.
+    .replace(/<img\b[^>]*\bsrc\s*=\s*["']?\s*data:[^>]*>/gi, "")
     .replace(/\s(style|class|id|dir|lang)\s*=\s*("[^"]*"|'[^']*')/gi, "");
 }
 
@@ -98,6 +102,9 @@ function styledBody(html: string, accent: string): string {
     .replace(/<h3\b/gi, `<h3 style="font-size:17px;line-height:1.3;font-weight:700;color:#111827;margin:16px 0 6px;"`)
     .replace(/<(ul|ol)\b/gi, `<$1 style="margin:8px 0 12px;padding-left:24px;"`)
     .replace(/<li\b/gi, `<li style="margin:0 0 4px;"`)
+    // A hosted picture from the Picture button: full width of the column at
+    // most, its own height, a little air above and below.
+    .replace(/<img\b/gi, `<img style="display:block;max-width:100%;height:auto;border:0;margin:12px 0;"`)
     .replace(/<blockquote\b/gi, `<blockquote style="margin:12px 0;padding:0 0 0 14px;border-left:3px solid #e5e7eb;color:#4b5563;"`);
 }
 

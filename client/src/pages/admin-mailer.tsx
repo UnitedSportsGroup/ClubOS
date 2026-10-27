@@ -2,6 +2,8 @@ import { useState, useRef, useCallback, useMemo, useEffect, Fragment, lazy, Susp
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { RecipientSearch } from "@/components/mailer/recipient-search";
+import { ProgrammePicker } from "@/components/mailer/programme-picker";
+import { audienceLabel, termIdsFor, type AudienceCatalogue, type AudienceGroup, type AudienceTerm } from "@shared/mailer-audiences";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +80,8 @@ type LocalDraft = {
   /** The typed recipient list and audience ride with the email (2026-10-26) —
    *  thirty addresses typed by hand are as much work as the words. */
   recipients?: string[]; segmentType?: string;
+  /** The programme pick (28 Oct 2026) — the groups and the term. */
+  audience?: { groups: AudienceGroup[]; term: AudienceTerm };
 };
 const draftKey = (slug: string) => `clubos-mailer-draft:${slug || "default"}`;
 const readDraft = (slug: string): LocalDraft | null => {
@@ -113,6 +117,19 @@ function segmentLabel(segmentType: string) {
   return pretty.replace(/^(cic|cufc|mfl|siu)\b/i, (m) => m.toUpperCase());
 }
 
+/** A sent campaign's audience as a person would say it: the programme pick's
+ *  own label ("Pre-Academy: U9 · Term 4 2026") when it carries one, else the
+ *  segment type prettied. */
+function campaignAudience(c: { segmentType: string; segmentConfig?: unknown }): string {
+  if (c.segmentType === "programme") {
+    try {
+      const cfg: any = typeof c.segmentConfig === "string" ? JSON.parse(c.segmentConfig) : c.segmentConfig;
+      if (cfg?.label) return String(cfg.label);
+    } catch { /* fall through to the plain label */ }
+  }
+  return segmentLabel(c.segmentType);
+}
+
 function formatSentAt(c: { sentAt: string | null; createdAt: string }) {
   const stamp = c.sentAt || c.createdAt;
   return new Date(stamp).toLocaleDateString("en-NZ", {
@@ -128,6 +145,16 @@ export default function AdminMailer() {
   const [segmentType, setSegmentType] = useState("custom");
   // Sending to every contact needs a deliberate tick on the Send step.
   const [confirmAll, setConfirmAll] = useState(false);
+  // By programme (Zach, 27 Oct 2026: "send to the 4-8s"): any mix of
+  // programmes, age groups and camp editions, within a term (null = the one
+  // running now) or any time.
+  const [audGroups, setAudGroups] = useState<AudienceGroup[]>([]);
+  const [audTerm, setAudTerm] = useState<AudienceTerm>(null);
+  const { data: catalogue, isLoading: catalogueLoading } = useQuery<AudienceCatalogue>({
+    queryKey: ["/api/admin/mailer/audiences"],
+    enabled: segmentType === "programme",
+    staleTime: 60_000,
+  });
   const [manualEmails, setManualEmails] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   // Sender details (Daniel, 2026-10-25): ONE "From" dropdown that shows the
@@ -277,8 +304,11 @@ export default function AdminMailer() {
 
   const segmentConfig = useMemo(() => {
     if (segmentType === "custom") return { emails: manualEmails };
+    if (segmentType === "programme") {
+      return { groups: audGroups, termIds: termIdsFor(catalogue, audTerm), label: audienceLabel(catalogue, audGroups, audTerm) };
+    }
     return {};
-  }, [segmentType, manualEmails]);
+  }, [segmentType, manualEmails, audGroups, audTerm, catalogue]);
 
   // Preview = the actual list (Daniel, 2026-10-25: a toast saying "1 recipient
   // found" is not a preview). The server reads the same audience + opt-out
@@ -374,8 +404,8 @@ export default function AdminMailer() {
   // render below, once every piece exists.
   const latestDraft = useRef<{
     orgSlug: string; subject: string; bodyDoc: unknown; bodyHtml: string; mode: "choose" | "simple" | "design";
-    simpleDoc: SimpleDoc | null; brandKey: string; recipients: string[]; segmentType: string;
-  }>({ orgSlug: "", subject: "", bodyDoc: null, bodyHtml: "", mode: "choose", simpleDoc: null, brandKey: "", recipients: [], segmentType: "custom" });
+    simpleDoc: SimpleDoc | null; brandKey: string; recipients: string[]; segmentType: string; audience: LocalDraft["audience"];
+  }>({ orgSlug: "", subject: "", bodyDoc: null, bodyHtml: "", mode: "choose", simpleDoc: null, brandKey: "", recipients: [], segmentType: "custom", audience: undefined });
   const handleDesignSave = useCallback((result: { doc: unknown; html: string; text: string }) => {
     setBodyHtml(result.html);
     setBodyDoc(result.doc);
@@ -385,7 +415,7 @@ export default function AdminMailer() {
     // lands after the page has unmounted (the builder flushing on the way out)
     // still reaches the draft, where a setState would be dropped on the floor.
     const d = latestDraft.current;
-    writeDraft(d.orgSlug, { subject: d.subject, bodyDoc: result.doc, bodyHtml: result.html, recipients: d.recipients, segmentType: d.segmentType, savedAt: new Date().toISOString() });
+    writeDraft(d.orgSlug, { subject: d.subject, bodyDoc: result.doc, bodyHtml: result.html, recipients: d.recipients, segmentType: d.segmentType, audience: d.audience, savedAt: new Date().toISOString() });
   }, []);
 
   // ── Loading a design: a template, a past email, a recovered draft ─────────
@@ -426,7 +456,7 @@ export default function AdminMailer() {
     () => (mode === "simple" && simpleTextOf(simpleHtml) ? compileSimpleEmail(simpleDoc, brandKey) : ""),
     [mode, simpleDoc, simpleHtml, brandKey],
   );
-  latestDraft.current = { orgSlug, subject, bodyDoc, bodyHtml, mode, simpleDoc, brandKey, recipients: manualEmails, segmentType };
+  latestDraft.current = { orgSlug, subject, bodyDoc, bodyHtml, mode, simpleDoc, brandKey, recipients: manualEmails, segmentType, audience: segmentType === "programme" ? { groups: audGroups, term: audTerm } : undefined };
 
   // 🔴 Nothing typed is lost to a click (Daniel, 2026-10-26: Friendly Manager
   // "if you accidentally clicked another page you lost all your writing …
@@ -444,7 +474,7 @@ export default function AdminMailer() {
         if (text) { bodyDoc = d.simpleDoc; bodyHtml = compileSimpleEmail(d.simpleDoc, d.brandKey); } else { bodyDoc = null; bodyHtml = ""; }
       }
       if (!bodyHtml.trim() && !d.subject.trim()) return;
-      writeDraft(d.orgSlug, { subject: d.subject, bodyDoc, bodyHtml, recipients: d.recipients, segmentType: d.segmentType, savedAt: new Date().toISOString() });
+      writeDraft(d.orgSlug, { subject: d.subject, bodyDoc, bodyHtml, recipients: d.recipients, segmentType: d.segmentType, audience: d.audience, savedAt: new Date().toISOString() });
     };
     window.addEventListener("pagehide", flush);
     return () => { window.removeEventListener("pagehide", flush); flush(); };
@@ -522,10 +552,10 @@ export default function AdminMailer() {
   useEffect(() => {
     if (!bodyHtml.trim() && !subject.trim()) return;
     const t = setTimeout(() => {
-      writeDraft(orgSlug, { subject, bodyDoc, bodyHtml, recipients: manualEmails, segmentType, savedAt: new Date().toISOString() });
+      writeDraft(orgSlug, { subject, bodyDoc, bodyHtml, recipients: manualEmails, segmentType, audience: segmentType === "programme" ? { groups: audGroups, term: audTerm } : undefined, savedAt: new Date().toISOString() });
     }, 400);
     return () => clearTimeout(t);
-  }, [orgSlug, subject, bodyDoc, bodyHtml, manualEmails, segmentType]);
+  }, [orgSlug, subject, bodyDoc, bodyHtml, manualEmails, segmentType, audGroups, audTerm]);
 
   // ── Saved templates (this workspace) ──────────────────────────────────────
   const { data: templateList } = useQuery<{ templates: SavedTemplate[] }>({
@@ -640,6 +670,8 @@ export default function AdminMailer() {
       setManualEmails([]);
       setSegmentType("custom");
       setConfirmAll(false);
+      setAudGroups([]);
+      setAudTerm(null);
     },
     onError: (error: any) => {
       toast({ title: "Send failed", description: error.message, variant: "destructive" });
@@ -653,6 +685,7 @@ export default function AdminMailer() {
 
 
   const canProceedSetup = senderValid && (segmentType === "all" ||
+    (segmentType === "programme" && audGroups.length > 0) ||
     (segmentType === "custom" && manualEmails.length > 0));
 
   // 🔴 Never move on with an older copy of the design: while a change is still
@@ -722,6 +755,7 @@ export default function AdminMailer() {
                 // already been started here, which is the newer intention.
                 if (recoverable.recipients?.length && manualEmails.length === 0) setManualEmails(recoverable.recipients);
                 if (recoverable.segmentType && manualEmails.length === 0) { setSegmentType(recoverable.segmentType); setConfirmAll(false); }
+                if (recoverable.audience && audGroups.length === 0) { setAudGroups(recoverable.audience.groups ?? []); setAudTerm(recoverable.audience.term ?? null); }
                 setRecoverable(null);
                 setStep(1);
               }}
@@ -750,9 +784,10 @@ export default function AdminMailer() {
           <div className="glass-card rounded-2xl p-6 space-y-5">
             <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Recipients</h2>
 
-            <div className="grid grid-cols-2 gap-3 max-w-xl">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
               {[
                 { key: "custom", label: "Custom List", desc: "Only the people you add" },
+                { key: "programme", label: "By Programme", desc: "A programme, an age group or a camp — e.g. all U4–U8, all Pre-Academy, just U9" },
                 { key: "all", label: "All Contacts", desc: "Every parent email" },
               ].map(seg => (
                 <button
@@ -779,6 +814,24 @@ export default function AdminMailer() {
                   onRemove={removeManualEmail}
                   label="Recipients"
                 />
+              </div>
+            )}
+
+            {segmentType === "programme" && (
+              <div className="space-y-3">
+                <ProgrammePicker
+                  data={catalogue}
+                  loading={catalogueLoading}
+                  groups={audGroups}
+                  onGroups={setAudGroups}
+                  term={audTerm}
+                  onTerm={setAudTerm}
+                />
+                {audGroups.length > 0 && (
+                  <div className="text-sm text-white/70 px-1" data-testid="audience-summary">
+                    Sending to <span className="text-blue-300 font-medium">{audienceLabel(catalogue, audGroups, audTerm)}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1193,6 +1246,7 @@ export default function AdminMailer() {
                 <div className="text-xs text-white/40 mb-1">Segment</div>
                 <div className="text-sm text-white/80 capitalize" data-testid="text-review-segment">
                   {segmentType === "all" ? "All contacts" :
+                   segmentType === "programme" ? audienceLabel(catalogue, audGroups, audTerm) :
                    `Custom (${manualEmails.length} emails)`}
                 </div>
               </div>
@@ -1412,7 +1466,7 @@ export default function AdminMailer() {
                 />
                 <DetailField label="From" value={openCampaign.fromEmail} />
                 <DetailField label="Reply-to" value={openCampaign.replyTo || "—"} />
-                <DetailField label="Audience" value={segmentLabel(openCampaign.segmentType)} />
+                <DetailField label="Audience" value={campaignAudience(openCampaign)} />
                 <DetailField label="Status" value={openCampaign.status} />
               </div>
 

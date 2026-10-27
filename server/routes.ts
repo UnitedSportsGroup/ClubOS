@@ -118,7 +118,7 @@ import {
 } from "@shared/nzf-identity";
 import { isOfficePaymentMethod } from "@shared/payments";
 import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
-import { resolveMailerAudience, lookupMailerRecipient } from "./mailer-audience";
+import { resolveMailerAudience, lookupMailerRecipient, mailerAudienceCatalogue } from "./mailer-audience";
 import { checkEmailDeliverability, checkManyDeliverability } from "./mailer-deliverability";
 import { bounceMap, bounceLabel, isDeadMailbox } from "./email-bounces";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
@@ -6694,10 +6694,24 @@ export async function registerRoutes(
     }
   });
 
+  // The programme picker's catalogue (Zach, 27 Oct 2026: "an option to send
+  // it to groups again … the 4-8s"): every programme this workspace owns,
+  // with the number of families in it overall, per term and per age group.
+  // Scoped to the workspace in the header; CUFC when there is none (the
+  // Mailer is the club's).
+  app.get("/api/admin/mailer/audiences", requireAuth, async (req, res) => {
+    try {
+      const org = await workspaceOrg(req);
+      res.json(await mailerAudienceCatalogue(org?.id ?? 1));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/mailer/preview-recipients", requireAuth, async (req, res) => {
     try {
       const { segmentType, segmentConfig } = req.body;
-      const validSegments = ["all", "camp", "day", "session", "custom"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
       if (!segmentType || !validSegments.includes(segmentType)) {
         return res.status(400).json({ message: "Invalid segment type" });
       }
@@ -6831,7 +6845,7 @@ export async function registerRoutes(
       // A document can be structurally valid and say nothing — a stray spacer,
       // or a design cleared but not retyped. Refuse before it reaches a list.
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
-      const validSegments = ["all", "camp", "day", "session", "custom"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
       // Refused BEFORE a campaign row exists, so a bad file never leaves a
       // half-made send in the history.

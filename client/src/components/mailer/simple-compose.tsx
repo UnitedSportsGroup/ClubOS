@@ -22,6 +22,8 @@ import {
 import { SelectInput } from "@/components/ui/select-input";
 import { LETTERHEADS } from "@/components/marketing/grapes/letterheads";
 import { cleanPastedHtml, cleanPastedText } from "@/components/marketing/grapes/clean-paste";
+import { ImagePlus } from "lucide-react";
+import { imageFilesOf, uploadMailerImage } from "@/lib/mailer-upload";
 import type { SimpleSignature } from "./simple-email";
 
 // The same tags the designer offers, in the same words. {{first_name}} is the
@@ -128,7 +130,43 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
     emit();
   }, [restore, remember, emit]);
 
+  // A picture (the Picture button, a paste, a drop): uploaded, shrunk and
+  // hosted by ClubOS, then placed where the caret was. Never embedded —
+  // Gmail clips the HTML at 102KB and a phone photo is 4MB (Travis, 28 Oct
+  // 2026: "can't add even 1 picture").
+  const [picStatus, setPicStatus] = useState<string | null>(null);
+  const picTimer = useRef<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const insertPictures = useCallback(async (files: File[]) => {
+    if (picTimer.current) window.clearTimeout(picTimer.current);
+    for (const file of files) {
+      setPicStatus(`Shrinking ${file.name}…`);
+      try {
+        const img = await uploadMailerImage(file);
+        restore();
+        const width = img.width ? Math.min(img.width, 560) : 560;
+        document.execCommand(
+          "insertHTML", false,
+          `<img src="${img.url}" width="${width}" alt="" style="display:block;max-width:100%;height:auto;margin:12px 0;"><br>`,
+        );
+        remember();
+        emit();
+        setPicStatus(`Added ${file.name} — hosted on ClubOS, ${img.width}×${img.height}.`);
+      } catch (e) {
+        setPicStatus(e instanceof Error ? e.message : "Upload failed.");
+      }
+    }
+    picTimer.current = window.setTimeout(() => setPicStatus(null), 8000);
+  }, [restore, remember, emit]);
+
   const onPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
+    const files = imageFilesOf(e.clipboardData);
+    if (files.length) {
+      e.preventDefault();
+      remember();
+      void insertPictures(files);
+      return;
+    }
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
     const clean = html ? cleanPastedHtml(html) : cleanPastedText(text);
@@ -137,7 +175,7 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
     document.execCommand("insertHTML", false, clean || escapeHtml(text));
     remember();
     emit();
-  }, [remember, emit]);
+  }, [remember, emit, insertPictures]);
 
   const tools: { icon: typeof Bold; title: string; run: () => void; testId: string }[] = [
     { icon: Bold, title: "Bold (⌘B)", run: () => exec("bold"), testId: "bold" },
@@ -174,6 +212,35 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
           <span className="w-px h-5 bg-white/10 mx-1" />
           <button type="button" title="Undo (⌘Z)" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("undo")} className={btn} data-testid="compose-undo"><Undo2 className="w-4 h-4" /></button>
           <button type="button" title="Redo (⇧⌘Z)" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("redo")} className={btn} data-testid="compose-redo"><Redo2 className="w-4 h-4" /></button>
+          <span className="w-px h-5 bg-white/10 mx-1" />
+          <button
+            type="button"
+            title="Add a picture — uploaded, shrunk and hosted by ClubOS"
+            onMouseDown={(e) => { e.preventDefault(); remember(); }}
+            onClick={() => fileRef.current?.click()}
+            className={`${btn} gap-1.5 px-2.5 w-auto`}
+            data-testid="compose-picture"
+          >
+            <ImagePlus className="w-4 h-4" />
+            <span className="text-xs font-medium">Picture</span>
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            aria-label="Add a picture"
+            data-testid="compose-picture-input"
+            onChange={(e) => {
+              const files = imageFilesOf(null, e.target.files);
+              e.target.value = "";
+              if (files.length) void insertPictures(files);
+            }}
+          />
+          {picStatus && (
+            <span className="text-xs text-white/60 pl-1" aria-live="polite" data-testid="compose-picture-status">{picStatus}</span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 md:ml-2">
@@ -228,6 +295,14 @@ export function SimpleCompose({ initialHtml, onChange, letterhead, onLetterhead,
             onMouseUp={remember}
             onBlur={remember}
             onPaste={onPaste}
+            onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
+            onDrop={(e) => {
+              const files = imageFilesOf(e.dataTransfer);
+              if (!files.length) return;
+              e.preventDefault();
+              remember();
+              void insertPictures(files);
+            }}
             className="min-h-[360px] md:min-h-[520px] p-6 text-gray-900 text-base leading-relaxed focus:outline-none [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-3 [&_a]:text-blue-700 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-0.5 [&_blockquote]:border-l-2 [&_blockquote]:border-gray-200 [&_blockquote]:pl-3 [&_blockquote]:text-gray-600"
             style={{ wordBreak: "break-word" }}
             data-testid="compose-body"

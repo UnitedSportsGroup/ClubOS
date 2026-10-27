@@ -323,7 +323,9 @@ export default function EmailBuilder({
       setSizeBytes(bytes);
       if (bytes >= BLOCK_BYTES) {
         setError(
-          `This email is ${kb(bytes)} — Gmail clips emails over 102KB. Trim images or content before sending.`,
+          /data:image\//i.test(result.html)
+            ? `This email is ${kb(bytes)} because a picture is embedded in it. Pictures have to be hosted: drop the file onto the canvas, or select a picture and use Upload a picture — then delete the embedded copy.`
+            : `This email is ${kb(bytes)} — Gmail clips emails over 102KB. Trim images or content before sending.`,
         );
         setSizeNote(null);
         return false;

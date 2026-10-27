@@ -26,6 +26,7 @@ import { registerClubBlocks } from "./club-blocks";
 import { LETTERHEADS } from "./letterheads";
 import { CLUB_LOGOS } from "./templates/brand-kit";
 import { workspaceFetch } from "@/lib/queryClient";
+import { imageFilesOf, uploadMailerImage } from "@/lib/mailer-upload";
 import { applyBrandTheme, brandCanvasTheme, brandColorPalette, buildStarterMjml } from "./brand";
 import { installCleanPaste } from "./clean-paste";
 import { MOBILE_EMAIL_CSS, withMobileCss } from "./mobile-css";
@@ -227,6 +228,89 @@ function isImageComponent(comp: any): boolean {
   return type === "mj-image" || tag === "mj-image";
 }
 
+function isColumnComponent(comp: any): boolean {
+  if (!comp) return false;
+  const type = String(comp.get?.("type") ?? "");
+  const tag = String(comp.get?.("tagName") ?? "").toLowerCase();
+  return type === "mj-column" || tag === "mj-column";
+}
+
+/** Where picture progress is reported: the Pictures panel's status line once
+ *  it exists, nothing before. */
+let pictureNotify: (text: string, kind: "busy" | "ok" | "error", holdMs?: number) => void = () => {};
+
+/** Upload each file (shrunk + hosted by ClubOS) and put it on the canvas:
+ *  onto the selected picture if one is selected, else as a new picture after
+ *  the selected block in its column, else at the end of the first column. */
+async function placeHostedImages(editor: Editor, files: File[]): Promise<void> {
+  for (const file of files) {
+    pictureNotify(`Shrinking ${file.name}…`, "busy");
+    try {
+      const img = await uploadMailerImage(file);
+      placeHostedImage(editor, img.url);
+      pictureNotify(`Added ${file.name} — ${img.note ?? "shrunk"}, ${img.width}×${img.height}. Hosted on ClubOS.`, "ok", 8000);
+    } catch (e) {
+      pictureNotify(e instanceof Error ? e.message : "Upload failed.", "error", 9000);
+    }
+  }
+}
+
+function placeHostedImage(editor: Editor, url: string): void {
+  const sel: any = editor.getSelected();
+  if (isImageComponent(sel)) {
+    sel.set("src", url);
+    sel.addAttributes({ src: url });
+    return;
+  }
+  let column: any = sel;
+  let child: any = null;
+  while (column && !isColumnComponent(column)) {
+    child = column;
+    column = column.parent?.();
+  }
+  if (!column) {
+    column = (editor.getWrapper() as any)?.findType?.("mj-column")?.[0] ?? null;
+    child = null;
+  }
+  const mjml = `<mj-image src="${url}" alt="" padding="10px 25px" />`;
+  if (!column) {
+    const body: any = (editor.getWrapper() as any)?.findType?.("mj-body")?.[0];
+    const added = body?.append?.(`<mj-section><mj-column>${mjml}</mj-column></mj-section>`);
+    const comp = Array.isArray(added) ? added[0] : added;
+    if (comp) editor.select(comp);
+    return;
+  }
+  const at = child ? child.index() + 1 : undefined;
+  const added = column.append(mjml, at != null ? { at } : undefined);
+  const comp = Array.isArray(added) ? added[0] : added;
+  if (comp) editor.select(comp);
+}
+
+/** Capture-phase listeners on the canvas document: an image file dropped or
+ *  pasted goes to the uploader and never reaches GrapesJS's own base64 path.
+ *  Installed once per frame document (the frame is rebuilt on a device switch). */
+function installHostedDrops(editor: Editor, doc: Document | null | undefined): void {
+  if (!doc || (doc as any).__clubosHostedDrops) return;
+  (doc as any).__clubosHostedDrops = true;
+  doc.addEventListener("dragover", (ev: DragEvent) => {
+    if (ev.dataTransfer?.types && Array.from(ev.dataTransfer.types).includes("Files")) ev.preventDefault();
+  }, true);
+  doc.addEventListener("drop", (ev: DragEvent) => {
+    const files = imageFilesOf(ev.dataTransfer);
+    if (!files.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    void placeHostedImages(editor, files);
+  }, true);
+  doc.addEventListener("paste", (ev: ClipboardEvent) => {
+    const files = imageFilesOf(ev.clipboardData);
+    if (!files.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    void placeHostedImages(editor, files);
+  }, true);
+}
+
 /** The club-logo quick picker. Daniel, 2026-10-26, after Rambo left a "[CUGC
  *  logo]" placeholder: "if it's a logo section … it should be a quick, easy
  *  selector where I can select quickly from our brands." One tile per brand;
@@ -263,6 +347,7 @@ function wireLogoPicker(editor: Editor, shell: Shell): { refresh: () => void } {
     if (statusTimer) window.clearTimeout(statusTimer);
     if (kind !== "busy") statusTimer = window.setTimeout(() => status.classList.add("ce-hidden"), holdMs);
   };
+  pictureNotify = say;
   uploadBtn.onclick = () => fileInput.click();
   fileInput.onchange = async () => {
     const file = fileInput.files?.[0];
@@ -410,6 +495,16 @@ export function createEmailEditor(opts: CreateEmailEditorOpts): Editor {
     canvasCss: MOBILE_EMAIL_CSS,
     fromElement: false,
     storageManager: false,
+    // Pictures are never base64 (Gmail clips the HTML at 102KB; one phone
+    // photo is 4MB). A file picked in the asset box is uploaded, shrunk and
+    // hosted by ClubOS, then placed — same as a drop on the canvas below.
+    // Travis, 28 Oct 2026: "can't add even 1 picture" — a dropped photo was
+    // embedded and the size gauge refused the whole email.
+    assetManager: {
+      embedAsBase64: false,
+      autoAdd: false,
+      uploadFile: ((ev: any) => { void placeHostedImages(editor, imageFilesOf(ev?.dataTransfer ?? null, ev?.target?.files ?? null)); }) as any,
+    },
     // Managers render into OUR shell, not the (hidden) default panels.
     blockManager: { appendTo: shell.blocks },
     styleManager: { appendTo: shell.paneStyle },
@@ -458,6 +553,11 @@ export function createEmailEditor(opts: CreateEmailEditorOpts): Editor {
   editor.on("load", () => installCleanPaste(canvasDoc()));
   editor.on("rte:enable", () => installCleanPaste(canvasDoc()));
   editor.on("canvas:frame:load", () => installCleanPaste(canvasDoc()));
+  // A picture dropped or pasted onto the canvas is uploaded and hosted, then
+  // placed — before GrapesJS can embed it as base64.
+  const wireHostedDrops = () => installHostedDrops(editor, canvasDoc());
+  editor.on("load", wireHostedDrops);
+  editor.on("canvas:frame:load", wireHostedDrops);
 
   editor.on("load", () => {
     // Outlines on by default so blocks are easy to see/select while editing.
