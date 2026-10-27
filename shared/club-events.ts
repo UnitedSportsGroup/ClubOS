@@ -95,6 +95,10 @@ export interface TicketTypeLike {
   quantityCap: number | null;
   sort: number;
   isActive: boolean;
+  /** Set = a bundle that applies ONLY when exactly this many seats are booked
+   *  (a table of 10). priceCents stays PER SEAT, so total = qty × unit holds.
+   *  NULL = an ordinary per-person ticket. */
+  groupSize?: number | null;
 }
 
 const ms = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() : null);
@@ -114,16 +118,28 @@ export function typeOnSale(t: TicketTypeLike, now: Date = new Date()): boolean {
  * The type a buyer gets right now: the on-sale type with the lowest sort,
  * then the lowest price. NULL when nothing is on sale.
  */
-export function currentTicketType<T extends TicketTypeLike>(types: T[], now: Date = new Date()): T | null {
-  const live = types.filter((t) => typeOnSale(t, now));
+export function currentTicketType<T extends TicketTypeLike>(types: T[], now: Date = new Date(), quantity?: number): T | null {
+  const onSale = types.filter((t) => typeOnSale(t, now));
+  // A group bundle wins only when the order is exactly its size.
+  if (quantity != null) {
+    const group = onSale.filter((t) => t.groupSize != null && t.groupSize === quantity);
+    group.sort((a, b) => a.sort - b.sort || a.priceCents - b.priceCents);
+    if (group[0]) return group[0];
+  }
+  const live = onSale.filter((t) => t.groupSize == null);
   live.sort((a, b) => a.sort - b.sort || a.priceCents - b.priceCents);
   return live[0] ?? null;
+}
+
+/** On-sale group bundles (e.g. a table of 10), cheapest first. */
+export function groupTicketTypes<T extends TicketTypeLike>(types: T[], now: Date = new Date()): T[] {
+  return types.filter((t) => t.groupSize != null && typeOnSale(t, now)).sort((a, b) => (a.groupSize! - b.groupSize!) || a.priceCents - b.priceCents);
 }
 
 /** The next type to open after `now` (for "then $165 from 1 October"). */
 export function nextTicketType<T extends TicketTypeLike>(types: T[], now: Date = new Date()): T | null {
   const n = now.getTime();
-  const later = types.filter((t) => t.isActive && ms(t.salesStart) !== null && (ms(t.salesStart) as number) > n);
+  const later = types.filter((t) => t.isActive && t.groupSize == null && ms(t.salesStart) !== null && (ms(t.salesStart) as number) > n);
   later.sort((a, b) => (ms(a.salesStart) as number) - (ms(b.salesStart) as number) || a.sort - b.sort);
   return later[0] ?? null;
 }

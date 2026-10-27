@@ -19,7 +19,7 @@ import {
   type ClubEvent, type ClubEventTicketType, type ClubEventOrder, type ClubEventGuest,
 } from "@shared/schema";
 import {
-  currentTicketType, nextTicketType, clampQuantity, normaliseEmail, isEmail, isPhone,
+  currentTicketType, nextTicketType, groupTicketTypes, clampQuantity, normaliseEmail, isEmail, isPhone,
   PENDING_HOLD_MINUTES, dollars, nzLongDate, nzClock, nzShortDate, clubEventBrand,
   type StripeAccountKey,
 } from "@shared/club-events";
@@ -107,6 +107,7 @@ export async function publicEvent(e: ClubEvent, now = new Date()) {
   const types = await typesOf(e.id);
   const current = currentTicketType(types, now);
   const next = nextTicketType(types, now);
+  const groups = groupTicketTypes(types, now);
   const taken = e.capacity != null ? await seatsTaken(e.id) : null;
   const seatsLeft = e.capacity != null && taken != null ? Math.max(0, e.capacity - taken) : null;
   const acct = stripeFor(e.stripeAccount);
@@ -122,7 +123,8 @@ export async function publicEvent(e: ClubEvent, now = new Date()) {
     pricing: {
       current: current ? { id: current.id, name: current.name, priceCents: current.priceCents, salesEnd: current.salesEnd } : null,
       next: next ? { id: next.id, name: next.name, priceCents: next.priceCents, salesStart: next.salesStart } : null,
-      allTypes: types.filter((t) => t.isActive).map((t) => ({ name: t.name, priceCents: t.priceCents, salesStart: t.salesStart, salesEnd: t.salesEnd })),
+      allTypes: types.filter((t) => t.isActive).map((t) => ({ name: t.name, priceCents: t.priceCents, groupSize: t.groupSize ?? null, salesStart: t.salesStart, salesEnd: t.salesEnd })),
+      groups: groups.map((t) => ({ id: t.id, name: t.name, groupSize: t.groupSize!, priceCents: t.priceCents, totalCents: t.priceCents * t.groupSize! })),
     },
     seatsLeft,
     soldOut: seatsLeft === 0,
@@ -202,7 +204,7 @@ export async function beginOrder(slug: string, body: BuyInput, meta: Meta): Prom
   }
 
   const types = await typesOf(e.id);
-  const type = currentTicketType(types);
+  const type = currentTicketType(types, new Date(), quantity);
   if (!type) return { error: "Tickets aren't on sale right now." };
   const unit = type.priceCents;
   const total = unit * quantity;
@@ -493,7 +495,7 @@ export async function manualOrder(e: ClubEvent, body: any, staffUserId: number):
   const reference = String(body?.paymentReference ?? "").trim().slice(0, 120) || null;
 
   const types = await typesOf(e.id);
-  let type = body?.ticketTypeId ? types.find((t) => t.id === Number(body.ticketTypeId)) : currentTicketType(types);
+  let type = body?.ticketTypeId ? types.find((t) => t.id === Number(body.ticketTypeId)) : currentTicketType(types, new Date(), quantity);
   if (!type) return { error: "No ticket type is on sale — pick one explicitly." };
   // Staff may override the price for a comp or a negotiated table (audited).
   const unit = body?.unitPriceCents != null && body.unitPriceCents !== "" ? Math.max(0, Math.round(Number(body.unitPriceCents))) : type.priceCents;
