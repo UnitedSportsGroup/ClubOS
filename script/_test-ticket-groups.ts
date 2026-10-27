@@ -1,0 +1,13 @@
+import { currentTicketType, nextTicketType, groupTicketTypes } from "../shared/club-events";
+const t = (o: any) => ({ salesStart: null, salesEnd: null, quantityCap: null, sort: 0, isActive: true, groupSize: null, ...o });
+const types = [t({ id: 8, name: "Standard", priceCents: 16500, sort: 1 }), t({ id: 9, name: "Table of 10", priceCents: 15000, sort: 2, groupSize: 10 })];
+let fail = 0; const ok = (c: boolean, m: string) => { console.log((c ? "✓ " : "✗ ") + m); if (!c) fail++; };
+ok(currentTicketType(types)?.id === 8, "no quantity → Standard");
+ok(currentTicketType(types, new Date(), 1)?.id === 8, "1 seat → Standard $165");
+ok(currentTicketType(types, new Date(), 9)?.id === 8, "9 seats → Standard");
+ok(currentTicketType(types, new Date(), 10)?.id === 9, "10 seats → Table of 10");
+ok((currentTicketType(types, new Date(), 10)!.priceCents * 10) === 150000, "10 seats total = $1,500");
+ok(groupTicketTypes(types).length === 1, "one group on sale");
+ok(nextTicketType(types) === null, "a group never shows as 'then $x'");
+ok(currentTicketType([types[1]], new Date(), 1) === null, "a group alone does not sell single seats");
+process.exit(fail ? 1 : 0);

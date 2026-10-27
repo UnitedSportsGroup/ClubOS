@@ -120,7 +120,7 @@ export default function ClubEventPage() {
                 {data.pricing.allTypes.map((t: any, i: number) => (
                   <li key={i} className="flex items-baseline justify-between py-2.5 text-[15px]" style={{ borderColor: brand.line }}>
                     <span>{t.name}<span style={{ color: brand.mute }}>{windowLabel(t)}</span></span>
-                    <span className="font-semibold" style={{ fontFamily: brand.fontHeading, fontSize: 18 }}>{dollars(t.priceCents)}<span className="text-[12px] font-normal" style={{ color: brand.mute }}> pp</span></span>
+                    <span className="font-semibold" style={{ fontFamily: brand.fontHeading, fontSize: 18 }}>{t.groupSize ? dollars(t.priceCents * t.groupSize) : dollars(t.priceCents)}<span className="text-[12px] font-normal" style={{ color: brand.mute }}>{t.groupSize ? ` per table of ${t.groupSize}` : " pp"}</span></span>
                   </li>
                 ))}
               </ul>
@@ -191,7 +191,12 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
 
   const stripePromise = useMemo(() => stripeFor(intent?.publishableKey), [intent?.publishableKey]);
 
-  const total = (current?.priceCents ?? 0) * qty;
+  // A table bundle applies only at exactly its size; the server decides the
+  // same way (currentTicketType with the quantity), so this is display only.
+  const tableDeal = (pricing?.groups ?? []).find((g: any) => g.groupSize === qty) ?? null;
+  const firstTable = (pricing?.groups ?? [])[0] ?? null;
+  const unitNow = tableDeal ? tableDeal.priceCents : (current?.priceCents ?? 0);
+  const total = unitNow * qty;
   const max = Math.max(1, Math.min(50, ev.maxPerOrder || 10));
 
   if (paidRef) {
@@ -235,7 +240,7 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
         <div className="flex items-baseline justify-between">
           <div>
             <div className="text-[11px] uppercase" style={{ color: brand.accent, letterSpacing: "0.14em" }}>Pay</div>
-            <div className="mt-1 text-[15px]">{qty} × {dollars(current?.priceCents)} · {current?.name}</div>
+            <div className="mt-1 text-[15px]">{tableDeal ? `${tableDeal.name} · ${dollars(tableDeal.totalCents)}` : `${qty} × ${dollars(current?.priceCents)} · ${current?.name}`}</div>
           </div>
           <div className="text-[28px] font-bold" style={{ fontFamily: brand.fontHeading }}>{dollars(intent.amountCents)}</div>
         </div>
@@ -310,12 +315,23 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
           <div className="text-[12px]" style={{ color: brand.mute }}>per person</div>
         </div>
       </div>
+      {firstTable && (
+        <button type="button" onClick={() => setQty(Math.min(max, firstTable.groupSize))}
+          className="mt-4 flex min-h-[48px] w-full items-center justify-between rounded-xl px-4 text-left"
+          style={{ border: `1px solid ${qty === firstTable.groupSize ? brand.accent : brand.line}`, background: qty === firstTable.groupSize ? `${brand.accent}1A` : "transparent" }}>
+          <span>
+            <span className="block text-[14px] font-semibold">{firstTable.name}</span>
+            <span className="block text-[12px]" style={{ color: brand.mute }}>{firstTable.groupSize} seats, one table · {dollars(firstTable.priceCents)} each</span>
+          </span>
+          <span className="text-[20px] font-bold" style={{ fontFamily: brand.fontHeading, color: brand.accent }}>{dollars(firstTable.totalCents)}</span>
+        </button>
+      )}
       {data.seatsLeft != null && data.seatsLeft <= 30 && (
         <div className="mt-3 text-[13px] font-medium" style={{ color: brand.accent }}>{data.seatsLeft} {data.seatsLeft === 1 ? "seat" : "seats"} left</div>
       )}
 
       <div className="mt-5 space-y-4">
-        <Field brand={brand} label="How many tickets" hint={`Tables of ${ev.tableSize}. Book ${ev.tableSize} and you have a table.`}>
+        <Field brand={brand} label="How many tickets" hint={firstTable ? `Book ${firstTable.groupSize} and you get the table price, ${dollars(firstTable.totalCents)}.` : `Tables of ${ev.tableSize}. Book ${ev.tableSize} and you have a table.`}>
           <div className="flex items-center gap-3">
             <button type="button" aria-label="Fewer" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-11 w-11 items-center justify-center rounded-full" style={{ border: `1px solid ${brand.line}` }}><Minus size={16} /></button>
             <div className="min-w-[44px] text-center text-[24px] font-bold" style={{ fontFamily: brand.fontHeading }}>{qty}</div>

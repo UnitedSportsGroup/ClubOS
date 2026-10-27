@@ -9921,6 +9921,8 @@ export const clubEventTicketTypes = pgTable("club_event_ticket_types", {
   salesStart: timestamp("sales_start", tz),
   salesEnd: timestamp("sales_end", tz),
   quantityCap: integer("quantity_cap"),
+  /** Set = applies only to an order of exactly this many seats (table of 10). */
+  groupSize: integer("group_size"),
   sort: integer("sort").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", tz).defaultNow().notNull(),
