@@ -501,7 +501,6 @@ export interface IStorage {
   updateRegistration(id: number, data: Partial<InsertRegistration>): Promise<Registration | undefined>;
   updateRegistrationItem(id: number, data: Partial<InsertRegistrationItem>): Promise<RegistrationItem | undefined>;
   assignOrderNumber(id: number): Promise<number>;
-  deleteRegistration(id: number): Promise<void>;
 
   getCampPricing(campId: number): Promise<CampPricing[]>;
   setCampPricing(campId: number, pricing: InsertCampPricing[]): Promise<CampPricing[]>;
@@ -1360,13 +1359,6 @@ export class DatabaseStorage implements IStorage {
     if (rows.length > 0) return rows[0].order_number;
     const [reg] = await db.select({ orderNumber: registrations.orderNumber }).from(registrations).where(eq(registrations.id, id));
     return reg?.orderNumber || 0;
-  }
-
-  async deleteRegistration(id: number): Promise<void> {
-    await db.execute(sql`DELETE FROM email_logs WHERE registration_id = ${id}`);
-    await db.execute(sql`DELETE FROM meta_event_logs WHERE registration_id = ${id}`);
-    await db.execute(sql`DELETE FROM registration_items WHERE registration_id = ${id}`);
-    await db.delete(registrations).where(eq(registrations.id, id));
   }
 
   async getCampPricing(campId: number): Promise<CampPricing[]> {

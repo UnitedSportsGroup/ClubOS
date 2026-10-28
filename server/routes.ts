@@ -1,3 +1,4 @@
+import { removeRegistration, restoreRegistration, removalHistory, RemovalError } from "./registration-removal";
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
@@ -5185,6 +5186,18 @@ export async function registerRoutes(
     }
   });
 
+  // 🔴 Registered BEFORE "/:id" — Express matches in order, and "removed" would
+  // otherwise be parsed as a registration id and answered 404.
+  app.get("/api/admin/registrations/removed", requireAuth, async (req, res) => {
+    try {
+      const scope = await registrationOrgScope(req);
+      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
+      res.json(await removalHistory(scope));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/registrations/:id", requireAuth, async (req, res) => {
     try {
       const reg = await storage.getRegistration(parseInt(req.params.id));
@@ -5209,18 +5222,44 @@ export async function registerRoutes(
     }
   });
 
+  // REMOVE a registration entered by mistake (Daniel, 2026-10-28). Until today
+  // this was a hard DELETE any staff member could make and nothing recorded.
+  // 🔴 It never deletes: the row becomes status 'removed' with who/when/why
+  // stamped on it, and an append-only event is written. A reason is REQUIRED.
+  // 🔴 Refused where real money sits elsewhere (Stripe, the till) — that is a
+  // refund. Rules: @shared/registration-removal. Write: server/registration-removal.ts.
   app.delete("/api/admin/registrations/:id", requireAuth, async (req, res) => {
     try {
-      const regId = parseInt(req.params.id);
-      const reg = await storage.getRegistration(regId);
-      if (!reg) return res.status(404).json({ message: "Registration not found" });
-      const program = await storage.getProgram(reg.programId);
-      if (!inRegistrationScope(await registrationOrgScope(req), program?.organizationId)) {
-        return res.status(404).json({ message: "Registration not found" });
-      }
-      await storage.deleteRegistration(regId);
-      res.json({ ok: true });
+      const regId = parseInt(String(req.params.id));
+      if (!Number.isInteger(regId)) return res.status(400).json({ message: "Which registration?" });
+      const scope = await registrationOrgScope(req);
+      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
+      const result = await removeRegistration({
+        regId,
+        userId: req.session.userId!,
+        reason: req.body?.reason ?? req.query.reason,
+        orgAllowed: (orgId) => inRegistrationScope(scope, orgId),
+      });
+      res.json(result);
     } catch (error: any) {
+      if (error instanceof RemovalError) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/registrations/:id/restore", requireAuth, async (req, res) => {
+    try {
+      const regId = parseInt(String(req.params.id));
+      if (!Number.isInteger(regId)) return res.status(400).json({ message: "Which registration?" });
+      const scope = await registrationOrgScope(req);
+      if (scope === "ambiguous") return res.status(400).json(AMBIGUOUS_WORKSPACE);
+      res.json(await restoreRegistration({
+        regId,
+        userId: req.session.userId!,
+        orgAllowed: (orgId) => inRegistrationScope(scope, orgId),
+      }));
+    } catch (error: any) {
+      if (error instanceof RemovalError) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: error.message });
     }
   });

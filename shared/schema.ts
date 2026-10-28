@@ -14,7 +14,7 @@ export const roleEnum = pgEnum("role_type", ["super_admin", "admin", "team_membe
 export const contactTypeEnum = pgEnum("contact_type", ["player", "guardian", "staff", "volunteer", "sponsor", "tenant"]);
 export const genderEnum = pgEnum("gender_type", ["male", "female", "other"]);
 export const programTypeEnum = pgEnum("program_type", ["holiday_camp", "academy", "trials", "event", "open_training", "league_team"]);
-export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded", "partially_refunded"]);
+export const registrationStatusEnum = pgEnum("registration_status", ["pending", "confirmed", "waitlisted", "cancelled", "refunded", "partially_refunded", "removed"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "refunded"]);
 export const facilityTypeEnum = pgEnum("facility_type", ["field", "mini_pitch", "meeting_room", "changing_room", "futsal", "court", "other"]);
 export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "paid", "pending", "cancelled"]);
@@ -539,6 +539,26 @@ export const registrations = pgTable("registrations", {
   // interpreted as local and lands 12 hours out in NZ.
   paidAt: timestamp("paid_at", { withTimezone: true }),
   registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  // ── Removed by staff (2026-10-28) ───────────────────────────────────────────
+  // A registration entered by mistake is REMOVED, never deleted: status becomes
+  // 'removed' and these say who, when, why and what it was. All or none (CHECK);
+  // the person is ON DELETE RESTRICT. History: registration_removal_events.
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  removedByUserId: integer("removed_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  removedReason: text("removed_reason"),
+  removedFromStatus: registrationStatusEnum("removed_from_status"),
+});
+
+/** Every remove and restore of a registration — append-only (a trigger refuses
+ *  UPDATE and DELETE). migrations/2026-10-28_registration_removal.sql */
+export const registrationRemovalEvents = pgTable("registration_removal_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  registrationId: integer("registration_id").notNull().references(() => registrations.id, { onDelete: "restrict" }),
+  action: text("action").notNull(), // 'removed' | 'restored'
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  reason: text("reason"),
+  snapshot: jsonb("snapshot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const campPricing = pgTable("camp_pricing", {

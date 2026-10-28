@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MoneyInput } from "@/components/ui/money-input";
 import { programmeKind, PROGRAMME_KIND_META, PROGRAMME_KIND_ORDER } from "@shared/programme-kinds";
 import { MoveProgrammeDialog } from "@/components/registrations/move-programme-dialog";
+import { RemoveRegistrationControl, RemovedEntriesButton } from "@/components/registrations/remove-registration";
 import type { LiveActivity } from "@shared/live-activity";
 
 type RegItem = {
@@ -162,6 +163,7 @@ export type Registration = {
   stripeRefundId?: string | null;
   stripeRefundStatus?: string | null;
   stripePaymentIntentId?: string | null;
+  posSaleId?: number | null;
   // Office / walk-up payments: how it was tendered and who took it.
   paymentMethod?: string | null;
   paymentReference?: string | null;
@@ -995,18 +997,6 @@ export default function AdminRegistrations() {
   // a button in front of someone who'd only get a 403.
   const { data: me } = useQuery<{ canIssueRefunds?: boolean }>({ queryKey: ["/api/auth/me"] });
   const canRefund = !!me?.canIssueRefunds;
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
-
-  const deleteRegMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/registrations/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/registrations"] });
-      setDeleteConfirmId(null);
-      setExpandedId(null);
-      toast({ title: "Registration deleted" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
 
   return (
     <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto">
@@ -1015,6 +1005,8 @@ export default function AdminRegistrations() {
           <h1 className="text-2xl font-semibold text-white tracking-tight" data-testid="text-page-title">Registrations</h1>
           <p className="text-blue-400/35 text-[13px] mt-1">View and manage bookings</p>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+        <RemovedEntriesButton />
         <Button
           size="sm"
           onClick={() => setShowRegister(true)}
@@ -1023,6 +1015,7 @@ export default function AdminRegistrations() {
         >
           <Plus className="w-3.5 h-3.5 mr-1" />Register at the office
         </Button>
+        </div>
       </div>
 
       <div className="flex gap-3 flex-wrap animate-fade-in-up" style={{ animationDelay: '50ms', opacity: 0 }}>
@@ -1493,35 +1486,7 @@ export default function AdminRegistrations() {
                       )}
 
                       <div className="flex justify-end pt-1">
-                        {deleteConfirmId === reg.id ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-red-400/70">Delete this registration and all session bookings?</span>
-                            <Button
-                              variant="outline"
-                              onClick={e => { e.stopPropagation(); setDeleteConfirmId(null); }}
-                              className="rounded-xl h-7 text-[11px] border-white/10 text-white/50 hover:bg-white/5 px-3"
-                              data-testid={`button-cancel-delete-reg-${reg.id}`}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              onClick={e => { e.stopPropagation(); deleteRegMutation.mutate(reg.id); }}
-                              disabled={deleteRegMutation.isPending}
-                              className="rounded-xl h-7 text-[11px] bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 px-3"
-                              data-testid={`button-confirm-delete-reg-${reg.id}`}
-                            >
-                              {deleteRegMutation.isPending ? "Deleting..." : "Yes, Delete"}
-                            </Button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={e => { e.stopPropagation(); setDeleteConfirmId(reg.id); }}
-                            className="flex items-center gap-1 text-[11px] text-red-400/50 hover:text-red-400 transition-colors cursor-pointer"
-                            data-testid={`button-delete-reg-${reg.id}`}
-                          >
-                            <Trash2 className="w-3 h-3" /> Delete Registration
-                          </button>
-                        )}
+                        <RemoveRegistrationControl reg={reg} onRemoved={() => setExpandedId(null)} />
                       </div>
                     </div>
                   )}
