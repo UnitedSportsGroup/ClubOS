@@ -14,6 +14,10 @@ declare module "express-session" {
 }
 
 export function setupAuth(app: any) {
+  if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+    // A known fallback secret lets anyone forge a session cookie.
+    console.error("🔴 SESSION_SECRET is not set in production — sessions are signed with a public fallback. Set it with `fly secrets set`.");
+  }
   app.use(
     session({
       store: new PgSession({
@@ -38,6 +42,47 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   next();
+}
+
+/**
+ * Global gate on /api/admin/*: a signed-in person must be STAFF — a super admin
+ * or a member of at least one workspace. Mounted before every route.
+ *
+ * 🔴 Why (privacy audit, 29 Oct 2026): `POST /api/auth/signup` lets anyone on
+ * the internet create a login (it exists for the MFL / CIC fan apps), and ~337
+ * admin routes check only `requireAuth` — "is signed in". So a stranger's fresh
+ * fan account could read /api/admin/contacts (every parent and child with DOB),
+ * session rolls (allergies, EpiPen) and the CRM export. Fixing 337 routes one
+ * by one would miss one; this closes the class. Probed 29 Oct: all 34 accounts
+ * with no workspace were our own test probes — nobody outside had used it.
+ *
+ * No session → pass through, so token-authorised admin routes (uploads, crons)
+ * and each route's own 401 behave exactly as before. Membership is cached 30s
+ * per user: removing someone from every workspace bites within half a minute.
+ */
+const staffCache = new Map<number, { staff: boolean; at: number }>();
+export async function isStaffUser(userId: number): Promise<boolean> {
+  const hit = staffCache.get(userId);
+  if (hit && Date.now() - hit.at < 30_000) return hit.staff;
+  const { pool } = await import("./db");
+  const { rows } = await pool.query(
+    `SELECT (u.role = 'super_admin'
+             OR EXISTS (SELECT 1 FROM user_organizations uo WHERE uo.user_id = u.id)) AS staff
+       FROM users u WHERE u.id = $1`,
+    [userId],
+  );
+  const staff = !!rows[0]?.staff;
+  staffCache.set(userId, { staff, at: Date.now() });
+  return staff;
+}
+
+export function requireStaffForAdminApi(req: Request, res: Response, next: NextFunction) {
+  if (!req.path.startsWith("/api/admin/") && req.path !== "/api/admin") return next();
+  const userId = req.session?.userId;
+  if (!userId) return next();
+  isStaffUser(userId)
+    .then((staff) => (staff ? next() : res.status(403).json({ message: "Staff access required" })))
+    .catch(() => res.status(500).json({ message: "Auth check failed" }));
 }
 
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {

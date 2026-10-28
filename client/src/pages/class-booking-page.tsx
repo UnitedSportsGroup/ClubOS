@@ -227,7 +227,7 @@ function PaymentForm({ slug, registrationId, totalCents, parentEmail, isWeekly, 
         {plan
           ? `Then ${money(plan.weeklyAmountCents)}/week for ${plan.weeksTotal} weeks from ${nzShortDate(plan.firstChargeDate)}, charged to this card automatically. Secured by Stripe.`
           : isWeekly
-            ? "Today's $X will be charged now. Future weeks charge automatically."
+            ? `${money(totalCents)} is charged now, then ${money(totalCents)} each week to this card automatically. Secured by Stripe.`
             : "Secured by Stripe. Your card is never stored on our servers."}
       </p>
     </form>

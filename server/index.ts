@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { setupAuth } from "./auth";
+import { setupAuth, requireStaffForAdminApi } from "./auth";
 import { viewAsReadOnly } from "./view-as-routes";
 import { attributionCookieMiddleware } from "./attribution-cookies";
 
@@ -37,6 +37,10 @@ setupAuth(app);
 // under the staff member's name.
 app.use(viewAsReadOnly);
 
+// 🔴 A signed-in person must be staff to reach any /api/admin route — public
+// signup creates logins for the fan apps (server/auth.ts).
+app.use(requireStaffForAdminApi);
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -63,8 +67,11 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse).slice(0, 500)}`;
+      // 🔴 Only an ERROR body is logged (privacy audit, 29 Oct 2026): a 200
+      // body is a family list, a roll with allergies, an export — and Fly's
+      // logs are not where personal data should live.
+      if (capturedJsonResponse && res.statusCode >= 400) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse).slice(0, 300)}`;
       }
 
       log(logLine);
