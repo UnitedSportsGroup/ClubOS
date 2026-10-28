@@ -42,11 +42,14 @@ const short = (title: string) => title.replace("Sep–Oct ", "Sep ").replace(/^D
 
 type Filter = "all" | CampSeries;
 
-export function CampHistoryTab({ campId }: { campId: number }) {
+/** `url` lets another page draw the same history from its own gated route
+ *  (the MFL Analytics History tab). */
+export function CampHistoryTab({ campId, url }: { campId?: number; url?: string }) {
+  const src = url ?? `/api/admin/camps/${campId}/history`;
   const { data, isLoading, error } = useQuery<HistoryResponse>({
-    queryKey: ["/api/admin/camps", campId, "history"],
+    queryKey: [src],
     queryFn: async () => {
-      const res = await workspaceFetch(`/api/admin/camps/${campId}/history`);
+      const res = await workspaceFetch(src);
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || "Couldn't load the history");
       return res.json();
     },

@@ -15,6 +15,10 @@ export type PatternSlot = {
   endTime: string;
   name?: string | null;
   capacity?: number | null;
+  /** First day this slot runs (YYYY-MM-DD). A slot added mid-term — the U7–U8
+   *  5:20pm session from Mon 2 Nov 2026 — must not invent sessions on the days
+   *  of the term that had already gone by. */
+  from?: string | null;
 };
 export type TermRow = { id: number; start: string; end: string };
 export type PlannedSession = {
@@ -41,6 +45,7 @@ export function validateSlots(slots: unknown): PatternSlot[] {
     if (!Array.isArray(s.daysOfWeek) || !s.daysOfWeek.length || s.daysOfWeek.some(d => !Number.isInteger(d) || d < 0 || d > 6))
       throw new Error("each slot needs daysOfWeek 0..6 (Sun=0)");
     if (!HHMM.test(s.startTime) || !HHMM.test(s.endTime)) throw new Error("startTime/endTime must be HH:MM");
+    if (s.from != null && !YMD.test(s.from)) throw new Error("from must be YYYY-MM-DD");
   }
   return slots as PatternSlot[];
 }
@@ -68,6 +73,7 @@ export function planTermSessions(opts: {
       const w = dow(d);
       for (const s of slots) {
         if (!s.daysOfWeek.includes(w)) continue;
+        if (s.from && d < s.from) continue;
         const key = `${d}|${s.startTime}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -1,6 +1,7 @@
 import { REAL_REGISTRATION_STATUSES } from "@shared/registrations";
 import { normalizeEmail } from "@shared/identity";
 import { trainingGroupFor } from "@shared/training-groups";
+import { bandsOf, inSessionBand, sessionBand } from "@shared/session-bands";
 import { nzTodayIso } from "@shared/academy";
 import { cellsOverlap } from "@shared/field-cells";
 import type { VenueSplitSummary } from "@shared/venue-booking-truth";
@@ -1558,6 +1559,30 @@ export class DatabaseStorage implements IStorage {
           AND c.type = 'player'
         GROUP BY r.term_id`);
       const cohortRows: any[] = cohortRes.rows ?? cohortRes ?? [];
+      // Band sessions count their band only — the same rule as the roll they
+      // open (@shared/session-bands). One row per player, graded in JS by the
+      // same trainingGroupFor() the roll uses.
+      const allBands = bandsOf(dates.map((d) => d.name));
+      const bandPlayers: { termId: number | null; dob: string | null; override: string | null; option: string | null; termStart: string | null }[] = [];
+      if (allBands.length) {
+        const bp: any = await db.execute(sql`
+          SELECT r.term_id, c.date_of_birth::text AS dob, r.training_group, o.name AS option_name, t.start_date::text AS term_start
+          FROM registrations r
+          JOIN contacts c ON c.id = r.contact_id
+          LEFT JOIN program_options o ON o.id = r.program_option_id
+          LEFT JOIN terms t ON t.id = r.term_id
+          WHERE r.program_id = ${campId}
+            AND r.status IN ${REAL_STATUS_SQL}
+            AND c.type = 'player'`);
+        for (const r of (bp.rows ?? bp ?? []) as any[]) {
+          bandPlayers.push({ termId: r.term_id == null ? null : Number(r.term_id), dob: r.dob ?? null, override: r.training_group ?? null, option: r.option_name ?? null, termStart: r.term_start ?? null });
+        }
+      }
+      const bandCount = (termId: number | null, band: NonNullable<ReturnType<typeof sessionBand>>, dateIso: string) =>
+        bandPlayers.filter((p) => termId == null || p.termId === termId || p.termId == null).filter((p) => {
+          const seasonYear = Number(String(p.termStart ?? dateIso).slice(0, 4));
+          return inSessionBand(trainingGroupFor(p.dob, seasonYear, p.override, p.option).grade, band, allBands);
+        }).length;
       const byTerm = new Map<number, number>();
       // A registration with no term recorded still counts on every session: it
       // is a real enrolment whose term nobody established, and leaving a paid
@@ -1579,7 +1604,10 @@ export class DatabaseStorage implements IStorage {
         // A session outside every term (a one-off, or a term nobody has entered
         // yet) has no cohort to narrow to, so it falls back to the whole
         // programme rather than silently reading zero.
-        const cohort = t == null ? everyTerm : (byTerm.get(t) ?? 0) + untermed;
+        const band = sessionBand(d.name);
+        const cohort = band
+          ? bandCount(t, band, String(d.date))
+          : t == null ? everyTerm : (byTerm.get(t) ?? 0) + untermed;
         results.push({
           campDateId: d.id,
           date: d.date,
@@ -1767,13 +1795,16 @@ export class DatabaseStorage implements IStorage {
           )))[0]
         : undefined;
 
-      const enrolled = await db.select({
+      const enrolledAll = await db.select({
         player: player,
         guardian: guardian,
+        trainingGroup: registrations.trainingGroup,
+        optionName: programOptions.name,
       })
         .from(registrations)
         .innerJoin(player, eq(registrations.contactId, player.id))
         .leftJoin(guardian, eq(registrations.guardianId, guardian.id))
+        .leftJoin(programOptions, eq(registrations.programOptionId, programOptions.id))
         .where(and(
           eq(registrations.programId, campId),
           inArray(registrations.status, [...REAL_REGISTRATION_STATUSES]),
@@ -1783,6 +1814,24 @@ export class DatabaseStorage implements IStorage {
           // roll is worse than showing one who may have moved on.
           sessionTerm ? or(eq(registrations.termId, sessionTerm.id), isNull(registrations.termId)) : undefined,
         ));
+
+      // 🔴 A session named for an age band ("U4–U6", "U7–U8") is THAT band's
+      // roll (@shared/session-bands). Before 28 Oct 2026 both Saturday rolls
+      // listed the same 170 children. A child's grade is trainingGroupFor() —
+      // a coach's move on the Players tab first — so moving a child there moves
+      // them between these rolls. Walk-ups below stay on the session they were
+      // added to.
+      const band = sessionBand(thisDate?.name);
+      let enrolled = enrolledAll;
+      if (band) {
+        const names = await db.select({ name: campDates.name }).from(campDates).where(eq(campDates.campId, campId));
+        const allBands = bandsOf(names.map((n) => n.name));
+        const seasonYear = Number(String(sessionTerm?.startDate ?? thisDate?.date ?? "").slice(0, 4)) || new Date().getFullYear();
+        enrolled = enrolledAll.filter((row) => {
+          const g = trainingGroupFor(row.player.dateOfBirth ? String(row.player.dateOfBirth) : null, seasonYear, row.trainingGroup, row.optionName);
+          return inSessionBand(g.grade, band, allBands);
+        });
+      }
 
       // Walk-ups added to THIS session by a coach — an open trainer or someone
       // whose fees aren't paid. They have no registration, so they'd otherwise

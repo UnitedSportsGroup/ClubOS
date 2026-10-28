@@ -6886,6 +6886,20 @@ export async function registerRoutes(
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
       const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
+      // 🔴 The same email twice is refused (28 Oct 2026: "United Together" went
+      // out as #91 and, seven seconds later, #92 — 2,297 families got it
+      // twice). Same subject and body, started in the last 30 minutes and not
+      // cancelled → 409, unless the sender says it is deliberate.
+      if (!req.body?.confirmResend) {
+        const dupe: any = await db.execute(sql`
+          SELECT id, status, created_at FROM email_campaigns
+           WHERE subject = ${subject} AND md5(body) = md5(${body})
+             AND created_at > now() - interval '30 minutes'
+             AND coalesce(status, '') NOT IN ('cancelled', 'draft', 'failed')
+           ORDER BY id DESC LIMIT 1`);
+        const d = (dupe.rows ?? dupe ?? [])[0];
+        if (d) return res.status(409).json({ message: "This email is already sending (or was just sent). It has not been sent again. If you really mean to send it twice, wait half an hour or change the subject." , duplicateOf: Number(d.id) });
+      }
       // Refused BEFORE a campaign row exists, so a bad file never leaves a
       // half-made send in the history.
       const att = readMailerAttachments(req.body.attachments);
@@ -10603,6 +10617,37 @@ export async function registerRoutes(
       const ds = await getLeagueDataset();
       res.json(computeLifetime(ds, { scenario, term: termQ }));
     } catch (e: any) { console.error("[League lifetime] error:", e); res.status(500).json({ message: "Could not build the lifetime view" }); }
+  });
+  // History (Isaac, 28 Oct 2026: "the total income from term 1 … accurate
+  // numbers for our income this year"): league income by term, by year (Xero)
+  // and by month — plus, at Daniel's ask, the club's holiday-camp and U4–U8
+  // histories, built by the SAME builders as the camp and programme pages.
+  app.get("/api/admin/league/analytics/history", requireAuth, requireTab("analytics"), requireMflWorkspace, async (_req, res) => {
+    try {
+      const { leagueIncomeHistory } = await import("./league-income-history");
+      res.json(await leagueIncomeHistory());
+    } catch (e: any) { console.error("[League history] error:", e); res.status(500).json({ message: "Could not build the income history" }); }
+  });
+  const historyCache = new Map<string, { at: number; v: Promise<any> }>();
+  const cachedHistory = (key: string, make: () => Promise<any>) => {
+    const hit = historyCache.get(key);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v;
+    const v = make().catch((e) => { historyCache.delete(key); throw e; });
+    historyCache.set(key, { at: Date.now(), v });
+    return v;
+  };
+  app.get("/api/admin/league/analytics/history/camps", requireAuth, requireTab("analytics"), requireMflWorkspace, async (_req, res) => {
+    try {
+      const { holidayCampHistory } = await import("./camp-history");
+      res.json(await cachedHistory("camps", () => holidayCampHistory(1, "Holiday Camp")));
+    } catch (e: any) { console.error("[League history camps] error:", e); res.status(500).json({ message: "Couldn't build the camp history." }); }
+  });
+  app.get("/api/admin/league/analytics/history/u4-u8", requireAuth, requireTab("analytics"), requireMflWorkspace, async (_req, res) => {
+    try {
+      const [prog] = await db.select().from(programsTable).where(and(eq(programsTable.organizationId, 1), eq(programsTable.slug, "u4-u8")));
+      const { termProgrammeHistory } = await import("./term-programme-history");
+      res.json(await cachedHistory("u4-u8", () => termProgrammeHistory(1, { slug: "u4-u8", name: prog?.name ?? "FUNiño — First Kicks" })));
+    } catch (e: any) { console.error("[League history u4-u8] error:", e); res.status(500).json({ message: "Couldn't build the U4–U8 history." }); }
   });
   app.get("/api/admin/league/analytics/acquisition", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
     try {

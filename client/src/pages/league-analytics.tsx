@@ -8,9 +8,10 @@ import { Users, DollarSign, TrendingUp, UserCheck, Percent, RefreshCw, BarChart3
 import { formatCurrency as _fc } from "@/lib/format";
 import { workspaceFetch } from "@/lib/queryClient";
 import { LifetimeView, AcquisitionView } from "@/components/league-analytics/lifetime-views";
+import { HistoryView } from "@/components/league-analytics/history-view";
 import type { LifetimeResponse } from "@shared/league-economics";
 
-const TABS = ["overview", "revenue", "divisions", "rewards", "lifetime", "acquisition"] as const;
+const TABS = ["overview", "history", "revenue", "divisions", "rewards", "lifetime", "acquisition"] as const;
 type Tab = (typeof TABS)[number];
 const tabFromHash = (): Tab => {
   const h = (typeof window !== "undefined" ? window.location.hash : "").replace("#", "");
@@ -107,7 +108,7 @@ export default function LeagueAnalytics() {
             <p className="text-sm text-muted-foreground">Key business metrics across the leagues</p>
           </div>
         </div>
-        {isLtvTab ? (
+        {tab === "history" ? null : isLtvTab ? (
           <Select value={ltvTerm} onValueChange={setLtvTerm}>
             <SelectTrigger className="min-h-11 w-[220px]" data-testid="analytics-ltv-term"><SelectValue placeholder="Term" /></SelectTrigger>
             <SelectContent>
@@ -129,6 +130,7 @@ export default function LeagueAnalytics() {
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="h-auto w-full justify-start overflow-x-auto">
             <TabsTrigger value="overview" className="min-h-11" data-testid="tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="history" className="min-h-11" data-testid="tab-history">History</TabsTrigger>
             <TabsTrigger value="revenue" className="min-h-11" data-testid="tab-revenue">Revenue</TabsTrigger>
             <TabsTrigger value="divisions" className="min-h-11" data-testid="tab-divisions">Divisions</TabsTrigger>
             <TabsTrigger value="rewards" className="min-h-11" data-testid="tab-rewards">Rewards</TabsTrigger>
@@ -139,8 +141,10 @@ export default function LeagueAnalytics() {
           {/* Lifetime + Acquisition load on their own, so they never wait on the views above. */}
           <TabsContent value="lifetime" className="mt-4">{tab === "lifetime" && <LifetimeView term={ltvTerm} />}</TabsContent>
           <TabsContent value="acquisition" className="mt-4">{tab === "acquisition" && <AcquisitionView term={ltvTerm} />}</TabsContent>
+          {/* History spans every term since 2021 and has its own sections, so it carries no term picker. */}
+          <TabsContent value="history" className="mt-4">{tab === "history" && <HistoryView />}</TabsContent>
 
-          {isLoading || !data ? (!isLtvTab && <Loading />) : (<>
+          {isLoading || !data ? (!isLtvTab && tab !== "history" && <Loading />) : (<>
 
           {/* Overview */}
           <TabsContent value="overview" className="space-y-6 mt-4">

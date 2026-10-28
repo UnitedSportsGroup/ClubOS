@@ -68,11 +68,14 @@ function rowsFor(periods: Period[], mode: Mode): Period[] {
   return out;
 }
 
-export function TermHistoryTab({ campId }: { campId: number }) {
+/** `url` lets another page draw the same history from its own gated route
+ *  (the MFL Analytics History tab). */
+export function TermHistoryTab({ campId, url }: { campId?: number; url?: string }) {
+  const src = url ?? `/api/admin/camps/${campId}/term-history`;
   const { data, isLoading, error } = useQuery<TermHistoryResponse>({
-    queryKey: ["/api/admin/camps", campId, "term-history"],
+    queryKey: [src],
     queryFn: async () => {
-      const res = await workspaceFetch(`/api/admin/camps/${campId}/term-history`);
+      const res = await workspaceFetch(src);
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || "Couldn't load the history");
       return res.json();
     },
@@ -270,7 +273,7 @@ type PricePeriod = { key: string; title: string; year: number; groups: PriceGrou
 
 export function PriceHistory({ campId }: { campId: number }) {
   const { data, isLoading } = useQuery<{ priceHistory?: PricePeriod[] }>({
-    queryKey: ["/api/admin/camps", campId, "term-history"],
+    queryKey: [`/api/admin/camps/${campId}/term-history`],
     queryFn: async () => {
       const res = await workspaceFetch(`/api/admin/camps/${campId}/term-history`);
       if (!res.ok) throw new Error("Couldn't load the price history");
