@@ -102,6 +102,25 @@ export async function seatsTaken(eventId: number): Promise<number> {
   return Number((r.rows[0] as any)?.taken ?? 0);
 }
 
+/**
+ * Recent bookings for the event page's "Karyn booked 2 seats" toast (Daniel 2026-10-30).
+ * PAID orders only (never pending, cancelled or refunded) and the buyer's FIRST name only:
+ * no surname, email, phone, table name or guest list leaves this function.
+ */
+export async function recentBookings(eventId: number, limit = 12) {
+  const rows = await db.select({ name: clubEventOrders.buyerName, qty: clubEventOrders.quantity, at: clubEventOrders.paidAt })
+    .from(clubEventOrders)
+    .where(and(eq(clubEventOrders.eventId, eventId), eq(clubEventOrders.status, "paid")))
+    .orderBy(desc(clubEventOrders.paidAt))
+    .limit(limit);
+  return rows.flatMap((r) => {
+    const first = String(r.name || "").trim().split(/\s+/)[0] || "";
+    if (!first || !r.at) return [];
+    const firstName = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+    return [{ firstName, seats: r.qty, at: r.at }];
+  });
+}
+
 /** What the public page gets. Never the org id, never Stripe secrets, never other buyers. */
 export async function publicEvent(e: ClubEvent, now = new Date()) {
   const types = await typesOf(e.id);

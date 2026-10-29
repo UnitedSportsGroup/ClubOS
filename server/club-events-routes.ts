@@ -20,6 +20,7 @@ const TAB = "club-events";
 const SITE_ORIGINS = [
   "https://cufc.co.nz", "https://www.cufc.co.nz",
   "https://southislandunited.com", "https://www.southislandunited.com",
+  "https://dinner.southislandunited.com",
 ];
 function setCors(req: Request, res: Response) {
   const origin = String(req.headers.origin || "");
@@ -83,6 +84,14 @@ export function registerClubEventRoutes(app: Express) {
     const e = await ce.eventBySlug(String(req.params.slug));
     if (!e || e.status === "draft") return notFound(res);
     res.json(await ce.publicEvent(e));
+  });
+
+  // Paid bookings for the event page's toast — first name + seats + when, nothing else.
+  app.get("/api/public/club-events/:slug/recent", async (req, res) => {
+    const e = await ce.eventBySlug(String(req.params.slug));
+    if (!e || e.status === "draft") return notFound(res);
+    res.set("Cache-Control", "public, max-age=120");
+    res.json({ bookings: await ce.recentBookings(e.id) });
   });
 
   app.post("/api/public/club-events/:slug/intent", async (req, res) => {
