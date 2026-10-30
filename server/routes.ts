@@ -10628,6 +10628,17 @@ export async function registerRoutes(
       res.json(await leagueIncomeHistory());
     } catch (e: any) { console.error("[League history] error:", e); res.status(500).json({ message: "Could not build the income history" }); }
   });
+  // One term, team by team, with every record behind each team and what to look at.
+  app.get("/api/admin/league/analytics/history/term/:term", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
+    try {
+      const term = String(req.params.term);
+      if (!/^\d{4}-T[1-4]$/.test(term)) return res.status(400).json({ message: "Term looks like 2025-T4" });
+      const { leagueTermBreakdown } = await import("./league-income-history");
+      const b = await leagueTermBreakdown(term);
+      if (!b) return res.status(404).json({ message: "No records for that term" });
+      res.json(b);
+    } catch (e: any) { console.error("[League term breakdown] error:", e); res.status(500).json({ message: "Could not build the term breakdown" }); }
+  });
   app.get("/api/admin/league/analytics/acquisition", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
     try {
       const { getLeagueDataset, getAcquisition, isKnownTerm } = await import("./league-lifetime");

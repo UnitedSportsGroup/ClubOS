@@ -178,7 +178,7 @@ function lev(a: string, b: string): number {
   return p[n];
 }
 const ratio = (a: string, b: string) => (a.length + b.length ? 1 - lev(a, b) / Math.max(a.length, b.length) : 1);
-function tokenSetRatio(x: string, y: string): number {
+export function tokenSetRatio(x: string, y: string): number {
   const A = new Set(nameTokens(x)), B = new Set(nameTokens(y));
   const inter = Array.from(A).filter((t) => B.has(t)).sort().join(" ");
   const da = Array.from(A).filter((t) => !B.has(t)).sort().join(" ");
@@ -211,7 +211,7 @@ function divKeys(text: unknown): string[] {
 type ClubosEntry = { format: LeagueFormat; listCents: number | null; contractedCents: number; discountCents: number; paidCents: number };
 type Entry = {
   id: number;
-  source: "fm" | "fm_payment" | "shopify" | "sportninja" | "clubos";
+  source: "fm" | "fm_payment" | "shopify" | "sportninja" | "clubos" | "sheet";
   term: string;
   team_name?: string | null;
   emails: Set<string>;
@@ -222,6 +222,8 @@ type Entry = {
   amount_cents: number | null;
   contracted_cents?: number | null;
   qty?: number;
+  date?: string | null;
+  extra_payments?: { ref: string; amountCents: number; date: string | null; payer: string }[];
   notes: string;
   ref: string;
   payer?: string;
@@ -242,7 +244,27 @@ export type TeamTerm = {
   n_entries: number;
   format: LeagueFormat;
   clubos: ClubosEntry[];
+  /** Every underlying record this team-term was stitched from, one per system row —
+   *  so a person can see WHERE each team and each dollar came from (Isaac, 30 Oct). */
+  records: TermRecord[];
 };
+export type TermRecord = {
+  source: string;
+  name: string | null;
+  division: string | null;
+  divs: string[];
+  captain: string | null;
+  email: string | null;
+  phone: string | null;
+  amountCents: number | null;
+  date: string | null;
+  ref: string;
+  note: string;
+  /** FM payments found by the payer's name and added onto this record. */
+  extraPayments: { ref: string; amountCents: number; date: string | null; payer: string }[];
+};
+/** Money that reached the league but could not be tied to any team. */
+export type UnattributedPayment = { term: string; source: string; amountCents: number; date: string | null; payer: string | null; detail: string | null; ref: string };
 type TeamRow = {
   team_key: string;
   canonical_name: string;
@@ -279,6 +301,7 @@ export type LeagueDataset = {
   bb: Analysis;
   identities: number;
   unattributedByTerm: Record<string, number>;
+  unattributedPayments: UnattributedPayment[];
   termStarts: Record<string, string>;
   referee: RefereeCost[];
 };
@@ -287,6 +310,7 @@ export type LeagueDataset = {
 export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
   const entries: Entry[] = [];
   const unattributed: { term: string; amount_cents: number }[] = [];
+  const unattributedPayments: UnattributedPayment[] = [];
   const add = (e: any): Entry | null => {
     e.id = entries.length;
     e.emails = new Set((e.emails || []).map(normEmail).filter(Boolean));
@@ -333,12 +357,12 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
     if (/Term 3/.test(p.programme)) term = "2025-T3";
     if (m) {
       if (date >= "2023-03-01" && date <= "2023-05-31") term = "2023-T2";
-      add({ source: "fm_payment", term, team_name: m[2].trim(), divs: divKeys(p.fee_description), division: p.fee_description, amount_cents: Number(p.amount_cents), notes: "", ref: `fm_payment ${p.id}`, payer: `${p.first_name} ${p.last_name}`.toLowerCase() });
+      add({ source: "fm_payment", term, team_name: m[2].trim(), captain_name: `${p.first_name} ${p.last_name}`.trim(), divs: divKeys(p.fee_description), division: p.fee_description, amount_cents: Number(p.amount_cents), date: date, notes: "", ref: `fm_payment ${p.id}`, payer: `${p.first_name} ${p.last_name}`.toLowerCase() });
     } else fmPayPending.push({ ...p, term, date });
   }
 
   // ---------- 2. Shopify ----------
-  const shop = await q(`select h.category, h.source, h.product_title, h.financial_status, h.quantity, h.raw_json, h.team_name, h.buyer_email, h.buyer_phone, h.buyer_first_name, h.buyer_last_name, h.variant, h.amount_cents, h.external_ref,
+  const shop = await q(`select h.category, h.source, h.product_title, h.financial_status, h.quantity, h.raw_json, h.team_name, h.buyer_email, h.buyer_phone, h.buyer_first_name, h.buyer_last_name, h.variant, h.amount_cents, h.external_ref, h.purchased_at::text purchased_at,
       c.email c_email, c.phone c_phone, c.first_name c_first, c.last_name c_last
     from mfl_customer_history h left join contacts c on c.id=h.contact_id order by purchased_at`);
   for (const r of shop) {
@@ -352,17 +376,23 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
     let team: string | null = r.team_name || null;
     if (!team && orderNote && orderNote.trim() && !/competitive level/i.test(orderNote)) team = orderNote.replace(/^team name\s*[:=]\s*/i, "").replace(/['"]/g, "").trim() || null;
     const payer = [r.buyer_first_name || r.c_first, r.buyer_last_name || r.c_last].filter(Boolean).join(" ");
-    const e = add({ source: "shopify", term, team_name: team, emails: [r.buyer_email, r.c_email], phones: [r.buyer_phone, r.c_phone], captain_name: payer, divs: divKeys(r.variant), division: r.variant || r.product_title, amount_cents: Number(r.amount_cents), qty: r.quantity, notes: "", ref: `shopify ${r.external_ref}`, payer: payer.toLowerCase() });
+    const e = add({ source: "shopify", term, team_name: team, emails: [r.buyer_email, r.c_email], phones: [r.buyer_phone, r.c_phone], captain_name: payer, divs: divKeys(r.variant), division: r.variant || r.product_title, amount_cents: Number(r.amount_cents), qty: r.quantity, date: nzDate(r.purchased_at), notes: team ? "" : "No team name on the order", ref: `shopify ${r.external_ref}`, payer: payer.toLowerCase() });
     if (e && !e.emails.size && !e.phones.size && !e.nkey) {
       entries.pop();
       unattributed.push({ term, amount_cents: Number(r.amount_cents) });
+      unattributedPayments.push({ term, source: "shopify", amountCents: Number(r.amount_cents), date: nzDate(r.purchased_at), payer: payer || null, detail: r.variant || r.product_title, ref: `shopify ${r.external_ref}` });
     }
   }
   for (const p of fmPayPending) {
     const nm = `${p.first_name} ${p.last_name}`.toLowerCase();
     const hit = entries.find((e) => e.term === p.term && ((e.captain_name || "").toLowerCase() === nm || e.payer === nm));
-    if (hit) hit.amount_cents = (hit.amount_cents || 0) + Number(p.amount_cents);
-    else unattributed.push({ term: p.term, amount_cents: Number(p.amount_cents) });
+    if (hit) {
+      hit.amount_cents = (hit.amount_cents || 0) + Number(p.amount_cents);
+      (hit.extra_payments ||= []).push({ ref: `fm_payment ${p.id}`, amountCents: Number(p.amount_cents), date: p.date, payer: `${p.first_name} ${p.last_name}`.trim() });
+    } else {
+      unattributed.push({ term: p.term, amount_cents: Number(p.amount_cents) });
+      unattributedPayments.push({ term: p.term, source: "fm_payment", amountCents: Number(p.amount_cents), date: p.date, payer: `${p.first_name} ${p.last_name}`.trim() || null, detail: [p.programme, p.fee_description].filter(Boolean).join(" · "), ref: `fm_payment ${p.id}` });
+    }
   }
 
   // ---------- 3. SportNinja ----------
@@ -437,6 +467,20 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
     add({ source: "clubos", term, team_name: t.name?.trim(), emails: [t.contact_email, t.c_email], phones: [t.contact_phone, t.c_phone], captain_name: t.contact_name, divs: divKeys(t.div), division: t.div, amount_cents: amount, contracted_cents: t.registration_id ? Number(t.total_cents) : null, notes: "", ref: `league_team ${t.lt_id}`, clubos });
   }
 
+  // ---------- 5. Isaac's term team spreadsheets (league_term_sheet_rows) ----------
+  // The sheet is the only place a team NAME sits next to its captain's EMAIL, so it
+  // is what ties a Shopify payment (email, no name) to a SportNinja team (name, no
+  // email). It carries no money. Imported by script/import-league-term-sheet.ts.
+  try {
+    const sheet = await q(`select id, term, league, team_name, captain, email, phone, payment_type, discount, discount_type, related_team, tier, source_file, source_row from league_term_sheet_rows where organization_id=${MFL_ORG}`);
+    for (const r of sheet) {
+      const extras = [r.payment_type && `Pays ${String(r.payment_type).toLowerCase()}`, r.tier, r.discount && `Discount ${r.discount}`, r.discount_type, r.related_team && `Related: ${r.related_team}`].filter(Boolean).join(" · ");
+      add({ source: "sheet", term: r.term, team_name: r.team_name, emails: [r.email], phones: [r.phone], captain_name: r.captain, divs: divKeys(r.league), division: r.league, amount_cents: null, notes: extras, ref: `sheet ${r.source_file} · ${r.league} row ${r.source_row}` });
+    }
+  } catch {
+    /* table not there yet — the other five sources stand on their own */
+  }
+
   // ---------- union-find ----------
   const parent = entries.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
@@ -508,7 +552,11 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
         if (namedRoots.length === 1 || new Set(namedRoots.map(find)).size === 1) { union(namedRoots[0], u, rule); continue; }
         const e = entries[u];
         const fits = Array.from(new Set(namedRoots.map(find))).filter((r) => members.get(r)?.some((i) => entries[i].divs.some((d) => e.divs.includes(d) && !d.startsWith("?"))));
+        // One person can captain different teams in different terms (Goal Diggers
+        // 2025, Kai FC 2026): a payment belongs to the team playing THAT term.
+        const sameTerm = (fits.length ? fits : Array.from(new Set(namedRoots.map(find)))).filter((r) => members.get(r)?.some((i) => entries[i].term === e.term && entries[i].source !== e.source));
         if (fits.length === 1) union(fits[0], u, rule + "+division");
+        else if (sameTerm.length === 1) union(sameTerm[0], u, rule + "+term");
         else {
           const lone = unnamed.filter((x) => !entries[x].nkey && find(x) === x && x !== u);
           if (lone.length) union(lone[0], u, rule + " (unnamed only)");
@@ -533,6 +581,16 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
         if (Array.from(tx).some((t) => ty.has(t))) continue;
         union(x.id, y.id, "fuzzy");
       }
+    }
+
+  // Same-term typos between two systems ("Kinder Mbuemo" in SportNinja,
+  // "Kinder Mbeumo" on Isaac's sheet): different sources, same term, same league.
+  for (let i = 0; i < named.length; i++)
+    for (let j = i + 1; j < named.length; j++) {
+      const x = named[i], y = named[j];
+      if (x.term !== y.term || x.source === y.source || find(x.id) === find(y.id)) continue;
+      if (!x.divs.some((d) => y.divs.includes(d) && !d.startsWith("?"))) continue;
+      if ((ratio(x.nkey!, y.nkey!) >= 0.8 && x.nkey!.length >= 6) || tokenSetRatio(x.team_name || "", y.team_name || "") >= 0.9) union(x.id, y.id, "typo");
     }
 
   // ---------- collapse to team-terms ----------
@@ -568,6 +626,20 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
         n_entries: nEntries,
         format: fmts[0] ?? "other",
         clubos: xs.map((e) => e.clubos).filter(Boolean) as ClubosEntry[],
+        records: xs.map((e) => ({
+          source: e.source,
+          name: e.team_name ?? null,
+          division: e.division ?? null,
+          divs: e.divs,
+          captain: e.captain_name ?? null,
+          email: Array.from(e.emails)[0] ?? null,
+          phone: Array.from(e.phones)[0] ?? null,
+          amountCents: e.amount_cents,
+          date: e.date ?? null,
+          ref: e.ref,
+          note: e.notes || "",
+          extraPayments: e.extra_payments ?? [],
+        })),
       });
     }
   }
@@ -576,7 +648,7 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
   const unattributedByTerm: Record<string, number> = {};
   for (const u of unattributed) unattributedByTerm[u.term] = (unattributedByTerm[u.term] || 0) + u.amount_cents;
 
-  const backboneTerms = new Set(teamTerms.filter((x) => x.sources.some((s) => ["fm", "sportninja", "clubos"].includes(s))).map((x) => x.term));
+  const backboneTerms = new Set(teamTerms.filter((x) => x.sources.some((s) => ["fm", "sportninja", "clubos", "sheet"].includes(s))).map((x) => x.term));
   const backbone = teamTerms.filter((x) => !(x.sources.every((s) => s === "shopify" || s === "fm_payment") && backboneTerms.has(x.term)));
 
   const referee = await refereeCosts(q, teamTerms);
@@ -589,6 +661,7 @@ export async function buildLeagueDataset(q: Q): Promise<LeagueDataset> {
     bb: analyse(backbone, unattributedByTerm, termStarts),
     identities: roots.length,
     unattributedByTerm,
+    unattributedPayments,
     termStarts,
     referee,
   };

@@ -7,15 +7,17 @@
 // from Xero, by month this year. Holiday camps and U4–U8 were removed on
 // 30 Oct 2026 (Daniel) — CUFC programmes don't belong in the MFL workspace;
 // they live on their own programme pages in CUFC.
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
-import { RefreshCw, Info } from "lucide-react";
+import { RefreshCw, Info, ChevronDown, ChevronRight } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
+import { TermBreakdown } from "./term-breakdown";
 
 type IncomeTerm = {
   term: string; label: string; year: number; teams: number; entries: number; newTeams: number; returningTeams: number;
-  incomeCents: number; teamsWithFee: number; unattributedCents: number; byFormat: Record<string, number>; sources: string[]; avgFeeCents: number | null;
+  incomeCents: number; teamsWithFee: number; unattributedCents: number; unmatchedPayments: number; byFormat: Record<string, number>; sources: string[]; avgFeeCents: number | null;
 };
 type History = {
   builtAt: string;
@@ -51,7 +53,20 @@ export function HistoryView() {
   );
 }
 
+// The open term lives in the URL (?term=2025-T4) so Back and a shared link land on it.
+function useOpenTerm(): [string | null, (t: string | null) => void] {
+  const [term, setTerm] = useState<string | null>(() => new URLSearchParams(window.location.search).get("term"));
+  const set = (t: string | null) => {
+    const u = new URL(window.location.href);
+    if (t) u.searchParams.set("term", t); else u.searchParams.delete("term");
+    window.history.replaceState(window.history.state, "", u.toString());
+    setTerm(t);
+  };
+  return [term, set];
+}
+
 function LeagueIncome() {
+  const [openTerm, setOpenTerm] = useOpenTerm();
   const { data, isLoading, error } = useQuery<History>({
     queryKey: ["/api/admin/league/analytics/history"],
     queryFn: async () => {
@@ -118,7 +133,7 @@ function LeagueIncome() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <Note>Money paid by teams, incl GST, from Friendly Manager (2021–25), Shopify, SportNinja and ClubOS (from Term 3 2026). Older terms are incomplete where a team's fee was never recorded — the table below says how many teams have a known fee.</Note>
+          <Note>Money paid by teams, incl GST, from Friendly Manager (2021–25), Shopify, SportNinja and ClubOS (from Term 3 2026). Isaac's team sheet is loaded for Term 4 2025. Older terms are incomplete where a team's fee was never recorded. Tap any term in the table below to see every team, where each one came from, and what doesn't add up.</Note>
         </CardContent>
       </Card>
 
@@ -204,7 +219,7 @@ function LeagueIncome() {
       )}
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Every term</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Every term</CardTitle><p className="text-xs text-muted-foreground">Tap a term to see every team by league, the records behind each one, and payments not tied to a team.</p></CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="history-term-table">
             <thead>
@@ -214,7 +229,8 @@ function LeagueIncome() {
                 <th className="py-2 pr-3 font-medium text-right">New</th>
                 <th className="py-2 pr-3 font-medium text-right">Returning</th>
                 <th className="py-2 pr-3 font-medium text-right">Income</th>
-                <th className="py-2 pr-3 font-medium text-right">Fee known</th>
+                <th className="py-2 pr-3 font-medium text-right">Payment matched</th>
+                <th className="py-2 pr-3 font-medium text-right">Not tied to a team</th>
                 <th className="py-2 pr-3 font-medium text-right">Avg fee</th>
                 <th className="py-2 font-medium">Where from</th>
               </tr>
@@ -222,17 +238,36 @@ function LeagueIncome() {
             <tbody>
               {terms.slice().reverse().map((t) => {
                 const complete = t.teamsWithFee >= t.teams;
+                const isOpen = openTerm === t.term;
                 return (
-                  <tr key={t.term} className="border-b last:border-0" data-testid={`history-term-${t.term}`}>
-                    <td className="py-2 pr-3 whitespace-nowrap font-medium">{t.label}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{t.teams}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{t.newTeams}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{t.returningTeams}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums font-medium">{money(t.incomeCents)}</td>
-                    <td className={`py-2 pr-3 text-right tabular-nums ${complete ? "text-muted-foreground" : "text-amber-600"}`}>{t.teamsWithFee} of {t.teams}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{money(t.avgFeeCents)}</td>
-                    <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{t.sources.join(", ")}</td>
-                  </tr>
+                  <Fragment key={t.term}>
+                    <tr
+                      className={`border-b cursor-pointer hover:bg-muted/50 ${isOpen ? "bg-muted/40" : ""}`}
+                      onClick={() => setOpenTerm(isOpen ? null : t.term)}
+                      data-testid={`history-term-${t.term}`}
+                    >
+                      <td className="py-2 pr-3 whitespace-nowrap font-medium">
+                        <button type="button" aria-expanded={isOpen} className="inline-flex items-center gap-1 min-h-9" onClick={(e) => { e.stopPropagation(); setOpenTerm(isOpen ? null : t.term); }}>
+                          {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}{t.label}
+                        </button>
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{t.teams}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{t.newTeams}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{t.returningTeams}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums font-medium">{money(t.incomeCents)}</td>
+                      <td className={`py-2 pr-3 text-right tabular-nums ${complete ? "text-muted-foreground" : "text-amber-600"}`}>{t.teamsWithFee} of {t.teams}</td>
+                      <td className={`py-2 pr-3 text-right tabular-nums ${t.unattributedCents ? "text-red-600" : "text-muted-foreground"}`}>{t.unattributedCents ? `${money(t.unattributedCents)} (${t.unmatchedPayments})` : DASH}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{money(t.avgFeeCents)}</td>
+                      <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{t.sources.join(", ")}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="border-b">
+                        <td colSpan={9} className="px-1 sm:px-3 whitespace-normal">
+                          <div className="max-w-[calc(100vw-4rem)] sm:max-w-none"><TermBreakdown term={t.term} /></div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
