@@ -2170,6 +2170,17 @@ export async function sendMembershipNotificationEmail(params: {
   });
 }
 
+/** "2026-10-29" → "Thursday, 29 October". Pure calendar arithmetic: no clock, no time zone. */
+export function cugcSessionDateLabel(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  if (!m) return String(iso || "—");
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${days[dow]}, ${d} ${months[mo - 1]}`;
+}
+
 /**
  * CUGC free session (trial) booking confirmation — sent to the parent the
  * moment they book. Mirrors the enrolment-confirmation branding. The booking
@@ -2184,13 +2195,11 @@ export async function sendCugcFreeSessionConfirmation(params: {
   sessionLabel: string;
   sessionDate: string; // ISO date
 }): Promise<boolean> {
-  const niceDate = (() => {
-    try {
-      return new Date(`${params.sessionDate}T09:00:00+12:00`).toLocaleDateString("en-NZ", {
-        weekday: "long", day: "numeric", month: "long",
-      });
-    } catch { return params.sessionDate; }
-  })();
+  // 🔴 Read the calendar date from its own y-m-d parts, never through a clock. The old
+  // version built "9am +12:00" and formatted it with no timeZone: the server runs in UTC,
+  // where 9am NZ is still the evening before, so every confirmation named the day BEFORE
+  // the class ("Wednesday, 28 October" beside "Thursday 4:00–5:30pm", reported 30 Oct 2026).
+  const niceDate = cugcSessionDateLabel(params.sessionDate);
   const row = (label: string, value: string) =>
     `<tr><td style="padding:6px 0;color:#7d8ba8;font-size:13px;width:120px;">${label}</td><td style="padding:6px 0;color:#ffffff;font-size:14px;font-weight:600;">${value}</td></tr>`;
   const rows = [
@@ -2204,7 +2213,7 @@ export async function sendCugcFreeSessionConfirmation(params: {
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#020a18;padding:36px 16px;">
     <div style="max-width:560px;margin:0 auto;">
       <div style="text-align:center;padding:4px 0 22px;">
-        <p style="color:#d9b10f;margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">Christchurch United Gymnastics Club</p>
+        <p style="color:#d9b10f;margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">United Gymnastics</p>
         <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:800;letter-spacing:-0.2px;">Free Session Booked</h1>
       </div>
       <div style="background:#013590;border:1px solid #1c4aa8;border-radius:18px;padding:24px;">
@@ -2213,13 +2222,13 @@ export async function sendCugcFreeSessionConfirmation(params: {
         <p style="color:#bcd0f0;font-size:13px;line-height:1.6;margin:18px 0 0;">Comfy clothes and a drink bottle — that's all they need. Arrive 10 minutes early so we can say hello and get them settled. Need to change the day? Just reply to this email.</p>
       </div>
       <p style="text-align:center;color:#5a6480;font-size:11px;line-height:1.7;margin:20px 0 0;">
-        Christchurch United Gymnastics Club · United Sports Centre, Hornby<br/>This booking is saved in ClubOS → Gymnastics → Free Sessions.
+        United Gymnastics · United Sports Centre, Hornby
       </p>
     </div>
   </div>`;
   return sendEmail({
     to: params.to,
-    from: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>",
+    from: "United Gymnastics <noreply@cugc.co.nz>",
     replyTo: "info@cugc.co.nz",
     subject: `Free session booked — ${params.childName} · ${niceDate}`,
     html,
@@ -2248,7 +2257,7 @@ export async function sendCugcFreeSessionNotification(params: {
         <p style="color:#d9b10f;margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">New free session booking</p>
         ${line("Gymnast", `${params.childName}${params.childAge ? ` (age ${params.childAge})` : ""}`)}
         ${line("Program", params.programName)}
-        ${line("Class", `${params.sessionLabel} — ${params.sessionDate}`)}
+        ${line("Class", `${params.sessionLabel} — ${cugcSessionDateLabel(params.sessionDate)}`)}
         ${line("Parent", params.parentName)}
         ${line("Email", params.email)}
         ${params.phone ? line("Phone", params.phone) : ""}
@@ -2259,9 +2268,9 @@ export async function sendCugcFreeSessionNotification(params: {
   </div>`;
   return sendEmail({
     to: params.to,
-    from: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>",
+    from: "United Gymnastics <noreply@cugc.co.nz>",
     replyTo: params.email,
-    subject: `Free session: ${params.childName} · ${params.sessionLabel} ${params.sessionDate}`,
+    subject: `Free session: ${params.childName} · ${cugcSessionDateLabel(params.sessionDate)} · ${params.sessionLabel}`,
     html,
   });
 }
