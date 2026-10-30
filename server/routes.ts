@@ -10628,27 +10628,6 @@ export async function registerRoutes(
       res.json(await leagueIncomeHistory());
     } catch (e: any) { console.error("[League history] error:", e); res.status(500).json({ message: "Could not build the income history" }); }
   });
-  const historyCache = new Map<string, { at: number; v: Promise<any> }>();
-  const cachedHistory = (key: string, make: () => Promise<any>) => {
-    const hit = historyCache.get(key);
-    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v;
-    const v = make().catch((e) => { historyCache.delete(key); throw e; });
-    historyCache.set(key, { at: Date.now(), v });
-    return v;
-  };
-  app.get("/api/admin/league/analytics/history/camps", requireAuth, requireTab("analytics"), requireMflWorkspace, async (_req, res) => {
-    try {
-      const { holidayCampHistory } = await import("./camp-history");
-      res.json(await cachedHistory("camps", () => holidayCampHistory(1, "Holiday Camp")));
-    } catch (e: any) { console.error("[League history camps] error:", e); res.status(500).json({ message: "Couldn't build the camp history." }); }
-  });
-  app.get("/api/admin/league/analytics/history/u4-u8", requireAuth, requireTab("analytics"), requireMflWorkspace, async (_req, res) => {
-    try {
-      const [prog] = await db.select().from(programsTable).where(and(eq(programsTable.organizationId, 1), eq(programsTable.slug, "u4-u8")));
-      const { termProgrammeHistory } = await import("./term-programme-history");
-      res.json(await cachedHistory("u4-u8", () => termProgrammeHistory(1, { slug: "u4-u8", name: prog?.name ?? "FUNiño — First Kicks" })));
-    } catch (e: any) { console.error("[League history u4-u8] error:", e); res.status(500).json({ message: "Couldn't build the U4–U8 history." }); }
-  });
   app.get("/api/admin/league/analytics/acquisition", requireAuth, requireTab("analytics"), requireMflWorkspace, async (req, res) => {
     try {
       const { getLeagueDataset, getAcquisition, isKnownTerm } = await import("./league-lifetime");

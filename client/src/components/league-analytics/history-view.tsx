@@ -3,18 +3,15 @@
 // the trends … holiday camps history and under-4s/under-8s history … have it
 // all in there for him."
 //
-// Three sections behind one switch: Mini Football Leagues (income by term from
-// the team records, by year from Xero, by month this year), Holiday camps and
-// U4–U8 (the SAME components the camp and programme pages draw, fed from the
-// MFL-gated routes).
-import { useState } from "react";
+// Mini Football Leagues only: income by term from the team records, by year
+// from Xero, by month this year. Holiday camps and U4–U8 were removed on
+// 30 Oct 2026 (Daniel) — CUFC programmes don't belong in the MFL workspace;
+// they live on their own programme pages in CUFC.
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { RefreshCw, Info } from "lucide-react";
 import { workspaceFetch } from "@/lib/queryClient";
-import { CampHistoryTab } from "@/components/camp-history-tab";
-import { TermHistoryTab } from "@/components/term-history-tab";
 
 type IncomeTerm = {
   term: string; label: string; year: number; teams: number; entries: number; newTeams: number; returningTeams: number;
@@ -46,35 +43,10 @@ const Note = ({ children }: { children: React.ReactNode }) => (
   <p className="flex gap-2 text-xs text-muted-foreground"><Info className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{children}</span></p>
 );
 
-const SECTIONS = [
-  { key: "mfl", label: "Mini Football Leagues" },
-  { key: "camps", label: "Holiday camps" },
-  { key: "u48", label: "U4–U8" },
-] as const;
-type Section = (typeof SECTIONS)[number]["key"];
-
 export function HistoryView() {
-  const [section, setSection] = useState<Section>("mfl");
   return (
     <div className="space-y-5" data-testid="history-view">
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Which history">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            role="tab"
-            aria-selected={section === s.key}
-            onClick={() => setSection(s.key)}
-            className={`rounded-full border px-4 min-h-11 text-sm font-medium transition-colors ${section === s.key ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted border-border"}`}
-            data-testid={`history-section-${s.key}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-      {section === "mfl" && <LeagueIncome />}
-      {section === "camps" && <CampHistoryTab url="/api/admin/league/analytics/history/camps" />}
-      {section === "u48" && <TermHistoryTab url="/api/admin/league/analytics/history/u4-u8" />}
+      <LeagueIncome />
     </div>
   );
 }
