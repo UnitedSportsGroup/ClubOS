@@ -176,6 +176,7 @@ import {
 } from "./parent-routes";
 import { registerPrintAccountRoutes, registerPrintAccountAdminRoutes } from "./print-account-routes";
 import { decideHdyhau, saveReferralDetail, registerHdyhauRoutes, referralDetailsFor } from "./hdyhau";
+import { officeRegistration } from "./office-registration-handlers";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -5685,7 +5686,7 @@ export async function registerRoutes(
    *
    * Read-only: it creates nothing.
    */
-  app.get("/api/admin/registrations/manual/quote", requireAuth, async (req, res) => {
+  app.get("/api/admin/registrations/manual/quote", requireAuth, officeRegistration.quote = async (req: any, res: any) => {
     try {
       const programId = Number(req.query.programId);
       if (!Number.isFinite(programId)) return res.status(400).json({ message: "programId is required" });
@@ -5806,7 +5807,7 @@ export async function registerRoutes(
    * Money is always priced server-side from the database. The request may name
    * a programme and an option; it may never name a price.
    */
-  app.post("/api/admin/registrations/manual", requireAuth, async (req, res) => {
+  app.post("/api/admin/registrations/manual", requireAuth, officeRegistration.create = async (req: any, res: any) => {
     try {
       const body = req.body ?? {};
       // `campId` is the original field name and is still sent by older callers.

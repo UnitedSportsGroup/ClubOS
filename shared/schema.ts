@@ -10180,8 +10180,22 @@ export const posCounterDevices = pgTable("pos_counter_devices", {
   readerStatus: text("reader_status"),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at", tz).defaultNow().notNull(),
+  // The reader as a till (2026-10-31): who unlocked it with their PIN, until
+  // when, and the sale they are building on it.
+  tillUserId: integer("till_user_id").references(() => users.id, { onDelete: "set null" }),
+  tillUntil: timestamp("till_until", tz),
+  tillSaleId: integer("till_sale_id").references(() => posSales.id, { onDelete: "set null" }),
 });
 export type PosCounterDevice = typeof posCounterDevices.$inferSelect;
+
+/** One PIN per staff member, for unlocking the counter reader as a till. scrypt `s1$salt$hex`. */
+export const posStaffPins = pgTable("pos_staff_pins", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  pinHash: text("pin_hash").notNull(),
+  setAt: timestamp("set_at", tz).defaultNow().notNull(),
+  failedCount: integer("failed_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until", tz),
+});
 
 export const posCounterEvents = pgTable("pos_counter_events", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),

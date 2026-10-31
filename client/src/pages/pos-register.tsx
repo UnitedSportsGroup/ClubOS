@@ -877,6 +877,44 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
   );
 }
 
+/**
+ * Your own 4-digit PIN for using the counter reader as a till on its own
+ * (Daniel, 2026-10-31). Each person sets their own, so every sale built on the
+ * reader says who served it. It is never shown back — only whether one is set.
+ */
+function ReaderPinSection() {
+  const { toast } = useToast();
+  const [pin, setPin] = useState("");
+  const [editing, setEditing] = useState(false);
+  const mine = useQuery<{ hasPin: boolean; setAt: string | null; locked: boolean }>({
+    queryKey: ["/api/admin/pos/my-counter-pin"],
+    queryFn: () => json("GET", "/api/admin/pos/my-counter-pin"),
+  });
+  const save = useMutation({
+    mutationFn: () => json("PUT", "/api/admin/pos/my-counter-pin", { pin }),
+    onSuccess: () => { setPin(""); setEditing(false); mine.refetch(); toast({ title: "Reader PIN saved", description: "Tap Staff on the reader, pick your name and enter it." }); },
+    onError: (e) => toast({ title: "Couldn't save that PIN", description: errMessage(e), variant: "destructive" }),
+  });
+  const has = !!mine.data?.hasPin;
+  return (
+    <div className="rounded-xl border border-neutral-200 p-3 space-y-2" data-testid="pos-reader-pin">
+      <div className="text-[13.5px] font-semibold">Sell on the reader by itself</div>
+      <p className="text-[12.5px] text-neutral-600">Tap <b>Staff</b> on the reader, pick your name and enter your PIN. You can sell kit and register players on it, and the customer pays on the same screen — no laptop needed.</p>
+      {mine.data?.locked && <p className="text-[12.5px] text-amber-800">Your PIN is locked after too many wrong tries. Setting a new one unlocks it.</p>}
+      {!editing ? (
+        <button className={`${btnGhost} w-full`} onClick={() => setEditing(true)} data-testid="pos-reader-pin-edit">{has ? "Change my reader PIN" : "Set my reader PIN"}</button>
+      ) : (
+        <div className="flex gap-2">
+          <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            placeholder="4 digits" className="h-12 w-full min-w-0 rounded-xl border border-neutral-300 bg-white px-3 text-[20px] tracking-[0.5em]" data-testid="pos-reader-pin-input" />
+          <button className={btnPrimary} disabled={pin.length !== 4 || save.isPending} onClick={() => save.mutate()} data-testid="pos-reader-pin-save">{save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save</button>
+        </div>
+      )}
+      {has && !editing && <p className="text-[12px] text-neutral-500">PIN set{mine.data?.setAt ? ` on ${new Date(mine.data.setAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : ""}.</p>}
+    </div>
+  );
+}
+
 /** The counter screen: our own app on the S710, linked by the code it shows. */
 function CounterSection({ open, registerId, registerName, onChanged }: { open: boolean; registerId: number; registerName: string; onChanged: () => void }) {
   const { toast } = useToast();
@@ -914,6 +952,7 @@ function CounterSection({ open, registerId, registerName, onChanged }: { open: b
             </div>
           </div>
           <p className="text-[13px] text-neutral-600">The customer watches the cart build on this screen, with photos, then pays by card on it. Card sales on {registerName} go here.</p>
+          <ReaderPinSection />
           <button className={`${btnGhost} w-full`} onClick={() => setShowLog((v) => !v)}>{showLog ? "Hide" : "Show"} what the screen has been doing</button>
           {showLog && (
             <div className="max-h-48 overflow-y-auto rounded-xl border border-neutral-200 divide-y divide-neutral-100 text-[12px]">

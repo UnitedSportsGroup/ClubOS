@@ -76,13 +76,13 @@ function setCookie(res: Response, token: string) {
 }
 
 type Device = typeof posCounterDevices.$inferSelect;
-async function deviceFor(req: Request): Promise<Device | null> {
+export async function deviceFor(req: Request): Promise<Device | null> {
   const t = tokenFrom(req);
   if (!t) return null;
   const [d] = await db.select().from(posCounterDevices).where(eq(posCounterDevices.tokenHash, sha(t)));
   return d && !d.revokedAt ? d : null;
 }
-interface DeviceReq extends Request { counter?: Device }
+export interface DeviceReq extends Request { counter?: Device }
 async function requireDevice(req: DeviceReq, res: Response, next: NextFunction) {
   try {
     const d = await deviceFor(req);
@@ -90,7 +90,7 @@ async function requireDevice(req: DeviceReq, res: Response, next: NextFunction) 
     req.counter = d; next();
   } catch (e: any) { res.status(500).json({ message: e.message }); }
 }
-async function requirePairedDevice(req: DeviceReq, res: Response, next: NextFunction) {
+export async function requirePairedDevice(req: DeviceReq, res: Response, next: NextFunction) {
   await requireDevice(req, res, () => {
     if (!req.counter!.pairedAt || !req.counter!.registerId) return res.status(409).json({ code: "COUNTER_UNPAIRED", message: "This screen is not linked to a register yet." });
     next();
@@ -112,7 +112,7 @@ async function touch(d: Device, req: Request) {
   }).where(eq(posCounterDevices.id, d.id));
 }
 
-async function logEvent(deviceId: number, level: string, message: string, meta?: unknown) {
+export async function logEvent(deviceId: number, level: string, message: string, meta?: unknown) {
   try {
     await db.insert(posCounterEvents).values({ deviceId, level: ["error", "warn", "info"].includes(level) ? level : "info", message: message.slice(0, 1000), meta: (meta ?? null) as any });
   } catch (e) { console.error("[COUNTER] log", e); }

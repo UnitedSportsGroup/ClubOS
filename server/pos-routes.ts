@@ -96,6 +96,15 @@ export function stripeForAccount(account: string): { stripe: Stripe; ok: boolean
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const uid = (req: Request) => req.session.userId as number;
+
+type PosHandler = (req: Request, res: Response) => Promise<unknown>;
+/**
+ * The till's own handlers, kept by name so the COUNTER READER can reach the
+ * very same code (server/pos-counter-till.ts) once it has checked the device
+ * and the staff PIN. One implementation of every money rule — a second copy
+ * for the reader would drift the first time either changed.
+ */
+export const posHandlers: Record<"catalogue" | "createSale" | "addLine" | "updateLine" | "deleteLine" | "cardPayment" | "cancelPayment" | "voidSale", PosHandler> = {} as any;
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
 const str = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -157,7 +166,7 @@ function readerView(r: any) {
   };
 }
 
-async function loadSale(id: number) {
+export async function loadSale(id: number) {
   const [sale] = await db.select().from(posSales).where(eq(posSales.id, id));
   if (!sale) return null;
   const [lines, payments, refunds, [register]] = await Promise.all([
@@ -557,7 +566,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Catalogue: every brand's merch, programmes and events on sale ─────────
-  app.get("/api/admin/pos/catalogue", ...gate, async (req, res) => {
+  app.get("/api/admin/pos/catalogue", ...gate, posHandlers.catalogue = async (req: Request, res: Response) => {
     try {
       const q = str(req.query.q, 80).toLowerCase();
       const code = str(req.query.code, 80);
@@ -622,7 +631,7 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post("/api/admin/pos/sales", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales", ...gate, posHandlers.createSale = async (req: Request, res: Response) => {
     try {
       const registerId = num(req.body?.registerId);
       if (!Number.isFinite(registerId)) return res.status(400).json({ message: "Choose a register." });
@@ -681,7 +690,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Lines ─────────────────────────────────────────────────────────────────
-  app.post("/api/admin/pos/sales/:id/lines", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/lines", ...gate, posHandlers.addLine = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const b = req.body ?? {};
@@ -755,7 +764,7 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { if (!posError(res, e)) { console.error("[POS] add line", e); res.status(500).json({ message: e.message }); } }
   });
 
-  app.patch("/api/admin/pos/sales/:id/lines/:lineId", ...gate, async (req, res) => {
+  app.patch("/api/admin/pos/sales/:id/lines/:lineId", ...gate, posHandlers.updateLine = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const line = sale.lines.find((l) => l.id === num(req.params.lineId));
@@ -773,7 +782,7 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
 
-  app.delete("/api/admin/pos/sales/:id/lines/:lineId", ...gate, async (req, res) => {
+  app.delete("/api/admin/pos/sales/:id/lines/:lineId", ...gate, posHandlers.deleteLine = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const line = sale.lines.find((l) => l.id === num(req.params.lineId));
@@ -844,7 +853,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Card through a Stripe reader (server-driven) ─────────────────────────
-  app.post("/api/admin/pos/sales/:id/payments/card", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/payments/card", ...gate, posHandlers.cardPayment = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       if (sale.remainingCents <= 0) return res.status(409).json({ message: "Nothing owing." });
@@ -926,7 +935,7 @@ export function registerPosRoutes(app: Express) {
     } catch (e: any) { if (!posError(res, e)) { console.error("[POS] confirm", e); res.status(500).json({ message: e.message }); } }
   });
 
-  app.post("/api/admin/pos/sales/:id/payments/:pid/cancel", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/payments/:pid/cancel", ...gate, posHandlers.cancelPayment = async (req: Request, res: Response) => {
     try {
       const saleId = num(req.params.id);
       const [payment] = await db.select().from(posPayments).where(and(eq(posPayments.id, num(req.params.pid)), eq(posPayments.saleId, saleId)));
@@ -950,7 +959,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Void (unpaid only) ────────────────────────────────────────────────────
-  app.post("/api/admin/pos/sales/:id/void", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/void", ...gate, posHandlers.voidSale = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       if (sale.paidCents > 0) return res.status(409).json({ code: "POS_SALE_HAS_MONEY", message: "This sale has taken money — refund it instead of voiding." });
