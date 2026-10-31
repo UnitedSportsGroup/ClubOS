@@ -46,7 +46,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTabAnywhere } from "./auth";
 import { storage } from "./storage";
@@ -59,7 +59,7 @@ import {
   type TillMe, type TillPerson, type TillSale, type TillStaff,
 } from "@shared/pos-counter-till";
 import { requirePairedDevice, logEvent, showOnCounter, type DeviceReq } from "./pos-counter";
-import { posHandlers, loadSale, readerAccountForRegister } from "./pos-routes";
+import { posHandlers, loadSale, readerAccountForRegister, moneyAccountForOrg } from "./pos-routes";
 import { officeRegistration } from "./office-registration-handlers";
 import { searchPeople, familySummaries, resolveFamily } from "./family-routes";
 
@@ -283,21 +283,55 @@ export function registerPosCounterTillRoutes(app: Express) {
         user: user!, until: new Date(Date.now() + TILL_IDLE_MINUTES * 60_000).toISOString(),
         saleId: sale && sale.status === "open" ? sale.id : null,
         canRegister: await holdsTab(req.tillUserId!, "contacts"),
+        handlesCash: await db.select({ h: posRegisters.handlesCash }).from(posRegisters).where(eq(posRegisters.id, d.registerId!)).then((x) => x[0]?.h === true),
       };
       res.json(me);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  // ── Catalogue: the laptop's own ───────────────────────────────────────────
+  // ── Catalogue: the laptop's own, narrowed to what THIS reader can sell ──
   app.get(`${P}/catalogue`, ...till, async (req: TillReq, res) => {
     try {
+      const d = req.counter!;
       const r = await run(posHandlers.catalogue, asStaff(req, req.tillUserId!, { query: { q: str(req.query.q, 80), code: str(req.query.code, 80) } }));
       if (r.status >= 400) return res.status(r.status).json(r.body);
-      // The reader registers academy players only; a camp sells DAYS and needs
-      // the laptop's day picker. Programmes with no fee on file are not sellable.
-      const programmes = (r.body.programmes ?? []).filter((p: any) => p.type === "academy" && p.options.length > 0);
-      res.json({ products: r.body.products ?? [], programmes, codeHit: r.body.codeHit ?? null });
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+      // 🔴 One sale banks with ONE account and the reader takes cards for ONE
+      // (the register's). Showing United Gymnastics kit on the club's reader
+      // would only end in Postgres refusing the line, so it isn't offered.
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, d.registerId!));
+      const account = await readerAccountForRegister(register);
+      const accountByOrg = new Map<number, string | null>();
+      const sameAccount = async (orgId: number) => {
+        if (!accountByOrg.has(orgId)) accountByOrg.set(orgId, await moneyAccountForOrg(orgId));
+        return (accountByOrg.get(orgId) ?? "club") === account;
+      };
+      const products: any[] = [];
+      for (const p of r.body.products ?? []) if (await sameAccount(p.orgId)) products.push(p);
+      // Term programmes with a fee on file, and holiday camps with a day still
+      // to come. A camp sells DAYS, priced from camp_pricing, so it carries no
+      // option rows — it is offered when it has pricing and a future date.
+      const today = nzTodayIso();
+      const campIds = (r.body.programmes ?? []).filter((p: any) => p.type === "holiday_camp").map((p: any) => p.id);
+      const campInfo = new Map<number, { nextDate: string; lastDate: string; fromCents: number }>();
+      if (campIds.length) {
+        const rows = await db.execute(sql`
+          SELECT d.camp_id, min(d.date)::text AS next_date, max(d.date)::text AS last_date,
+                 (SELECT min(price_cents) FROM camp_pricing cp WHERE cp.camp_id = d.camp_id AND cp.price_cents > 0) AS from_cents
+            FROM camp_dates d WHERE d.camp_id IN (${sql.join(campIds.map((id: number) => sql`${id}`), sql`, `)}) AND d.date >= ${today}::date
+           GROUP BY d.camp_id`);
+        for (const x of rows.rows as any[]) if (x.from_cents) campInfo.set(Number(x.camp_id), { nextDate: x.next_date, lastDate: x.last_date, fromCents: Number(x.from_cents) });
+      }
+      const programmes: any[] = [];
+      for (const p of r.body.programmes ?? []) {
+        if (!(await sameAccount(p.orgId))) continue;
+        if (p.type === "academy" && p.options.length > 0) programmes.push({ ...p, kind: "academy", fromCents: Math.min(...p.options.map((o: any) => o.fullPriceCents)) });
+        else if (p.type === "holiday_camp" && campInfo.has(p.id)) { const c = campInfo.get(p.id)!; programmes.push({ ...p, kind: "camp", fromCents: c.fromCents, firstDate: c.nextDate, lastDate: c.lastDate }); }
+      }
+      // Camps first in the school holidays is not something to guess — the
+      // reader lists camps by their next day, then term programmes by name.
+      programmes.sort((x, y) => (x.kind === y.kind ? (x.kind === "camp" ? String(x.firstDate).localeCompare(String(y.firstDate)) : x.name.localeCompare(y.name)) : x.kind === "camp" ? -1 : 1));
+      res.json({ products, programmes, codeHit: r.body.codeHit ?? null });
+    } catch (e: any) { console.error("[TILL] catalogue", e); res.status(500).json({ message: e.message }); }
   });
 
   // ── The sale ──────────────────────────────────────────────────────────────
@@ -436,11 +470,84 @@ export function registerPosCounterTillRoutes(app: Express) {
   });
 
   /**
-   * Register a player into an academy programme and put it on the sale.
-   * The body the office route receives is built HERE from the family record
-   * (existing player) or from what staff typed (new player). It comes back
-   * with `code` hdyhau_required / nzf_incomplete / age_warning when it needs
-   * one more answer; the reader asks and sends again.
+   * A family, as the reader may show it: the parent's NAME (never their email
+   * or phone) and each child with an age hint. Used to add a sibling, and to
+   * pick which children go to a camp.
+   */
+  app.get(`${P}/family/:key`, ...till, async (req: TillReq, res) => {
+    try {
+      if (!(await holdsTab(req.tillUserId!, "contacts"))) return res.status(403).json({ message: "Registering players needs Contacts access." });
+      const parsed = parsePersonKey(String(req.params.key));
+      const fam: any = parsed ? await resolveFamily(parsed.kind, parsed.id) : null;
+      if (!fam) return res.status(404).json({ message: "Not found." });
+      const season = Number(nzTodayIso().slice(0, 4));
+      const isChild = (x: any) => x && (x.kind === "child" || x.type === "player");
+      const kids: any[] = isChild(fam.person) ? [fam.person, ...(fam.children ?? []).filter((c: any) => c.key !== fam.person.key)] : (fam.children ?? []);
+      const seen = new Set<string>();
+      const children: TillPerson[] = [];
+      for (const c of kids) {
+        // The resolver can return one child as a contact AND a camp child row.
+        const sig = `${String(c.firstName).trim().toLowerCase()}|${String(c.lastName).trim().toLowerCase()}|${c.dateOfBirth ?? ""}`;
+        if (seen.has(sig)) continue; seen.add(sig);
+        const dob = c.dateOfBirth ? String(c.dateOfBirth).slice(0, 10) : null;
+        const grade = dob ? ageGradeFor(dob, season) : null;
+        children.push({ key: c.key, name: [c.firstName, c.lastName].filter(Boolean).join(" "), hint: dob ? `${grade ? `U${grade} · ` : ""}born ${dob.slice(0, 4)}` : null, parents: [] });
+      }
+      const g = (fam.guardians ?? []).find((x: any) => x?.email) ?? (isChild(fam.person) ? null : fam.person);
+      res.json({ guardian: g ? { name: [g.firstName, g.lastName].filter(Boolean).join(" "), hasEmail: !!g.email } : null, children });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  /** A camp's days still to come and its prices — what the day picker draws. */
+  app.get(`${P}/camp/:programId`, ...till, async (req: TillReq, res) => {
+    try {
+      const id = num(req.params.programId);
+      const [prog] = Number.isFinite(id) ? await db.select({ id: programs.id, type: programs.type, name: programs.name }).from(programs).where(eq(programs.id, id)) : [];
+      if (!prog || prog.type !== "holiday_camp") return res.status(404).json({ message: "Not a holiday camp." });
+      const today = nzTodayIso();
+      const [pricing, dates, discounts] = await Promise.all([storage.getCampPricing(id), storage.getCampDates(id), storage.getProgramDiscounts(id)]);
+      res.json({
+        name: prog.name,
+        pricing: pricing.filter((p: any) => p.priceCents > 0).map((p: any) => ({ productType: p.productType, priceCents: p.priceCents })),
+        // 🔴 The DATE column is an ISO day; compare it as text, never through a Date.
+        dates: dates.map((d: any) => ({ id: d.id, date: String(d.date).slice(0, 10), name: d.name ?? null })).filter((d: any) => d.date >= today).sort((a: any, b: any) => a.date.localeCompare(b.date)),
+        discounts: discounts.map((x: any) => ({ minBookings: x.minBookings, discountPercent: Number(x.discountPercent) })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  /** The parent the reader names by a person key — the first guardian WITH an email. */
+  async function guardianFromKey(key: unknown): Promise<{ firstName: string; lastName: string; email: string; phone: string } | null> {
+    const parsed = parsePersonKey(String(key ?? ""));
+    const fam: any = parsed ? await resolveFamily(parsed.kind, parsed.id) : null;
+    if (!fam) return null;
+    const isChild = fam.person && (fam.person.kind === "child" || fam.person.type === "player");
+    const g = (fam.guardians ?? []).find((x: any) => x?.email) ?? (!isChild && fam.person?.email ? fam.person : null);
+    return g ? { firstName: g.firstName, lastName: g.lastName, email: String(g.email).toLowerCase(), phone: g.phone ?? "" } : null;
+  }
+  /** A child the reader names by a person key, with what the club already holds about them. */
+  async function childFromKey(key: unknown): Promise<any | null> {
+    const parsed = parsePersonKey(String(key ?? ""));
+    const fam: any = parsed ? await resolveFamily(parsed.kind, parsed.id) : null;
+    const p = fam?.person;
+    return p && (p.kind === "child" || p.type === "player") ? p : null;
+  }
+  /** A refused registration is checkout scaffolding: unlinked and cancelled, never deleted. */
+  async function abandonRegistration(id: number) {
+    await db.execute(sql`UPDATE registrations SET status = 'cancelled', pos_sale_id = NULL WHERE id = ${id} AND status = 'pending'`);
+  }
+
+  /**
+   * Register into a programme and put it on the sale. ONE endpoint for both
+   * shapes ClubOS has:
+   *   academy — one player per registration (`personKey`, or `player` typed,
+   *             with the parent from `guardianFromKey` or typed `guardian`)
+   *   camp    — one parent, one or more children, the days chosen
+   * The body the office route receives is built HERE; the reader never sends
+   * an email or phone of a family we already hold, and never a price.
+   * Answers `code` hdyhau_required / nzf_incomplete / age_warning /
+   * already_registered when it needs one more answer; the reader asks and
+   * sends again.
    */
   app.post(`${P}/registrations`, ...till, async (req: TillReq, res) => {
     try {
@@ -449,58 +556,170 @@ export function registerPosCounterTillRoutes(app: Express) {
       if (!(await holdsTab(userId, "contacts"))) return res.status(403).json({ message: "Registering players needs Contacts access." });
       const b = req.body ?? {};
       const programId = num(b.programId);
-      const [prog] = Number.isFinite(programId) ? await db.select({ id: programs.id, type: programs.type }).from(programs).where(eq(programs.id, programId)) : [];
-      if (!prog || prog.type !== "academy") return res.status(400).json({ message: "Choose a term programme." });
+      const [prog] = Number.isFinite(programId) ? await db.select({ id: programs.id, type: programs.type, name: programs.name, orgId: programs.organizationId }).from(programs).where(eq(programs.id, programId)) : [];
+      if (!prog || (prog.type !== "academy" && prog.type !== "holiday_camp")) return res.status(400).json({ message: "Choose a programme." });
 
-      let player: Record<string, unknown>;
-      let guardian: Record<string, unknown>;
-      if (b.personKey) {
-        const parsed = parsePersonKey(String(b.personKey));
-        const fam: any = parsed ? await resolveFamily(parsed.kind, parsed.id) : null;
-        if (!fam) return res.status(404).json({ message: "That player wasn't found." });
-        const p = fam.person ?? {};
-        if (!(p.kind === "child" || p.type === "player")) return res.status(400).json({ message: "Pick the player, not a parent." });
-        const g = (fam.guardians ?? []).find((x: any) => x?.email) ?? null;
-        if (!g) return res.status(409).json({ code: "no_guardian", message: "No parent with an email is linked to this player. Add them as a new player with the parent's details." });
-        player = {
-          firstName: p.firstName, lastName: p.lastName,
-          dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : "",
-          gender: p.gender ?? undefined, school: p.school ?? undefined,
-          countryOfBirthCode: p.countryOfBirthCode ?? undefined, nationalityCode: p.nationalityCode ?? undefined,
-          ethnicityGroupId: p.ethnicityGroupId ?? undefined, ethnicitySelectionIds: p.ethnicitySelectionIds ?? undefined,
-          ethnicity2GroupId: p.ethnicity2GroupId ?? undefined, ethnicity2SelectionIds: p.ethnicity2SelectionIds ?? undefined,
-          addressParts: { street: p.addressStreet ?? "", suburb: p.addressSuburb ?? "", city: p.addressCity ?? "", region: p.addressRegion ?? "", postcode: p.addressPostcode ?? "", country: p.addressCountry ?? "NZL" },
-        };
-        guardian = { firstName: g.firstName, lastName: g.lastName, email: g.email, phone: g.phone ?? "" };
-      } else {
-        const np = b.player ?? {}, ng = b.guardian ?? {};
-        player = { firstName: str(np.firstName, 60), lastName: str(np.lastName, 60), dateOfBirth: str(np.dateOfBirth, 10), gender: str(np.gender, 20) || undefined };
-        guardian = { firstName: str(ng.firstName, 60), lastName: str(ng.lastName, 60), email: str(ng.email, 200).toLowerCase(), phone: str(ng.phone, 40) };
-      }
-      if (b.deferReason) {
-        Object.assign(player, { deferIdentity: true, deferReason: str(b.deferReason, 80), deferNote: str(b.deferNote, 200) });
-      }
+      // The parent: an existing family's (by key) or typed.
+      const typedGuardian = (g: any) => ({ firstName: str(g?.firstName, 60), lastName: str(g?.lastName, 60), email: str(g?.email, 200).toLowerCase(), phone: str(g?.phone, 40) });
+      let guardian = b.guardianFromKey ? await guardianFromKey(b.guardianFromKey) : null;
+      if (b.guardianFromKey && !guardian) return res.status(409).json({ code: "no_guardian", message: "No parent with an email is linked to this family. Type the parent's details instead." });
 
       const sale = await ensureSale(d, userId);
-      const body = {
-        programId, programOptionId: b.programOptionId ?? undefined, termId: b.termId ?? undefined,
-        priceMode: b.priceMode === "prorata" ? "prorata" : "full", paymentPlan: "term",
-        player, guardian,
+      // One visit = one group, so the registrations of one sale read back together.
+      const registrationGroupId = `till-sale-${String(sale.id).padStart(6, "0")}`;
+      const common = {
+        programId, registrationGroupId,
         referralSource: b.referralSource || undefined, referralDetail: b.referralDetail || undefined,
-        acknowledgeAgeWarning: b.acknowledgeAgeWarning === true,
         policyAccepted: b.policyAccepted === true,
-        payment: { isPaid: false },
-        servedByUserId: userId,
-        posSaleId: sale.id,
-        notes: "Registered on the counter reader",
+        payment: { isPaid: false }, servedByUserId: userId, posSaleId: sale.id,
       };
+
+      let body: any; let who = "";
+      if (prog.type === "academy") {
+        let player: Record<string, unknown>;
+        if (b.personKey) {
+          const p = await childFromKey(b.personKey);
+          if (!p) return res.status(404).json({ message: "Pick the player, not a parent." });
+          if (!guardian) guardian = await guardianFromKey(b.personKey);
+          if (!guardian) return res.status(409).json({ code: "no_guardian", message: "No parent with an email is linked to this player. Add them as a new player with the parent's details." });
+          player = {
+            firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : "",
+            gender: p.gender ?? undefined, school: p.school ?? undefined,
+            countryOfBirthCode: p.countryOfBirthCode ?? undefined, nationalityCode: p.nationalityCode ?? undefined,
+            ethnicityGroupId: p.ethnicityGroupId ?? undefined, ethnicitySelectionIds: p.ethnicitySelectionIds ?? undefined,
+            ethnicity2GroupId: p.ethnicity2GroupId ?? undefined, ethnicity2SelectionIds: p.ethnicity2SelectionIds ?? undefined,
+            addressParts: { street: p.addressStreet ?? "", suburb: p.addressSuburb ?? "", city: p.addressCity ?? "", region: p.addressRegion ?? "", postcode: p.addressPostcode ?? "", country: p.addressCountry ?? "NZL" },
+          };
+        } else {
+          const np = b.player ?? {};
+          player = { firstName: str(np.firstName, 60), lastName: str(np.lastName, 60), dateOfBirth: str(np.dateOfBirth, 10), gender: str(np.gender, 20) || undefined };
+          if (!guardian) guardian = typedGuardian(b.guardian);
+        }
+        if (b.deferReason) Object.assign(player, { deferIdentity: true, deferReason: str(b.deferReason, 80), deferNote: str(b.deferNote, 200) });
+        who = `${player.firstName ?? ""}`.trim();
+        body = { ...common, programOptionId: b.programOptionId ?? undefined, termId: b.termId ?? undefined, priceMode: b.priceMode === "prorata" ? "prorata" : "full", paymentPlan: "term", acknowledgeAgeWarning: b.acknowledgeAgeWarning === true, player, guardian, notes: "Registered on the counter reader" };
+      } else {
+        // ── Camp: one parent, the children, the days ─────────────────────
+        const days: { campDateId: number; productType: string }[] = Array.isArray(b.days) ? b.days.slice(0, 40).map((x: any) => ({ campDateId: num(x?.campDateId), productType: str(x?.productType, 30) })).filter((x: any) => Number.isFinite(x.campDateId) && x.productType) : [];
+        if (!days.length) return res.status(400).json({ message: "Choose at least one day." });
+        const [pricing, dates] = await Promise.all([storage.getCampPricing(programId), storage.getCampDates(programId)]);
+        const today = nzTodayIso();
+        for (const x of days) {
+          const dd: any = dates.find((y: any) => y.id === x.campDateId);
+          if (!dd || String(dd.date).slice(0, 10) < today) return res.status(400).json({ message: "One of those days isn't on this camp any more." });
+          if (!pricing.some((p: any) => p.productType === x.productType && p.priceCents > 0)) return res.status(400).json({ message: "One of those day options has no price." });
+        }
+        // 🔴 One booking per child per DAY: two options on one day is a mistake.
+        if (new Set(days.map((x) => x.campDateId)).size !== days.length) return res.status(400).json({ message: "Pick one option per day." });
+        const kidsIn: any[] = Array.isArray(b.children) ? b.children.slice(0, 8) : [];
+        const children: any[] = [];
+        for (const k of kidsIn) {
+          if (k?.key) {
+            const c = await childFromKey(k.key);
+            if (!c) return res.status(404).json({ message: "One of those children wasn't found." });
+            // What the club already holds carries over, read here — never shown on the reader.
+            children.push({ firstName: c.firstName, lastName: c.lastName, dateOfBirth: c.dateOfBirth ? String(c.dateOfBirth).slice(0, 10) : null, allergies: c.allergies ?? null, epiPen: c.epiPen === true, medicalNotes: c.medicalNotes ?? null });
+            if (!guardian) guardian = await guardianFromKey(k.key);
+          } else {
+            const fn = str(k?.firstName, 60), ln = str(k?.lastName, 60), dob = str(k?.dateOfBirth, 10);
+            if (!fn || !ln) return res.status(400).json({ message: "Every child needs a first and last name." });
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return res.status(400).json({ message: `${fn}'s date of birth is needed.` });
+            children.push({ firstName: fn, lastName: ln, dateOfBirth: dob });
+          }
+        }
+        if (!children.length) return res.status(400).json({ message: "Add at least one child." });
+        if (!guardian) guardian = typedGuardian(b.guardian);
+        if (!guardian.firstName || !guardian.lastName) return res.status(400).json({ message: "The parent's name is needed." });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(guardian.email)) return res.status(400).json({ message: "A parent email is needed — the booking confirmation goes there." });
+        if (!guardian.phone) return res.status(400).json({ message: "A parent phone number is needed." });
+        const items = children.flatMap((_c, ci) => days.map((x) => ({ childIndex: ci, campDateId: x.campDateId, productType: x.productType })));
+        // 🔴 A child already booked on one of these days, by this parent, is a
+        // double booking. Checked BEFORE anything is written.
+        if (b.acknowledgeDuplicate !== true) {
+          const clash = await db.execute(sql`
+            SELECT ch.first_name, cd.date::text AS date
+              FROM registration_items ri
+              JOIN registrations r ON r.id = ri.registration_id
+              JOIN contacts g ON g.id = r.guardian_id
+              JOIN children ch ON ch.id = ri.child_id
+              JOIN camp_dates cd ON cd.id = ri.camp_date_id
+             WHERE r.program_id = ${programId} AND r.status IN ('confirmed','partially_refunded') -- holds a place (see the academy check)
+               AND lower(trim(g.email)) = ${guardian.email.trim()}
+               AND ri.camp_date_id IN (${sql.join(days.map((x) => sql`${x.campDateId}`), sql`, `)})
+               -- 🔴 trim: saved names carry stray spaces ("Liam " on a real booking).
+               AND lower(trim(ch.first_name)) IN (${sql.join(children.map((c) => sql`${String(c.firstName).trim().toLowerCase()}`), sql`, `)})
+             LIMIT 5`);
+          if (clash.rows.length) {
+            const r0: any = clash.rows[0];
+            // "Mon 21 Dec" from the y-m-d parts — a raw ISO date reads as a code to a parent.
+            const [y, m, dd] = String(r0.date).split("-").map(Number);
+            const day = `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${dd} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1]}`;
+            const more = clash.rows.length > 1 ? ` (and ${clash.rows.length - 1} more of those days)` : "";
+            return res.status(409).json({ code: "already_registered", message: `${String(r0.first_name).trim()} is already booked and paid for ${day} at this camp${more}.` });
+          }
+        }
+        who = children.map((c) => c.firstName).join(" + ");
+        body = { ...common, parent: { ...guardian, emergencyContact: null, emergencyPhone: null }, children, items,
+          notes: ["Registered on the counter reader", children.some((c) => !c.allergies && !c.medicalNotes && !c.epiPen) && b.medicalToFollow ? "Medical / allergies to collect — told staff at the counter" : ""].filter(Boolean).join(" · ") };
+      }
+
       const r = await run(officeRegistration.create, asStaff(req, userId, { body }));
       if (r.status >= 400 || !r.body?.registrationId) return res.status(r.status >= 400 ? r.status : 500).json(r.body ?? { message: "That registration didn't save." });
-      const add = await run(posHandlers.addLine, asStaff(req, userId, { params: { id: String(sale.id) }, body: { kind: "registration", registrationId: r.body.registrationId } }));
-      if (add.status >= 400) return res.status(add.status).json(add.body);
-      await logEvent(d.id, "info", `Registered ${r.body.player?.firstName ?? "a player"} on ${sale.saleNumber}`, { kind: "till_registration", registrationId: r.body.registrationId, saleId: sale.id, userId });
-      res.status(201).json({ sale: tillSaleView(await loadSale(sale.id)), nzfMissing: r.body.nzfMissing ?? [], ageWarning: r.body.ageWarning ?? null });
+      const regId = Number(r.body.registrationId);
+
+      // ── Duplicates, academy: on this sale already, or already paid for ──
+      if (prog.type === "academy") {
+        // 🔴 "Holds a place" = confirmed or partially refunded. Deliberately NOT
+        // the full REAL_REGISTRATION_STATUSES decider: a fully REFUNDED child
+        // gave the place back, and paying again for it is exactly right.
+        const twin = await db.execute(sql`
+          SELECT r.id, r.status, r.pos_sale_id FROM registrations r, registrations mine
+           WHERE mine.id = ${regId} AND r.id <> mine.id AND r.contact_id = mine.contact_id AND r.program_id = mine.program_id
+             AND r.term_id IS NOT DISTINCT FROM mine.term_id
+             AND (r.pos_sale_id = ${sale.id} AND r.status = 'pending' OR r.status IN ('confirmed','partially_refunded'))
+           LIMIT 1`);
+        const t: any = twin.rows[0];
+        if (t && Number(t.pos_sale_id) === sale.id && t.status === "pending") {
+          await abandonRegistration(regId);
+          return res.status(409).json({ code: "on_sale_already", message: `${who} is already on this sale for ${prog.name}.` });
+        }
+        if (t && b.acknowledgeDuplicate !== true) {
+          await abandonRegistration(regId);
+          return res.status(409).json({ code: "already_registered", message: `${who} is already registered and paid for ${prog.name} this term.` });
+        }
+      }
+
+      const add = await run(posHandlers.addLine, asStaff(req, userId, { params: { id: String(sale.id) }, body: { kind: "registration", registrationId: regId } }));
+      if (add.status >= 400) { await abandonRegistration(regId); return res.status(add.status).json(add.body); }
+      // The line names who it is for (a camp booking's contact is the parent).
+      const label = prog.type === "holiday_camp" ? `${who} · ${(body.items.length / body.children.length)} day${body.items.length / body.children.length === 1 ? "" : "s"}` : who;
+      await db.execute(sql`UPDATE pos_sale_lines SET detail = ${label.slice(0, 200)} WHERE sale_id = ${sale.id} AND registration_id = ${regId} AND kind = 'registration'`);
+      await logEvent(d.id, "info", `Registered ${who || "a player"} for ${prog.name} on ${sale.saleNumber}`, { kind: "till_registration", registrationId: regId, saleId: sale.id, userId });
+      res.status(201).json({ sale: tillSaleView(await loadSale(sale.id)), nzfMissing: r.body.nzfMissing ?? [], ageWarning: r.body.ageWarning ?? null, guardian: { name: `${guardian?.firstName ?? ""} ${guardian?.lastName ?? ""}`.trim() } });
     } catch (e: any) { console.error("[TILL] registration", e); res.status(500).json({ message: e.message }); }
+  });
+
+  /**
+   * Paid another way — the bank's EFTPOS terminal (an eftpos-only card the
+   * reader cannot take), a bank transfer, or "other". Recorded through the
+   * laptop's own manual-tender handler, so the slip number is required and a
+   * register that does not take cash refuses cash. The thank-you then shows on
+   * the reader exactly as for a card.
+   */
+  app.post(`${P}/sale/pay-other`, ...till, async (req: TillReq, res) => {
+    try {
+      const d = req.counter!;
+      const sale = await currentSale(d);
+      if (!sale || sale.status !== "open") return res.status(404).json({ message: "Nothing to pay." });
+      if (sale.payments.some((p: any) => p.status === "pending")) return res.status(409).json({ message: "A card payment is still waiting on the reader — cancel it first." });
+      const method = str(req.body?.method, 20);
+      const r = await run(posHandlers.manualPayment, asStaff(req, req.tillUserId!, { params: { id: String(sale.id) }, body: { method, amountCents: sale.remainingCents, reference: str(req.body?.reference, 120) } }));
+      if (r.status >= 400) return res.status(r.status).json(r.body);
+      const after = await loadSale(sale.id);
+      if (after?.status === "paid") await showOnCounter(d.registerId!, sale.id);
+      await logEvent(d.id, "info", `Recorded ${method} for ${sale.saleNumber} on the reader`, { kind: "till_pay_other", saleId: sale.id, method, userId: req.tillUserId });
+      res.json({ sale: tillSaleView(after) });
+    } catch (e: any) { console.error("[TILL] pay other", e); res.status(500).json({ message: e.message }); }
   });
 
   // ── Staff: set your own PIN (from the Register on a laptop or phone) ──────

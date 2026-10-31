@@ -29,6 +29,8 @@ export interface TillMe {
   /** May this person look players up and register them? Same rule as the
    *  laptop: the Contacts tab somewhere. Without it the reader sells kit only. */
   canRegister: boolean;
+  /** Cash is offered only on a register that takes it (the club is cashless by default). */
+  handlesCash: boolean;
 }
 
 export interface TillLine {
@@ -53,4 +55,4 @@ export interface TillPerson {
 }
 
 /** Codes the registration step answers with when it needs one more thing. */
-export type TillRegistrationNeed = "hdyhau_required" | "nzf_incomplete" | "age_warning";
+export type TillRegistrationNeed = "hdyhau_required" | "nzf_incomplete" | "age_warning" | "already_registered";

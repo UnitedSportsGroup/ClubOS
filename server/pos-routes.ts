@@ -104,7 +104,7 @@ type PosHandler = (req: Request, res: Response) => Promise<unknown>;
  * and the staff PIN. One implementation of every money rule — a second copy
  * for the reader would drift the first time either changed.
  */
-export const posHandlers: Record<"catalogue" | "createSale" | "addLine" | "updateLine" | "deleteLine" | "cardPayment" | "cancelPayment" | "voidSale", PosHandler> = {} as any;
+export const posHandlers: Record<"catalogue" | "createSale" | "addLine" | "updateLine" | "deleteLine" | "cardPayment" | "cancelPayment" | "voidSale" | "manualPayment" | "complete", PosHandler> = {} as any;
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
 const str = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -140,7 +140,7 @@ async function staffName(userId: number | null | undefined): Promise<string | nu
   return [u.f, u.l].filter(Boolean).join(" ") || u.e;
 }
 
-async function moneyAccountForOrg(orgId: number): Promise<string | null> {
+export async function moneyAccountForOrg(orgId: number): Promise<string | null> {
   const [m] = await db.select().from(posOrgMoneyAccounts).where(eq(posOrgMoneyAccounts.organizationId, orgId));
   return m?.account ?? null;
 }
@@ -795,7 +795,7 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Manual tenders: cash (rounded), EFTPOS terminal, bank transfer, other ─
-  app.post("/api/admin/pos/sales/:id/payments", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/payments", ...gate, posHandlers.manualPayment = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const method = str(req.body?.method, 20);
@@ -840,7 +840,7 @@ export function registerPosRoutes(app: Express) {
   // A sale that costs nothing — a comp, a giveaway at a stand — still has to
   // close, so the stock moves and the giveaway is on the record. There is no
   // payment to take, so this is the only way a $0 sale reaches 'paid'.
-  app.post("/api/admin/pos/sales/:id/complete", ...gate, async (req, res) => {
+  app.post("/api/admin/pos/sales/:id/complete", ...gate, posHandlers.complete = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       if (sale.lines.length === 0) return res.status(409).json({ message: "Nothing in the sale." });
