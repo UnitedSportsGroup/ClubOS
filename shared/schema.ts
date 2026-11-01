@@ -10434,6 +10434,8 @@ export const studioRenders = pgTable("studio_renders", {
   height: integer("height").notNull(),
   bytes: integer("bytes").notNull(),
   data: bytea("data").notNull(),
+  /** Which slide of a carousel (0 for a single graphic or a page). */
+  slide: smallint("slide").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   keyUnq: uniqueIndex("studio_renders_key_key").on(t.key),

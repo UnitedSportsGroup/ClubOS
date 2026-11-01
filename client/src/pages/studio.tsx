@@ -17,7 +17,7 @@ import { apiRequest, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Image as ImageIcon, LayoutTemplate, Clapperboard, Mail, Loader2, ChevronRight, Globe, Clock, FileImage } from "lucide-react";
+import { Image as ImageIcon, LayoutTemplate, Clapperboard, GalleryHorizontal, Mail, Loader2, ChevronRight, Globe, Clock, FileImage } from "lucide-react";
 import { GRAPHIC_SIZES, STUDIO_BRANDS, studioKindLabel, type StudioKind } from "@shared/studio";
 import { designedHeadline, isDesignedDoc } from "@shared/studio-designed";
 import { StudioPiece } from "./studio-piece";
@@ -68,6 +68,7 @@ function StudioHome() {
   const [composer, setComposer] = useState<StudioKind | null>(null);
   const [brief, setBrief] = useState("");
   const [size, setSize] = useState("square");
+  const [slides, setSlides] = useState(5);
   const [footage, setFootage] = useState("");
   const [format, setFormat] = useState<"landscape" | "vertical" | "both">("vertical");
   const [length, setLength] = useState(45);
@@ -84,7 +85,7 @@ function StudioHome() {
         return res.json();
       }
       setStage(null);
-      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined, brand: brandKey, engine });
+      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" || composer === "carousel" ? size : undefined, slides: composer === "carousel" ? slides : undefined, brand: brandKey, engine: composer === "carousel" ? "designed" : engine });
       const j = await readStudioStream(res, setStage);
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that.");
       return j;
@@ -109,7 +110,7 @@ function StudioHome() {
   }, [list, filter, me?.id]);
 
   const capped = usage ? usage.used >= usage.limit : false;
-  const canMake = !!composer && brief.trim().length > 8 && !make.isPending && !capped && (composer !== "video" || footage.trim().length > 0);
+  const canMake = !!composer && brief.trim().length > 8 && !make.isPending && !capped;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -130,13 +131,14 @@ function StudioHome() {
       </div>
 
       {/* Make something */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="studio-make">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" data-testid="studio-make">
         {([
           ["graphic", ImageIcon, "A graphic", "A post, a story, an event card, a big number or a chart. Square, portrait, story or landscape."],
+          ["carousel", GalleryHorizontal, "A carousel", "One idea told across 3–10 swipeable slides, all in one design — a hook, the points, the call to action."],
           ["page", LayoutTemplate, "A landing page", `Built from a brief with the real dates, prices and booking links, published at ${usage?.brand.host ?? "the club's site"}/p/…`],
           ["video", Clapperboard, "A video", "From real footage — your phone clips or the Drive. Give the brief and the footage; it's cut and delivered back here."],
         ] as const).map(([kind, Icon, title, blurb]) => (
-          <button key={kind} type="button" onClick={() => setComposer(composer === kind ? null : kind)}
+          <button key={kind} type="button" onClick={() => { const next = composer === kind ? null : kind; setComposer(next); if (next === "carousel" && size === "square") setSize("portrait"); }}
             className={`text-left rounded-2xl border p-4 transition-colors ${composer === kind ? "border-blue-500/50 bg-blue-500/[0.06]" : "border-border bg-card hover:border-blue-500/30"}`}
             data-testid={`studio-make-${kind}`}>
             <span className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-3"><Icon className="w-5 h-5" /></span>
@@ -158,7 +160,9 @@ function StudioHome() {
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
             rows={4}
-            placeholder={composer === "graphic"
+            placeholder={composer === "carousel"
+              ? "e.g. Why your child should start gymnastics before 8 — for parents, ends on the free open training at cugc.co.nz. Or: 5 things that happen at a CUFC holiday camp."
+              : composer === "graphic"
               ? "e.g. A square post for the October holiday camp, U4–U8, last spots, book at cufc.co.nz/camps. Or: a chart of U4–U8 sign-ups by term: T1 140, T2 155, T3 149, T4 162."
               : composer === "page"
                 ? "e.g. A landing page for Football in Schools: what a term looks like, who it's for, the price per term and the starter kit, how a school books a free session."
@@ -168,6 +172,14 @@ function StudioHome() {
           />
           {composer !== "video" && (
             <div className="space-y-2">
+              {composer === "carousel" && (
+                <div className="flex flex-wrap items-center gap-2" data-testid="studio-slides">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Slides</span>
+                  {[3, 4, 5, 6, 7, 8, 10].map((n) => (
+                    <button key={n} type="button" onClick={() => setSlides(n)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${slides === n ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{n}</button>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2" data-testid="studio-brands">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Brand</span>
                 {STUDIO_BRANDS.map((b) => (
@@ -176,17 +188,17 @@ function StudioHome() {
                     data-testid={`studio-brand-${b.key}`}>{b.name}</button>
                 ))}
               </div>
-              <div className="flex flex-wrap items-center gap-2" data-testid="studio-engines">
+              {composer !== "carousel" && <div className="flex flex-wrap items-center gap-2" data-testid="studio-engines">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">How</span>
                 {([["designed", "Designed by Rambo", "A one-off design, checked on a phone and a laptop and fixed. About 2–4 minutes."], ["template", "Quick template", "The house template, filled in. Under a minute."]] as const).map(([k, label, tip]) => (
                   <button key={k} type="button" onClick={() => setEngine(k)} title={tip}
                     className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${engine === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}
                     data-testid={`studio-engine-${k}`}>{label}</button>
                 ))}
-              </div>
+              </div>}
             </div>
           )}
-          {composer === "graphic" && (
+          {(composer === "graphic" || composer === "carousel") && (
             <div className="flex flex-wrap gap-2" data-testid="studio-sizes">
               {GRAPHIC_SIZES.map((s) => (
                 <button key={s.key} type="button" onClick={() => setSize(s.key)} title={s.use}
@@ -231,8 +243,8 @@ function StudioHome() {
           {make.isPending && composer !== "video" && (
             <RamboWorking
               stage={stage}
-              expect={engine === "designed" ? (composer === "page" ? "usually 3–4 min" : "usually about 1 min") : "usually under a minute"}
-              expectSeconds={engine === "designed" ? (composer === "page" ? 200 : 70) : 30}
+              expect={composer === "carousel" ? "usually 2–4 min" : engine === "designed" ? (composer === "page" ? "usually 3–4 min" : "usually about 1 min") : "usually under a minute"}
+              expectSeconds={composer === "carousel" ? 180 : engine === "designed" ? (composer === "page" ? 200 : 70) : 30}
             />
           )}
         </div>
@@ -241,7 +253,7 @@ function StudioHome() {
       {/* Everyone's pieces */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["page", "Pages"], ["video", "Videos"], ["photos", "Photo library"]] as const).map(([k, label]) => (
+          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["carousel", "Carousels"], ["page", "Pages"], ["video", "Videos"], ["photos", "Photo library"]] as const).map(([k, label]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${filter === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`} data-testid={`studio-filter-${k}`}>{label}</button>
           ))}
         </div>
@@ -268,7 +280,7 @@ function PieceCard({ piece: p, onOpen }: { piece: PieceSummary; onOpen: () => vo
   return (
     <button type="button" onClick={onOpen} className="text-left rounded-2xl border border-border bg-card overflow-hidden hover:border-blue-500/30 transition-colors" data-testid={`studio-piece-${p.id}`}>
       <div className="aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">
-        {(p.kind === "graphic" || p.kind === "page") && p.renderUrl ? (
+        {(p.kind === "graphic" || p.kind === "page" || p.kind === "carousel") && p.renderUrl ? (
           <img src={p.renderUrl} alt="" loading="lazy" className={`w-full h-full object-cover ${p.kind === "page" ? "object-top" : ""}`} data-testid="studio-piece-thumb" />
         ) : (
           <div className="p-4 text-center">

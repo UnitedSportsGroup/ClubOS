@@ -150,15 +150,22 @@ ${fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><
 <style>${BASE_CSS}${brandVars(brandKey)}</style><style>${css}</style></head><body>${draft}${body}</body></html>`;
 }
 
-/** A graphic: the same document drawn on a fixed artboard. */
-export function renderDesignedGraphic(doc: DesignedDoc, brandKey: string, width: number, height: number): string {
+/** A carousel's slides are the top-level <section class="slide"> elements. */
+export const SLIDE_RE = /<section\b[^>]*class\s*=\s*"[^"]*\bslide\b[^"]*"/gi;
+export function countSlides(doc: Pick<DesignedDoc, "html">): number {
+  return (doc.html.match(SLIDE_RE) ?? []).length;
+}
+
+/** A graphic: the same document drawn on a fixed artboard. For a carousel,
+ *  `slide` (0-based) shows that one slide and hides the rest. */
+export function renderDesignedGraphic(doc: DesignedDoc, brandKey: string, width: number, height: number, slide?: number): string {
   const fonts = designedFontsHref(doc.fonts);
   const body = fillAlts(fillTokens(doc.html, doc), doc);
   const css = fillTokens(doc.css, doc, true);
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${width}">
 <meta http-equiv="Content-Security-Policy" content="${DESIGNED_CSP}">
 ${fonts ? `<link rel="stylesheet" href="${esc(fonts)}">` : ""}
-<style>${BASE_CSS}${brandVars(brandKey)}html,body{width:${width}px;height:${height}px;overflow:hidden}</style><style>${css}</style></head><body>${body}</body></html>`;
+<style>${BASE_CSS}${brandVars(brandKey)}html,body{width:${width}px;height:${height}px;overflow:hidden}</style><style>${css}</style>${slide != null ? `<style>body>section.slide:not(:nth-of-type(${Math.max(0, Math.floor(slide)) + 1})){display:none!important}</style>` : ""}</head><body>${body}</body></html>`;
 }
 
 /** The boxes a person edits: every word, every link, the page's title. */

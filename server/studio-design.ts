@@ -24,8 +24,9 @@ import sharp from "sharp";
 import { db } from "./db";
 import { studioGenerations } from "@shared/schema";
 import { mailerAiCostCents, type MailerAiTokenUsage } from "@shared/mailer-ai";
-import { graphicSize, isAllowedHref, isAllowedPicture, studioBrand, STUDIO_DEFAULT_EDIT_MODEL, STUDIO_DEFAULT_MODEL, type Checked } from "@shared/studio";
+import { artboardFor, graphicSize, isAllowedHref, isAllowedPicture, studioBrand, STUDIO_DEFAULT_EDIT_MODEL, STUDIO_DEFAULT_MODEL, type Checked } from "@shared/studio";
 import {
+  countSlides,
   DESIGNED_LIMITS, FONT_PARAM_RE, renderDesignedGraphic, renderDesignedPage, TOKEN_RE,
   type DesignedDoc, type DesignedImage, type DesignedLink, type DesignedText,
 } from "@shared/studio-designed";
@@ -236,7 +237,7 @@ export function renderAvailable(): boolean {
   return !!(process.env.STUDIO_RENDER_URL && process.env.STUDIO_RENDER_KEY);
 }
 
-export async function renderShot(opts: { html: string; width: number; height: number; fullPage?: boolean; maxHeight?: number; format?: "png" | "jpeg"; quality?: number }): Promise<{ buffer: Buffer; pageHeight: number } | null> {
+export async function renderShot(opts: { html: string; width: number; height: number; fullPage?: boolean; maxHeight?: number; format?: "png" | "jpeg"; quality?: number; scale?: 1 | 2 }): Promise<{ buffer: Buffer; pageHeight: number } | null> {
   if (!renderAvailable()) return null;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 55_000);
@@ -271,15 +272,42 @@ type ImageBlock = Anthropic.ImageBlockParam;
 const img = (b: Buffer, mime: "image/jpeg" | "image/png" = "image/jpeg"): ImageBlock => ({ type: "image", source: { type: "base64", media_type: mime, data: b.toString("base64") } });
 
 /** Screenshots of the piece as it renders, as content blocks for the model. */
-async function lookAt(doc: DesignedDoc, kind: "page" | "graphic", brandKey: string, sizeKey?: string): Promise<{ blocks: Anthropic.ContentBlockParam[]; png?: { buffer: Buffer; width: number; height: number } } | null> {
-  if (kind === "graphic") {
+export type DesignKind = "page" | "graphic" | "carousel";
+export interface DrawnSlide { buffer: Buffer; width: number; height: number; slide: number }
+
+/** One artboard (or one slide of a carousel) at its REAL pixel size, drawn
+ *  inside the render service's limits and scaled back (artboardFor). */
+export async function drawArtboard(doc: DesignedDoc, brandKey: string, sizeKey: string | null | undefined, slide?: number): Promise<DrawnSlide | null> {
+  const size = graphicSize(sizeKey);
+  const a = artboardFor(size);
+  const shot = await renderShot({ html: renderDesignedGraphic(doc, brandKey, a.width, a.height, slide), width: a.width, height: a.height, format: "png", scale: a.scale });
+  if (!shot) return null;
+  let buffer = shot.buffer;
+  const meta = await sharp(buffer).metadata();
+  if (meta.width !== a.outWidth || meta.height !== a.outHeight) buffer = await sharp(buffer).resize(a.outWidth, a.outHeight, { fit: "fill" }).png().toBuffer();
+  return { buffer, width: a.outWidth, height: a.outHeight, slide: slide ?? 0 };
+}
+
+/** Every slide of a carousel (or the one artboard of a graphic). */
+export async function drawAll(doc: DesignedDoc, kind: "graphic" | "carousel", brandKey: string, sizeKey: string | null | undefined): Promise<DrawnSlide[]> {
+  if (kind === "graphic") { const one = await drawArtboard(doc, brandKey, sizeKey); return one ? [one] : []; }
+  const n = Math.min(countSlides(doc), 12);
+  const out = await Promise.all(Array.from({ length: n }, (_, i) => drawArtboard(doc, brandKey, sizeKey, i)));
+  return out.filter(Boolean) as DrawnSlide[];
+}
+
+async function lookAt(doc: DesignedDoc, kind: DesignKind, brandKey: string, sizeKey?: string): Promise<{ blocks: Anthropic.ContentBlockParam[]; pngs?: DrawnSlide[] } | null> {
+  if (kind !== "page") {
     const size = graphicSize(sizeKey);
-    const shot = await renderShot({ html: renderDesignedGraphic(doc, brandKey, size.width, size.height), width: size.width, height: size.height, format: "png" });
-    if (!shot) return null;
-    return {
-      blocks: [{ type: "text", text: `Your graphic, rendered at its real size ${size.width}×${size.height}:` }, img(shot.buffer, "image/png")],
-      png: { buffer: shot.buffer, width: size.width, height: size.height },
-    };
+    const pngs = await drawAll(doc, kind, brandKey, sizeKey);
+    if (!pngs.length) return null;
+    const blocks: Anthropic.ContentBlockParam[] = [];
+    for (const p of pngs) {
+      // The model reads a JPEG at most 1200px on its long side; the PNG is kept for export.
+      const view = await sharp(p.buffer).resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+      blocks.push({ type: "text", text: kind === "carousel" ? `Slide ${p.slide + 1} of ${pngs.length}, rendered at ${size.width}×${size.height}:` : `Your graphic, rendered at its real size ${size.width}×${size.height}:` }, img(view));
+    }
+    return { blocks, pngs };
   }
   const page = renderDesignedPage(doc, brandKey, { noindex: true });
   const [phone, desk] = await Promise.all([
@@ -321,7 +349,7 @@ export const DESIGN_SCHEMA: Record<string, unknown> = {
 
 const promptCache = new Map<string, { at: number; text: string }>();
 
-async function designSystemPrompt(kind: "page" | "graphic", brandKey: string, orgId: number): Promise<string> {
+async function designSystemPrompt(kind: DesignKind, brandKey: string, orgId: number): Promise<string> {
   const cacheKey = `${kind}:${brandKey}:${orgId}`;
   const hit = promptCache.get(cacheKey);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.text;
@@ -333,7 +361,9 @@ async function designSystemPrompt(kind: "page" | "graphic", brandKey: string, or
   const other = pictures.filter((p) => p.brand !== brandKey);
   const crests = CLUB_LOGOS.map((l) => `- ${l.src}  (${l.key} crest)`).join("\n");
 
-  const job = kind === "page"
+  const job = kind === "carousel"
+    ? `YOUR JOB: design ONE social CAROUSEL — several slides that swipe left to right, one fixed artboard size (in the brief), one design system. Think like an editor first: turn the brief into ONE idea told across the slides — slide 1 is the hook (a bold promise or question that makes them swipe), the middle slides each carry ONE point with the proof, the last slide is the call to action with the crest and the pointer. The html is EXACTLY one top-level <section class="slide"> per slide, in order, nothing else at the top level; each slide is exactly the artboard size (width:100%;height:100vh or the px size) and must stand alone. Cohesive: the same grid, type scale, colours, rules and motif on every slide, with a running device (slide number "02/06", a line or shape that continues across the slide edge, the same photo treatment). Keep 64–96px clear of every edge for words. Word keys per slide: s1_headline, s2_body, … One real photograph on at least the first slide where the list has a fitting one.`
+    : kind === "page"
     ? `YOUR JOB: design ONE landing page for this brand from scratch, as a top studio would — distinctive, on brand, built for a phone first. Responsive with @media (min-width: 768px) and (min-width: 1100px). Real photographs from the list carry it. Four to nine sections.`
     : `YOUR JOB: design ONE social graphic on a fixed artboard (the size is in the brief). The body IS the artboard: design to exactly that width and height, nothing may spill or scroll, keep 64–96px clear of every edge for the words (platform UI covers the edges — on a 1080×1920 story keep the top 250px and bottom 300px free of words). One idea, read in two seconds on a phone: a big headline, at most one supporting line, the crest, and a short pointer (a web address or "book at the office" — not a clickable link). A real photograph almost always beats a flat background.`;
 
@@ -383,7 +413,9 @@ ${crests}`;
 // ── One designed piece ──────────────────────────────────────────────────────
 
 export interface DesignInput {
-  kind: "page" | "graphic";
+  kind: DesignKind;
+  /** Carousels: how many slides to make (new pieces only). */
+  slides?: number;
   brandKey: string;
   orgId: number;
   userId: number | null;
@@ -405,8 +437,10 @@ export interface DesignResult {
   usage: MailerAiTokenUsage;
   costCents: number;
   generationId: number | null;
-  /** A graphic's final render, ready to store. */
+  /** A graphic's final render (slide 0), ready to store. */
   png?: { buffer: Buffer; width: number; height: number } | null;
+  /** Every slide's render (a graphic has one). */
+  pngs?: DrawnSlide[];
   looked: number;
   error?: string;
 }
@@ -470,14 +504,15 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
   const stage = (s: string) => { try { input.onStage?.(s); } catch { /* the line may be gone */ } };
   const system = await designSystemPrompt(input.kind, input.brandKey, input.orgId);
   const size = graphicSize(input.sizeKey);
+  const board = artboardFor(size);
   const logos = await partnerLogos(input.brief, input.brandKey, input.orgId, input.userId, stage);
   const messages: Anthropic.MessageParam[] = [
     ...(input.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content })),
     {
       role: "user",
       content: input.current
-        ? `<current_document>\n${JSON.stringify(input.current)}\n</current_document>\n\n${input.kind === "graphic" ? `Artboard: ${size.width}×${size.height}.\n` : ""}Change requested: ${input.brief}${logos.text}\n\nReturn the whole document with that change made. Keep everything else as it is unless the change needs it.`
-        : `${input.kind === "graphic" ? `Artboard: ${size.label} ${size.width}×${size.height} (${size.use}).\n` : ""}Brief: ${input.brief}${logos.text}`,
+        ? `<current_document>\n${JSON.stringify(input.current)}\n</current_document>\n\n${input.kind !== "page" ? `Artboard: ${board.width}×${board.height} CSS px${board.scale === 2 || board.width !== size.width ? ` (exported at ${size.width}×${size.height})` : ""}.\n` : ""}Change requested: ${input.brief}${logos.text}\n\nReturn the whole document with that change made. Keep everything else as it is unless the change needs it.`
+        : `${input.kind !== "page" ? `Artboard: ${size.label} — design at ${board.width}×${board.height} CSS px${board.width !== size.width ? `, exported at ${size.width}×${size.height}` : ""} (${size.use}).\n` : ""}${input.kind === "carousel" ? `Carousel: ${Math.min(10, Math.max(2, input.slides ?? 5))} slides.\n` : ""}Brief: ${input.brief}${logos.text}`,
     },
   ];
 
@@ -516,7 +551,7 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
 
   try {
     // 1. Design it (with one chance to fix a document the checks refuse).
-    stage(input.current ? "Making the change" : input.kind === "page" ? "Designing the page" : "Designing the graphic");
+    stage(input.current ? "Making the change" : input.kind === "page" ? "Designing the page" : input.kind === "carousel" ? "Planning the slides and designing them" : "Designing the graphic");
     let doc: DesignedDoc | null = null;
     let out: any = null;
     for (let attempt = 0; attempt < 2 && !doc; attempt++) {
@@ -528,6 +563,11 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
       if (!out) problems.push("the answer was not valid JSON matching the schema");
       const c = out ? checkDesignedDoc(out) : null;
       if (c) problems.push(...c.problems);
+      if (c && input.kind === "carousel") {
+        const n = countSlides(c.doc), want = input.current ? null : Math.min(10, Math.max(2, input.slides ?? 5));
+        if (n < 2) problems.push(`a carousel's html must be one top-level <section class="slide"> per slide — found ${n}`);
+        else if (want && n !== want) problems.push(`make exactly ${want} slides (found ${n})`);
+      }
       if (!problems.length && c) { doc = c.doc; break; }
       messages.push({ role: "assistant", content: out ? JSON.stringify(out) : "(no valid answer)" });
       messages.push({ role: "user", content: `That document could not be used:\n- ${problems.join("\n- ")}\n\nReturn the whole corrected document.` });
@@ -538,12 +578,12 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
 
     // 2. Look at it in a real browser and fix what is wrong.
     let looked = 0;
-    let png: DesignResult["png"] = null;
+    let pngs: DrawnSlide[] = [];
     for (let round = 0; round < LOOK_ROUNDS; round++) {
-      stage(input.kind === "page" ? "Looking at it on a phone and a laptop" : "Looking at it at full size");
+      stage(input.kind === "page" ? "Looking at it on a phone and a laptop" : input.kind === "carousel" ? "Looking at every slide" : "Looking at it at full size");
       const view = await lookAt(doc, input.kind, input.brandKey, input.sizeKey);
       if (!view) break;
-      png = view.png ?? null;
+      pngs = view.pngs ?? [];
       looked++;
       messages.push({ role: "assistant", content: JSON.stringify(doc) });
       messages.push({ role: "user", content: [
@@ -558,17 +598,17 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
       if (JSON.stringify(c.doc) === JSON.stringify(doc)) break;
       doc = c.doc;
       reply = String(next.reply || reply);
-      png = null;
+      pngs = [];
     }
     // A graphic always ends with a render of the final version.
-    if (input.kind === "graphic" && !png) {
-      stage("Drawing the final PNG");
-      const view = await lookAt(doc, "graphic", input.brandKey, input.sizeKey);
-      png = view?.png ?? null;
+    if (input.kind !== "page" && !pngs.length) {
+      stage(input.kind === "carousel" ? "Drawing the final slides" : "Drawing the final PNG");
+      pngs = await drawAll(doc, input.kind, input.brandKey, input.sizeKey);
     }
+    const png = pngs[0] ?? null;
     await record(true, null);
     stage("Done");
-    return { ok: true, reply, title: (doc.title || "Untitled").slice(0, 120), doc, model, usage, costCents: mailerAiCostCents(model, usage) + logos.cents, generationId, png, looked };
+    return { ok: true, reply, title: (doc.title || "Untitled").slice(0, 120), doc, model, usage, costCents: mailerAiCostCents(model, usage) + logos.cents, generationId, png, pngs, looked };
   } catch (e: any) {
     const msg = String(e?.message || e || "");
     return fail(e?.status === 429 ? "Rambo is busy right now (rate limited). Try again in a minute."
@@ -579,9 +619,7 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
 
 /** Re-draw a designed graphic after a person edited its words. */
 export async function renderDesignedPng(doc: DesignedDoc, brandKey: string, sizeKey: string | null | undefined): Promise<{ buffer: Buffer; width: number; height: number } | null> {
-  const size = graphicSize(sizeKey);
-  const shot = await renderShot({ html: renderDesignedGraphic(doc, brandKey, size.width, size.height), width: size.width, height: size.height, format: "png" });
-  return shot ? { buffer: shot.buffer, width: size.width, height: size.height } : null;
+  return drawArtboard(doc, brandKey, sizeKey);
 }
 
 

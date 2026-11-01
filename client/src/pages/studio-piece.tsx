@@ -11,12 +11,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Smartphone, Monitor, ChevronLeft, Download, Link as LinkIcon, Check, Loader2, Globe, EyeOff, CopyPlus, Trash2, History, Settings2, Type, Image as ImageIcon, Upload, ExternalLink } from "lucide-react";
-import { applyField, graphicFields, graphicSize, GRAPHIC_SIZES, pageFields, readField, studioKindLabel, type GraphicDoc, type PageDoc, type TextField, type VideoDoc } from "@shared/studio";
+import { applyField, artboardFor, graphicFields, graphicSize, GRAPHIC_SIZES, pageFields, readField, studioKindLabel, type GraphicDoc, type PageDoc, type TextField, type VideoDoc } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
-import { designedFields, designedPictureSlots, isDesignedDoc, renderDesignedGraphic, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
+import { countSlides, designedFields, designedPictureSlots, isDesignedDoc, renderDesignedGraphic, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
 import { GraphicArtboard, exportArtboardPng } from "@/components/studio/artboard";
 import { FieldList } from "@/components/studio/fields";
-import { Pencil } from "lucide-react";
+import { Pencil, Scaling } from "lucide-react";
+import { createPortal } from "react-dom";
 import { RamboWorking } from "@/components/rambo-working";
 import { VideoEditor } from "@/components/studio/video-editor";
 import { PagePreview } from "@/components/studio/page-preview";
@@ -27,7 +28,7 @@ import { readStudioStream, whenLabel, type PieceSummary, type StudioUsage } from
 const FACE = "/mailer/rambo.png";
 type Tab = "words" | "rambo" | "pictures" | "versions" | "settings";
 
-interface Detail { piece: PieceSummary; versions: { version: number; how: string; note: string | null; createdAt: string; by: string | null }[]; renders: { version: number; url: string; width: number; height: number }[] }
+interface Detail { piece: PieceSummary; versions: { version: number; how: string; note: string | null; createdAt: string; by: string | null }[]; renders: { version: number; slide?: number; url: string; width: number; height: number }[] }
 
 export function StudioPiece({ id }: { id: number }) {
   const [, navigate] = useLocation();
@@ -160,6 +161,25 @@ export function StudioPiece({ id }: { id: number }) {
   const pageHtml = piece.kind === "page" && designed ? renderDesignedPage(designed, piece.brand, { noindex: true, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." })
     : piece.kind === "page" ? renderPage(liveDoc as PageDoc, piece.brand, { noindex: true, url: piece.publicUrl ?? undefined, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." }) : "";
   const video = piece.kind === "video" ? (liveDoc as VideoDoc) : null;
+  const board = artboardFor(graphicSize(piece.size));
+  const slideRenders = (data?.renders ?? []).filter((r) => r.version === piece.version).sort((a, b) => (a.slide ?? 0) - (b.slide ?? 0));
+  const slug = (t: string) => t.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  const downloadAll = async () => {
+    if (dirty) { toast({ title: "Save the words first", description: "The slides are drawn from the saved version." }); return; }
+    setExporting(true);
+    try {
+      for (const r of slideRenders) {
+        const blob = await (await fetch(r.url)).blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${slug(piece.title)}-slide-${(r.slide ?? 0) + 1}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        await new Promise((res) => setTimeout(res, 350));
+      }
+    } catch (e: any) { toast({ title: "Couldn't download", description: e?.message, variant: "destructive" }); }
+    finally { setExporting(false); }
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -172,6 +192,14 @@ export function StudioPiece({ id }: { id: number }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {piece.kind === "carousel" && (
+            <Button onClick={() => void downloadAll()} disabled={exporting || !slideRenders.length} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-download-all">
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}Download all
+            </Button>
+          )}
+          {(piece.kind === "graphic" || piece.kind === "carousel") && designed && (
+            <ResizeButton pieceId={piece.id} currentSize={piece.size} onMade={(made) => { qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); if (made.length === 1) navigate(`/admin/content-studio/${made[0].id}`); }} />
+          )}
           {piece.kind === "graphic" && (
             <Button onClick={downloadPng} disabled={exporting} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-download">
               {exporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}Download PNG
@@ -198,12 +226,31 @@ export function StudioPiece({ id }: { id: number }) {
         <div className="rounded-2xl border border-border bg-muted/40 p-4 min-w-0" data-testid="studio-preview">
           {piece.kind === "graphic" && designed && (
             <div className="space-y-2">
-              <DesignedArtboard html={renderDesignedGraphic(designed, piece.brand, graphicSize(piece.size).width, graphicSize(piece.size).height)} width={graphicSize(piece.size).width} height={graphicSize(piece.size).height} />
+              <DesignedArtboard html={renderDesignedGraphic(designed, piece.brand, board.width, board.height)} width={board.width} height={board.height} />
               <p className="text-xs text-muted-foreground text-center">{dirty ? "Live preview of your edits — save to redraw the PNG." : renderUrl ? "Download PNG gives you this exact picture." : "The PNG is being drawn…"}</p>
             </div>
           )}
           {piece.kind === "graphic" && !designed && (
             <div className="flex justify-center"><GraphicArtboard doc={liveDoc as GraphicDoc} sizeKey={piece.size ?? "square"} brand={piece.brand} maxWidth={640} onNode={(n) => { artboardNode.current = n; }} /></div>
+          )}
+          {piece.kind === "carousel" && designed && (
+            <div className="space-y-3" data-testid="studio-carousel">
+              <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                {Array.from({ length: Math.max(1, countSlides(designed)) }, (_, i) => {
+                  const r = slideRenders.find((x) => (x.slide ?? 0) === i);
+                  return (
+                    <figure key={i} className="space-y-1.5" data-testid="studio-slide">
+                      <DesignedArtboard html={renderDesignedGraphic(designed, piece.brand, board.width, board.height, i)} width={board.width} height={board.height} maxWidth={360} maxHeight={460} />
+                      <figcaption className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>Slide {i + 1}</span>
+                        {r && !dirty && <a href={r.url} download={`${slug(piece.title)}-slide-${i + 1}.png`} className="underline">PNG</a>}
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground text-center">{dirty ? "Live preview of your edits — save to redraw the slides." : slideRenders.length ? "Download all gives you every slide as a PNG, in order." : "The slides are being drawn…"}</p>
+            </div>
           )}
           {piece.kind === "page" && <PagePreview html={pageHtml} title={piece.title} />}
           {video && <VideoEditor pieceId={piece.id} video={video} canEdit={canEdit} wordsDirty={dirty} />}
@@ -374,18 +421,18 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
 
 /** A designed graphic, drawn live in a sandboxed frame at its real size and
  *  scaled to fit. No script runs inside it. */
-function DesignedArtboard({ html, width, height }: { html: string; width: number; height: number }) {
+function DesignedArtboard({ html, width, height, maxWidth = 640, maxHeight = 760 }: { html: string; width: number; height: number; maxWidth?: number; maxHeight?: number }) {
   const host = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0.4);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const fit = () => setScale(Math.min(1, Math.min(el.clientWidth || 560, 640) / width, 760 / height));
+    const fit = () => setScale(Math.min(1, Math.min(el.clientWidth || 560, maxWidth) / width, maxHeight / height));
     fit();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
     ro?.observe(el);
     return () => ro?.disconnect();
-  }, [width, height]);
+  }, [width, height, maxWidth, maxHeight]);
   return (
     <div ref={host} className="w-full flex justify-center" data-testid="studio-designed-artboard">
       <div style={{ width: width * scale, height: height * scale, overflow: "hidden" }} className="rounded-lg shadow-sm">
@@ -478,5 +525,79 @@ function EditableTitle({ title, canEdit, onSave }: { title: string; canEdit: boo
       <h1 className="truncate text-lg font-semibold text-foreground">{title}</h1>
       <Pencil className="h-4 w-4 shrink-0 text-muted-foreground opacity-60 group-hover:opacity-100" />
     </button>
+  );
+}
+
+/** Copy & resize — Canva's resize, done by Rambo: the same design re-laid for
+ *  other sizes, each a new piece. Any W×H for a billboard's own spec. */
+function ResizeButton({ pieceId, currentSize, onMade }: { pieceId: number; currentSize: string | null; onMade: (made: { id: number; title: string }[]) => void }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [w, setW] = useState("");
+  const [h, setH] = useState("");
+  const [stage, setStage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<{ id: number; title: string }[]>([]);
+  const custom = `${parseInt(w, 10) || 0}x${parseInt(h, 10) || 0}`;
+  const customOk = /^[1-9][0-9]{2,3}x[1-9][0-9]{2,3}$/.test(custom) && (parseInt(w, 10) || 0) <= 4000 && (parseInt(h, 10) || 0) <= 4000;
+  const toggle = (k: string) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const go = async () => {
+    setBusy(true); setStage(null); setMade([]);
+    try {
+      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${pieceId}/resize`, { sizes: picked });
+      const j = await readStudioStream(r, setStage);
+      if (j.made?.length) { setMade(j.made); onMade(j.made); }
+      if (j.failed?.length) toast({ title: "Some sizes didn't work", description: j.failed.join("; "), variant: "destructive" });
+      if (!j.ok && !j.made?.length) throw new Error(j.message || "Rambo couldn't resize it.");
+      setPicked([]);
+    } catch (e: any) { toast({ title: "Copy & resize", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
+  const chip = (on: boolean) => `rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${on ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`;
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-11 md:h-9 border-border" data-testid="studio-resize"><Scaling className="w-4 h-4 mr-2" />Copy &amp; resize</Button>
+      {open && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => !busy && setOpen(false)}>
+          <div className="w-full max-w-lg space-y-4 rounded-2xl border border-border bg-background p-5 shadow-xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Copy and resize" data-testid="studio-resize-dialog">
+            <div>
+              <div className="text-base font-semibold text-foreground">Copy &amp; resize</div>
+              <p className="text-xs text-muted-foreground mt-1">Rambo re-lays this design for each size you pick — same words, photos and look, rearranged to fit. Each one is a new copy; this one stays as it is. One prompt per size.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {GRAPHIC_SIZES.filter((s) => s.key !== currentSize).map((s) => (
+                <button key={s.key} type="button" disabled={busy} onClick={() => toggle(s.key)} className={chip(picked.includes(s.key))}>{s.label} <span className="opacity-60">{s.width}×{s.height}</span></button>
+              ))}
+              {picked.filter((k) => /x/.test(k)).map((k) => (
+                <button key={k} type="button" disabled={busy} onClick={() => toggle(k)} className={chip(true)}>{k.replace("x", "×")} ✕</button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Any size (a billboard's own spec, in pixels)</div>
+              <div className="flex items-center gap-2">
+                <Input value={w} onChange={(e) => setW(e.target.value.replace(/\D/g, ""))} placeholder="Width" inputMode="numeric" className="h-11 md:h-9 w-24" />
+                <span className="text-muted-foreground">×</span>
+                <Input value={h} onChange={(e) => setH(e.target.value.replace(/\D/g, ""))} placeholder="Height" inputMode="numeric" className="h-11 md:h-9 w-24" />
+                <Button variant="outline" disabled={!customOk || busy || picked.includes(custom)} onClick={() => { setPicked((p) => [...p, custom]); setW(""); setH(""); }} className="h-11 md:h-9 border-border">Add</Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">100 to 4000 pixels each side. Big boards are drawn at half size and exported at full size.</p>
+            </div>
+            {busy && <RamboWorking stage={stage} expect={picked.length > 1 ? "they run side by side, about 1–2 min" : "usually about 1 min"} expectSeconds={90} />}
+            {made.length > 0 && !busy && (
+              <div className="space-y-1">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Made</div>
+                {made.map((m) => <a key={m.id} href={`/admin/content-studio/${m.id}`} className="block text-sm text-blue-600 underline">{m.title}</a>)}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setOpen(false)} className="h-11 md:h-9 border-border">Close</Button>
+              <Button disabled={busy || !picked.length} onClick={() => void go()} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-resize-go">{busy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Make {picked.length || ""} {picked.length === 1 ? "copy" : "copies"}</Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

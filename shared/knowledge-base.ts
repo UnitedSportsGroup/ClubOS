@@ -509,6 +509,24 @@ export const RAMBO_TOOLS: RamboToolDef[] = [
     },
   },
   {
+    name: "make_carousel",
+    title: "Make a carousel (Studio)",
+    description:
+      "Make an on-brand social CAROUSEL — one idea told across several swipeable slides in one design (hook, the points, the call to action) — and save it as the person's own draft in Content Studio. " +
+      "Use when they ask for a carousel, slides, a swipe post or 'break this down into slides'. Put any facts or numbers you looked up into the brief.",
+    requiredTab: null,
+    inputSchema: {
+      type: "object",
+      properties: {
+        brief: { type: "string", description: "The idea, who it is for, the points to make (one per slide), and the call to action." },
+        slides: { type: "number", description: "How many slides, 3 to 10 (default 5)." },
+        size: { type: "string", enum: ["portrait", "square", "story"], description: "portrait (4:5, default) for the feed; square; story for Stories." },
+        brand: { type: "string", description: "Only when the piece is for a different brand than the workspace they are in: " + KB_BRAND_KEYS.join(", ") },
+      },
+      required: ["brief"],
+    },
+  },
+  {
     name: "make_page",
     title: "Make a landing page (Studio)",
     description:

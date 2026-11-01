@@ -21,6 +21,7 @@
  */
 import type { Express, Request, Response } from "express";
 import crypto from "crypto";
+import sharp from "sharp";
 import multer from "multer";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./db";
@@ -34,7 +35,7 @@ import {
 } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
 import { DESIGNED_CSP, isDesignedDoc, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
-import { checkDesignedDoc, generateDesigned, renderAvailable, renderDesignedPng, renderShot } from "./studio-design";
+import { checkDesignedDoc, drawAll, generateDesigned, renderAvailable, renderDesignedPng, renderShot } from "./studio-design";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import { sendEmail } from "./email";
 import { inboxMessages } from "@shared/schema";
@@ -84,7 +85,7 @@ async function latestRenders(pieceIds: number[]): Promise<Map<number, string>> {
   if (!pieceIds.length) return out;
   const rows = rowsOf(await db.execute(sql`
     SELECT DISTINCT ON (piece_id) piece_id, key, mime FROM studio_renders
-    WHERE piece_id IN (${sql.join(pieceIds.map((id) => sql`${id}`), sql`, `)}) ORDER BY piece_id, version DESC, id DESC`));
+    WHERE piece_id IN (${sql.join(pieceIds.map((id) => sql`${id}`), sql`, `)}) ORDER BY piece_id, version DESC, slide ASC, id DESC`));
   for (const r of rows) out.set(Number(r.piece_id), renderUrl(String(r.key), String(r.mime)));
   return out;
 }
@@ -123,10 +124,23 @@ async function uniqueSlug(brand: string, wanted: string, exceptId: number): Prom
 }
 
 /** Keep a graphic's PNG (drawn by the browser, or by the render service). */
-export async function storeRender(pieceId: number, version: number, buffer: Buffer, mime: "image/png" | "image/jpeg", width: number, height: number): Promise<string> {
+export async function storeRender(pieceId: number, version: number, buffer: Buffer, mime: "image/png" | "image/jpeg", width: number, height: number, slide = 0): Promise<string> {
   const key = crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 24);
-  await db.insert(studioRenders).values({ pieceId, version, key, mime, width, height, bytes: buffer.length, data: buffer }).onConflictDoNothing();
+  await db.insert(studioRenders).values({ pieceId, version, key, mime, width, height, bytes: buffer.length, data: buffer, slide }).onConflictDoNothing();
   return renderUrl(key, mime);
+}
+
+/** Every slide of a graphic or carousel, kept for this version. */
+async function storeSlides(pieceId: number, version: number, pngs: { buffer: Buffer; width: number; height: number; slide?: number }[] | undefined): Promise<string | null> {
+  let first: string | null = null;
+  for (const p of pngs ?? []) {
+    // A very large board can pass the 8MB a render may be: keep it as a high-quality JPEG instead.
+    const big = p.buffer.length > 7_500_000;
+    const buf = big ? await sharp(p.buffer).jpeg({ quality: 90 }).toBuffer() : p.buffer;
+    const u = await storeRender(pieceId, version, buf, big ? "image/jpeg" : "image/png", p.width, p.height, p.slide ?? 0);
+    if ((p.slide ?? 0) === 0) first = u;
+  }
+  return first;
 }
 
 /** A landing page's thumbnail: its first laptop screen (1440×900), drawn by
@@ -235,9 +249,9 @@ export function registerStudioRoutes(app: Express) {
       const kind = String(req.query.kind || "");
       const rows = rowsOf(await db.execute(sql`
         SELECT p.*, u.first_name, u.last_name FROM studio_pieces p LEFT JOIN users u ON u.id = p.created_by_user_id
-        WHERE p.organization_id = ${w.orgId} AND p.status <> 'archived' ${kind === "graphic" || kind === "page" || kind === "video" ? sql`AND p.kind = ${kind}` : sql``}
+        WHERE p.organization_id = ${w.orgId} AND p.status <> 'archived' ${kind === "graphic" || kind === "page" || kind === "video" || kind === "carousel" ? sql`AND p.kind = ${kind}` : sql``}
         ORDER BY p.updated_at DESC LIMIT 200`));
-      const renders = await latestRenders(rows.filter((r) => r.kind === "graphic" || r.kind === "page").map((r) => Number(r.id)));
+      const renders = await latestRenders(rows.filter((r) => r.kind === "graphic" || r.kind === "page" || r.kind === "carousel").map((r) => Number(r.id)));
       // A page made before thumbnails existed gets one now (in the background; it shows next load).
       rows.filter((r) => r.kind === "page" && !renders.has(Number(r.id))).slice(0, 3).forEach((r) => snapPage(Number(r.id), Number(r.version), r.doc, String(r.brand)));
       res.json({
@@ -257,13 +271,14 @@ export function registerStudioRoutes(app: Express) {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ ok: false, message: "Not signed in" });
       if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ ok: false, message: "Rambo isn't switched on — ANTHROPIC_API_KEY isn't set on the server." });
-      const kind = req.body?.kind === "page" ? "page" : req.body?.kind === "graphic" ? "graphic" : null;
-      if (!kind) return res.status(400).json({ ok: false, message: "Say whether you want a graphic or a landing page." });
+      const kind = req.body?.kind === "page" ? "page" : req.body?.kind === "graphic" ? "graphic" : req.body?.kind === "carousel" ? "carousel" : null;
+      if (!kind) return res.status(400).json({ ok: false, message: "Say whether you want a graphic, a carousel or a landing page." });
+      const slides = Math.min(10, Math.max(2, Math.round(Number(req.body?.slides) || 5)));
       const brief = String(req.body?.brief ?? "").trim();
       if (!brief) return res.status(400).json({ ok: false, message: "Say what you want — who it is for, what it is about, what they should do." });
       if (brief.length > STUDIO_BRIEF_MAX) return res.status(400).json({ ok: false, message: `Keep the brief under ${STUDIO_BRIEF_MAX} characters.` });
       const brandKey = studioBrand(String(req.body?.brand || "")) ? String(req.body.brand) : w.brandKey;
-      const sizeKey = kind === "graphic" ? graphicSize(String(req.body?.size || GRAPHIC_SIZE_DEFAULT)).key : null;
+      const sizeKey = kind !== "page" ? graphicSize(String(req.body?.size || (kind === "carousel" ? "portrait" : GRAPHIC_SIZE_DEFAULT))).key : null;
       const limit = ramboDailyLimitFor((user as any).mailerAiDailyLimit);
       const used = await ramboUsedToday(user.id);
       if (used >= limit) return res.status(429).json({ ok: false, message: limit === 0 ? "Rambo is switched off for your account. A super admin can turn it on in Team." : `You've used today's ${limit} prompts. It resets at midnight NZ time, or a super admin can raise your limit in Team.`, usage: { used, limit } });
@@ -274,18 +289,18 @@ export function registerStudioRoutes(app: Express) {
       try {
         // Designed (Rambo lays it out and looks at it) is the default; the
         // template engine stays for a quick piece and for older ones.
-        const designed = req.body?.engine !== "template";
+        const designed = req.body?.engine !== "template" || kind === "carousel";
         const userLabel = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
-        const out: { ok: boolean; doc: any; error?: string; title: string | null; reply: string; model: string; costCents: number; generationId: number | null; png?: { buffer: Buffer; width: number; height: number } | null } = designed
-          ? await generateDesigned({ kind, brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined, onStage: stageWriter(res) })
-          : await generateStudioPiece({ kind, brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined });
+        const out: { ok: boolean; doc: any; error?: string; title: string | null; reply: string; model: string; costCents: number; generationId: number | null; png?: { buffer: Buffer; width: number; height: number } | null; pngs?: { buffer: Buffer; width: number; height: number; slide: number }[] } = designed
+          ? await generateDesigned({ kind, slides, brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined, onStage: stageWriter(res) })
+          : await generateStudioPiece({ kind: kind as "graphic" | "page", brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined });
         if (!out.ok || !out.doc) { clearInterval(beat); return res.end(JSON.stringify({ ok: false, message: out.error || "Rambo couldn't make that.", usage: { used: used + 1, limit } })); }
         const [piece] = await db.insert(studioPieces).values({
           organizationId: w.orgId, brand: brandKey, kind, title: (out.title || "Untitled").slice(0, STUDIO_TITLE_MAX), size: sizeKey, status: "draft", doc: out.doc as any, version: 1, brief, createdByUserId: user.id,
         }).returning();
         await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: brief.slice(0, 500), createdByUserId: user.id });
         await stampGeneration(out.generationId, piece.id);
-        const pngUrl = out.png ? await storeRender(piece.id, 1, out.png.buffer, "image/png", out.png.width, out.png.height) : null;
+        const pngUrl = out.pngs?.length ? await storeSlides(piece.id, 1, out.pngs) : out.png ? await storeRender(piece.id, 1, out.png.buffer, "image/png", out.png.width, out.png.height) : null;
         if (kind === "page") snapPage(piece.id, 1, out.doc, brandKey);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, piece: shapePiece(piece, { ownerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(), canEdit: true, renderUrl: pngUrl }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
@@ -294,6 +309,53 @@ export function registerStudioRoutes(app: Express) {
         res.end(JSON.stringify({ ok: false, message: `Rambo hit a snag: ${String(e?.message || "").slice(0, 200)}` }));
       }
     } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  /** Copy & resize: the same design re-laid for other sizes (a story, a 4:5
+   *  post, a billboard's own W×H). Each size is a NEW piece of the person's own;
+   *  the original is untouched. Rambo keeps the words, photos and look and
+   *  rearranges for the new shape, then looks at it and fixes it. */
+  app.post("/api/admin/content-studio/pieces/:id/resize", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const w = await whereFor(req);
+      if (!w) return res.status(400).json({ ok: false, message: "Unknown workspace" });
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).json({ ok: false, message: "Not signed in" });
+      const p = await pieceOr404(parseInt(String(req.params.id), 10), w.orgId);
+      if (!p || p.status === "archived") return res.status(404).json({ ok: false, message: "Not found" });
+      if ((p.kind !== "graphic" && p.kind !== "carousel") || !isDesignedDoc(p.doc)) return res.status(400).json({ ok: false, message: "Copy & resize works on graphics and carousels Rambo designed." });
+      const sizes = Array.from(new Set((Array.isArray(req.body?.sizes) ? req.body.sizes : []).map((k: unknown) => graphicSize(String(k)).key))).filter((k) => k !== p.size).slice(0, 6) as string[];
+      if (!sizes.length) return res.status(400).json({ ok: false, message: "Pick at least one new size." });
+      const limit = ramboDailyLimitFor((user as any).mailerAiDailyLimit);
+      const used = await ramboUsedToday(user.id);
+      if (used + sizes.length > limit) return res.status(429).json({ ok: false, message: `That's ${sizes.length} prompts and you have ${Math.max(0, limit - used)} left today.` });
+      res.status(200); res.setHeader("Content-Type", "application/json; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.flushHeaders?.();
+      const beat = setInterval(() => { try { res.write(" "); } catch { /* gone */ } }, 15_000);
+      const write = stageWriter(res);
+      const userLabel = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
+      const from = graphicSize(p.size);
+      const made: any[] = [];
+      const failed: string[] = [];
+      let costCents = 0;
+      await Promise.all(sizes.map(async (key) => {
+        const to = graphicSize(key);
+        const brief = `RESIZE this exact design from ${from.width}×${from.height} to ${to.width}×${to.height} (${to.label}, ${to.use}). Keep every word, photo, colour, font, the crest and the idea${p.kind === "carousel" ? ", and the same number of slides" : ""}. Rearrange and resize for the new shape so it reads as if it was designed for it: re-balance the hierarchy, move the photo crop, stack or spread blocks, and keep words clear of the edges. Only shorten words if they cannot fit.`;
+        const out = await generateDesigned({ kind: p.kind as "graphic" | "carousel", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: key, current: p.doc as DesignedDoc, onStage: (st) => write(`${to.label}: ${st}`) });
+        costCents += out.costCents;
+        if (!out.ok || !out.doc) { failed.push(`${to.label}: ${out.error || "couldn't make it"}`); return; }
+        const title = `${p.title.replace(/ — \d+×\d+$| — (Square|Portrait|Story|Landscape)$/, "")} — ${to.label}`.slice(0, STUDIO_TITLE_MAX);
+        const [piece] = await db.insert(studioPieces).values({ organizationId: w.orgId, brand: p.brand, kind: p.kind, title, size: key, status: "draft", doc: out.doc as any, version: 1, brief: `${p.brief ?? ""}\n(resized from #${p.id})`.trim(), createdByUserId: user.id }).returning();
+        await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "duplicated", note: `resized from #${p.id} to ${to.label}`, createdByUserId: user.id });
+        await stampGeneration(out.generationId, piece.id);
+        const url = out.pngs?.length ? await storeSlides(piece.id, 1, out.pngs) : null;
+        made.push(shapePiece(piece, { ownerName: userLabel, canEdit: true, renderUrl: url }));
+      }));
+      clearInterval(beat);
+      res.end(JSON.stringify({ ok: made.length > 0, made, failed, costCents, message: made.length ? undefined : failed.join("; "), usage: { used: used + sizes.length, limit } }));
+    } catch (e: any) {
+      if (!res.headersSent) return res.status(500).json({ ok: false, message: e.message });
+      res.end(JSON.stringify({ ok: false, message: `Rambo hit a snag: ${String(e?.message || "").slice(0, 200)}` }));
+    }
   });
 
   /** A video request — no model, a brief and the footage for the editing kit. */
@@ -323,11 +385,11 @@ export function registerStudioRoutes(app: Express) {
       if (!p || p.status === "archived") return res.status(404).json({ message: "Not found" });
       const owner = await storage.getUser(p.createdByUserId);
       const versions = rowsOf(await db.execute(sql`SELECT v.version, v.how, v.note, v.created_at, u.first_name, u.last_name FROM studio_versions v LEFT JOIN users u ON u.id = v.created_by_user_id WHERE v.piece_id = ${p.id} ORDER BY v.version DESC LIMIT 50`));
-      const renders = rowsOf(await db.execute(sql`SELECT version, key, mime, width, height, bytes, created_at FROM studio_renders WHERE piece_id = ${p.id} ORDER BY version DESC, id DESC LIMIT 20`));
+      const renders = rowsOf(await db.execute(sql`SELECT version, key, mime, width, height, bytes, created_at, slide FROM studio_renders WHERE piece_id = ${p.id} ORDER BY version DESC, slide ASC, id DESC LIMIT 40`));
       res.json({
         piece: shapePiece(p, { ownerName: owner ? `${owner.firstName ?? ""} ${owner.lastName ?? ""}`.trim() : null, canEdit: canEdit(p, user), renderUrl: renders[0] ? renderUrl(String(renders[0].key), String(renders[0].mime)) : null }),
         versions: versions.map((v) => ({ version: v.version, how: v.how, note: v.note, createdAt: v.created_at, by: `${v.first_name ?? ""} ${v.last_name ?? ""}`.trim() || null })),
-        renders: renders.map((r) => ({ version: r.version, url: renderUrl(String(r.key), String(r.mime)), width: r.width, height: r.height, bytes: r.bytes, createdAt: r.created_at })),
+        renders: renders.map((r) => ({ version: r.version, slide: Number(r.slide ?? 0), url: renderUrl(String(r.key), String(r.mime)), width: r.width, height: r.height, bytes: r.bytes, createdAt: r.created_at })),
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -366,13 +428,14 @@ export function registerStudioRoutes(app: Express) {
       try {
         const history = Array.isArray(req.body?.history) ? req.body.history.filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-6).map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 2000) })) : [];
         const userLabel = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
-        const out: { ok: boolean; doc: any; error?: string; reply: string; model: string; costCents: number; png?: { buffer: Buffer; width: number; height: number } | null } = isDesignedDoc(p.doc)
-          ? await generateDesigned({ kind: p.kind as "graphic" | "page", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as DesignedDoc, history, pieceId: p.id, onStage: stageWriter(res) })
+        const out: { ok: boolean; doc: any; error?: string; reply: string; model: string; costCents: number; png?: { buffer: Buffer; width: number; height: number } | null; pngs?: { buffer: Buffer; width: number; height: number; slide: number }[] } = isDesignedDoc(p.doc)
+          ? await generateDesigned({ kind: p.kind as "graphic" | "page" | "carousel", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as DesignedDoc, history, pieceId: p.id, onStage: stageWriter(res) })
           : await generateStudioPiece({ kind: p.kind as "graphic" | "page", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as any, history, pieceId: p.id });
         if (!out.ok || !out.doc) { clearInterval(beat); return res.end(JSON.stringify({ ok: false, message: out.error || "Rambo couldn't make that change.", usage: { used: used + 1, limit } })); }
         const changed = JSON.stringify(out.doc) !== JSON.stringify(p.doc);
         const updated = changed ? await saveVersion(p.id, out.doc, "asked", user.id, instruction.slice(0, 500)) : p;
-        if (changed && out.png) await storeRender(p.id, updated.version, out.png.buffer, "image/png", out.png.width, out.png.height);
+        if (changed && out.pngs?.length) await storeSlides(p.id, updated.version, out.pngs);
+        else if (changed && out.png) await storeRender(p.id, updated.version, out.png.buffer, "image/png", out.png.width, out.png.height);
         if (changed && p.kind === "page") snapPage(p.id, updated.version, updated.doc, p.brand);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
@@ -405,7 +468,7 @@ export function registerStudioRoutes(app: Express) {
         patch.slug = await uniqueSlug(p.brand, s, p.id);
       }
       if (p.kind === "page" && typeof req.body?.unlisted === "boolean") patch.unlisted = req.body.unlisted;
-      if (p.kind === "graphic" && typeof req.body?.size === "string") patch.size = graphicSize(req.body.size).key;
+      if ((p.kind === "graphic" || p.kind === "carousel") && typeof req.body?.size === "string") patch.size = graphicSize(req.body.size).key;
       if (p.kind === "video" && user.role === "super_admin" && (req.body?.status === "requested" || req.body?.status === "in_progress" || req.body?.status === "delivered")) {
         const doc = { ...(p.doc as VideoDoc), status: req.body.status, deliveredUrl: typeof req.body?.deliveredUrl === "string" ? req.body.deliveredUrl.trim() || null : (p.doc as VideoDoc).deliveredUrl ?? null, notes: typeof req.body?.notes === "string" ? req.body.notes.slice(0, 2000) : (p.doc as VideoDoc).notes ?? null };
         const c = checkVideoDoc(doc);
@@ -419,17 +482,15 @@ export function registerStudioRoutes(app: Express) {
         const changed = JSON.stringify(c.doc) !== JSON.stringify(p.doc);
         const updated = changed ? await saveVersion(p.id, c.doc, "edited", user.id, typeof req.body?.note === "string" ? req.body.note.slice(0, 200) : null, patch)
           : Object.keys(patch).length ? (await db.update(studioPieces).set({ ...patch, updatedAt: new Date() }).where(eq(studioPieces.id, p.id)).returning())[0] : p;
-        if (p.kind === "graphic" && isDesignedDoc(updated.doc) && (changed || patch.size)) {
-          const png = await renderDesignedPng(updated.doc as DesignedDoc, p.brand, updated.size);
-          if (png) await storeRender(p.id, updated.version, png.buffer, "image/png", png.width, png.height);
+        if ((p.kind === "graphic" || p.kind === "carousel") && isDesignedDoc(updated.doc) && (changed || patch.size)) {
+          await storeSlides(p.id, updated.version, await drawAll(updated.doc as DesignedDoc, p.kind as "graphic" | "carousel", p.brand, updated.size));
         }
         if (p.kind === "page" && changed) snapPage(p.id, updated.version, updated.doc, p.brand);
         return res.json({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }) });
       }
       const updated = Object.keys(patch).length ? (await db.update(studioPieces).set({ ...patch, updatedAt: new Date() }).where(eq(studioPieces.id, p.id)).returning())[0] : p;
-      if (p.kind === "graphic" && patch.size && isDesignedDoc(updated.doc)) {
-        const png = await renderDesignedPng(updated.doc as DesignedDoc, p.brand, updated.size);
-        if (png) await storeRender(p.id, updated.version, png.buffer, "image/png", png.width, png.height);
+      if ((p.kind === "graphic" || p.kind === "carousel") && patch.size && isDesignedDoc(updated.doc)) {
+        await storeSlides(p.id, updated.version, await drawAll(updated.doc as DesignedDoc, p.kind as "graphic" | "carousel", p.brand, updated.size));
       }
       res.json({ ok: true, piece: shapePiece(updated, { canEdit: true }) });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
