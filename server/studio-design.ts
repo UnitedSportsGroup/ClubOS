@@ -35,7 +35,7 @@ import { brandVoice, HOUSE_VOICE } from "@shared/studio-voice";
 import { CLUB_LOGOS } from "../client/src/components/marketing/grapes/templates/brand-kit";
 import { DESIGN_CRAFT } from "./studio-craft";
 import { programmeFactsFor } from "./brand-facts";
-import { pictureLibrary } from "./studio-ai";
+import { pictureLibrary, promptPictures } from "./studio-ai";
 import { findLogo } from "./studio-logo";
 import { storeMailerImage } from "./mailer-images";
 import { shrinkForEmail } from "./mailer-image-shrink";
@@ -356,7 +356,7 @@ async function designSystemPrompt(kind: DesignKind, brandKey: string, orgId: num
   const brand = studioBrand(brandKey) ?? studioBrand("cufc")!;
   const pack = brandPack(brandKey);
   const facts = await programmeFactsFor(orgId);
-  const pictures = await pictureLibrary(orgId, brandKey);
+  const pictures = promptPictures(await pictureLibrary(orgId, brandKey), brandKey);
   const own = pictures.filter((p) => p.brand === brandKey);
   const other = pictures.filter((p) => p.brand !== brandKey);
   const crests = CLUB_LOGOS.map((l) => `- ${l.src}  (${l.key} crest)`).join("\n");

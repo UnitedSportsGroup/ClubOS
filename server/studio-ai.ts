@@ -55,6 +55,19 @@ export async function pictureLibrary(orgId: number, brandKey: string): Promise<{
   return out;
 }
 
+/** The pictures a prompt lists: every photo of this brand, a handful of each other brand's.
+ *  The full library is several hundred photos; listing them all in every prompt would cost
+ *  more than the design. Another brand's photos are only for pieces about that brand. */
+export function promptPictures<T extends { brand: string }>(pictures: T[], brandKey: string, perOtherBrand = 8): T[] {
+  const seen = new Map<string, number>();
+  return pictures.filter((p) => {
+    if (p.brand === brandKey) return true;
+    const n = seen.get(p.brand) ?? 0;
+    seen.set(p.brand, n + 1);
+    return n < perOtherBrand;
+  });
+}
+
 const promptCache = new Map<string, { at: number; text: string }>();
 
 async function systemPromptFor(kind: StudioKind, brandKey: string, orgId: number): Promise<string> {
@@ -64,7 +77,7 @@ async function systemPromptFor(kind: StudioKind, brandKey: string, orgId: number
   const brand = studioBrand(brandKey) ?? studioBrand("cufc")!;
   const kit = brandKit(brandKey);
   const facts = await programmeFactsFor(orgId);
-  const pictures = await pictureLibrary(orgId, brandKey);
+  const pictures = promptPictures(await pictureLibrary(orgId, brandKey), brandKey);
   const pictureList = pictures.map((p) => `- ${p.src}  (${p.brand}: ${p.caption})`).join("\n");
 
   const job = kind === "graphic"

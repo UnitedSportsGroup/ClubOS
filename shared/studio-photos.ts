@@ -5,6 +5,7 @@
 // photos already in the Mailer kit (brand-kit.ts, client/public/mailer/<brand>/*.jpg) are not repeated.
 // Files: client/public/mailer/<brand>/lib/*.jpg, long edge <= 1800 px, progressive JPEG, metadata stripped.
 // Captions describe what is visible; no individuals are named.
+// 2026-11-01 (later): +148 photographs from the NAS archive (Business/USG/<brand> + camera dumps), see the block at the end.
 
 export interface StudioPhoto { brand: string; src: string; w: number; h: number; caption: string; tags: string[] }
 
@@ -2839,6 +2840,2421 @@ export const STUDIO_PHOTOS: readonly StudioPhoto[] = [
       "adults",
       "event",
       "portrait"
+    ]
+  },
+  // ── From the club's own photo archive on the NAS (2026-11-01): scored by Haiku, checked by Sonnet,
+  // looked over by eye; no solo close-ups of children; 1800 px, no EXIF/GPS. Files: lib/nas-*.jpg.
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u14-team-huddle-grass-pitch.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A group of youth players in blue kits and a goalkeeper in yellow stand in a tight team huddle with arms around each other on a grass pitch with trees behind; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "youth",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u14-header-contest-willow-trees.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Two boys, one in blue and one in red, challenge for a header on a grass pitch with spectators and willow trees behind; soft blurred trees along the left side.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-player-dribbling-turf-pitch.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A teen player in a blue kit dribbles a ball across a turf pitch in bright daylight with a blurred goal behind; soft blurred background across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u12-team-trophy-celebration.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "Boys in blue kits with medals cheer with arms raised as one holds a trophy aloft, with coaches beside them on a grass field; open blue sky above the group.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "team",
+      "kids",
+      "boys",
+      "coach",
+      "football",
+      "tournament",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-young-goalkeeper-full-stretch-dive.jpg",
+    "w": 1600,
+    "h": 1068,
+    "caption": "A young goalkeeper in a green kit dives full stretch towards a ball in the goal mouth in bright sun; turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "football",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u19-aerial-challenge-hillside-match.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "Two players jump for a high ball in mid-air during a sunny match, with a hillside and trees behind; hillside and sky across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "tournament",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u19-players-embrace-celebration-sunny.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Two smiling players in white kits embrace and celebrate on a sunny pitch with other players behind; clear blue sky across the top.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u19-heart-hands-goal-celebration.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A smiling player in a white kit makes a heart shape with his hands on a bright pitch while a teammate runs behind; soft blurred greenery across the top.",
+    "tags": [
+      "portrait",
+      "celebration",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "candid",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-smiling-player-peace-sign-white-sky.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A smiling player in a white and blue kit winks and makes a peace sign against a bright white sky; clear white space across the top and right.",
+    "tags": [
+      "landscape",
+      "close-up",
+      "celebration",
+      "candid",
+      "adults",
+      "football",
+      "space-top",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-three-players-goal-celebration-hug.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Three players in white and blue kits embrace in a goal celebration in daylight in front of a dark building; plain grey sky across the top strip.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "team",
+      "matchday",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-teammate-lifted-aloft-blue-sky.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "Players in blue kits lift a teammate into the air in celebration under bright sun; clear blue sky across the top third.",
+    "tags": [
+      "portrait",
+      "celebration",
+      "team",
+      "matchday",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-smiling-player-white-kit-daylight.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A smiling player in a white kit with a sponsor logo looks off to the side in bright daylight; soft blurred green background on the left.",
+    "tags": [
+      "portrait",
+      "close-up",
+      "candid",
+      "matchday",
+      "adults",
+      "football",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-youth-player-dribbling-low-sun.jpg",
+    "w": 800,
+    "h": 622,
+    "caption": "A youth player in blue kit dribbles a ball across turf in low sunlight with a blue fence and dark hedge behind; open turf across the lower half.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "girls",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-youth-players-racing-for-ball.jpg",
+    "w": 800,
+    "h": 622,
+    "caption": "A player in red and a player in blue run side by side for a loose ball on a turf pitch in soft daylight; clear turf across the bottom third.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "teen",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-youth-dribbler-long-shadows-turf.jpg",
+    "w": 800,
+    "h": 622,
+    "caption": "A youth player in blue kit dribbles a ball on green turf with long shadows and blurred spectators behind; clean open turf across the bottom third.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "kids",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-youth-dribbling-past-red-opponent.jpg",
+    "w": 800,
+    "h": 622,
+    "caption": "A youth player in blue kit dribbles past an opponent in red on a turf pitch in bright daylight with a blue railing behind; clear grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "teen",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-blue-player-shielding-ball-tournament.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "A player in blue shields the ball from a red-kitted opponent seen from behind, with blurred green trees behind; soft green tree backdrop across the top third.",
+    "tags": [
+      "portrait",
+      "action",
+      "tournament",
+      "youth",
+      "teen",
+      "matchday",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-blue-kit-goal-celebration.jpg",
+    "w": 1800,
+    "h": 1610,
+    "caption": "Teen players in blue kits celebrate together on a turf pitch, smiling and reaching out to one another; plain grass across the bottom.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "team",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-white-kit-hug-celebration.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "Three teen players in white kits with blue trim hug in celebration on a green turf pitch with a fence behind; dark backdrop across the top fifth.",
+    "tags": [
+      "portrait",
+      "celebration",
+      "team",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "candid",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-blue-kit-high-fives-sunny.jpg",
+    "w": 1800,
+    "h": 1130,
+    "caption": "A group of teen players in blue kits high-five on a blue-edged pitch in sunshine with goals and a stand behind; open turf across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "celebration",
+      "team",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-blue-team-huddle-prematch.jpg",
+    "w": 1796,
+    "h": 1800,
+    "caption": "A team in blue kits stands in a huddle with arms around each other, seen from behind, before a daytime match; clear sky across the top third.",
+    "tags": [
+      "square",
+      "team",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "warmup",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u17-player-dribbling-towards-camera.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A teen player in a blue kit runs with the ball towards the camera on bright artificial turf; soft blurred turf across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u20-player-striking-ball-turf.jpg",
+    "w": 1800,
+    "h": 1440,
+    "caption": "A young player in a blue kit strikes a ball on an artificial pitch with a small stand of spectators behind; pale sky across the top third.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "boys",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u20-squad-line-up-tournament.jpg",
+    "w": 1600,
+    "h": 748,
+    "caption": "A squad of young players in blue kits stands in a line with staff on a grass pitch beneath trees; grey sky across the top.",
+    "tags": [
+      "landscape",
+      "wide",
+      "team",
+      "youth",
+      "boys",
+      "football",
+      "tournament",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-white-kit-dribbling-sunny-pitch.jpg",
+    "w": 1600,
+    "h": 1305,
+    "caption": "A boy in a white kit dribbles a ball across a sunny grass pitch with a blue-kitted opponent softly blurred behind; plain grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "youth",
+      "boys",
+      "football",
+      "tournament",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-teen-players-contest-ball-daylight.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "Two teenage players, one in white and one in blue, contest a ball on a grass pitch in bright sun; soft green background across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "youth",
+      "teen",
+      "boys",
+      "football",
+      "matchday",
+      "tournament",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-girls-chasing-ball-sunny-turf.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Several girls in blue and yellow bibs chase a ball across a sunny artificial pitch, seen mostly from behind; soft-focus background across the top third.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "girls",
+      "football",
+      "training",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-coach-tying-child-boot-turf.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A coach in black crouches on turf to tie the boot of a child in a blue shirt, with a ball beside them; plain blue wall across the top right.",
+    "tags": [
+      "landscape",
+      "coach",
+      "training",
+      "kids",
+      "candid",
+      "football",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-three-boys-chasing-yellow-ball.jpg",
+    "w": 1000,
+    "h": 667,
+    "caption": "Three boys in blue kits chase a yellow ball across bright green turf in low winter light; soft plain wall across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "youth",
+      "boys",
+      "training",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-blue-kit-dribbling-orange-ball.jpg",
+    "w": 1202,
+    "h": 1800,
+    "caption": "A boy in a blue kit dribbles an orange ball on artificial turf in overcast daylight, with other players blurred behind; open turf across the bottom.",
+    "tags": [
+      "portrait",
+      "action",
+      "youth",
+      "boys",
+      "training",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-blue-kit-striking-ball-sunny.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A boy in a blue kit with a sponsor logo strikes a white and blue ball on a blue-lined turf pitch in bright daylight; plain white wall across the top left.",
+    "tags": [
+      "portrait",
+      "action",
+      "youth",
+      "boys",
+      "training",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-girl-dribbling-past-black-kit.jpg",
+    "w": 1800,
+    "h": 1211,
+    "caption": "A girl in blue dribbles a ball past a player in black during a youth match on a turf pitch in clear daylight; open turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "youth",
+      "girls",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-girl-blue-tracksuit-dribbling-overcast.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "A girl in a blue tracksuit top and shorts dribbles a ball on a turf pitch in soft overcast light, with players and trees blurred behind; blurred trees and grass bank across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "warmup",
+      "youth",
+      "girls",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-girl-striking-ball-turf-pitch.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "A girl in a blue kit strikes a ball with her left foot on a turf pitch, with a goal and a player in green behind her; soft tree-line and goal across the top for text.",
+    "tags": [
+      "portrait",
+      "action",
+      "matchday",
+      "kids",
+      "youth",
+      "girls",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boys-chase-ball-before-goal.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A boy in a green striped kit and a boy in blue chase the ball on a turf pitch in front of a goal; plain goal netting across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-coach-huddle-academy-boys-turf.jpg",
+    "w": 1616,
+    "h": 1080,
+    "caption": "A coach in a grey beanie talks with a huddle of boys in blue academy kits on a turf pitch; dark fence line and trees across the top.",
+    "tags": [
+      "landscape",
+      "coach",
+      "team",
+      "training",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-coach-talks-seated-boys-blue-sky.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A coach sits on a turf pitch talking with boys seated on the grass while other players spread out in the distance; clear blue sky across the top.",
+    "tags": [
+      "portrait",
+      "coach",
+      "training",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-blue-squad-medals-trophy-field.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A squad of boys in blue kits with medals holds a trophy beside two coaches on a grass field; narrow band of blue sky across the top.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "coach",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boys-raise-trophy-blue-sky.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "Boys in blue kits raise a trophy and cheer with a coach on grass under a blue sky; clear sky in the top left corner.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "coach",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u12-boy-dribbling-past-opponents.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A boy in a blue kit dribbles the ball while two black-and-white striped opponents chase him on a sunny grass pitch; open grass along the bottom edge.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "tournament",
+      "kids",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-academy-prizegiving-trophies-banners.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "Two boys in blue kits hold small trophies between two smiling men in grey tops in front of club banners at a prizegiving; plain dark wall across the top.",
+    "tags": [
+      "portrait",
+      "team",
+      "kids",
+      "boys",
+      "coach",
+      "event",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u18-teen-dribbling-white-kit.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A teenage player in a white kit dribbles the ball across a turf pitch in daylight in front of a plain concrete wall; open turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "teen",
+      "youth",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-orange-bib-striking-ball.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A boy in an orange bib, seen from behind, strikes a ball on a turf pitch while other players train in the background; open turf at the lower right.",
+    "tags": [
+      "portrait",
+      "action",
+      "training",
+      "kids",
+      "boys",
+      "football",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u13-white-kit-dribbling-selwyn.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A boy in a white kit dribbles the ball past a black-and-blue opponent on a grass pitch in clear autumn light; soft sky and blurred background across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "matchday",
+      "kids",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u13-boy-dribbling-toward-camera.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A boy in a white kit runs towards the camera with the ball at his feet on a sunny grass pitch; blurred hillside across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "matchday",
+      "kids",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u13-players-high-five-touchline.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Boys in white kits high-five beside the touchline on a sunny pitch with trees and a distant goal behind; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "matchday",
+      "team",
+      "kids",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-dribbling-open-grass-sky.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "A young boy in a white sponsored kit dribbles a ball across open grass on a sunny day; clear sky across the top third.",
+    "tags": [
+      "portrait",
+      "action",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-u9-tournament-win-trophy-cheer.jpg",
+    "w": 1600,
+    "h": 900,
+    "caption": "Young players in blue and white kits cheer with a trophy and medals beside adult staff outside a clubroom; plain pale wall and roofline across the top.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "kids",
+      "youth",
+      "coach",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-two-boys-contest-ball-turf.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Two young players in blue and yellow kits contest a ball on an artificial pitch in bright daylight; plain turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "training",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-blue-kit-slide-tackle-tournament.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A blue-kit player slides to reach the ball between two red-kit opponents during a tournament match; a calm grass bank and tree line across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "football",
+      "tournament",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-blue-kit-dribbling-evening-match.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A blue-kit player dribbles the ball past a chasing red-kit player in soft evening light, with tents blurred behind; clear grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-blue-kit-dribbling-past-defender.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A blue-kit player dribbles past a red-kit defender on a sunny turf pitch with players and fencing behind; open sky and tree line across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "football",
+      "tournament",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boys-contest-ball-damp-pitch.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two boys contest the ball on a damp pitch in front of a sponsor board; clear grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "youth",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-boy-strikes-ball-wet-pitch-spray.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A boy in a navy kit strikes the ball on a wet pitch and sends up a spray while a player in a bib runs in from the left; soft blurred background across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "youth",
+      "training",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cufc",
+    "src": "https://app.usg.co.nz/mailer/cufc/lib/nas-two-young-boys-chase-ball.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two young boys chase a ball across the pitch in front of sponsor banners, one in a bib and one in blue; soft green grass along the lower edge.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "youth",
+      "training",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-gold-kit-player-towel-floodlights.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player in a gold kit holds a towel and claps under bright floodlights against a dark background; open dark space across the top.",
+    "tags": [
+      "portrait",
+      "close-up",
+      "adults",
+      "matchday",
+      "night",
+      "candid",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-smiling-player-white-blue-kit.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A smiling young player in a white and blue kit walks beside a teammate in bright sun in front of a chain-link fence; soft pale sky and fence across the top.",
+    "tags": [
+      "portrait",
+      "close-up",
+      "adults",
+      "candid",
+      "matchday",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-player-dribbles-white-blue-kit.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player in a white and blue kit dribbles the ball on green turf with spectators blurred behind the fence; open grass across the bottom.",
+    "tags": [
+      "portrait",
+      "action",
+      "adults",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-dribbling-green-pitch.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and gold kit dribbles the ball across a green pitch with an opponent in yellow entering at the right edge; open turf across the bottom third.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "football",
+      "adults",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-portrait-hillside-city.jpg",
+    "w": 1800,
+    "h": 1440,
+    "caption": "A smiling young man in a white tee stands with arms folded on a grassy hillside with a hazy city behind him; soft overcast sky behind and above his head.",
+    "tags": [
+      "landscape",
+      "portrait",
+      "candid",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-dribbling-warm-light.jpg",
+    "w": 1800,
+    "h": 1011,
+    "caption": "A player in a black and gold kit dribbles across a green pitch in warm light with a red-kitted opponent following; open grass across the lower half.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "matchday",
+      "football",
+      "adults",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-studio-portrait-grey.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "A smiling player in a black and gold kit stands with arms folded against a plain grey studio backdrop; open backdrop to the left and right.",
+    "tags": [
+      "portrait",
+      "adults",
+      "football",
+      "space-left",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-striking-ball-matchday.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and gold kit lifts his leg to strike the ball as an opponent in light blue closes in; dark blurred background across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "football",
+      "adults",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-dribbling-empty-stadium.jpg",
+    "w": 1800,
+    "h": 1440,
+    "caption": "A player in a black kit dribbles the ball across a green pitch in a near-empty stadium; dark stands at the left and clear grass along the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "football",
+      "adults",
+      "space-left",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-man-arms-crossed-sunny-beach.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A young man in a black T-shirt stands with arms crossed on a sunny beach with sea and city behind him; open sky across the top third.",
+    "tags": [
+      "landscape",
+      "candid",
+      "adults",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-player-green-bib-training-run.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A player in a green training bib runs toward a ball on a sunny grass pitch with teammates blurred behind; soft trees and open grass across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "training",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-players-contest-high-ball-training.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Players leap to contest a high ball on a sunny training pitch with a goal and trees behind; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "training",
+      "adults",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-player-black-gold-shirt-white-backdrop.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "A young man in a black and gold South Island United shirt stands in three-quarter view against a white backdrop; clear white space to the left and right.",
+    "tags": [
+      "portrait",
+      "adults",
+      "football",
+      "space-left",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-player-arms-folded-white-backdrop.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "A young man in a black and gold South Island United shirt stands with arms folded against a white backdrop; clear white space across the top and sides.",
+    "tags": [
+      "portrait",
+      "adults",
+      "football",
+      "space-top",
+      "space-left",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-number-20-from-behind-matchday.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and gold number 20 shirt, seen from behind, follows play on a sunlit grass pitch as a yellow-kit opponent looks on; soft blurred grass across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "youth",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-black-gold-player-striking-ball.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and gold kit strikes the ball on a sunlit grass pitch while a yellow-kit opponent closes in and spectators watch behind; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-man-white-tee-profile-green-hills.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "A young man in a white T-shirt looks away in profile in front of green hills under a soft grey-blue sky; open sky across the top and left.",
+    "tags": [
+      "portrait",
+      "adults",
+      "candid",
+      "space-top",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-black-red-player-dribbles-past-blue.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and red kit runs with the ball past a blue-kit opponent on a grass pitch in front of dark trees; dark tree line across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-dribbling-green-pitch-2.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a black and blue kit dribbles a ball across a green pitch while a few spectators watch beside a grey shed; plain shed wall across the top left.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "adults",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-kit-bag-night-smile.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A smiling player in a black and yellow tracksuit carries a kit bag across a car park under floodlights; dark night sky across the top third.",
+    "tags": [
+      "portrait",
+      "candid",
+      "night",
+      "adults",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-player-dribbling-evening-stadium.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in a white and gold kit dribbles on a bright turf pitch in an evening stadium with a few blurred figures in the stand; pitchside board and turf on the right leave room for text.",
+    "tags": [
+      "landscape",
+      "action",
+      "matchday",
+      "night",
+      "adults",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "siu",
+    "src": "https://app.usg.co.nz/mailer/siu/lib/nas-siu-night-match-ball-contest.jpg",
+    "w": 1200,
+    "h": 1800,
+    "caption": "Under floodlights at night, a red-kitted player and a blue and white opponent contest the ball on the pitch, with an empty stand behind; dark sky across the top third.",
+    "tags": [
+      "portrait",
+      "action",
+      "matchday",
+      "night",
+      "adults",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-four-players-contest-ball-pine-trees.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "Four young players in blue, red and green kits contest the ball on a sunny turf pitch with pine trees behind; calm tree-line across the top third.",
+    "tags": [
+      "portrait",
+      "action",
+      "tournament",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-blue-boy-controls-ball-under-pressure.jpg",
+    "w": 1080,
+    "h": 1350,
+    "caption": "A boy in blue controls the ball as a red-shirted opponent closes in on bright turf, with a blurred crowd behind; open turf across the bottom right.",
+    "tags": [
+      "portrait",
+      "action",
+      "tournament",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-striped-kit-boys-raise-trophy.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Boys in blue-and-white striped kits raise a trophy under the tournament banner on an indoor pitch; plain turf strip along the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "youth",
+      "kids",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u15-final-players-contest-ball.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Two teenage players, one in yellow and one in navy, contest the ball on green turf with a sponsor banner and blurred spectators behind; open grass across the lower left.",
+    "tags": [
+      "landscape",
+      "action",
+      "tournament",
+      "matchday",
+      "teen",
+      "youth",
+      "football",
+      "space-bottom",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-green-white-team-trophy-night.jpg",
+    "w": 1200,
+    "h": 933,
+    "caption": "A youth team in green and white striped shirts raises a trophy behind a Champions 2021 sign under floodlights, with coaches either side; dark night sky across the top.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "night",
+      "youth",
+      "kids",
+      "coach",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-gold-trophy-on-pitch-blue-sky.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A gold tournament trophy with a '10' engraving stands on a grass pitch with blurred trees behind; clear blue sky across the top third.",
+    "tags": [
+      "landscape",
+      "tournament",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-kids-contest-ball-red-black-kits.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Young players in red and navy and in black kits contest the ball on a turf pitch in daylight; calm wall and grass band across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "tournament",
+      "matchday",
+      "kids",
+      "youth",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-yellow-team-huddle-celebration.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Yellow-kitted players form a celebratory huddle on the pitch with spectators behind a blue railing; clear turf across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "youth",
+      "teen",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-light-blue-team-goal-celebration.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Light-blue teammates and a goalkeeper in purple gather and celebrate together on a turf pitch; pitch space across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "youth",
+      "teen",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u13-prizegiving-team-under-arch.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A team of young players in black kits and medals stands together under the Christchurch International Cup 10th anniversary arch at dusk; grass across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "tournament",
+      "event",
+      "youth",
+      "kids",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-cic-summer-7s-champions-group.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A group of teenage boys in black kits with medals stands behind a cheque under a green tournament arch on a blue pitch; only a little quiet space, along the blue turf at the bottom edge.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "tournament",
+      "youth",
+      "teen",
+      "boys",
+      "football"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-summer-7s-header-contest-turf.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A player in white heads a ball while a red-shirted opponent and a goalkeeper in black watch on green turf, with teammates and a sponsor board behind; dark fence and trees clear across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "tournament",
+      "youth",
+      "teen",
+      "boys",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u15-final-yellow-player-celebrates.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A teenager in a yellow kit slides forward with fists raised in celebration on a turf pitch at dusk, with spectators behind a blue rail; open turf across the bottom third.",
+    "tags": [
+      "landscape",
+      "celebration",
+      "tournament",
+      "matchday",
+      "youth",
+      "teen",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u15-final-midfield-contest-yellow-navy.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Players in yellow and navy converge on the ball on a turf pitch under overcast light, with a referee in pink behind; limited room, some plain grass along the bottom right.",
+    "tags": [
+      "landscape",
+      "action",
+      "tournament",
+      "matchday",
+      "youth",
+      "teen",
+      "boys",
+      "football"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u15-final-team-huddle-navy.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A navy-kitted team with a goalkeeper in black stands in an arm-linked huddle on the pitch, seen from behind, with spectators blurred behind blue railings; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "tournament",
+      "matchday",
+      "warmup",
+      "youth",
+      "teen",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u15-final-race-for-ball.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A yellow-kitted player and a navy-kitted player race for the ball on turf, with blurred spectators behind a blue fence; plain grass at the lower left.",
+    "tags": [
+      "portrait",
+      "action",
+      "tournament",
+      "matchday",
+      "youth",
+      "teen",
+      "boys",
+      "football",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-u10-dribble-past-defender-daylight.jpg",
+    "w": 1800,
+    "h": 1400,
+    "caption": "A young boy in a maroon and yellow shirt dribbles a ball past a light blue defender on green turf in bright daylight; open turf and blue line along the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "tournament",
+      "matchday",
+      "kids",
+      "youth",
+      "boys",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-boy-red-kit-striking-ball.jpg",
+    "w": 1800,
+    "h": 1400,
+    "caption": "A boy in a red kit strikes a ball on a green turf pitch in bright daylight, with other players and a sponsor banner behind; clear turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-navy-kit-dribbling-past-opponent.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A boy in a navy kit dribbles past a yellow-kit opponent on bright turf, with tents and trees behind; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-yellow-and-red-kits-chasing-ball.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A boy in a yellow kit chases a ball past a red-kit opponent on bright artificial turf in low winter sun; clear turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "boys",
+      "football",
+      "tournament",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-blue-red-youth-match-sunny-wide.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "Players in blue and red kits chase the ball in a wide, sunny youth match with spectators and trees beyond the fence; clear grass along the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "youth",
+      "kids",
+      "boys",
+      "tournament",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-teen-dribbles-ball-bright-pitch.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A teen in a blue kit dribbles the ball on a bright artificial pitch with a blurred group behind; dark tree line across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "teen",
+      "youth",
+      "boys",
+      "tournament",
+      "matchday",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-teen-leads-ball-green-turf-wide.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A teen in a blue kit pushes the ball forward on a green turf pitch as teammates and a few spectators stand behind in overcast light; clear grass across the lower third.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "teen",
+      "youth",
+      "boys",
+      "tournament",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cic",
+    "src": "https://app.usg.co.nz/mailer/cic/lib/nas-player-dribbles-past-packed-stand.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A player in blue dribbles past a stand full of spectators with a tournament banner along the pitch edge; clear grass across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "teen",
+      "youth",
+      "boys",
+      "crowd",
+      "tournament",
+      "matchday",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-orange-bibs-chase-ball-evening-turf.jpg",
+    "w": 1616,
+    "h": 1080,
+    "caption": "Three adults in orange bibs chase a ball across a turf pitch in warm evening light with a goal behind; open grass along the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "football",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-orange-bib-player-dribbles-turf.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player in an orange bib and yellow boots dribbles a ball on a turf pitch with a goal and blurred goalkeeper behind; a little open grass along the bottom left.",
+    "tags": [
+      "portrait",
+      "action",
+      "adults",
+      "football",
+      "candid",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-players-run-past-ball-dusk-turf.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "Two players run side by side past a ball on a turf pitch at dusk while a third stands at the left; dark foliage across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-smiling-man-strikes-ball-indoor-turf.jpg",
+    "w": 1800,
+    "h": 1200,
+    "caption": "A smiling man in a grey tee strikes a ball on indoor turf under bright lights with teammates blurred behind; soft blue wall across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-blue-kit-dribbler-faces-orange-bib.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A young player in a blue kit dribbles the ball towards an adult in an orange bib in front of a goal on a turf pitch; open turf along the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "teen",
+      "adults",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-champions-group-trophy-goal-night.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A group of adults in black tops celebrate in front of a goal at night, one holding up a gold trophy behind a Champions banner; dark sky across the top.",
+    "tags": [
+      "landscape",
+      "team",
+      "celebration",
+      "adults",
+      "football",
+      "night",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-blue-yellow-team-lifts-trophy-night.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A group in light blue and yellow shirts lifts a gold trophy beside a Champions banner in front of a goal on a floodlit pitch; dark sky across the top third.",
+    "tags": [
+      "landscape",
+      "wide",
+      "team",
+      "celebration",
+      "adults",
+      "women",
+      "football",
+      "night",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-adult-kicking-ball-warmup-turf.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "An adult in a dark puffer jacket and blue gloves swings a leg to kick a ball on a floodlit turf pitch while players stand soft in the background; quiet turf across the bottom third.",
+    "tags": [
+      "portrait",
+      "action",
+      "warmup",
+      "adults",
+      "candid",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-orange-bib-striking-ball-dusk.jpg",
+    "w": 1616,
+    "h": 1080,
+    "caption": "A player in an orange bib strikes a ball on the turf in golden dusk light, with a small-sided football sponsor banner and trees behind; open turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "candid",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-green-shirt-dribbling-past-bench.jpg",
+    "w": 1616,
+    "h": 1080,
+    "caption": "A player in a green shirt dribbles a ball across the turf past an empty bench, with a goal at the right in soft evening light; dark hedge and open grass across the top and bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "candid",
+      "football",
+      "space-top",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-player-from-behind-dribbling-evening.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player seen from behind in a navy top dribbles a ball on turf in warm evening light, with dark trees and a sponsor banner behind; dark foliage across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "adults",
+      "candid",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-two-players-ball-control-evening.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player in an orange bib controls a ball beside a teammate in navy on turf in soft evening light, with a blurred figure behind; dark foliage across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "training",
+      "adults",
+      "candid",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-green-shirt-player-dribbling-forward.jpg",
+    "w": 1440,
+    "h": 1800,
+    "caption": "A player in a green shirt dribbles a ball toward the camera on turf with a bench and grass bank behind; soft green space across the top.",
+    "tags": [
+      "portrait",
+      "action",
+      "adults",
+      "candid",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-indoor-turf-blue-bib-dribble.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A player in a light blue bib dribbles an orange ball across indoor turf under bright lights, with a goal and bench behind; open turf across the lower frame.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "night",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-two-men-challenge-ball-goalmouth.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two men challenge for a ball on turf in front of a goal while a keeper watches, with a grass bank behind; soft green space across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "candid",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-teen-dribbling-turf-small-sided.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A young player in a yellow and blue shirt dribbles a ball on turf as a player in red runs in beside him and others stand by a goal behind; open turf to the right of the frame.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "teen",
+      "football",
+      "night",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-two-players-tussle-beside-goal.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two players, one in an orange bib and one in blue, tussle for the ball beside a goal on turf in soft light; dark hedge across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "football",
+      "matchday",
+      "candid",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-players-contest-ball-on-turf.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two players in blue and black contest the ball on turf while teammates look on behind a white boundary line; plain grass bank across the top.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "football",
+      "matchday",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-man-dribbling-past-dugout.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A man in a white shirt dribbles a ball on green turf with a player in black close behind, beside a grey dugout; clear turf across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "adults",
+      "football",
+      "matchday",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "mfl",
+    "src": "https://app.usg.co.nz/mailer/mfl/lib/nas-player-lines-up-ball-teammates.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A player in a blue and yellow kit lines up a ball on turf while three teammates stand watching behind him; open turf across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "teen",
+      "football",
+      "matchday",
+      "candid",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnast-backbend-on-floor-mat.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A young gymnast in a colourful leotard folds into a head-down backbend on a floor mat while seated spectators watch behind; open floor across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "kids",
+      "girls",
+      "gymnastics",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-girls-linked-arms-gym-warmup.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Four girls in navy and red gymnastics tops link arms in a line during a warm-up in a bright hall; plain hall wall across the top.",
+    "tags": [
+      "landscape",
+      "warmup",
+      "team",
+      "kids",
+      "girls",
+      "gymnastics",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnasts-team-photo-bright-hall.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "About ten young gymnasts in colourful patterned leotards stand together for a team photo in a bright gym hall; open floor across the bottom.",
+    "tags": [
+      "landscape",
+      "team",
+      "kids",
+      "youth",
+      "girls",
+      "gymnastics",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnasts-hoops-wide-floor.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Two young gymnasts with hoops perform on a wide floor, one balancing on one hand with a leg extended high; open floor across the bottom.",
+    "tags": [
+      "wide",
+      "landscape",
+      "action",
+      "kids",
+      "girls",
+      "gymnastics",
+      "training",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnast-leap-open-floor.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A gymnast in a colourful leotard leaps across a cream floor with arms outstretched, with spectators seated along the far wall; open floor across the lower left.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "gymnastics",
+      "kids",
+      "youth",
+      "girls",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-handstand-split-bright-hall.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A gymnast in a navy uniform holds a handstand with legs split wide on a cream mat in a bright hall; clear floor across the bottom.",
+    "tags": [
+      "landscape",
+      "action",
+      "gymnastics",
+      "youth",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-hoop-practice-wide-mat.jpg",
+    "w": 1202,
+    "h": 1800,
+    "caption": "A gymnast in a patterned leotard swings a hoop overhead while others practise behind her on a wide mat; open floor across the bottom third.",
+    "tags": [
+      "portrait",
+      "action",
+      "gymnastics",
+      "youth",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-seated-hoop-pose-floor.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A gymnast in an orange leotard sits on the mat with a hoop held up beside her while another gymnast stretches at left and spectators watch from behind; clean floor across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "gymnastics",
+      "kids",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-hoops-group-bright-hall.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Young gymnasts in orange and blue leotards swing hoops across a large bright hall, with one girl sharp in the foreground; open floor across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "gymnastics",
+      "kids",
+      "youth",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-split-stretch-partner-mat.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "One gymnast stretches into a high standing split over a partner lying on the mat in a bright hall; open floor across the lower half.",
+    "tags": [
+      "landscape",
+      "wide",
+      "gymnastics",
+      "youth",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-balance-stretch-united-banners.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A gymnast in a dark top and black leggings holds a leg raised in a balance in front of United banners in a bright hall; open floor at the bottom right.",
+    "tags": [
+      "landscape",
+      "wide",
+      "gymnastics",
+      "youth",
+      "girls",
+      "training",
+      "venue",
+      "space-bottom",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-rhythmic-balance-large-hall.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A rhythmic gymnast in a blue leotard holds a balance on a pale floor in a large hall, with spectators seated along the far side; open floor across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "gymnastics",
+      "youth",
+      "girls",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnast-toe-balance-hall.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A gymnast in a black and gold leotard balances on her toes with one arm raised in a large hall, with spectators seated behind; open floor across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "action",
+      "gymnastics",
+      "youth",
+      "girls",
+      "venue",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-girls-barre-stretch-timber-studio.jpg",
+    "w": 1202,
+    "h": 1800,
+    "caption": "A line of girls in black training clothes stretch their arms along a barre in a timber-floored studio; open floor space across the bottom.",
+    "tags": [
+      "portrait",
+      "gymnastics",
+      "training",
+      "kids",
+      "girls",
+      "youth",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-long-barre-row-wood-studio.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "A long row of girls in black training clothes stretch with raised arms along a barre in a wood-floored studio; open floor across the bottom third.",
+    "tags": [
+      "landscape",
+      "wide",
+      "gymnastics",
+      "training",
+      "kids",
+      "girls",
+      "youth",
+      "team",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnasts-barre-bright-window-studio.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Young gymnasts in dark training clothes line up along a wooden barre in a bright studio with tall pale windows; clear space down the left side.",
+    "tags": [
+      "landscape",
+      "wide",
+      "gymnastics",
+      "training",
+      "kids",
+      "girls",
+      "youth",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-gymnasts-barre-portrait-timber-beams.jpg",
+    "w": 1202,
+    "h": 1800,
+    "caption": "A line of gymnasts holds a wooden barre in a bright studio with timber beams overhead; clear white wall space on the left.",
+    "tags": [
+      "portrait",
+      "gymnastics",
+      "training",
+      "kids",
+      "girls",
+      "youth",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-three-gymnasts-kneeling-arms-raised.jpg",
+    "w": 1800,
+    "h": 1202,
+    "caption": "Three young gymnasts in navy tops kneel on a cream floor with one arm raised in a group routine; clear floor space across the bottom.",
+    "tags": [
+      "landscape",
+      "gymnastics",
+      "training",
+      "kids",
+      "girls",
+      "youth",
+      "team",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-coach-portrait-navy-club-jacket.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "A smiling woman in a navy and red club jacket stands against a plain white background in a clean portrait; empty wall above and to both sides.",
+    "tags": [
+      "portrait",
+      "coach",
+      "women",
+      "adults",
+      "gymnastics",
+      "space-top",
+      "space-left",
+      "space-right"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-coach-portrait-white-wall-jacket.jpg",
+    "w": 1350,
+    "h": 1800,
+    "caption": "A smiling young woman in a navy club jacket with red and white trim stands against a plain white wall in a studio-style portrait; open space above.",
+    "tags": [
+      "portrait",
+      "coach",
+      "women",
+      "adults",
+      "gymnastics",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "cugc",
+    "src": "https://app.usg.co.nz/mailer/cugc/lib/nas-woman-track-jacket-grey-headshot.jpg",
+    "w": 1202,
+    "h": 1800,
+    "caption": "A smiling woman in a navy and red-white track jacket stands against a plain grey backdrop in a studio headshot; clear grey space across the top.",
+    "tags": [
+      "portrait",
+      "adults",
+      "women",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-empty-turf-pitch-blue-sky.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "An empty synthetic turf pitch with white markings, floodlight masts and a small goal under a bright blue sky with wispy clouds; clear sky across the top third.",
+    "tags": [
+      "landscape",
+      "wide",
+      "venue",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-aerial-turf-pitch-blue-surrounds.jpg",
+    "w": 900,
+    "h": 598,
+    "caption": "Aerial view of a green turf pitch with blue surrounds, goals and floodlights, set among paddocks and trees; open grass across the bottom left.",
+    "tags": [
+      "landscape",
+      "wide",
+      "venue",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-drone-pitch-grandstand-clear-sky.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "Aerial view of a floodlit pitch with blue track, grandstand and flags, with a few small players warming up at lower left; clear blue sky across the top.",
+    "tags": [
+      "landscape",
+      "wide",
+      "venue",
+      "warmup",
+      "football",
+      "space-top"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-elevated-striped-pitch-grandstand.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "Elevated view of a striped turf pitch with grandstand and a small group of players beside the centre circle; open grass across the bottom.",
+    "tags": [
+      "landscape",
+      "wide",
+      "venue",
+      "football",
+      "space-bottom"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-hanging-training-ball-turf-line.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A black-and-white training ball hangs on a string above green turf beside a white line, with a blue wall blurred behind; quiet blue wall at the upper left.",
+    "tags": [
+      "landscape",
+      "close-up",
+      "training",
+      "football",
+      "venue",
+      "space-top",
+      "space-left"
+    ]
+  },
+  {
+    "brand": "usc",
+    "src": "https://app.usg.co.nz/mailer/usc/lib/nas-football-on-turf-close-up.jpg",
+    "w": 1800,
+    "h": 1350,
+    "caption": "A black-and-white football sits on green turf with a string trailing to the right, background softly blurred; soft blurred band across the top.",
+    "tags": [
+      "landscape",
+      "close-up",
+      "training",
+      "football",
+      "venue",
+      "space-top"
     ]
   }
 ];
