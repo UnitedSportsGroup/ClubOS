@@ -528,7 +528,10 @@ async function runSearchDrive(viewer: Viewer, input: any): Promise<ToolResult> {
   };
 }
 
-const HANDLERS: Record<string, (viewer: Viewer, input: any) => Promise<ToolResult>> = {
+/** What a tool may tell the person while it works ("Designing the graphic"). */
+export interface RamboToolCtx { onStage?: (stage: string) => void }
+
+const HANDLERS: Record<string, (viewer: Viewer, input: any, ctx?: RamboToolCtx) => Promise<ToolResult>> = {
   search_knowledge_base: runSearchKnowledgeBase,
   search_drive: runSearchDrive,
   print_materials: runPrintMaterials,
@@ -614,7 +617,10 @@ export async function askRambo(opts: {
   surface?: RamboSurface;
   /** The workspace the person is standing in — the club-data tools answer about it. */
   workspaceSlug?: string | null;
+  /** Progress for the screen while Rambo works: which tool, which step. */
+  onStage?: (stage: string) => void;
 }): Promise<RamboReply> {
+  const stage = (s: string) => { try { opts.onStage?.(s); } catch { /* the line may be gone */ } };
   const { viewer, brand, question } = opts;
   const surface: RamboSurface = opts.surface ?? "kb";
   if (opts.workspaceSlug !== undefined) viewer.workspaceSlug = opts.workspaceSlug;
@@ -670,6 +676,7 @@ export async function askRambo(opts: {
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    stage(round === 0 ? "Reading your question" : "Putting the answer together");
     const res = await client.messages.create({
       model: MODEL,
       max_tokens: 2000,
@@ -727,7 +734,8 @@ export async function askRambo(opts: {
       }
 
       try {
-        const out = await HANDLERS[use.name](viewer, use.input ?? {});
+        stage(def?.title ? `Checking ${def.title.replace(/ \(Studio\)$/, "").replace(/^(The|A) /, (m) => m.toLowerCase())}` : "Looking it up");
+        const out = await HANDLERS[use.name](viewer, use.input ?? {}, { onStage: stage });
         await logAccess(viewer, use.name, true, null, brand, question);
         toolsUsed.push(use.name);
         if (out.sources) {

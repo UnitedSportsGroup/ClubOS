@@ -10,6 +10,10 @@ export interface BrandPack {
   name: string;
   palette: { token: string; hex: string; use: string }[];
   fonts: { display: string; displayWeights: string; body: string; bodyWeights: string; note: string };
+  /** The brand's own typefaces, hosted by ClubOS (client/public/studio-fonts/<brand>/)
+   *  because they are not on Google Fonts. The renderer adds the @font-face rules;
+   *  the design names the family in its CSS and leaves it out of "fonts". */
+  houseFonts?: { family: string; file: string; weight: number; style?: "normal" | "italic" }[];
   rules: string;
   source: string;
 }
@@ -64,12 +68,19 @@ export const BRAND_PACKS: Record<string, BrandPack> = {
       { token: "--brand-panel", hex: "#101010", use: "Raised panels on black" },
     ],
     fonts: {
-      display: "Oswald",
-      displayWeights: "500;700",
-      body: "Inter",
-      bodyWeights: "400;500;600;700",
-      note: "Real faces: Rough Cut (display, greenstone-hook letterforms) and Arpona (body, angular geometric); neither is on Google Fonts. Substitute Oswald uppercase for Rough Cut and Inter for Arpona.",
+      display: "Rough Cut",
+      displayWeights: "400",
+      body: "Arpona",
+      bodyWeights: "300;400;600;700",
+      note: "Both are the REAL brand faces, hosted by ClubOS (the same files as brand.southislandunited.com): write font-family: 'Rough Cut' for every headline, eyebrow, number and button label, and 'Arpona' for body copy. They load on their own — do NOT list them in \"fonts\" (that list is Google Fonts only; leave it empty for SIU). Rough Cut has one weight: never fake-bold it, and set it UPPERCASE with letter-spacing 0.01–0.04em.",
     },
+    houseFonts: [
+      { family: "Rough Cut", file: "siu/RoughCut.woff2", weight: 400 },
+      { family: "Arpona", file: "siu/Arpona-Light.woff2", weight: 300 },
+      { family: "Arpona", file: "siu/Arpona-Regular.woff2", weight: 400 },
+      { family: "Arpona", file: "siu/Arpona-SemiBold.woff2", weight: 600 },
+      { family: "Arpona", file: "siu/Arpona-Bold.woff2", weight: 700 },
+    ],
     rules: lines([
       "Black-led. Dominant ground is black; white and Leader Green are the supporting fields; gold is the single accent (a rule, a key word, a number).",
       "Headlines: display face in UPPERCASE only, titles and subtitles only. Never mix in a third typeface.",
@@ -170,11 +181,15 @@ export const BRAND_PACKS: Record<string, BrandPack> = {
       displayWeights: "400 (regular and italic)",
       body: "Inter",
       bodyWeights: "400;500;600;700;800",
-      note: "Instrument Serif and Inter are the real faces. The hero voice is Satoshi Bold Italic (Fontshare, not Google); substitute Inter 800 italic, one big hero statement per piece.",
+      note: "Instrument Serif and Inter are the real faces (Google Fonts: list them in \"fonts\"). The hero voice is Satoshi Bold Italic, hosted by ClubOS: write font-family: 'Satoshi'; font-weight: 700; font-style: italic for the one big hero statement, and do NOT list Satoshi in \"fonts\".",
     },
+    houseFonts: [
+      { family: "Satoshi", file: "cugc/Satoshi-Bold.woff2", weight: 700 },
+      { family: "Satoshi", file: "cugc/Satoshi-BoldItalic.woff2", weight: 700, style: "italic" },
+    ],
     rules: lines([
       "Warm and light, unlike the other brands: cream ground (gym hall in morning light), navy for weight, gold as a sliver. Not a cold white screen.",
-      "Hero statement (one per page, big): bold italic sans (Satoshi; Inter 800 italic as substitute). Section and card headings: Instrument Serif italic. Everything else Inter.",
+      "Hero statement (one per page, big): Satoshi Bold Italic. Section and card headings: Instrument Serif italic. Everything else Inter.",
       "SENTENCE CASE everywhere. We don't shout in all caps.",
       "Alternate cream and sand sections; borders in beige; headings ink, body slate.",
       "Navy for crest, buttons, club-colour panels; sky only for links and small highlights; gold for rules, medals, the motto.",

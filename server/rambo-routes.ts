@@ -208,6 +208,9 @@ export function registerRamboRoutes(app: Express) {
         question,
         surface: "chat",
         workspaceSlug,
+        // One JSON line per step, so the page can say what Rambo is doing;
+        // the answer is still the last line.
+        onStage: (stage) => { try { res.write(JSON.stringify({ stage }) + "\n"); } catch { /* gone */ } },
       });
       const cents = ramboCostCents(reply.model, reply.usage);
       const [saved] = await db

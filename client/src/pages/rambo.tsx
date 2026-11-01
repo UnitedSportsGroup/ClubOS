@@ -20,6 +20,8 @@ import { queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
 import { RAMBO_STARTERS } from "@shared/rambo-chat";
 import { RamboMarkdown } from "@/components/rambo/markdown";
+import { RamboWorking } from "@/components/rambo-working";
+import { readStudioStream } from "@/lib/stream-lines";
 
 export const RAMBO_FACE = "/mailer/rambo.png";
 
@@ -164,6 +166,7 @@ export default function RamboPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [listOpen, setListOpen] = useState(false);
   const [renaming, setRenaming] = useState<number | null>(null);
@@ -228,6 +231,7 @@ export default function RamboPage() {
     const question = text.trim();
     if (!question || busy) return;
     setInput("");
+    setStage(null);
     setBusy(true);
     let id = intoThread ?? threadId;
     try {
@@ -237,9 +241,8 @@ export default function RamboPage() {
       }
       setMessages((m) => [...m, { id: -Date.now(), role: "user", content: question, createdAt: new Date().toISOString(), pending: true }]);
       const r = await workspaceFetch(`/api/admin/rambo/threads/${id}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
-      const raw = (await r.text()).trim();
       let data: any;
-      try { data = JSON.parse(raw); } catch { data = { ok: false, message: raw.slice(0, 200) || `HTTP ${r.status}` }; }
+      try { data = await readStudioStream(r, setStage); } catch (e) { data = { ok: false, message: e instanceof Error ? e.message : `HTTP ${r.status}` }; }
       if (data?.ok) {
         setMessages((m) => [...m.map((x) => ({ ...x, pending: false })), { ...data.message, createdAt: data.message.createdAt ?? new Date().toISOString() }]);
         queryClient.setQueryData(USAGE_KEY, (u: any) => (u ? { ...u, used: data.usage.used, limit: data.usage.limit } : u));
@@ -469,10 +472,8 @@ export default function RamboPage() {
               )}
               {busy && (
                 <div className="flex gap-3" data-testid="rambo-busy">
-                  <img src={RAMBO_FACE} alt="" className="mt-0.5 h-7 w-7 shrink-0 animate-pulse object-contain" />
-                  <div className="rounded-2xl rounded-tl-md border bg-background px-4 py-3 text-[13px] text-muted-foreground">
-                    <span className="animate-pulse">Rambo is looking…</span> <span className="text-[11px]">a numbers question can take a few seconds</span>
-                  </div>
+                  {/* Designing a page or graphic takes minutes; a numbers question seconds. */}
+                  <RamboWorking stage={stage} className="max-w-md flex-1" {...(/design|graphic|page|look|fix|png/i.test(stage ?? "") ? { expect: "usually 1–4 min", expectSeconds: 150 } : {})} />
                 </div>
               )}
             </div>

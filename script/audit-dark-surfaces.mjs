@@ -43,6 +43,7 @@ const SRC = join(ROOT, "client/src");
  * checks that the reason was written down, not that it is a good one.
  */
 const DECLARED_DARK = {
+  "components/studio/dark-chip.tsx": "a dark tile to judge a partner logo on; holds only an image, never text",
   "pages/venue-book.tsx": "USC venue booking — /book, matched by isPublicDarkSurface()",
   "pages/venue-book-success.tsx": "USC venue booking — /book/success",
   "pages/member-booking.tsx": "members' booking page — /members",

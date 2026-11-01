@@ -9,6 +9,9 @@
 // piece editor is studio-piece.tsx. One route, /admin/content-studio[/<id>].
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { RamboWorking } from "@/components/rambo-working";
+import { PhotoLibrary } from "@/components/studio/photo-library";
+import { readStudioStream } from "@/lib/stream-lines";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -26,34 +29,7 @@ export interface PieceSummary {
   doc: any; version: number; brief: string | null; createdByUserId: number; createdAt: string; updatedAt: string; publishedAt: string | null;
   publicViews: number; publicUrl: string | null; ownerName: string | null; canEdit: boolean; renderUrl: string | null;
 }
-/** Read a make/ask answer: progress lines ({"stage": …}) as they arrive, the
- *  result on the last line. Older answers are one line, which still works. */
-export async function readStudioStream(res: Response, onStage: (stage: string) => void): Promise<any> {
-  const reader = res.body?.getReader();
-  if (!reader) return JSON.parse((await res.text()).trim());
-  const dec = new TextDecoder();
-  let buf = "";
-  let last: any = null;
-  const take = (line: string) => {
-    const t = line.trim();
-    if (!t) return;
-    try {
-      const j = JSON.parse(t);
-      if (j && typeof j.stage === "string" && !("ok" in j)) onStage(j.stage); else last = j;
-    } catch { /* not a whole line */ }
-  };
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    lines.forEach(take);
-  }
-  take(buf);
-  if (!last) throw new Error("No answer came back. Check the Studio list in a minute — it may still have been made.");
-  return last;
-}
+export { readStudioStream } from "@/lib/stream-lines";
 
 export interface StudioUsage { used: number; limit: number; model: string; editModel: string; enabled: boolean; looks?: boolean; brand: { key: string; name: string; host: string }; firstName: string; isSuperAdmin: boolean }
 
@@ -81,13 +57,20 @@ function StudioHome() {
   const qc = useQueryClient();
   const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/content-studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/usage")).json() });
   const { data: list, isLoading } = useQuery<{ pieces: PieceSummary[] }>({ queryKey: ["/api/admin/content-studio/pieces"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/pieces")).json() });
-  const [filter, setFilter] = useState<"all" | "mine" | StudioKind>("all");
+  // ?view=photos opens the photo library (the URL holds the view, so Back and a link both work).
+  const [filter, setFilterState] = useState<"all" | "mine" | "photos" | StudioKind>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "photos" ? "photos" : "all"));
+  const setFilter = (k: "all" | "mine" | "photos" | StudioKind) => {
+    setFilterState(k);
+    const u = new URL(window.location.href);
+    if (k === "photos") u.searchParams.set("view", "photos"); else u.searchParams.delete("view");
+    window.history.replaceState(window.history.state, "", u.toString());
+  };
   const [composer, setComposer] = useState<StudioKind | null>(null);
   const [brief, setBrief] = useState("");
   const [size, setSize] = useState("square");
   const [footage, setFootage] = useState("");
-  const [format, setFormat] = useState<"landscape" | "vertical" | "both">("landscape");
-  const [length, setLength] = useState(60);
+  const [format, setFormat] = useState<"landscape" | "vertical" | "both">("vertical");
+  const [length, setLength] = useState(45);
   const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
   const [brand, setBrand] = useState<string | null>(null);
   const [engine, setEngine] = useState<"designed" | "template">("designed");
@@ -97,7 +80,7 @@ function StudioHome() {
   const make = useMutation({
     mutationFn: async () => {
       if (composer === "video") {
-        const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length });
+        const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length, brand: brandKey });
         return res.json();
       }
       setStage(null);
@@ -121,6 +104,7 @@ function StudioHome() {
     const all = list?.pieces ?? [];
     if (filter === "all") return all;
     if (filter === "mine") return all.filter((p) => p.createdByUserId === me?.id);
+    if (filter === "photos") return [];
     return all.filter((p) => p.kind === filter);
   }, [list, filter, me?.id]);
 
@@ -169,7 +153,7 @@ function StudioHome() {
 
       {composer && (
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3" data-testid="studio-composer">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><img src={FACE} alt="" className="w-6 h-6 rounded-md" />{composer === "video" ? "Request a video" : `Tell Rambo what you want — ${studioKindLabel(composer).toLowerCase()}`}</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><img src={FACE} alt="" className="w-6 h-6 rounded-md" />{composer === "video" ? "Make a video" : `Tell Rambo what you want — ${studioKindLabel(composer).toLowerCase()}`}</div>
           <textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
@@ -215,16 +199,13 @@ function StudioHome() {
           )}
           {composer === "video" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="block">
-                <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Where the footage is (one link per line)</span>
-                <textarea value={footage} onChange={(e) => setFootage(e.target.value)} rows={3} placeholder={"https://app.usg.co.nz/admin/drive/…\nor a NAS path, or a Google Drive link"} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[13px] font-mono text-foreground" data-testid="studio-footage" />
-              </label>
+              <div className="rounded-xl border border-dashed border-border p-3 text-[13px] text-muted-foreground">Next you'll upload your clips (phone videos are fine), then Rambo transcribes them, picks the best takes and cuts one video in the brand's style — captions, cards, end card. You can change every word afterwards.</div>
               <div className="space-y-3">
                 <div>
                   <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Format</span>
                   <div className="flex flex-wrap gap-2">
-                    {(["landscape", "vertical", "both"] as const).map((f) => (
-                      <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium capitalize ${format === f ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{f}</button>
+                    {([["vertical", "Vertical (Reels, TikTok, Stories)"], ["landscape", "Landscape (YouTube, screens)"]] as const).map(([f, label]) => (
+                      <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${format === f ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{label}</button>
                     ))}
                   </div>
                 </div>
@@ -238,27 +219,35 @@ function StudioHome() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
               {composer === "video"
-                ? "No model runs here. The request goes to the editing queue and the finished cut comes back to this piece."
+                ? "This makes the video piece; on the next screen you upload clips and press Edit it with Rambo."
                 : capped ? "You've used today's prompts. It resets at midnight, or a super admin can raise your limit in Team."
-                  : make.isPending && stage ? <span className="text-foreground font-medium" data-testid="studio-stage">{stage}…</span>
                   : engine === "designed" ? `Rambo designs it from scratch on the brand, looks at it on a phone and a laptop, and fixes what it sees. About 2–4 minutes — you can keep working; it lands in the list below. Every word can be changed afterwards.`
                   : `One prompt. Rambo uses the live programme facts and the brand's own pictures; every word can be changed afterwards without re-prompting.`}
             </p>
             <Button onClick={() => make.mutate()} disabled={!canMake} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white px-5" data-testid="studio-make-go">
-              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{engine === "designed" ? "Designing…" : composer === "page" ? "Building the page…" : "Making it…"}</> : composer === "video" ? "Send the request" : "Make it"}
+              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Working</> : composer === "video" ? "Next: upload clips" : "Make it"}
             </Button>
           </div>
+          {make.isPending && composer !== "video" && (
+            <RamboWorking
+              stage={stage}
+              expect={engine === "designed" ? (composer === "page" ? "usually 3–4 min" : "usually about 1 min") : "usually under a minute"}
+              expectSeconds={engine === "designed" ? (composer === "page" ? 200 : 70) : 30}
+            />
+          )}
         </div>
       )}
 
       {/* Everyone's pieces */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["page", "Pages"], ["video", "Videos"]] as const).map(([k, label]) => (
+          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["page", "Pages"], ["video", "Videos"], ["photos", "Photo library"]] as const).map(([k, label]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${filter === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`} data-testid={`studio-filter-${k}`}>{label}</button>
           ))}
         </div>
-        {isLoading ? (
+        {filter === "photos" ? (
+          <PhotoLibrary initialBrand={usage?.brand.key} />
+        ) : isLoading ? (
           <div className="py-10 flex justify-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
         ) : pieces.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground" data-testid="studio-empty">Nothing here yet. Pick a card above and tell Rambo what you want.</div>

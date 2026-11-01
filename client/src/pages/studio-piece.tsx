@@ -16,6 +16,10 @@ import { renderPage } from "@shared/studio-render";
 import { designedFields, designedPictureSlots, isDesignedDoc, renderDesignedGraphic, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
 import { GraphicArtboard, exportArtboardPng } from "@/components/studio/artboard";
 import { FieldList } from "@/components/studio/fields";
+import { RamboWorking } from "@/components/rambo-working";
+import { VideoEditor } from "@/components/studio/video-editor";
+import { edlFields } from "@shared/studio-video";
+import { DarkChip } from "@/components/studio/dark-chip";
 import { readStudioStream, whenLabel, type PieceSummary, type StudioUsage } from "./studio";
 
 const FACE = "/mailer/rambo.png";
@@ -58,8 +62,10 @@ export function StudioPiece({ id }: { id: number }) {
     if (piece.kind === "page") return pageFields(liveDoc as PageDoc);
     const v = liveDoc as VideoDoc;
     return [
+      // The edit's words first: these change the video (save, then Render again).
+      ...(v.edl ? edlFields(v.edl).map((f) => ({ ...f, path: `edl.${f.path}` })) : []),
       { path: "brief", label: "The brief", value: v.brief, multiline: true },
-      ...v.footage.map((f, i) => ({ path: `footage.${i}`, label: `Footage ${i + 1}`, value: f, href: true })),
+      ...v.footage.map((f, i) => ({ path: `footage.${i}`, label: `Footage link ${i + 1}`, value: f, href: true })),
       { path: "notes", label: "Notes", value: v.notes ?? "", multiline: true },
     ];
   }, [piece, liveDoc]);
@@ -74,15 +80,16 @@ export function StudioPiece({ id }: { id: number }) {
   const saveWords = () => patch.mutate({ doc: liveDoc, note: `${Object.keys(edits).length} field${Object.keys(edits).length === 1 ? "" : "s"} edited` }, { onSuccess: () => { setEdits({}); toast({ title: "Saved", description: "The words are updated. A new version was kept." }); } });
 
   const askRambo = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (instruction: string) => {
       setAskStage(null);
-      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/ask`, { instruction: ask, history: chat });
+      setAsk("");
+      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/ask`, { instruction, history: chat });
       const j = await readStudioStream(r, setAskStage);
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that change.");
       return j;
     },
-    onSuccess: (j: any) => { setChat((c) => [...c, { role: "user", content: ask }, { role: "assistant", content: j.reply }]); setAsk(""); setEdits({}); invalidate(); if (!j.changed) toast({ title: "Rambo", description: j.reply }); },
-    onError: (e: any) => toast({ title: "Rambo", description: e?.message, variant: "destructive" }),
+    onSuccess: (j: any, instruction) => { setChat((c) => [...c, { role: "user", content: instruction }, { role: "assistant", content: j.reply }]); setEdits({}); invalidate(); if (!j.changed) toast({ title: "Rambo", description: j.reply }); },
+    onError: (e: any, instruction) => { setAsk((a) => a || instruction); toast({ title: "Rambo", description: e?.message, variant: "destructive" }); },
     onSettled: () => setAskStage(null),
   });
   const publish = useMutation({
@@ -208,14 +215,7 @@ export function StudioPiece({ id }: { id: number }) {
               </div>
             </div>
           )}
-          {video && (
-            <div className="space-y-3 text-sm text-foreground">
-              <div className="flex items-center gap-2"><span className={`text-[11px] px-2 py-0.5 rounded-full ${video.status === "delivered" ? "bg-emerald-500/10 text-emerald-700" : video.status === "in_progress" ? "bg-amber-500/10 text-amber-700" : "bg-muted text-muted-foreground"}`} data-testid="studio-video-status">{video.status === "delivered" ? "Delivered" : video.status === "in_progress" ? "Being cut" : "Requested"}</span><span className="text-xs text-muted-foreground">{video.format} · about {video.lengthSeconds}s</span></div>
-              <p className="leading-relaxed whitespace-pre-wrap">{video.brief}</p>
-              {video.footage.length > 0 && <div className="text-xs text-muted-foreground space-y-1"><div className="font-semibold uppercase tracking-wider text-[10px]">Footage</div>{video.footage.map((f, i) => <div key={i} className="font-mono break-all">{f}</div>)}</div>}
-              {video.deliveredUrl ? <a href={video.deliveredUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-blue-600 underline" data-testid="studio-video-delivered"><ExternalLink className="w-4 h-4" />Watch the finished cut</a> : <p className="text-xs text-muted-foreground">No model runs for a video — it is cut from your footage by the editing kit and the link lands here when it's done.</p>}
-            </div>
-          )}
+          {video && <VideoEditor pieceId={piece.id} video={video} canEdit={canEdit} wordsDirty={dirty} />}
         </div>
 
         {/* Panel */}
@@ -251,11 +251,13 @@ export function StudioPiece({ id }: { id: number }) {
                   {chat.map((m, i) => (
                     <div key={i} className={`text-[13px] rounded-xl px-3 py-2 ${m.role === "user" ? "bg-blue-600 text-white ml-6" : "bg-muted text-foreground mr-6"}`}>{m.content}</div>
                   ))}
+                  {askRambo.isPending && <div className="text-[13px] rounded-xl px-3 py-2 bg-blue-600 text-white ml-6">{askRambo.variables ?? ask}</div>}
                 </div>
+                {askRambo.isPending && <RamboWorking stage={askStage} expect={isDesignedDoc(piece.doc) ? "usually 1–3 min" : "usually under a minute"} expectSeconds={isDesignedDoc(piece.doc) ? 120 : 30} />}
                 <textarea value={ask} onChange={(e) => setAsk(e.target.value)} rows={3} disabled={!canEdit} placeholder={canEdit ? "What should change?" : "Duplicate this piece to ask Rambo to change your copy."} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[14px] text-foreground" data-testid="studio-ask" />
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground">{usage ? `${usage.used} of ${usage.limit} today` : ""}</span>
-                  <Button onClick={() => askRambo.mutate()} disabled={!canEdit || ask.trim().length < 3 || askRambo.isPending} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-ask-go">{askRambo.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{askStage ? `${askStage}…` : "Working…"}</> : "Ask Rambo"}</Button>
+                  <Button onClick={() => askRambo.mutate(ask.trim())} disabled={!canEdit || ask.trim().length < 3 || askRambo.isPending} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-ask-go">{askRambo.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Working</> : "Ask Rambo"}</Button>
                 </div>
               </div>
             )}
@@ -366,6 +368,7 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
         <Button variant="outline" disabled={!canEdit || uploading} onClick={() => fileRef.current?.click()} className="h-11 md:h-9 border-border">{uploading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}Upload a picture</Button>
         {slots[slot]?.current && canEdit && <button type="button" className="text-xs text-muted-foreground underline" onClick={() => onPick(slots[slot].path, "")}>Remove the picture</button>}
       </div>
+      {canEdit && slots[slot] && <LogoFinder onUse={(url) => { onPick(slots[slot].path, url); qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pictures", piece.brand] }); }} defaultQuery="" />}
       <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
         {(data?.pictures ?? []).map((p) => (
           <button key={p.src} type="button" disabled={!canEdit} title={p.caption} onClick={() => onPick(slots[slot].path, p.src)} className={`rounded-lg overflow-hidden border ${slots[slot]?.current === p.src ? "border-blue-600 ring-2 ring-blue-500/30" : "border-border"} disabled:opacity-60`} data-testid="studio-picture">
@@ -396,6 +399,67 @@ function DesignedArtboard({ html, width, height }: { html: string; width: number
     <div ref={host} className="w-full flex justify-center" data-testid="studio-designed-artboard">
       <div style={{ width: width * scale, height: height * scale, overflow: "hidden" }} className="rounded-lg shadow-sm">
         <iframe title="Graphic preview" srcDoc={html} sandbox="" scrolling="no" style={{ width, height, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", display: "block" }} />
+      </div>
+    </div>
+  );
+}
+
+interface LogoCandidate { id: string; from: string; width: number; height: number; ink: "light" | "dark" | "colour"; dataUrl: string }
+
+/** Find a partner's real logo: ClubOS reads their website (in a real browser if
+ *  it has to) and shows every logo it finds on a light and a dark chip; a
+ *  person picks the right one. Nothing is placed without that choice. */
+function LogoFinder({ onUse, defaultQuery }: { onUse: (url: string) => void; defaultQuery: string }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(defaultQuery);
+  const [busy, setBusy] = useState(false);
+  const [using, setUsing] = useState<string | null>(null);
+  const [found, setFound] = useState<{ site: string | null; candidates: LogoCandidate[]; message?: string } | null>(null);
+  const search = async () => {
+    if (q.trim().length < 2) return;
+    setBusy(true); setFound(null);
+    try {
+      const r = await workspaceFetch(`/api/admin/content-studio/logo-search?q=${encodeURIComponent(q.trim())}`);
+      setFound(await r.json());
+    } catch (e: any) { setFound({ site: null, candidates: [], message: e?.message || "Search failed." }); }
+    finally { setBusy(false); }
+  };
+  const use = async (c: LogoCandidate) => {
+    setUsing(c.id);
+    try {
+      const r = await apiRequest("POST", "/api/admin/content-studio/logo-pick", { dataUrl: c.dataUrl, name: q.trim() });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.message);
+      onUse(j.url);
+      toast({ title: "Logo placed", description: "Save words to keep it." });
+    } catch (e: any) { toast({ title: "Couldn't use that logo", description: e?.message, variant: "destructive" }); }
+    finally { setUsing(null); }
+  };
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-blue-600 underline min-h-9" data-testid="studio-logo-open">Find a company's logo</button>;
+  return (
+    <div className="rounded-xl border p-3 space-y-2" data-testid="studio-logo-finder">
+      <p className="text-xs text-muted-foreground">Type the company's name or website. ClubOS reads their own site for the logo they publish; you choose the right one.</p>
+      <div className="flex gap-2">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }} placeholder="e.g. Swyftx or swyftx.com" className="h-11 md:h-9" data-testid="studio-logo-q" />
+        <Button onClick={() => void search()} disabled={busy || q.trim().length < 2} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white shrink-0">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}</Button>
+      </div>
+      {busy && <RamboWorking stage="Reading their website for the logo" compact />}
+      {found?.message && <p className="text-xs text-muted-foreground">{found.message}</p>}
+      {found?.site && found.candidates.length > 0 && <p className="text-[11px] text-muted-foreground">From {found.site}. Pick the one that reads on your design's background.</p>}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {found?.candidates.map((c) => (
+          <div key={c.id} className="rounded-lg border overflow-hidden" data-testid="studio-logo-candidate">
+            <div className="grid grid-cols-2">
+              <div className="flex h-20 items-center justify-center bg-white p-3"><img src={c.dataUrl} alt="" className="max-h-full max-w-full object-contain" /></div>
+              <DarkChip className="flex h-20 items-center justify-center p-3"><img src={c.dataUrl} alt="" className="max-h-full max-w-full object-contain" /></DarkChip>
+            </div>
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <span className="text-[11px] text-muted-foreground">{c.from} · {c.width}×{c.height}</span>
+              <Button size="sm" variant="outline" disabled={!!using} onClick={() => void use(c)} className="h-9 shrink-0">{using === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "Use this"}</Button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

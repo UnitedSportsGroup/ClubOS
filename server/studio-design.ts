@@ -35,6 +35,9 @@ import { CLUB_LOGOS } from "../client/src/components/marketing/grapes/templates/
 import { DESIGN_CRAFT } from "./studio-craft";
 import { programmeFactsFor } from "./brand-facts";
 import { pictureLibrary } from "./studio-ai";
+import { findLogo } from "./studio-logo";
+import { storeMailerImage } from "./mailer-images";
+import { shrinkForEmail } from "./mailer-image-shrink";
 
 export const DESIGN_MODEL = process.env.STUDIO_DESIGN_MODEL || process.env.STUDIO_MODEL || STUDIO_DEFAULT_MODEL;
 export const DESIGN_EDIT_MODEL = process.env.STUDIO_EDIT_MODEL || STUDIO_DEFAULT_EDIT_MODEL;
@@ -341,10 +344,10 @@ OUTPUT CONTRACT — follow exactly or the piece is rejected
 - Every <img> has src="{{img:key}}" with the picture in "images" (src = a URL from the lists below, exactly; alt = what the photo shows). A CSS background photo is url("{{img:key}}").
 - Every <a> has href="{{href:key}}" with the address in "links" (full https:// from the facts or the brand site, or mailto:/tel:), or href="#section-id" to jump within the page.
 - A word box may use *emphasis* (rendered <em>, style it as your highlight) and **bold**; a line break is a new line in the value. Keep each box to one idea so a person can edit it.
-- Allowed: semantic tags, <svg> drawings (no <text> in svg — words are tokens), <details>/<summary>, tables. Not allowed: script, style attributes with url() to anything else, forms, inputs, buttons (a button is a styled <a>), iframes, video, @import, external images or fonts other than Google Fonts.
+- Allowed: semantic tags, <svg> drawings (no <text> in svg — words are tokens), <details>/<summary>, tables. Not allowed: script, style attributes with url() to anything else, forms, inputs, buttons (a button is a styled <a>), iframes, video, @import, external images or fonts other than Google Fonts and the brand's own hosted faces named below.
 - No JavaScript runs. CSS only. Never hide content waiting for an animation.
 - ENQUIRY FORM: when the brief asks for a form, lead capture, "get in touch" or "enquire", put the token {{form}} (alone, inside an element of yours) where the form goes. ClubOS draws it: <form class="sf"> containing .sf-grid of .sf-field labels (.sf-label text, .sf-input inputs), a .sf-textarea message, and a <button class="sf-submit">; after sending, a .sf-sent message replaces it. Style those classes to the brand (the defaults are plain). Add texts "form_button" (the button words, e.g. "Start the conversation") and "form_sent" (the thank-you line). One form per page.
-- A PARTNER'S or SPONSOR'S LOGO is never in your picture lists. If the brief needs one, add an images entry with key "partner_logo", label "Partner logo — upload it in Pictures", src "" and alt naming the partner, and place its <img> where the logo belongs (it stays empty until a staff member uploads the file). Never draw the partner's name as a fake logo.
+- A PARTNER'S or SPONSOR'S LOGO: if the request carries a PARTNER LOGOS list, those are the partner's real logo files read from their own website — use the version that reads on your ground (white for dark grounds), as an images entry with key "partner_logo" and alt "<Partner> logo", sized like a co-brand lockup equal in weight to the club crest, never recoloured or stretched; and say in your reply that the logo was found on their website and should be checked. Otherwise a partner's logo is never in your picture lists: if the brief needs one, add an images entry with key "partner_logo", label "Partner logo — upload it in Pictures", src "" and alt naming the partner, and place its <img> where the logo belongs (it stays empty until a staff member uploads the file). Never draw the partner's name as a fake logo.
 - "fonts": the brand's display and body faces as Google Fonts css2 parameters.
 - Use the brand colour variables (var(--…)) below rather than retyping hexes.
 
@@ -353,7 +356,7 @@ ${DESIGN_CRAFT}
 BRAND: ${brand.name} (${brand.key}). Site ${brand.host}.
 Palette (CSS variables already defined on :root):
 ${pack.palette.map((c) => `- ${c.token}: ${c.hex} — ${c.use}`).join("\n")}
-Fonts: display "${pack.fonts.display}" (${pack.fonts.displayWeights}), body "${pack.fonts.body}" (${pack.fonts.bodyWeights}). ${pack.fonts.note}
+Fonts: display "${pack.fonts.display}" (${pack.fonts.displayWeights}), body "${pack.fonts.body}" (${pack.fonts.bodyWeights}). ${pack.fonts.note}${pack.houseFonts?.length ? `\nAlready loaded on the page for you (use these family names in your CSS, never in "fonts"): ${Array.from(new Set(pack.houseFonts.map((f) => `'${f.family}'`))).join(", ")}.` : ""}
 Brand rules:
 ${pack.rules}
 
@@ -414,6 +417,52 @@ function parseOut(res: Anthropic.Message): any | null {
   try { return JSON.parse(text); } catch { return null; }
 }
 
+
+// ── A partner's logo, found before designing ────────────────────────────────
+
+const LOGO_HINT = /\blogo|partner|sponsor|\s[x×]\s|co-?brand/i;
+
+/** The partners whose logo the brief wants, their real logo found on their own
+ *  website (studio-logo.ts) and hosted here, so the designer can place it.
+ *  Best effort: anything that fails leaves the empty slot behind as before. */
+export async function partnerLogos(brief: string, brandKey: string, orgId: number, userId: number | null, stage: (s: string) => void): Promise<{ text: string; cents: number }> {
+  if (!LOGO_HINT.test(brief) || !process.env.ANTHROPIC_API_KEY) return { text: "", cents: 0 };
+  let cents = 0;
+  try {
+    const res = await client.messages.create({
+      model: process.env.STUDIO_EXTRACT_MODEL || "claude-haiku-5-5",
+      max_tokens: 200,
+      messages: [{ role: "user", content: `Brief for a ${studioBrand(brandKey)?.name ?? brandKey} design:\n"""${brief.slice(0, 3000)}"""\n\nWhich OUTSIDE companies (partners, sponsors — never our own club or brands: Christchurch United, South Island United, Mini Football Leagues, Christchurch International Cup, United Gymnastics, United Sports Centre, United Sports Group, United Prints) does it want a logo of? Give their names or websites as written.` }],
+      output_config: { format: { type: "json_schema", schema: { type: "object", additionalProperties: false, properties: { companies: { type: "array", items: { type: "string" } } }, required: ["companies"] } } },
+    } as any);
+    cents += ((res.usage.input_tokens ?? 0) * 1 + (res.usage.output_tokens ?? 0) * 5) / 10_000;
+    const text = res.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+    const names: string[] = (JSON.parse(text || "{}").companies ?? []).map((n: unknown) => String(n).trim()).filter((n: string) => n.length > 1).slice(0, 2);
+    const lines: string[] = [];
+    for (const name of names) {
+      stage(`Finding ${name}'s logo`);
+      const found = await findLogo(name);
+      cents += found.costCents;
+      const best = found.candidates.find((c) => !/icon/i.test(c.from)) ?? null;
+      if (!best) continue;
+      const white = found.candidates.find((c) => c.id === `${best.id}w`) ?? (best.ink === "light" ? best : null);
+      const host = async (dataUrl: string, label: string) => {
+        const shrunk = await shrinkForEmail(Buffer.from(dataUrl.split(",")[1], "base64"));
+        if (!shrunk.ok) return null;
+        return (await storeMailerImage({ orgId, userId, originalName: `logo: ${name} (${label})`, originalBytes: null, image: shrunk.image })).url;
+      };
+      const asIs = await host(best.dataUrl, best.ink);
+      const rev = white && white !== best ? await host(white.dataUrl, "white") : null;
+      const parts = [asIs && `${best.ink === "light" ? "white artwork (for dark grounds)" : best.ink === "dark" ? "dark artwork (for light grounds)" : "full colour"}: ${asIs}`, rev && `white version for dark grounds: ${rev}`].filter(Boolean);
+      if (parts.length) lines.push(`- ${name}${found.site ? ` (from ${found.site}, ${best.from})` : ""} — ${parts.join("; ")}  [${best.width}×${best.height}]`);
+    }
+    return { text: lines.length ? `\n\nPARTNER LOGOS (their real logo files, read from their own websites; staff will check them):\n${lines.join("\n")}` : "", cents };
+  } catch (e) {
+    console.error("[studio-design] partner logo lookup failed:", e);
+    return { text: "", cents };
+  }
+}
+
 export async function generateDesigned(input: DesignInput): Promise<DesignResult> {
   const started = Date.now();
   const model = input.current ? DESIGN_EDIT_MODEL : DESIGN_MODEL;
@@ -421,13 +470,14 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
   const stage = (s: string) => { try { input.onStage?.(s); } catch { /* the line may be gone */ } };
   const system = await designSystemPrompt(input.kind, input.brandKey, input.orgId);
   const size = graphicSize(input.sizeKey);
+  const logos = await partnerLogos(input.brief, input.brandKey, input.orgId, input.userId, stage);
   const messages: Anthropic.MessageParam[] = [
     ...(input.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content })),
     {
       role: "user",
       content: input.current
-        ? `<current_document>\n${JSON.stringify(input.current)}\n</current_document>\n\n${input.kind === "graphic" ? `Artboard: ${size.width}×${size.height}.\n` : ""}Change requested: ${input.brief}\n\nReturn the whole document with that change made. Keep everything else as it is unless the change needs it.`
-        : `${input.kind === "graphic" ? `Artboard: ${size.label} ${size.width}×${size.height} (${size.use}).\n` : ""}Brief: ${input.brief}`,
+        ? `<current_document>\n${JSON.stringify(input.current)}\n</current_document>\n\n${input.kind === "graphic" ? `Artboard: ${size.width}×${size.height}.\n` : ""}Change requested: ${input.brief}${logos.text}\n\nReturn the whole document with that change made. Keep everything else as it is unless the change needs it.`
+        : `${input.kind === "graphic" ? `Artboard: ${size.label} ${size.width}×${size.height} (${size.use}).\n` : ""}Brief: ${input.brief}${logos.text}`,
     },
   ];
 
@@ -454,14 +504,14 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
         pieceId: input.pieceId ?? null, userId: input.userId, userLabel: input.userLabel, organizationId: input.orgId, brand: input.brandKey,
         kind: input.kind, model, instruction: input.brief.slice(0, 4000),
         inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, cacheWriteTokens: usage.cacheWrite,
-        costUsdCents: String(mailerAiCostCents(model, usage)), durationMs: Date.now() - started, ok, error,
+        costUsdCents: String(mailerAiCostCents(model, usage) + logos.cents), durationMs: Date.now() - started, ok, error,
       }).returning({ id: studioGenerations.id });
       generationId = row?.id ?? null;
     } catch (e) { console.error("[studio-design] usage row failed:", e); }
   };
   const fail = async (error: string): Promise<DesignResult> => {
     await record(false, error.slice(0, 500));
-    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage), generationId, looked: 0, error };
+    return { ok: false, reply: "", title: null, doc: null, model, usage, costCents: mailerAiCostCents(model, usage) + logos.cents, generationId, looked: 0, error };
   };
 
   try {
@@ -518,7 +568,7 @@ export async function generateDesigned(input: DesignInput): Promise<DesignResult
     }
     await record(true, null);
     stage("Done");
-    return { ok: true, reply, title: (doc.title || "Untitled").slice(0, 120), doc, model, usage, costCents: mailerAiCostCents(model, usage), generationId, png, looked };
+    return { ok: true, reply, title: (doc.title || "Untitled").slice(0, 120), doc, model, usage, costCents: mailerAiCostCents(model, usage) + logos.cents, generationId, png, looked };
   } catch (e: any) {
     const msg = String(e?.message || e || "");
     return fail(e?.status === 429 ? "Rambo is busy right now (rate limited). Try again in a minute."

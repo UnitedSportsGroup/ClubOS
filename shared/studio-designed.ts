@@ -18,7 +18,7 @@
  * Pure string building — shared by the browser (live preview) and the server
  * (the public page, the render for screenshots).
  */
-import { brandPack } from "./studio-brand-packs";
+import { BRAND_PACKS, brandPack } from "./studio-brand-packs";
 import type { TextField } from "./studio";
 
 export interface DesignedText { key: string; label: string; value: string; multiline?: boolean }
@@ -52,7 +52,7 @@ export const DESIGNED_LIMITS = { texts: 90, images: 16, links: 12, textChars: 15
 
 /** Where the club's own pictures and the two font hosts are the ONLY outside
  *  requests a designed page may make; no script runs at all. */
-export const DESIGNED_CSP = "default-src 'none'; img-src https://app.usg.co.nz data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; base-uri 'none'; form-action 'self'";
+export const DESIGNED_CSP = "default-src 'none'; img-src https://app.usg.co.nz data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://app.usg.co.nz; base-uri 'none'; form-action 'self'";
 
 const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
@@ -65,16 +65,25 @@ export function designedWords(v: string): string {
     .replace(/\r?\n/g, "<br>");
 }
 
+/** A brand's own face is not on Google — asking Google for it fails the whole stylesheet. */
+const HOUSE_FAMILIES = new Set(Object.values(BRAND_PACKS).flatMap((p) => (p.houseFonts ?? []).map((f) => f.family.toLowerCase())));
+
 export function designedFontsHref(fonts: string[]): string | null {
-  const ok = (fonts ?? []).filter((f) => FONT_PARAM_RE.test(f)).slice(0, DESIGNED_LIMITS.fonts);
+  const ok = (fonts ?? []).filter((f) => FONT_PARAM_RE.test(f) && !HOUSE_FAMILIES.has(f.split(":")[0].trim().toLowerCase())).slice(0, DESIGNED_LIMITS.fonts);
   if (!ok.length) return null;
   return `https://fonts.googleapis.com/css2?${ok.map((f) => `family=${f.replace(/ /g, "+")}`).join("&")}&display=swap`;
 }
 
-/** The brand's palette as CSS variables the design is told to use. */
+/** Where the brands' own typefaces are served (with CORS, so a published
+ *  page on join.southislandunited.com and the render worker can load them). */
+export const HOUSE_FONT_BASE = "https://app.usg.co.nz/studio-fonts/";
+
+/** The brand's palette as CSS variables the design is told to use, and its
+ *  own typefaces (SIU's Rough Cut and Arpona, CUGC's Satoshi) as @font-face. */
 export function brandVars(brandKey: string): string {
   const p = brandPack(brandKey);
-  return `:root{${p.palette.map((c) => `${c.token}:${c.hex}`).join(";")}}`;
+  const faces = (p.houseFonts ?? []).map((f) => `@font-face{font-family:"${f.family}";src:url("${HOUSE_FONT_BASE}${f.file}") format("woff2");font-weight:${f.weight};font-style:${f.style ?? "normal"};font-display:block}`).join("");
+  return `${faces}:root{${p.palette.map((c) => `${c.token}:${c.hex}`).join(";")}}`;
 }
 
 /** Swap every token for its value. Pictures and links were checked when the

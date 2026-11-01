@@ -166,6 +166,9 @@ export interface PageDoc {
   blocks: PageBlock[];
 }
 
+import type { Edl, VideoClip } from "./studio-video";
+import { checkClips, checkEdl, FOOTAGE_HOST_RE } from "./studio-video-check";
+
 // ── Video requests ──────────────────────────────────────────────────────────
 
 export type VideoStatus = "requested" | "in_progress" | "delivered";
@@ -178,6 +181,14 @@ export interface VideoDoc {
   status: VideoStatus;
   deliveredUrl?: string | null;
   notes?: string | null;
+  /** The video editor (2026-11-01): clips uploaded to the club's private store,
+   *  the edit the worker planned (words editable), and what it made. */
+  clips?: VideoClip[];
+  edl?: Edl | null;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
+  seconds?: number | null;
+  editNote?: string | null;
 }
 
 // ── Pictures ────────────────────────────────────────────────────────────────
@@ -361,7 +372,10 @@ export function checkVideoDoc(raw: unknown): Checked<VideoDoc> {
   const status: VideoStatus = r.status === "in_progress" || r.status === "delivered" ? r.status : "requested";
   const deliveredUrl = clean(r.deliveredUrl, 500) ?? null;
   if (deliveredUrl && !isAllowedHref(deliveredUrl)) problems.push("the delivered link must be a full https:// address");
-  return { ok: problems.length === 0, doc: { brief, footage, format, lengthSeconds, status, deliveredUrl, notes: clean(r.notes, 2000) ?? null }, problems };
+  const clips = checkClips(r.clips);
+  const edl = r.edl ? checkEdl(r.edl, clips.length) : null;
+  const media = (v: unknown) => { const u = clean(v, 600); return u && FOOTAGE_HOST_RE.test(u) ? u : null; };
+  return { ok: problems.length === 0, doc: { brief, footage, format, lengthSeconds, status, deliveredUrl, notes: clean(r.notes, 2000) ?? null, clips, edl, videoUrl: media(r.videoUrl), posterUrl: media(r.posterUrl), seconds: Number.isFinite(Number(r.seconds)) && r.seconds != null ? Number(r.seconds) : null, editNote: clean(r.editNote, 2000) ?? null }, problems };
 }
 
 // ── The words, as fields a person edits in place ────────────────────────────

@@ -162,6 +162,7 @@ import { registerMailerAiRoutes } from "./mailer-ai";
 import { registerMailerImageRoutes } from "./mailer-images";
 import { registerMailerTestRoutes, startMailerTests, queueRecipients, recordCampaignLinks, renderTrackedForRecipient, subjectForVariant, campaignResults } from "./mailer-tests";
 import { registerStudioRoutes } from "./studio";
+import { registerStudioVideoRoutes } from "./studio-video";
 import { validateMailerTest, splitForTest, describeTestPlan, type MailerVariant } from "@shared/mailer-tests";
 import { emailCampaignTests } from "@shared/schema";
 import { registerRamboRoutes } from "./rambo-routes";
@@ -27620,6 +27621,7 @@ export async function registerRoutes(
   // Content Studio (2026-10-27): graphics, landing pages on the brand hosts
   // (/p/:slug), video requests. Universal, requireAuth.
   registerStudioRoutes(app);
+  registerStudioVideoRoutes(app);
   registerRamboRoutes(app);
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.

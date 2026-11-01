@@ -40,6 +40,7 @@ import { sendEmail } from "./email";
 import { inboxMessages } from "@shared/schema";
 import { generateStudioPiece, pictureLibrary, stampGeneration, STUDIO_EDIT_MODEL, STUDIO_MODEL } from "./studio-ai";
 import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
+import { cleanPickedLogo, findLogo } from "./studio-logo";
 import { shrinkForEmail } from "./mailer-image-shrink";
 import { storeMailerImage } from "./mailer-images";
 import { MAILER_IMAGE_MAX_UPLOAD_BYTES } from "@shared/mailer-images";
@@ -51,7 +52,7 @@ export const STUDIO_RENDER_MAX_BYTES = 8 * 1024 * 1024;
 
 interface Where { orgId: number; orgSlug: string; orgName: string; brandKey: string }
 
-async function whereFor(req: Request): Promise<Where | null> {
+export async function whereFor(req: Request): Promise<Where | null> {
   const slug = String(req.headers["x-workspace-slug"] || "").trim();
   if (!slug) return null;
   const r = rowsOf(await db.execute(sql`SELECT id, slug, name FROM organizations WHERE slug = ${slug} LIMIT 1`))[0];
@@ -62,11 +63,11 @@ async function whereFor(req: Request): Promise<Where | null> {
 
 /** May this person change the piece? Its maker, or a super admin. Never a
  *  workspace admin: "nobody overriding other people's content". */
-function canEdit(piece: { createdByUserId: number }, user: { id: number; role: string | null }): boolean {
+export function canEdit(piece: { createdByUserId: number }, user: { id: number; role: string | null }): boolean {
   return piece.createdByUserId === user.id || user.role === "super_admin";
 }
 
-function shapePiece(p: any, extra: { ownerName?: string | null; canEdit?: boolean; renderUrl?: string | null } = {}) {
+export function shapePiece(p: any, extra: { ownerName?: string | null; canEdit?: boolean; renderUrl?: string | null } = {}) {
   return {
     id: p.id, brand: p.brand, kind: p.kind as StudioKind, title: p.title, slug: p.slug, size: p.size, status: p.status, unlisted: p.unlisted,
     doc: p.doc, version: p.version, brief: p.brief, createdByUserId: p.createdByUserId, createdAt: p.createdAt, updatedAt: p.updatedAt, publishedAt: p.publishedAt,
@@ -88,14 +89,14 @@ async function latestRenders(pieceIds: number[]): Promise<Map<number, string>> {
   return out;
 }
 
-async function pieceOr404(id: number, orgId: number) {
+export async function pieceOr404(id: number, orgId: number) {
   if (!Number.isFinite(id)) return null;
   const [p] = await db.select().from(studioPieces).where(and(eq(studioPieces.id, id), eq(studioPieces.organizationId, orgId)));
   return p ?? null;
 }
 
 /** A new numbered version, and the piece moved on to it. */
-async function saveVersion(pieceId: number, doc: unknown, how: "made" | "asked" | "edited" | "duplicated", userId: number | null, note: string | null, patch: Record<string, unknown> = {}) {
+export async function saveVersion(pieceId: number, doc: unknown, how: "made" | "asked" | "edited" | "duplicated", userId: number | null, note: string | null, patch: Record<string, unknown> = {}) {
   const [cur] = await db.select({ version: studioPieces.version }).from(studioPieces).where(eq(studioPieces.id, pieceId));
   const version = (cur?.version ?? 0) + 1;
   await db.insert(studioVersions).values({ pieceId, version, doc: doc as any, how, note, createdByUserId: userId });
@@ -122,7 +123,7 @@ async function uniqueSlug(brand: string, wanted: string, exceptId: number): Prom
 }
 
 /** Keep a graphic's PNG (drawn by the browser, or by the render service). */
-async function storeRender(pieceId: number, version: number, buffer: Buffer, mime: "image/png" | "image/jpeg", width: number, height: number): Promise<string> {
+export async function storeRender(pieceId: number, version: number, buffer: Buffer, mime: "image/png" | "image/jpeg", width: number, height: number): Promise<string> {
   const key = crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 24);
   await db.insert(studioRenders).values({ pieceId, version, key, mime, width, height, bytes: buffer.length, data: buffer }).onConflictDoNothing();
   return renderUrl(key, mime);
@@ -179,6 +180,31 @@ export function registerStudioRoutes(app: Express) {
       if (!shrunk.ok) return res.status(400).json({ ok: false, message: shrunk.message });
       const stored = await storeMailerImage({ orgId: w.orgId, userId: req.session.userId ?? null, originalName: (file.originalname || "").slice(0, 200) || null, originalBytes: file.size ?? file.buffer.length, image: shrunk.image });
       res.json({ ok: true, url: stored.url, width: stored.width, height: stored.height, bytes: stored.bytes });
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
+  });
+
+  /** Find a partner's real logo: their website's own logo files, for a person to choose. */
+  app.get("/api/admin/content-studio/logo-search", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const w = await whereFor(req);
+      if (!w) return res.status(400).json({ ok: false, message: "Unknown workspace" });
+      const out = await findLogo(String(req.query.q || ""));
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message, candidates: [] }); }
+  });
+
+  /** The logo a person chose: re-drawn, then hosted like any uploaded picture. */
+  app.post("/api/admin/content-studio/logo-pick", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const w = await whereFor(req);
+      if (!w) return res.status(400).json({ ok: false, message: "Unknown workspace" });
+      const png = await cleanPickedLogo(String(req.body?.dataUrl || ""));
+      if (!png) return res.status(400).json({ ok: false, message: "That logo couldn't be read." });
+      const shrunk = await shrinkForEmail(png);
+      if (!shrunk.ok) return res.status(400).json({ ok: false, message: shrunk.message });
+      const name = String(req.body?.name || "partner logo").slice(0, 120);
+      const stored = await storeMailerImage({ orgId: w.orgId, userId: req.session.userId ?? null, originalName: `logo: ${name}`, originalBytes: png.length, image: shrunk.image });
+      res.json({ ok: true, url: stored.url, width: stored.width, height: stored.height });
     } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
   });
 
