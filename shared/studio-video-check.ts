@@ -14,7 +14,8 @@ export function checkClips(raw: unknown): VideoClip[] {
   return (Array.isArray(raw) ? raw : []).slice(0, VIDEO_CLIPS_MAX).flatMap((c: any) => {
     const url = txt(c?.url, 600);
     if (!FOOTAGE_HOST_RE.test(url)) return [];
-    return [{ url, name: txt(c?.name, 160) || "clip", bytes: Math.max(0, Math.round(Number(c?.bytes) || 0)), seconds: num(c?.seconds, 0, 36000), width: num(c?.width, 0, 10000), height: num(c?.height, 0, 10000) }];
+    const colour = ["slog3", "hlg", "pq", "rec709"].includes(c?.colour) ? c.colour : null;
+    return [{ url, name: txt(c?.name, 160) || "clip", bytes: Math.max(0, Math.round(Number(c?.bytes) || 0)), seconds: num(c?.seconds, 0, 36000), width: num(c?.width, 0, 10000), height: num(c?.height, 0, 10000), fps: num(c?.fps, 0, 240), colour }];
   });
 }
 
@@ -26,7 +27,12 @@ export function checkEdl(raw: unknown, clipCount: number): Edl | null {
     const clip = Math.round(Number(s?.clip));
     const a = num(s?.in, 0, 36000), b = num(s?.out, 0, 36000);
     if (!(clip >= 0 && clip < clipCount) || a == null || b == null || b <= a) return [];
-    return [{ clip, in: a, out: b, role: s?.role === "broll" ? "broll" : "talk", ...(s?.focusX != null ? { focusX: num(s.focusX, 0, 1) ?? 0.5 } : {}) }];
+    return [{
+      clip, in: a, out: b, role: s?.role === "broll" ? "broll" : "talk",
+      ...(s?.focusX != null ? { focusX: num(s.focusX, 0, 1) ?? 0.5 } : {}),
+      ...(s?.at != null && num(s.at, 0, 3600) != null ? { at: num(s.at, 0, 3600)! } : {}),
+      ...(s?.speed != null && num(s.speed, 0.25, 4) != null ? { speed: num(s.speed, 0.25, 4)! } : {}),
+    }];
   });
   if (!segments.length) return null;
   const captions = (Array.isArray(r.captions) ? r.captions : []).slice(0, 600).flatMap((c: any) => {
@@ -40,8 +46,11 @@ export function checkEdl(raw: unknown, clipCount: number): Edl | null {
   });
   const hookLines = (Array.isArray(r.hook?.lines) ? r.hook.lines : []).map((l: unknown) => txt(l, 160)).filter(Boolean).slice(0, 2);
   const hookUntil = num(r.hook?.until, 0, 30);
+  const plateUntil = num(r.plate?.until, 0, 3600);
+  const plate = r.plate && txt(r.plate.name, 80) && plateUntil != null ? { name: txt(r.plate.name, 80), role: txt(r.plate.role, 80), ...(r.plate.from != null ? { from: num(r.plate.from, 0, 3600) ?? 0 } : {}), until: plateUntil } : null;
   return {
     format: r.format === "landscape" ? "landscape" : "vertical",
+    plate,
     fps: 25,
     segments,
     captions,

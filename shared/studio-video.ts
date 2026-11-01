@@ -13,7 +13,7 @@
 // The worker owns: transcription, the plan, the render, the files it makes.
 // This file is the one place both sides agree; change it on both or neither.
 
-/** A clip a person uploaded (Vercel Blob, public unguessable URL). */
+/** A clip a person uploaded (private Vercel Blob store; the worker downloads with the store token). */
 export interface VideoClip {
   url: string;
   name: string;
@@ -22,6 +22,12 @@ export interface VideoClip {
   seconds?: number | null;
   width?: number | null;
   height?: number | null;
+  /** Filled by the worker: frames per second of the source (50+ allows 2x slow motion on b-roll). */
+  fps?: number | null;
+  /** Filled by the worker: how the footage was shot. "slog3" gets the club's S-Log3 grade (LUT),
+   *  "hlg"/"pq" (phone HDR) are tone-mapped, "rec709" is used as it is. Keep it on the clip so a
+   *  "render" job grades the same way without guessing again. */
+  colour?: "slog3" | "hlg" | "pq" | "rec709" | null;
 }
 
 /** One stretch of source footage, in the order it plays. */
@@ -35,6 +41,12 @@ export interface EdlSegment {
   role: "talk" | "broll";
   /** Horizontal centre of the 9:16 crop, 0–1 of the source width (0.5 = centre). */
   focusX?: number;
+  /** broll only: the OUTPUT second the cutaway starts, laid over the voice (talk segments play end
+   *  to end; a broll segment with `at` does not take time of its own). A broll segment without `at`
+   *  takes its own slot in the sequence, with no voice under it. */
+  at?: number;
+  /** Playback speed; 0.5 = half speed (2x slow motion from 50 fps footage). Output length = (out−in)/speed. Default 1. */
+  speed?: number;
 }
 
 /** A caption chunk, timed on the OUTPUT timeline (seconds). */
@@ -63,8 +75,10 @@ export interface Edl {
   segments: EdlSegment[];
   captions: EdlCaption[];
   cards: EdlCard[];
-  /** The hook: the first words on screen (big type), 1–2 lines. */
+  /** The hook: the first words on screen (big type), 1–2 lines. *word* marks the highlight word. */
   hook?: { lines: string[]; until: number } | null;
+  /** Name plate (lower third) on the speaker, only when the brief names them. Output seconds. */
+  plate?: { name: string; role: string; from?: number; until: number } | null;
   end: { line: string; site: string };
   /** Total output length in seconds (segments + end card). */
   seconds: number;
@@ -83,6 +97,8 @@ export interface VideoJob {
   clips: VideoClip[];
   edl: Edl | null;
   theme: VideoTheme;
+  /** A LICENSED music track to duck under the voice. No track = no music (never a guessed one). */
+  music?: { url: string; name: string } | null;
 }
 
 /** The brand's look, from shared/studio-brand-packs.ts. */
@@ -117,10 +133,14 @@ export interface VideoJobResult {
 export const VIDEO_CLIP_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB a clip
 export const VIDEO_CLIPS_MAX = 12;
 
-/** The words in an edl as boxes: captions and card lines. Paths: "captions.3.text", "cards.1.lines.0", "hook.lines.0", "end.line". */
+/** The words in an edl as boxes: captions and card lines. Paths: "captions.3.text", "cards.1.lines.0", "hook.lines.0", "plate.name", "plate.role", "end.line". */
 export function edlFields(edl: Edl): { path: string; label: string; value: string }[] {
   const out: { path: string; label: string; value: string }[] = [];
   edl.hook?.lines.forEach((l, i) => out.push({ path: `hook.lines.${i}`, label: `Hook line ${i + 1}`, value: l }));
+  if (edl.plate) {
+    out.push({ path: "plate.name", label: "Name plate · name", value: edl.plate.name });
+    out.push({ path: "plate.role", label: "Name plate · role", value: edl.plate.role });
+  }
   edl.cards.forEach((c, ci) => c.lines.forEach((l, li) => out.push({ path: `cards.${ci}.lines.${li}`, label: `Card ${ci + 1} · line ${li + 1}`, value: l })));
   edl.captions.forEach((c, i) => out.push({ path: `captions.${i}.text`, label: `Caption at ${c.at.toFixed(1)}s`, value: c.text }));
   out.push({ path: "end.line", label: "End card line", value: edl.end.line });
@@ -135,6 +155,8 @@ export function applyEdlField(edl: Edl, path: string, value: string): Edl {
   if ((m = path.match(/^hook\.lines\.(\d+)$/)) && next.hook?.lines[+m[1]] !== undefined) next.hook.lines[+m[1]] = v;
   else if ((m = path.match(/^cards\.(\d+)\.lines\.(\d+)$/)) && next.cards[+m[1]]?.lines[+m[2]] !== undefined) next.cards[+m[1]].lines[+m[2]] = v;
   else if ((m = path.match(/^captions\.(\d+)\.text$/)) && next.captions[+m[1]]) next.captions[+m[1]].text = v;
+  else if (path === "plate.name" && next.plate) next.plate.name = v;
+  else if (path === "plate.role" && next.plate) next.plate.role = v;
   else if (path === "end.line") next.end.line = v;
   return next;
 }
