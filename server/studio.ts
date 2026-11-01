@@ -34,7 +34,7 @@ import {
 } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
 import { DESIGNED_CSP, isDesignedDoc, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
-import { checkDesignedDoc, generateDesigned, renderAvailable, renderDesignedPng } from "./studio-design";
+import { checkDesignedDoc, generateDesigned, renderAvailable, renderDesignedPng, renderShot } from "./studio-design";
 import { guardPublicForm, mintFormToken } from "./form-guard";
 import { sendEmail } from "./email";
 import { inboxMessages } from "@shared/schema";
@@ -129,6 +129,23 @@ export async function storeRender(pieceId: number, version: number, buffer: Buff
   return renderUrl(key, mime);
 }
 
+/** A landing page's thumbnail: its first laptop screen (1440×900), drawn by
+ *  the render service. Never awaited by a request — a missing thumbnail is a
+ *  grey card, never a failed save. One at a time per piece. */
+const snapping = new Set<number>();
+export function snapPage(pieceId: number, version: number, doc: unknown, brand: string): void {
+  if (!renderAvailable() || snapping.has(pieceId)) return;
+  snapping.add(pieceId);
+  (async () => {
+    try {
+      const html = isDesignedDoc(doc) ? renderDesignedPage(doc as DesignedDoc, brand, { noindex: true }) : renderPage(doc as PageDoc, brand, { noindex: true });
+      const shot = await renderShot({ html, width: 1440, height: 900, format: "jpeg", quality: 72 });
+      if (shot) await storeRender(pieceId, version, shot.buffer, "image/jpeg", 1440, 900);
+    } catch (e) { console.error("[studio] page thumbnail failed:", e); }
+    finally { snapping.delete(pieceId); }
+  })();
+}
+
 /** Progress lines while a piece is made: one JSON object per line, the result last. */
 function stageWriter(res: Response) {
   return (stage: string) => { try { res.write(JSON.stringify({ stage }) + "\n"); } catch { /* gone */ } };
@@ -220,7 +237,9 @@ export function registerStudioRoutes(app: Express) {
         SELECT p.*, u.first_name, u.last_name FROM studio_pieces p LEFT JOIN users u ON u.id = p.created_by_user_id
         WHERE p.organization_id = ${w.orgId} AND p.status <> 'archived' ${kind === "graphic" || kind === "page" || kind === "video" ? sql`AND p.kind = ${kind}` : sql``}
         ORDER BY p.updated_at DESC LIMIT 200`));
-      const renders = await latestRenders(rows.filter((r) => r.kind === "graphic").map((r) => Number(r.id)));
+      const renders = await latestRenders(rows.filter((r) => r.kind === "graphic" || r.kind === "page").map((r) => Number(r.id)));
+      // A page made before thumbnails existed gets one now (in the background; it shows next load).
+      rows.filter((r) => r.kind === "page" && !renders.has(Number(r.id))).slice(0, 3).forEach((r) => snapPage(Number(r.id), Number(r.version), r.doc, String(r.brand)));
       res.json({
         pieces: rows.map((r) => shapePiece({
           id: Number(r.id), brand: r.brand, kind: r.kind, title: r.title, slug: r.slug, size: r.size, status: r.status, unlisted: r.unlisted, doc: r.doc, version: r.version, brief: r.brief,
@@ -267,6 +286,7 @@ export function registerStudioRoutes(app: Express) {
         await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: brief.slice(0, 500), createdByUserId: user.id });
         await stampGeneration(out.generationId, piece.id);
         const pngUrl = out.png ? await storeRender(piece.id, 1, out.png.buffer, "image/png", out.png.width, out.png.height) : null;
+        if (kind === "page") snapPage(piece.id, 1, out.doc, brandKey);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, piece: shapePiece(piece, { ownerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(), canEdit: true, renderUrl: pngUrl }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
       } catch (e: any) {
@@ -353,6 +373,7 @@ export function registerStudioRoutes(app: Express) {
         const changed = JSON.stringify(out.doc) !== JSON.stringify(p.doc);
         const updated = changed ? await saveVersion(p.id, out.doc, "asked", user.id, instruction.slice(0, 500)) : p;
         if (changed && out.png) await storeRender(p.id, updated.version, out.png.buffer, "image/png", out.png.width, out.png.height);
+        if (changed && p.kind === "page") snapPage(p.id, updated.version, updated.doc, p.brand);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
       } catch (e: any) {
@@ -402,6 +423,7 @@ export function registerStudioRoutes(app: Express) {
           const png = await renderDesignedPng(updated.doc as DesignedDoc, p.brand, updated.size);
           if (png) await storeRender(p.id, updated.version, png.buffer, "image/png", png.width, png.height);
         }
+        if (p.kind === "page" && changed) snapPage(p.id, updated.version, updated.doc, p.brand);
         return res.json({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }) });
       }
       const updated = Object.keys(patch).length ? (await db.update(studioPieces).set({ ...patch, updatedAt: new Date() }).where(eq(studioPieces.id, p.id)).returning())[0] : p;

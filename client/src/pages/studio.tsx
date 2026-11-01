@@ -268,8 +268,8 @@ function PieceCard({ piece: p, onOpen }: { piece: PieceSummary; onOpen: () => vo
   return (
     <button type="button" onClick={onOpen} className="text-left rounded-2xl border border-border bg-card overflow-hidden hover:border-blue-500/30 transition-colors" data-testid={`studio-piece-${p.id}`}>
       <div className="aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">
-        {p.kind === "graphic" && p.renderUrl ? (
-          <img src={p.renderUrl} alt="" className="w-full h-full object-cover" />
+        {(p.kind === "graphic" || p.kind === "page") && p.renderUrl ? (
+          <img src={p.renderUrl} alt="" loading="lazy" className={`w-full h-full object-cover ${p.kind === "page" ? "object-top" : ""}`} data-testid="studio-piece-thumb" />
         ) : (
           <div className="p-4 text-center">
             {p.kind === "graphic" ? <FileImage className="w-8 h-8 mx-auto text-muted-foreground/60" /> : p.kind === "page" ? <Globe className="w-8 h-8 mx-auto text-muted-foreground/60" /> : <Clapperboard className="w-8 h-8 mx-auto text-muted-foreground/60" />}

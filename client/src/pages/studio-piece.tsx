@@ -16,6 +16,7 @@ import { renderPage } from "@shared/studio-render";
 import { designedFields, designedPictureSlots, isDesignedDoc, renderDesignedGraphic, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
 import { GraphicArtboard, exportArtboardPng } from "@/components/studio/artboard";
 import { FieldList } from "@/components/studio/fields";
+import { Pencil } from "lucide-react";
 import { RamboWorking } from "@/components/rambo-working";
 import { VideoEditor } from "@/components/studio/video-editor";
 import { PagePreview } from "@/components/studio/page-preview";
@@ -166,7 +167,7 @@ export function StudioPiece({ id }: { id: number }) {
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="outline" onClick={() => navigate("/admin/content-studio")} className="h-11 md:h-9 border-border" data-testid="studio-back"><ChevronLeft className="w-4 h-4 mr-1" />Studio</Button>
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-foreground truncate" data-testid="studio-piece-title">{piece.title}</h1>
+            <EditableTitle title={piece.title} canEdit={canEdit} onSave={(t) => patch.mutate({ title: t }, { onSuccess: () => toast({ title: "Renamed", description: t }) })} />
             <div className="text-xs text-muted-foreground">{studioKindLabel(piece.kind)} · {piece.ownerName || "someone"} · v{piece.version} · {whenLabel(piece.updatedAt)}{!canEdit ? " · someone else's — duplicate to edit" : ""}</div>
           </div>
         </div>
@@ -452,5 +453,30 @@ function LogoFinder({ onUse, defaultQuery }: { onUse: (url: string) => void; def
         ))}
       </div>
     </div>
+  );
+}
+
+/** The piece's name, renamed in place: click it (or the pencil), type, Enter. */
+function EditableTitle({ title, canEdit, onSave }: { title: string; canEdit: boolean; onSave: (t: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  useEffect(() => { if (!editing) setValue(title); }, [title, editing]);
+  const commit = () => { const t = value.trim(); setEditing(false); if (t && t !== title) onSave(t.slice(0, 120)); };
+  if (!canEdit) return <h1 className="text-lg font-semibold text-foreground truncate" data-testid="studio-piece-title">{title}</h1>;
+  if (editing) {
+    return (
+      <input
+        autoFocus value={value} maxLength={120} onChange={(e) => setValue(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { setValue(title); setEditing(false); } }}
+        className="h-9 w-full min-w-0 max-w-xl rounded-md border border-blue-500/50 bg-background px-2 text-lg font-semibold text-foreground outline-none ring-2 ring-blue-500/20"
+        aria-label="Name" data-testid="studio-piece-title-input"
+      />
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)} title="Rename" className="group flex min-w-0 items-center gap-2 rounded-md text-left hover:bg-muted px-1 -mx-1" data-testid="studio-piece-title">
+      <h1 className="truncate text-lg font-semibold text-foreground">{title}</h1>
+      <Pencil className="h-4 w-4 shrink-0 text-muted-foreground opacity-60 group-hover:opacity-100" />
+    </button>
   );
 }
