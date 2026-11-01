@@ -181,6 +181,8 @@ const CANARIES: Canary[] = [
   { feature: "mailer pictures",      path: "/api/admin/mailer/images",                  expect: [401] },
   { feature: "mailer a/b tests",     path: "/api/admin/mailer/tests",                   expect: [401] },
   { feature: "content studio",       path: "/api/admin/content-studio/usage",                   expect: [401] },
+  { feature: "studio video editor",  path: "/api/worker/studio/videos/next",                    expect: [401] },
+  { feature: "studio logo finder",   path: "/api/admin/content-studio/logo-search",             expect: [401] },
   { feature: "rambo chat",           path: "/api/admin/rambo/threads",                  expect: [401] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
