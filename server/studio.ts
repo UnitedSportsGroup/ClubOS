@@ -33,6 +33,11 @@ import {
   type GraphicDoc, type PageDoc, type StudioKind, type VideoDoc,
 } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
+import { DESIGNED_CSP, isDesignedDoc, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
+import { checkDesignedDoc, generateDesigned, renderAvailable, renderDesignedPng } from "./studio-design";
+import { guardPublicForm, mintFormToken } from "./form-guard";
+import { sendEmail } from "./email";
+import { inboxMessages } from "@shared/schema";
 import { generateStudioPiece, pictureLibrary, stampGeneration, STUDIO_EDIT_MODEL, STUDIO_MODEL } from "./studio-ai";
 import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
 import { shrinkForEmail } from "./mailer-image-shrink";
@@ -99,6 +104,7 @@ async function saveVersion(pieceId: number, doc: unknown, how: "made" | "asked" 
 }
 
 function checkDocFor(kind: StudioKind, raw: unknown) {
+  if (kind !== "video" && isDesignedDoc(raw)) return checkDesignedDoc(raw);
   if (kind === "graphic") return checkGraphicDoc(raw, isAllowedPicture);
   if (kind === "page") return checkPageDoc(raw, isAllowedPicture);
   return checkVideoDoc(raw);
@@ -113,6 +119,18 @@ async function uniqueSlug(brand: string, wanted: string, exceptId: number): Prom
     if (!clash.length) return slug;
   }
   return `${base.slice(0, 48)}-${Date.now().toString(36)}`;
+}
+
+/** Keep a graphic's PNG (drawn by the browser, or by the render service). */
+async function storeRender(pieceId: number, version: number, buffer: Buffer, mime: "image/png" | "image/jpeg", width: number, height: number): Promise<string> {
+  const key = crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 24);
+  await db.insert(studioRenders).values({ pieceId, version, key, mime, width, height, bytes: buffer.length, data: buffer }).onConflictDoNothing();
+  return renderUrl(key, mime);
+}
+
+/** Progress lines while a piece is made: one JSON object per line, the result last. */
+function stageWriter(res: Response) {
+  return (stage: string) => { try { res.write(JSON.stringify({ stage }) + "\n"); } catch { /* gone */ } };
 }
 
 const uploadPicture = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAILER_IMAGE_MAX_UPLOAD_BYTES, files: 1 } });
@@ -131,7 +149,7 @@ export function registerStudioRoutes(app: Express) {
       const brand = studioBrand(w.brandKey)!;
       res.json({
         used: await ramboUsedToday(user.id), limit: ramboDailyLimitFor((user as any).mailerAiDailyLimit),
-        model: STUDIO_MODEL, editModel: STUDIO_EDIT_MODEL, enabled: !!process.env.ANTHROPIC_API_KEY,
+        model: STUDIO_MODEL, editModel: STUDIO_EDIT_MODEL, enabled: !!process.env.ANTHROPIC_API_KEY, looks: renderAvailable(),
         brand: { key: brand.key, name: brand.name, host: brand.host }, firstName: user.firstName || "", isSuperAdmin: user.role === "super_admin",
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -209,15 +227,22 @@ export function registerStudioRoutes(app: Express) {
       res.status(200); res.setHeader("Content-Type", "application/json; charset=utf-8"); res.setHeader("Cache-Control", "no-store"); res.flushHeaders?.();
       const beat = setInterval(() => { try { res.write(" "); } catch { /* gone */ } }, 15_000);
       try {
-        const out = await generateStudioPiece({ kind, brandKey, orgId: w.orgId, userId: user.id, userLabel: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email, brief, sizeKey: sizeKey ?? undefined });
+        // Designed (Rambo lays it out and looks at it) is the default; the
+        // template engine stays for a quick piece and for older ones.
+        const designed = req.body?.engine !== "template";
+        const userLabel = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
+        const out: { ok: boolean; doc: any; error?: string; title: string | null; reply: string; model: string; costCents: number; generationId: number | null; png?: { buffer: Buffer; width: number; height: number } | null } = designed
+          ? await generateDesigned({ kind, brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined, onStage: stageWriter(res) })
+          : await generateStudioPiece({ kind, brandKey, orgId: w.orgId, userId: user.id, userLabel, brief, sizeKey: sizeKey ?? undefined });
         if (!out.ok || !out.doc) { clearInterval(beat); return res.end(JSON.stringify({ ok: false, message: out.error || "Rambo couldn't make that.", usage: { used: used + 1, limit } })); }
         const [piece] = await db.insert(studioPieces).values({
           organizationId: w.orgId, brand: brandKey, kind, title: (out.title || "Untitled").slice(0, STUDIO_TITLE_MAX), size: sizeKey, status: "draft", doc: out.doc as any, version: 1, brief, createdByUserId: user.id,
         }).returning();
         await db.insert(studioVersions).values({ pieceId: piece.id, version: 1, doc: out.doc as any, how: "made", note: brief.slice(0, 500), createdByUserId: user.id });
         await stampGeneration(out.generationId, piece.id);
+        const pngUrl = out.png ? await storeRender(piece.id, 1, out.png.buffer, "image/png", out.png.width, out.png.height) : null;
         clearInterval(beat);
-        res.end(JSON.stringify({ ok: true, piece: shapePiece(piece, { ownerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(), canEdit: true }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
+        res.end(JSON.stringify({ ok: true, piece: shapePiece(piece, { ownerName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(), canEdit: true, renderUrl: pngUrl }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
       } catch (e: any) {
         clearInterval(beat);
         res.end(JSON.stringify({ ok: false, message: `Rambo hit a snag: ${String(e?.message || "").slice(0, 200)}` }));
@@ -294,10 +319,14 @@ export function registerStudioRoutes(app: Express) {
       const beat = setInterval(() => { try { res.write(" "); } catch { /* gone */ } }, 15_000);
       try {
         const history = Array.isArray(req.body?.history) ? req.body.history.filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-6).map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 2000) })) : [];
-        const out = await generateStudioPiece({ kind: p.kind as "graphic" | "page", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as any, history, pieceId: p.id });
+        const userLabel = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
+        const out: { ok: boolean; doc: any; error?: string; reply: string; model: string; costCents: number; png?: { buffer: Buffer; width: number; height: number } | null } = isDesignedDoc(p.doc)
+          ? await generateDesigned({ kind: p.kind as "graphic" | "page", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as DesignedDoc, history, pieceId: p.id, onStage: stageWriter(res) })
+          : await generateStudioPiece({ kind: p.kind as "graphic" | "page", brandKey: p.brand, orgId: w.orgId, userId: user.id, userLabel, brief: instruction, sizeKey: p.size ?? undefined, current: p.doc as any, history, pieceId: p.id });
         if (!out.ok || !out.doc) { clearInterval(beat); return res.end(JSON.stringify({ ok: false, message: out.error || "Rambo couldn't make that change.", usage: { used: used + 1, limit } })); }
         const changed = JSON.stringify(out.doc) !== JSON.stringify(p.doc);
         const updated = changed ? await saveVersion(p.id, out.doc, "asked", user.id, instruction.slice(0, 500)) : p;
+        if (changed && out.png) await storeRender(p.id, updated.version, out.png.buffer, "image/png", out.png.width, out.png.height);
         clearInterval(beat);
         res.end(JSON.stringify({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }), reply: out.reply, model: out.model, costCents: out.costCents, usage: { used: used + 1, limit } }));
       } catch (e: any) {
@@ -343,9 +372,17 @@ export function registerStudioRoutes(app: Express) {
         const changed = JSON.stringify(c.doc) !== JSON.stringify(p.doc);
         const updated = changed ? await saveVersion(p.id, c.doc, "edited", user.id, typeof req.body?.note === "string" ? req.body.note.slice(0, 200) : null, patch)
           : Object.keys(patch).length ? (await db.update(studioPieces).set({ ...patch, updatedAt: new Date() }).where(eq(studioPieces.id, p.id)).returning())[0] : p;
+        if (p.kind === "graphic" && isDesignedDoc(updated.doc) && (changed || patch.size)) {
+          const png = await renderDesignedPng(updated.doc as DesignedDoc, p.brand, updated.size);
+          if (png) await storeRender(p.id, updated.version, png.buffer, "image/png", png.width, png.height);
+        }
         return res.json({ ok: true, changed, piece: shapePiece(updated, { canEdit: true }) });
       }
       const updated = Object.keys(patch).length ? (await db.update(studioPieces).set({ ...patch, updatedAt: new Date() }).where(eq(studioPieces.id, p.id)).returning())[0] : p;
+      if (p.kind === "graphic" && patch.size && isDesignedDoc(updated.doc)) {
+        const png = await renderDesignedPng(updated.doc as DesignedDoc, p.brand, updated.size);
+        if (png) await storeRender(p.id, updated.version, png.buffer, "image/png", png.width, png.height);
+      }
       res.json({ ok: true, piece: shapePiece(updated, { canEdit: true }) });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -463,7 +500,10 @@ export function registerStudioRoutes(app: Express) {
       if (!w) return res.status(400).send("Unknown workspace");
       const p = await pieceOr404(parseInt(String(req.params.id), 10), w.orgId);
       if (!p || p.kind !== "page") return res.status(404).send("Not found");
-      const html = renderPage(p.doc as PageDoc, p.brand, { noindex: true, url: p.slug ? studioPageUrl(p.brand, p.slug) : undefined, draftNote: p.status === "published" ? undefined : "Draft — only people with this preview can see it. Publish to put it on the club's site." });
+      const draftNote = p.status === "published" ? undefined : "Draft — only people with this preview can see it. Publish to put it on the club's site.";
+      const url = p.slug ? studioPageUrl(p.brand, p.slug) : undefined;
+      const html = isDesignedDoc(p.doc) ? renderDesignedPage(p.doc, p.brand, { noindex: true, url, draftNote }) : renderPage(p.doc as PageDoc, p.brand, { noindex: true, url, draftNote });
+      if (isDesignedDoc(p.doc)) res.setHeader("Content-Security-Policy", DESIGNED_CSP);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
       res.send(html);
@@ -482,12 +522,48 @@ export function registerStudioRoutes(app: Express) {
       const [p] = await db.select().from(studioPieces).where(and(eq(studioPieces.brand, brand.key), eq(studioPieces.slug, slug), eq(studioPieces.status, "published")));
       if (!p) return res.status(404).send("Not found");
       const url = studioPageUrl(brand.key, slug);
-      const html = renderPage(p.doc as PageDoc, brand.key, { noindex: p.unlisted, url });
+      const form = { action: `/api/public/studio/enquiry/${p.id}`, token: mintFormToken(), sent: req.query.sent === "1" };
+      const html = isDesignedDoc(p.doc) ? renderDesignedPage(p.doc, brand.key, { noindex: p.unlisted, url, form }) : renderPage(p.doc as PageDoc, brand.key, { noindex: p.unlisted, url });
+      if (isDesignedDoc(p.doc)) res.setHeader("Content-Security-Policy", DESIGNED_CSP);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("Cache-Control", "public, max-age=60");
+      res.setHeader("Cache-Control", isDesignedDoc(p.doc) ? "private, no-store" : "public, max-age=60");
       res.setHeader("X-Robots-Tag", p.unlisted ? "noindex, nofollow" : "all");
       res.send(html);
       if (req.method === "GET") db.update(studioPieces).set({ publicViews: sql`${studioPieces.publicViews} + 1` }).where(eq(studioPieces.id, p.id)).catch(() => {});
     } catch { res.status(404).send("Not found"); }
+  });
+
+  /** A designed page's enquiry form. Guarded like every public form: stored
+   *  either way, the reason named, staff told only when it looks like a
+   *  person, and the visitor gets the same answer whatever happened. Never
+   *  emails the address typed in (a form that does is a spam relay). */
+  app.post("/api/public/studio/enquiry/:id", async (req: Request, res: Response) => {
+    const id = parseInt(String(req.params.id), 10);
+    const [p] = Number.isFinite(id) ? await db.select().from(studioPieces).where(and(eq(studioPieces.id, id), eq(studioPieces.status, "published"))) : [];
+    if (!p || p.kind !== "page" || !isDesignedDoc(p.doc) || !p.slug) return res.status(404).send("Not found");
+    const pageUrl = studioPageUrl(p.brand, p.slug);
+    const back = () => res.redirect(303, `${pageUrl}?sent=1#enquiry`);
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      const field = (k: string, max: number) => String(b[k] ?? "").trim().slice(0, max);
+      const name = field("name", 120), email = field("email", 200).toLowerCase(), phone = field("phone", 40), org = field("organisation", 160), message = field("message", 4000);
+      if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !message) return back();
+      const verdict = await guardPublicForm({ form: "studio_enquiry", req, email, name, text: [message], names: org ? [org] : [], page: pageUrl });
+      const subject = `${verdict.ok ? "" : "[Needs a look] "}Enquiry — ${p.title}`.slice(0, 200);
+      const body = `${message}${org ? `\n\nBusiness or team: ${org}` : ""}${verdict.ok ? "" : `\n\nHeld by the spam guard: ${verdict.reasons.join(", ")}`}`;
+      await db.insert(inboxMessages).values({ organizationId: p.organizationId, channel: "web_form", name, email, phone: phone || null, subject, body, sourceUrl: pageUrl });
+      if (verdict.ok) {
+        const owner = await storage.getUser(p.createdByUserId);
+        if (owner?.email) {
+          const e = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          sendEmail({
+            to: owner.email, from: "ClubOS <noreply@cufc.co.nz>", replyTo: email,
+            subject: `New enquiry from your page: ${p.title}`.slice(0, 200),
+            html: `<p><strong>${e(name)}</strong> (${e(email)}${phone ? `, ${e(phone)}` : ""}${org ? `, ${e(org)}` : ""}) wrote from <a href="${pageUrl}">${e(p.title)}</a>:</p><p style="white-space:pre-wrap">${e(message)}</p><p>It is also in the ClubOS inbox. Reply to this email to answer them.</p>`,
+          }).catch(() => {});
+        }
+      }
+    } catch (e: any) { console.error("[studio enquiry]", e?.message); }
+    back();
   });
 }

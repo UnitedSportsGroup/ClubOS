@@ -15,7 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Image as ImageIcon, LayoutTemplate, Clapperboard, Mail, Loader2, ChevronRight, Globe, Clock, FileImage } from "lucide-react";
-import { GRAPHIC_SIZES, studioKindLabel, type StudioKind } from "@shared/studio";
+import { GRAPHIC_SIZES, STUDIO_BRANDS, studioKindLabel, type StudioKind } from "@shared/studio";
+import { designedHeadline, isDesignedDoc } from "@shared/studio-designed";
 import { StudioPiece } from "./studio-piece";
 
 const FACE = "/mailer/rambo.png";
@@ -25,7 +26,36 @@ export interface PieceSummary {
   doc: any; version: number; brief: string | null; createdByUserId: number; createdAt: string; updatedAt: string; publishedAt: string | null;
   publicViews: number; publicUrl: string | null; ownerName: string | null; canEdit: boolean; renderUrl: string | null;
 }
-export interface StudioUsage { used: number; limit: number; model: string; editModel: string; enabled: boolean; brand: { key: string; name: string; host: string }; firstName: string; isSuperAdmin: boolean }
+/** Read a make/ask answer: progress lines ({"stage": …}) as they arrive, the
+ *  result on the last line. Older answers are one line, which still works. */
+export async function readStudioStream(res: Response, onStage: (stage: string) => void): Promise<any> {
+  const reader = res.body?.getReader();
+  if (!reader) return JSON.parse((await res.text()).trim());
+  const dec = new TextDecoder();
+  let buf = "";
+  let last: any = null;
+  const take = (line: string) => {
+    const t = line.trim();
+    if (!t) return;
+    try {
+      const j = JSON.parse(t);
+      if (j && typeof j.stage === "string" && !("ok" in j)) onStage(j.stage); else last = j;
+    } catch { /* not a whole line */ }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    lines.forEach(take);
+  }
+  take(buf);
+  if (!last) throw new Error("No answer came back. Check the Studio list in a minute — it may still have been made.");
+  return last;
+}
+
+export interface StudioUsage { used: number; limit: number; model: string; editModel: string; enabled: boolean; looks?: boolean; brand: { key: string; name: string; host: string }; firstName: string; isSuperAdmin: boolean }
 
 export function whenLabel(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -59,6 +89,10 @@ function StudioHome() {
   const [format, setFormat] = useState<"landscape" | "vertical" | "both">("landscape");
   const [length, setLength] = useState(60);
   const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
+  const [brand, setBrand] = useState<string | null>(null);
+  const [engine, setEngine] = useState<"designed" | "template">("designed");
+  const [stage, setStage] = useState<string | null>(null);
+  const brandKey = brand ?? usage?.brand.key ?? "cufc";
 
   const make = useMutation({
     mutationFn: async () => {
@@ -66,8 +100,9 @@ function StudioHome() {
         const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length });
         return res.json();
       }
-      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined });
-      const j = JSON.parse((await res.text()).trim());
+      setStage(null);
+      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined, brand: brandKey, engine });
+      const j = await readStudioStream(res, setStage);
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that.");
       return j;
     },
@@ -79,6 +114,7 @@ function StudioHome() {
       navigate(`/admin/content-studio/${j.piece.id}`);
     },
     onError: (e: any) => toast({ title: "Couldn't make it", description: e?.message, variant: "destructive" }),
+    onSettled: () => setStage(null),
   });
 
   const pieces = useMemo(() => {
@@ -146,6 +182,26 @@ function StudioHome() {
             className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[15px] leading-relaxed text-foreground"
             data-testid="studio-brief"
           />
+          {composer !== "video" && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2" data-testid="studio-brands">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Brand</span>
+                {STUDIO_BRANDS.map((b) => (
+                  <button key={b.key} type="button" onClick={() => setBrand(b.key)}
+                    className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${brandKey === b.key ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}
+                    data-testid={`studio-brand-${b.key}`}>{b.name}</button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2" data-testid="studio-engines">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">How</span>
+                {([["designed", "Designed by Rambo", "A one-off design, checked on a phone and a laptop and fixed. About 2–4 minutes."], ["template", "Quick template", "The house template, filled in. Under a minute."]] as const).map(([k, label, tip]) => (
+                  <button key={k} type="button" onClick={() => setEngine(k)} title={tip}
+                    className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${engine === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}
+                    data-testid={`studio-engine-${k}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+          )}
           {composer === "graphic" && (
             <div className="flex flex-wrap gap-2" data-testid="studio-sizes">
               {GRAPHIC_SIZES.map((s) => (
@@ -184,10 +240,12 @@ function StudioHome() {
               {composer === "video"
                 ? "No model runs here. The request goes to the editing queue and the finished cut comes back to this piece."
                 : capped ? "You've used today's prompts. It resets at midnight, or a super admin can raise your limit in Team."
-                  : `One prompt. Rambo uses the live programme facts and ${usage?.brand.name ?? "the brand"}'s own pictures; every word can be changed afterwards without re-prompting.`}
+                  : make.isPending && stage ? <span className="text-foreground font-medium" data-testid="studio-stage">{stage}…</span>
+                  : engine === "designed" ? `Rambo designs it from scratch on the brand, looks at it on a phone and a laptop, and fixes what it sees. About 2–4 minutes — you can keep working; it lands in the list below. Every word can be changed afterwards.`
+                  : `One prompt. Rambo uses the live programme facts and the brand's own pictures; every word can be changed afterwards without re-prompting.`}
             </p>
             <Button onClick={() => make.mutate()} disabled={!canMake} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white px-5" data-testid="studio-make-go">
-              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{composer === "page" ? "Building the page…" : "Making it…"}</> : composer === "video" ? "Send the request" : "Make it"}
+              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{engine === "designed" ? "Designing…" : composer === "page" ? "Building the page…" : "Making it…"}</> : composer === "video" ? "Send the request" : "Make it"}
             </Button>
           </div>
         </div>
@@ -217,7 +275,7 @@ function StudioHome() {
 function PieceCard({ piece: p, onOpen }: { piece: PieceSummary; onOpen: () => void }) {
   const status = p.kind === "video" ? (p.doc?.status === "delivered" ? "Delivered" : p.doc?.status === "in_progress" ? "Being cut" : "Requested") : p.status === "published" ? "Published" : "Draft";
   const tone = status === "Published" || status === "Delivered" ? "bg-emerald-500/10 text-emerald-700" : status === "Being cut" ? "bg-amber-500/10 text-amber-700" : "bg-muted text-muted-foreground";
-  const headline = p.kind === "graphic" ? p.doc?.headline : p.kind === "page" ? p.doc?.blocks?.[0]?.headline : p.doc?.brief;
+  const headline = isDesignedDoc(p.doc) ? designedHeadline(p.doc) : p.kind === "graphic" ? p.doc?.headline : p.kind === "page" ? p.doc?.blocks?.[0]?.headline : p.doc?.brief;
   return (
     <button type="button" onClick={onOpen} className="text-left rounded-2xl border border-border bg-card overflow-hidden hover:border-blue-500/30 transition-colors" data-testid={`studio-piece-${p.id}`}>
       <div className="aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">

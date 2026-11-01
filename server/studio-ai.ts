@@ -22,6 +22,7 @@ import {
 import { brandVoice, HOUSE_VOICE } from "@shared/studio-voice";
 import { BRAND_KITS, brandKit, CLUB_LOGOS } from "../client/src/components/marketing/grapes/templates/brand-kit";
 import { programmeFactsFor } from "./brand-facts";
+import { STUDIO_PHOTOS } from "@shared/studio-photos";
 
 export const STUDIO_MODEL = process.env.STUDIO_MODEL || STUDIO_DEFAULT_MODEL;
 export const STUDIO_EDIT_MODEL = process.env.STUDIO_EDIT_MODEL || STUDIO_DEFAULT_EDIT_MODEL;
@@ -37,6 +38,8 @@ export async function pictureLibrary(orgId: number, brandKey: string): Promise<{
   const own = brandKit(brandKey);
   for (const p of own.photos) out.push({ src: p.src, caption: p.alt, brand: brandKey });
   for (const p of own.products ?? []) out.push({ src: p.src, caption: `${p.alt} (product shot on white)`, brand: brandKey });
+  // The curated library (real photographs from the club's own sites, captioned).
+  for (const p of STUDIO_PHOTOS) out.push({ src: p.src, caption: `${p.caption} [${p.w}×${p.h}]`, brand: p.brand });
   for (const k of Object.values(BRAND_KITS)) {
     if (k.key === brandKey) continue;
     for (const p of k.photos) out.push({ src: p.src, caption: p.alt, brand: k.key });

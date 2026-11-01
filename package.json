@@ -83,6 +83,7 @@
     "graphile-worker": "0.17.3",
     "hls.js": "^1.6.16",
     "html-to-image": "^1.11.13",
+    "htmlparser2": "^8.0.2",
     "ical-generator": "^10.2.0",
     "input-otp": "^1.4.2",
     "jose": "^6.2.3",
