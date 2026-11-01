@@ -36,6 +36,11 @@ export async function ramboUsedToday(userId: number): Promise<number> {
       (SELECT count(*)::int FROM studio_generations
         WHERE user_id = ${userId}
           AND (created_at AT TIME ZONE 'Pacific/Auckland')::date = (now() AT TIME ZONE 'Pacific/Auckland')::date)
+      +
+      -- Website tab (2026-11-01): an article written or rewritten.
+      (SELECT count(*)::int FROM site_ai_usage
+        WHERE user_id = ${userId}
+          AND (created_at AT TIME ZONE 'Pacific/Auckland')::date = (now() AT TIME ZONE 'Pacific/Auckland')::date)
       AS n`));
   return Number(r[0]?.n ?? 0);
 }
@@ -65,22 +70,30 @@ export async function ramboPeopleThisMonth(): Promise<RamboPersonUsage[]> {
       WHERE ((m.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Pacific/Auckland') >= date_trunc('month', now() AT TIME ZONE 'Pacific/Auckland')
       GROUP BY s.user_id
     ), studio AS (
-      SELECT user_id, max(user_label) AS label, count(*)::int AS prompts, coalesce(sum(cost_usd_cents), 0)::numeric AS cents
-      FROM studio_generations
-      WHERE (created_at AT TIME ZONE 'Pacific/Auckland') >= date_trunc('month', now() AT TIME ZONE 'Pacific/Auckland')
+      -- Content Studio and the Website tab, one row per person.
+      SELECT user_id, max(user_label) AS label, sum(prompts)::int AS prompts, sum(cents)::numeric AS cents FROM (
+        SELECT user_id, user_label, 1 AS prompts, cost_usd_cents AS cents FROM studio_generations
+        WHERE (created_at AT TIME ZONE 'Pacific/Auckland') >= date_trunc('month', now() AT TIME ZONE 'Pacific/Auckland')
+        UNION ALL
+        SELECT user_id, user_label, 1, cost_usd_cents FROM site_ai_usage
+        WHERE (created_at AT TIME ZONE 'Pacific/Auckland') >= date_trunc('month', now() AT TIME ZONE 'Pacific/Auckland')
+      ) x
       GROUP BY user_id
-    ), both AS (
+    ), combined AS (
+      -- 🔴 Not "both": BOTH is a reserved word (TRIM(BOTH …)) and the CTE of
+      -- that name made this whole query a syntax error, so the super admin's
+      -- usage view could never load. Fixed 2026-11-01.
       SELECT coalesce(mailer.user_id, chat.user_id) AS user_id,
              coalesce(chat.label, mailer.label) AS label,
              coalesce(mailer.prompts, 0) + coalesce(chat.prompts, 0) AS prompts,
              coalesce(mailer.cents, 0) + coalesce(chat.cents, 0) AS cents
       FROM mailer FULL OUTER JOIN chat ON chat.user_id = mailer.user_id
     )
-    SELECT coalesce(both.user_id, studio.user_id) AS user_id,
-           coalesce(both.label, studio.label, 'Unknown') AS label,
-           coalesce(both.prompts, 0) + coalesce(studio.prompts, 0) AS prompts,
-           round((coalesce(both.cents, 0) + coalesce(studio.cents, 0))::numeric, 2)::float AS cents
-    FROM both FULL OUTER JOIN studio ON studio.user_id = both.user_id
+    SELECT coalesce(combined.user_id, studio.user_id) AS user_id,
+           coalesce(combined.label, studio.label, 'Unknown') AS label,
+           coalesce(combined.prompts, 0) + coalesce(studio.prompts, 0) AS prompts,
+           round((coalesce(combined.cents, 0) + coalesce(studio.cents, 0))::numeric, 2)::float AS cents
+    FROM combined FULL OUTER JOIN studio ON studio.user_id = combined.user_id
     ORDER BY prompts DESC, label`));
   return r.map((x) => ({ userId: x.user_id == null ? null : Number(x.user_id), label: String(x.label).trim() || "Unknown", prompts: Number(x.prompts) || 0, cents: Number(x.cents) || 0 }));
 }

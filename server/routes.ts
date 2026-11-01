@@ -163,6 +163,7 @@ import { registerMailerImageRoutes } from "./mailer-images";
 import { registerMailerTestRoutes, startMailerTests, queueRecipients, recordCampaignLinks, renderTrackedForRecipient, subjectForVariant, campaignResults } from "./mailer-tests";
 import { registerStudioRoutes } from "./studio";
 import { registerStudioVideoRoutes } from "./studio-video";
+import { registerSiteRoutes, startSiteScheduler } from "./site-routes";
 import { validateMailerTest, splitForTest, describeTestPlan, type MailerVariant } from "@shared/mailer-tests";
 import { emailCampaignTests } from "@shared/schema";
 import { registerRamboRoutes } from "./rambo-routes";
@@ -27623,6 +27624,10 @@ export async function registerRoutes(
   registerStudioRoutes(app);
   registerStudioVideoRoutes(app);
   registerRamboRoutes(app);
+  // Website (2026-11-01): staff write the club sites' news; the sites build
+  // from /api/public/site/:key. Per-site grants decide who may publish.
+  registerSiteRoutes(app);
+  startSiteScheduler();
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {

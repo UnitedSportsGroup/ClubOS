@@ -85,6 +85,8 @@ const AdminDeclarations = lazy(() => import("@/pages/admin-declarations"));
 const GroupProjects = lazy(() => import("@/pages/group-projects"));
 const GroupContent = lazy(() => import("@/pages/group-content"));
 const GroupHiring = lazy(() => import("@/pages/group-hiring"));
+// Website (2026-11-01): the club sites' news, edited by staff with per-site grants.
+const AdminSites = lazy(() => import("@/pages/sites"));
 const GroupVehicles = lazy(() => import("@/pages/group-vehicles"));
 const GroupEquipment = lazy(() => import("@/pages/group-equipment"));
 const GroupFines = lazy(() => import("@/pages/group-fines"));
@@ -433,6 +435,7 @@ function AdminRouter() {
         <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/content" component={GroupContent} />
         <Route path="/admin/hiring" component={GroupHiring} />
+        <Route path="/admin/sites" component={AdminSites} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/proposals" component={GroupProposals} />
         <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
@@ -685,6 +688,7 @@ function AdminRouter() {
       <Route path="/admin/academy/:id" component={AdminCampDetail} />
       <Route path="/admin/squads" component={AdminSquads} />
       <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
+      <Route path="/admin/sites" component={AdminSites} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
       <Route path="/admin/xero-payments" component={AdminXeroPayments} />
       <Route path="/admin/registrations" component={AdminRegistrations} />

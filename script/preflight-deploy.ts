@@ -184,6 +184,9 @@ const CANARIES: Canary[] = [
   { feature: "studio video editor",  path: "/api/worker/studio/videos/next",                    expect: [401] },
   { feature: "studio logo finder",   path: "/api/admin/content-studio/logo-search",             expect: [401] },
   { feature: "rambo chat",           path: "/api/admin/rambo/threads",                  expect: [401] },
+  // Website tab (2026-11-01): staff publish cufc.co.nz news; the site builds from the public route.
+  { feature: "website tab",          path: "/api/admin/sites",                          expect: [401] },
+  { feature: "website public news",  path: "/api/public/site/cufc/status",              expect: [200] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
   // paid Player Pay bookings — the same tree carries both.
@@ -241,6 +244,8 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/marketing-hub/overview":    { file: "server/marketing-hub/routes.ts", needle: "/overview" },
   "/api/public/teampay/captain/league/mine": { file: "server/league-captain-routes.ts", needle: "/api/public/teampay/captain/league/mine" },
   "/api/public/teampay/marketplace/mfl-term-4": { file: "server/teampay-captain-routes.ts", needle: "/api/public/teampay/marketplace/:slug" },
+  "/api/admin/sites":                     { file: "server/site-routes.ts",         needle: "/api/admin/sites" },
+  "/api/public/site/cufc/status":         { file: "server/site-routes.ts",         needle: "/api/public/site/:siteKey/status" },
 };
 
 import { readFileSync, existsSync } from "fs";

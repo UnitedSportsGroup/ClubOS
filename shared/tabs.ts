@@ -318,6 +318,8 @@ const groupTabs: TabDef[] = [
   // (email/SMS), which is hidden in every sidebar. NOT locked: every figure is
   // an aggregate, with no names, emails or salaries in it.
   { slug: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub" },
+  // Website — every club site in one list (see cufcExtraTabs for the CUFC copy).
+  { slug: "sites", title: "Website", url: "/admin/sites" },
   // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever
   // holds the tab sees a PASSWORD screen, and no figure is served until the password is in the session.
   { slug: "finance-insight", title: "Financial Insight", url: "/admin/finance-insight" },
@@ -411,6 +413,12 @@ const cufcExtraTabs: TabDef[] = [
   // Football in Schools outreach pipeline — schools + early learning centres.
   // Its own slug (not "academy") so it can be granted alone, e.g. to Connor.
   { slug: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools" },
+  // Website (2026-11-01): staff write the club site's news; the site rebuilds
+  // from it. Slug `sites`, NOT `website` — that slug is the venue workspace's
+  // own booking-site settings page, a different thing. The tab only lets a
+  // person into the room: what they can touch is a per-SITE grant
+  // (site_members, shared/sites.ts), never their workspace role.
+  { slug: "sites", title: "Website", url: "/admin/sites" },
 ];
 
 export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {

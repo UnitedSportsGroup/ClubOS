@@ -44,6 +44,7 @@ import {
   Dumbbell,
   Tag,
   Globe,
+  Newspaper,
   Handshake,
   HeartHandshake,
   Landmark,
@@ -261,6 +262,8 @@ const campsNav = [
     children: STORE_CHILDREN,
   },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
+  // Website (2026-11-01) — CUFC only for now; SIU's site is still Webflow.
+  { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
 ];
 
 // South Island United shares the camps workspace type with CUFC but adds its own
@@ -272,7 +275,7 @@ const siuNav = [
   // campsNav, same as CUFC does.
   // Football in Schools is CUFC's outreach board — its child row comes off too.
   ...campsNav
-    .filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings")
+    .filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings" && t.tab !== "sites")
     .map((t) => (t.children ? { ...t, children: t.children.filter((c) => c.tab !== "football-in-schools") } : t)),
   { tab: "licensing", title: "OFC Licensing", url: "/admin/licensing", icon: Award },
   { tab: "declarations", title: "Declarations", url: "/admin/declarations", icon: FileSignature },
@@ -449,6 +452,8 @@ const groupNav = [
   // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
   // hidden, and two "Marketing" megaphones would be one too many if it returns.
   { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
+  // Website (2026-11-01) — every club site; who may publish is a per-site grant.
+  { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
   // Finance — one section for every money tool (Daniel, 21 Sep: "trim the fat… a dropdown called Finance").
   // The section row opens Financial Insight (password-protected); each child keeps its own tab and its own lock.
   {
