@@ -18,6 +18,7 @@ import { GraphicArtboard, exportArtboardPng } from "@/components/studio/artboard
 import { FieldList } from "@/components/studio/fields";
 import { RamboWorking } from "@/components/rambo-working";
 import { VideoEditor } from "@/components/studio/video-editor";
+import { PagePreview } from "@/components/studio/page-preview";
 import { edlFields } from "@shared/studio-video";
 import { DarkChip } from "@/components/studio/dark-chip";
 import { readStudioStream, whenLabel, type PieceSummary, type StudioUsage } from "./studio";
@@ -203,18 +204,7 @@ export function StudioPiece({ id }: { id: number }) {
           {piece.kind === "graphic" && !designed && (
             <div className="flex justify-center"><GraphicArtboard doc={liveDoc as GraphicDoc} sizeKey={piece.size ?? "square"} brand={piece.brand} maxWidth={640} onNode={(n) => { artboardNode.current = n; }} /></div>
           )}
-          {piece.kind === "page" && (
-            <div className="space-y-2">
-              <div className="flex justify-end gap-1" data-testid="studio-device">
-                {([["phone", Smartphone, "Phone"], ["desktop", Monitor, "Laptop"]] as const).map(([k, Icon, label]) => (
-                  <button key={k} type="button" onClick={() => setDevice(k)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${device === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`} data-testid={`studio-device-${k}`}><Icon className="w-3.5 h-3.5" />{label}</button>
-                ))}
-              </div>
-              <div className="flex justify-center">
-                <iframe title="Page preview" srcDoc={pageHtml} sandbox="" className="bg-white rounded-xl border border-border" style={{ height: device === "phone" ? 780 : 720, width: device === "phone" ? 390 : "100%", maxWidth: "100%" }} data-testid="studio-page-preview" />
-              </div>
-            </div>
-          )}
+          {piece.kind === "page" && <PagePreview html={pageHtml} title={piece.title} />}
           {video && <VideoEditor pieceId={piece.id} video={video} canEdit={canEdit} wordsDirty={dirty} />}
         </div>
 
