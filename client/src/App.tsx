@@ -155,6 +155,7 @@ const TaskBoard = lazy(() => import("@/pages/task-board"));
 const CugcLiveChat = lazy(() => import("@/pages/cugc-livechat"));
 const PrintLiveChat = lazy(() => import("@/pages/print-livechat"));
 const PrintsRequests = lazy(() => import("@/pages/prints-requests"));
+const ShopOrdersHub = lazy(() => import("@/pages/shop-orders"));
 const PrintsFaqs = lazy(() => import("@/pages/prints-faqs"));
 const PrintsExpenses = lazy(() => import("@/pages/prints-expenses"));
 const CicLogoConsents = lazy(() => import("@/pages/cic-logo-consents"));
@@ -391,6 +392,7 @@ function AdminRouter() {
         <Route path="/admin/print-landing" component={PrintsLanding} />
         <Route path="/admin/print-email" component={PrintsEmail} />
         <Route path="/admin/integrations" component={PrintsIntegrations} />
+        <Route path="/admin/shop-orders" component={ShopOrdersHub} />
         <Route path="/admin/warehouse" component={WarehouseDashboard} />
         <Route path="/admin/warehouse/items" component={WarehouseItems} />
         <Route path="/admin/warehouse/locations" component={WarehouseLocations} />

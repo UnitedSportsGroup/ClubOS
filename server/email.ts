@@ -1187,6 +1187,9 @@ export async function sendShopOrderNotification(params: {
   /** Which shop brand this order belongs to — picks the email identity.
    *  Omitted (or anything but "cufc") keeps the existing MFL identity. */
   brandKey?: string;
+  /** Where to manage it — the Shop Orders tab for the warehouse, the brand's
+   *  own Store tab otherwise. */
+  manageHint?: string;
 }): Promise<boolean> {
   const identity = shopEmailIdentity(params.brandKey);
   const rows = [
@@ -1208,7 +1211,7 @@ export async function sendShopOrderNotification(params: {
       <table style="width:100%; border-collapse:collapse;">${rows}</table>
     </div>
     <p style="color:#8a8a8a; font-size:13px; line-height:1.6; margin:16px 0 0;">
-      Manage it in ClubOS → ${identity.workspaceLabel} → Store → Orders.
+      Manage it in ${params.manageHint || `ClubOS → ${identity.workspaceLabel} → Store → Orders`}.
     </p>`;
   return sendEmail({
     to: params.to,

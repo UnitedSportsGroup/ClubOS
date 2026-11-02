@@ -767,6 +767,8 @@ html:not(.dark) .text-white.bg-yellow-500\/70 { color: #fff !important; }
 html:not(.dark) .bg-yellow-500\/70 .text-white { color: #fff !important; }
 html:not(.dark) .text-white.bg-yellow-500\/90 { color: #fff !important; }
 html:not(.dark) .bg-yellow-500\/90 .text-white { color: #fff !important; }
+html:not(.dark) .text-white.bg-yellow-600:not([class*="bg-yellow-600/"]) { color: #fff !important; }
+html:not(.dark) .bg-yellow-600:not([class*="bg-yellow-600/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.from-amber-500:not([class*="from-amber-500/"]) { color: #fff !important; }
 html:not(.dark) .from-amber-500:not([class*="from-amber-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.from-blue-500:not([class*="from-blue-500/"]) { color: #fff !important; }
@@ -789,7 +791,7 @@ html:not(.dark) .text-white.from-violet-500:not([class*="from-violet-500/"]) { c
 html:not(.dark) .from-violet-500:not([class*="from-violet-500/"]) .text-white { color: #fff !important; }
 html:not(.dark) .text-white.from-violet-600:not([class*="from-violet-600/"]) { color: #fff !important; }
 html:not(.dark) .from-violet-600:not([class*="from-violet-600/"]) .text-white { color: #fff !important; }
-/* 74 coloured grounds keep their white ink */
+/* 75 coloured grounds keep their white ink */
 
 /* Design tokens re-declared at higher specificity so a third-party
    `:root` block (a browser extension's theme, say) cannot silently

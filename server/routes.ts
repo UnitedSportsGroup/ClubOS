@@ -137,7 +137,7 @@ import { mountMcpServer } from "./mcp";
 import { CURRENT_LOGO_LICENCE, canonicalConsentText } from "./logo-licence";
 import { buildLogoLicencePdf } from "./logo-licence-pdf";
 import { PDFDocument as PdfLibDocument } from "pdf-lib";
-import { registerShopRoutes, finalizeShopOrderPaid, finalizeShopSharePaid } from "./shop-routes";
+import { registerShopRoutes, registerShopOrdersHubRoutes, finalizeShopOrderPaid, finalizeShopSharePaid } from "./shop-routes";
 import { registerPayShareRoutes } from "./payshare-routes";
 import {
   PAYSHARE_SITE_ORIGIN,
@@ -27594,6 +27594,7 @@ export async function registerRoutes(
   // Shop — native e-commerce module (MFL Store pilot). All routes live in
   // server/shop-routes.ts; the only other touchpoint is the webhook branch above.
   registerShopRoutes(app);
+  registerShopOrdersHubRoutes(app);
 
   // PayShare's inbound hooks + the participant pay bridge. Settlement is
   // injected rather than imported so payshare-routes.ts never has to reach back

@@ -187,6 +187,8 @@ const CANARIES: Canary[] = [
   // Website tab (2026-11-01): staff publish cufc.co.nz news; the site builds from the public route.
   { feature: "website tab",          path: "/api/admin/sites",                          expect: [401] },
   { feature: "website public news",  path: "/api/public/site/cufc/status",              expect: [200] },
+  // Shop Orders (2026-11-02): every shop's paid orders for the warehouse (United Prints).
+  { feature: "shop orders hub",      path: "/api/admin/shop-orders",                    expect: [401] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
   // paid Player Pay bookings — the same tree carries both.

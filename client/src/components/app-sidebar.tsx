@@ -530,6 +530,7 @@ const printsNav = [
   { tab: "analytics", title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
   { tab: "landing", title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
   { tab: "email", title: "Mailer", url: "/admin/print-email", icon: Send },
+  { tab: "shop-orders", title: "Shop Orders", url: "/admin/shop-orders", icon: ShoppingBag },
   { tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];

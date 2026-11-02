@@ -361,6 +361,9 @@ const printsTabs: TabDef[] = [
   { slug: "analytics", title: "Analytics", url: "/admin/print-analytics" },
   { slug: "landing", title: "Landing Pages", url: "/admin/print-landing" },
   { slug: "email", title: "Mailer", url: "/admin/print-email" },
+  // Every club shop's paid orders (CUFC, SIU, MFL, CIC) in one list for the
+  // warehouse to pack, post or hand over — the shops left Shopify for ClubOS.
+  { slug: "shop-orders", title: "Shop Orders", url: "/admin/shop-orders" },
   { slug: "warehouse", title: "Warehouse", url: "/admin/warehouse" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "integrations", title: "Integrations", url: "/admin/integrations", secondary: true },
