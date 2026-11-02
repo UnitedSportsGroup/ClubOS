@@ -35,7 +35,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { centsToDollarInput, dollarInputToCents, formatCurrency } from "@/lib/format";
 import {
   PhoneCall, Phone, Mail, Plus, Search, ExternalLink, Trash2, Globe,
-  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2, Send, Link2, Paperclip, Eye, MousePointerClick, AlertTriangle,
+  CalendarClock, ClipboardList, TrendingUp, Award, CheckCircle2, Send, Link2, Paperclip, Eye, MousePointerClick, AlertTriangle, Pencil,
 } from "lucide-react";
 import {
   SALES_STAGES, SALES_OUTCOMES, SALES_TIERS, SALES_REGIONS,
@@ -733,6 +733,7 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
   const [logNote, setLogNote] = useState("");
   const [logType, setLogType] = useState("call");
   const [logOutcome, setLogOutcome] = useState<string>("");
+  const [editingContact, setEditingContact] = useState(false);
 
   const del = useMutation({
     mutationFn: async () => {
@@ -784,13 +785,20 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
           </div>
 
           {/* Contact card */}
-          <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          {editingContact ? (
+            <ContactEditor
+              prospect={p}
+              onCancel={() => setEditingContact(false)}
+              onSaved={() => { setEditingContact(false); toast({ title: "Contact saved" }); }}
+            />
+          ) : (
+          <div className="relative rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div className="space-y-1.5">
               {p.phone ? (
                 <a href={`tel:${p.phone.replace(/\s+/g, "")}`} className="flex items-center gap-2 text-emerald-300 hover:text-emerald-200 font-semibold">
                   <PhoneCall className="w-3.5 h-3.5" /> {p.phone}
                 </a>
-              ) : <span className="flex items-center gap-2 text-white/30"><Phone className="w-3.5 h-3.5" /> no phone on file</span>}
+              ) : <button onClick={() => setEditingContact(true)} className="flex items-center gap-2 text-white/40 hover:text-emerald-300 text-left"><Phone className="w-3.5 h-3.5" /> no phone on file · <span className="underline underline-offset-2">add phone</span></button>}
               {p.email ? (
                 <div className="flex items-center gap-2 flex-wrap">
                   <a href={`mailto:${p.email}`} className="flex items-center gap-2 text-sky-300 hover:text-sky-200">
@@ -804,7 +812,7 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
                     <Send className="w-3 h-3" /> Write email
                   </button>
                 </div>
-              ) : <span className="flex items-center gap-2 text-white/30"><Mail className="w-3.5 h-3.5" /> no email on file</span>}
+              ) : <button onClick={() => setEditingContact(true)} data-testid="detail-add-email" className="flex items-center gap-2 text-white/40 hover:text-sky-300 text-left"><Mail className="w-3.5 h-3.5" /> no email on file · <span className="underline underline-offset-2">add email</span></button>}
               {(p.contactName || p.contactRole) && (
                 <div className="text-white/60">{[p.contactName, p.contactRole].filter(Boolean).join(" — ")}</div>
               )}
@@ -829,7 +837,17 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
               )}
             </div>
             {p.whyFit && <p className="sm:col-span-2 text-white/55 border-t border-white/[0.05] pt-2">{p.whyFit}</p>}
+            <div className="sm:col-span-2 flex justify-end border-t border-white/[0.05] pt-2">
+              <button
+                onClick={() => setEditingContact(true)}
+                data-testid="detail-edit-contact"
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-white/[0.06] text-white/80 border border-white/15 hover:bg-white/[0.1] transition"
+              >
+                <Pencil className="w-3 h-3" /> Edit contact
+              </button>
+            </div>
           </div>
+          )}
 
           {/* Pipeline fields */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -961,6 +979,78 @@ function ProspectDetail({ id, onClose, onSave, onLog, onEmail }: {
 interface Me { firstName: string; lastName: string; email: string }
 
 const draftKey = (id: number) => `sales-email-draft-${id}`;
+/** Dima, 2 Nov 2026: "if he's found the email for the company, he can edit
+ *  that contact and add it." Saves through the same PATCH as every other field;
+ *  the server checks the email's shape. Blank clears a field. */
+function ContactEditor({ prospect: p, onCancel, onSaved }: {
+  prospect: Prospect;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    email: p.email ?? "",
+    phone: p.phone ?? "",
+    contactName: p.contactName ?? "",
+    contactRole: p.contactRole ?? "",
+    website: p.website ?? "",
+  });
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, string | null> = {};
+      for (const [k, v] of Object.entries(form)) payload[k] = v.trim() || null;
+      const res = await apiRequest("PATCH", `/api/admin/sales/prospects/${p.id}`, payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/sales/prospects", String(p.id)] });
+      onSaved();
+    },
+    onError: (e: Error) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
+  });
+  const field = (key: keyof typeof form, label: string, type = "text", placeholder = "") => (
+    <label className="text-[10px] uppercase tracking-wider text-white/40 space-y-1 block">
+      <span>{label}</span>
+      <input
+        type={type}
+        value={form[key]}
+        placeholder={placeholder}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+        data-testid={`contact-${key}`}
+        className="w-full bg-white/[0.04] border border-white/15 rounded-lg px-3 py-2 text-sm normal-case tracking-normal text-white focus:outline-none focus:border-white/40"
+      />
+    </label>
+  );
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); save.mutate(); }}
+      className="rounded-xl border border-sky-500/30 bg-white/[0.02] p-3 space-y-3"
+      data-testid="contact-editor"
+    >
+      <div className="text-xs font-semibold text-white/80">Edit contact</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {field("email", "Email", "email", "name@company.co.nz")}
+        {field("phone", "Phone", "tel", "03 123 4567")}
+        {field("contactName", "Contact name", "text", "Who to ask for")}
+        {field("contactRole", "Their role", "text", "e.g. Marketing Manager")}
+        <div className="sm:col-span-2">{field("website", "Website", "text", "company.co.nz")}</div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="text-xs px-3 py-2 rounded-lg text-white/60 hover:text-white">Cancel</button>
+        <button
+          type="submit"
+          disabled={save.isPending}
+          data-testid="contact-save"
+          className="text-xs font-semibold px-4 py-2 rounded-lg bg-sky-500 text-white hover:bg-sky-400 disabled:opacity-50"
+        >
+          {save.isPending ? "Saving…" : "Save contact"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function readDraft(id: number): { to: string; subject: string; body: string } | null {
   try { const raw = sessionStorage.getItem(draftKey(id)); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }

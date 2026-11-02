@@ -221,7 +221,11 @@ export function registerSalesRoutes(app: Express) {
     set("servicesMatch", () => strArray(body.servicesMatch));
     set("contactName", () => str(body.contactName));
     set("contactRole", () => str(body.contactRole));
-    set("email", () => str(body.email));
+    set("email", () => {
+      const e = str(body.email);
+      if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new BadRequest(`"${e}" doesn't look like an email address`);
+      return e;
+    });
     set("phone", () => str(body.phone));
     set("evidenceUrl", () => str(body.evidenceUrl));
     set("fitScore", () => int(body.fitScore, "Fit score"));
