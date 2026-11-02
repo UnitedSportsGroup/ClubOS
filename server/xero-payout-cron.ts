@@ -18,7 +18,10 @@ import { sql } from "drizzle-orm";
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;   // hourly
 const BOOT_DELAY_MS = 3 * 60 * 1000;        // let the app settle after a deploy
-const LOOK_BACK = 8;                        // payouts, so a long weekend still catches up
+// 🔴 40 payouts (~8 weeks), not 8. A payout the planner refuses (one uncoded charge) drops out of an 8-payout window in
+// eight banking days and is never looked at again — the 16 Oct 2026 payout sat unposted for 17 days that way. The cost
+// of the wider window is DB reads only: anything already posted is skipped before Stripe or Xero is asked.
+const LOOK_BACK = 40;
 const RETRY_DAYS = 45;                      // a FAILED payout is retried this long, wherever it sits
 
 async function notify(text: string) {

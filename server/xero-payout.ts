@@ -85,6 +85,14 @@ export async function resolvePaymentIntents(ids: string[]): Promise<Map<string, 
       UNION ALL
       SELECT i.pi, 'cugc_registrations', cr.id::text, cr.organization_id, NULL, NULL, NULL, cr.program_name, NULL::int, NULL::int
         FROM ids i JOIN cugc_registrations cr ON cr.stripe_payment_intent = i.pi
+      UNION ALL
+      -- A card payment taken at the counter (the S710): pos_payments carries the PaymentIntent, the sale's biggest line
+      -- says what was sold. 🔴 Added 2 Nov 2026 after the 16 Oct payout sat unposted for 17 days over one $50 till
+      -- shirt sale the walker could not place ("Register R-000057"). The line KIND rides in competition_kind (text).
+      SELECT i.pi, 'pos_sales', s.id::text, l.organization_id, NULL, NULL, l.kind::text, s.sale_number || ' · ' || l.title, NULL::int, NULL::int
+        FROM ids i JOIN pos_payments pp ON pp.stripe_payment_intent_id = i.pi
+        JOIN pos_sales s ON s.id = pp.sale_id
+        LEFT JOIN LATERAL (SELECT organization_id, kind, title FROM pos_sale_lines WHERE sale_id = s.id ORDER BY line_cents DESC, sort LIMIT 1) l ON true
     ) hits
   `);
 

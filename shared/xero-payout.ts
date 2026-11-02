@@ -95,6 +95,8 @@ export function categoriseResolved(r: ResolvedPayment | null): XeroCategoryKey {
     case "print_orders":            return "print";
     case "usg_invoices":            return "invoice";
     case "cugc_registrations":      return "gymnastics";
+    // A counter (S710) card sale: a product line is shop stock; anything else typed at the till still needs a human.
+    case "pos_sales":               return r.competitionKind === "variant" ? "shop" : "unallocated";
     default:                        return "unallocated";
   }
 }
