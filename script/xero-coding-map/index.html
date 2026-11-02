@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xero coding map</title>
+<style>
+  :root { --ink:#161616; --muted:#6b6b6b; --line:#e4e4e4; --ground:#f3f3f1; --card:#fff; --blue:#1d4ed8; --amber:#b45309; --green:#15803d; --red:#b91c1c; --soft:#f6f7fb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink); font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 14px 0 0; }
+  .tabs button { background:none; border:1px solid var(--line); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit; color:var(--ink); }
+  .tabs button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .spacer { flex:1; }
+  .btn { background:#fff; border:1px solid var(--line); padding:7px 12px; border-radius:8px; cursor:pointer; font:inherit; color:var(--ink); }
+  .btn.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  main { padding:18px 20px 80px; max-width:1500px; margin:0 auto; }
+  .note { background:#fffbe6; border:1px solid #f3dd8a; border-radius:10px; padding:12px 14px; margin:0 0 16px; }
+  .note.blue { background:#eef4ff; border-color:#c8d8ff; }
+  .stat { display:inline-block; margin-right:16px; color:var(--muted); }
+  .stat b { color:var(--ink); }
+  section.group { background:var(--card); border:1px solid var(--line); border-radius:12px; margin:0 0 16px; overflow:hidden; }
+  section.group h2 { font-size:14px; margin:0; padding:10px 14px; background:var(--soft); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+  section.group h2 .count { color:var(--muted); font-weight:400; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-weight:600; font-size:12px; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--line); }
+  td { padding:7px 10px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  tr:last-child td { border-bottom:0; }
+  tr.child td:first-child { padding-left:34px; }
+  tr.inactive { opacity:.6; }
+  .kind { display:inline-block; font-size:11px; padding:1px 6px; border-radius:999px; background:#eee; color:#444; margin-right:6px; vertical-align:1px; }
+  .kind.program { background:#e3ecff; color:#1e3a8a; } .kind.program_option { background:#e8f7ec; color:#166534; } .kind.program_age { background:#fff1dc; color:#92400e; }
+  .kind.league_division { background:#fde8e8; color:#991b1b; } .kind.teampay_competition { background:#f1e6ff; color:#5b21b6; } .kind.category { background:#eee; } .kind.fee { background:#ffe4e6; color:#9f1239; }
+  .sub { color:var(--muted); font-size:12px; }
+  .money { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .now { white-space:nowrap; }
+  .now code { background:#f1f1f1; padding:1px 5px; border-radius:4px; }
+  .now.none code { background:#fde8e8; color:var(--red); }
+  .combo { position:relative; min-width:300px; }
+  .combo input { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; }
+  .combo input.set { border-color:#b7d3bd; background:#f3faf4; }
+  .combo .list { position:absolute; z-index:20; left:0; right:0; top:100%; max-height:280px; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); display:none; }
+  .combo .list div { padding:6px 9px; cursor:pointer; }
+  .combo .list div:hover, .combo .list div.hi { background:var(--soft); }
+  .combo .list .code { font-weight:600; margin-right:6px; }
+  .combo .list .cls { float:right; color:var(--muted); font-size:11px; }
+  .label input { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  .tax select { padding:6px 6px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; }
+  .saved { color:var(--green); font-size:12px; white-space:nowrap; }
+  .err { color:var(--red); font-size:12px; }
+  .inherit { color:var(--muted); font-size:12px; }
+  .clear { color:var(--muted); cursor:pointer; font-size:12px; margin-left:6px; }
+  .chartgrid td.code { font-weight:600; white-space:nowrap; }
+  .mapped-list { font-size:12px; color:#374151; }
+  .dep { background:var(--card); border:1px solid var(--line); border-radius:12px; margin:0 0 12px; padding:12px 14px; }
+  .dep h3 { margin:0 0 6px; font-size:14px; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; background:#eee; }
+  .pill.ok { background:#dcfce7; color:#166534; } .pill.open { background:#fef3c7; color:#92400e; } .pill.bad { background:#fee2e2; color:#991b1b; }
+  .dep table td { padding:4px 8px; font-size:13px; }
+  .search { padding:7px 9px; border:1px solid var(--line); border-radius:8px; font:inherit; min-width:260px; }
+  @media (max-width:900px) { .combo { min-width:200px; } th.hide, td.hide { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Xero coding map</h1>
+  <div class="tabs"><button data-tab="map" class="on">Map</button><button data-tab="chart">Xero codes</button><button data-tab="deposits">Deposits</button></div>
+  <input class="search" id="search" placeholder="Filter… (name, code)">
+  <span class="spacer"></span>
+  <span id="stats"></span>
+  <button class="btn" id="acceptCurrent" title="Fill every blank row with the code ClubOS uses today, so you only change what is wrong">Start from today's codes</button>
+  <button class="btn" id="reload">Reload</button>
+</header>
+<main>
+  <div id="view"></div>
+</main>
+<script>
+const TAX = ["OUTPUT2","INPUT2","NONE","ZERORATED","EXEMPTOUTPUT"];
+let state = { chart: [], units: [], map: [], deposits: null };
+let tab = "map";
+const $ = (s, el=document) => el.querySelector(s);
+const money = (c) => (c/100).toLocaleString("en-NZ", { style:"currency", currency:"NZD" });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mapKey = (k, id) => `${k}:${id}`;
+function mapOf() { const m = new Map(); for (const r of state.map) m.set(mapKey(r.unit_kind, r.unit_id), r); return m; }
+function acc(code) { return state.chart.find((a) => a.code === code); }
+
+async function load() {
+  $("#view").innerHTML = `<div class="note blue">Loading the Xero chart of accounts and everything ClubOS sells… (a few seconds)</div>`;
+  $("#stats").innerHTML = `<span class="stat">loading…</span>`;
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    const text = await r.text();
+    let j; try { j = JSON.parse(text); } catch { throw new Error(`the server answered ${r.status} with something that is not data: ${text.slice(0, 120)}`); }
+    if (j.error) throw new Error(j.error);
+    state.chart = j.chart; state.units = j.units; state.map = j.map; state.chartNote = j.chartNote || ""; render();
+  } catch (e) {
+    $("#stats").innerHTML = `<span class="stat err">could not load</span>`;
+    $("#view").innerHTML = `<div class="note"><b>Could not load the data.</b> ${esc(e.message || e)}<br><br>If you are inside Cursor's built-in browser, open <a href="http://localhost:4777" target="_blank">http://localhost:4777</a> in Arc or Chrome instead — the built-in one blocks the page's data requests.</div>`;
+  }
+}
+function render() {
+  const m = mapOf();
+  const sellable = state.units.filter((u) => u.kind !== "category" && u.kind !== "fee");
+  const mapped = sellable.filter((u) => m.has(mapKey(u.kind, u.id))).length;
+  $("#stats").innerHTML = `<span class="stat">Xero codes <b>${state.chart.filter(a=>a.status==="ACTIVE").length}</b></span><span class="stat">ClubOS units <b>${sellable.length}</b></span><span class="stat">mapped by you <b>${mapped}</b></span>`;
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  if (tab === "map") renderMap(); else if (tab === "chart") renderChart(); else renderDeposits();
+}
+function filterText() { return ($("#search").value || "").trim().toLowerCase(); }
+
+function renderMap() {
+  const m = mapOf(); const f = filterText();
+  const groups = ["Academy", "Holiday camps", "Mini Football Leagues", "Tournaments (Team Pay)", "Everything else (by kind of sale)", "Fees"];
+  let html = (state.chartNote ? `<div class="note">${esc(state.chartNote)}</div>` : "") + `<div class="note blue"><b>How this works.</b> Each row is one thing ClubOS sells. Pick the Xero account it should land on. A blank row inherits from the row above it (an option inherits its programme; a programme inherits its category). <b>Now</b> is what the automatic coding does today, so you only need to change what is wrong. “Line text” is optional: what the line should say in Xero (the term and the count are added automatically).</div>`;
+  for (const g of groups) {
+    const rows = state.units.filter((u) => u.group === g);
+    if (!rows.length) continue;
+    const visible = rows.filter((u) => !f || `${u.name} ${u.sub} ${u.now} ${(m.get(mapKey(u.kind,u.id))||{}).xero_account_code}`.toLowerCase().includes(f) || (u.parent && `${state.units.find(x=>x.kind===u.parent.kind&&x.id===u.parent.id)?.name}`.toLowerCase().includes(f)));
+    if (!visible.length) continue;
+    html += `<section class="group"><h2>${esc(g)} <span class="count">${rows.filter(u=>u.kind!=="category"&&u.kind!=="fee").length} units</span></h2>
+      <table><thead><tr><th style="width:34%">What ClubOS sells</th><th class="money hide">Sales, last 120 days</th><th class="now">Now</th><th>Xero account</th><th class="hide">GST</th><th class="hide">Line text in Xero (optional)</th><th></th></tr></thead><tbody>`;
+    for (const u of visible) {
+      const r = m.get(mapKey(u.kind, u.id));
+      const a = r ? acc(r.xero_account_code) : null;
+      const parentRow = u.parent ? m.get(mapKey(u.parent.kind, u.parent.id)) : null;
+      html += `<tr class="${u.parent ? "child" : ""} ${u.inactive ? "inactive" : ""}" data-kind="${u.kind}" data-id="${esc(u.id)}">
+        <td><span class="kind ${u.kind}">${u.kind.replace("_"," ").replace("program","programme").replace("teampay competition","competition").replace("league division","division")}</span>${esc(u.name)}<div class="sub">${esc(u.sub||"")}</div></td>
+        <td class="money hide">${u.sales120 ? `${money(u.sales120.cents)}<div class="sub">${u.sales120.n} payments</div>` : `<span class="sub">—</span>`}</td>
+        <td class="now ${u.now ? "" : "none"}" title="${esc(u.nowWhy||"")}"><code>${esc(u.now || "none")}</code></td>
+        <td><div class="combo"><input class="code ${r ? "set" : ""}" value="${r ? esc(r.xero_account_code + " · " + (a ? a.name : "")) : ""}" placeholder="${parentRow ? "inherits " + esc(parentRow.xero_account_code) : (u.parent ? "inherits the programme's code" : "type a code or name…")}"><div class="list"></div></div></td>
+        <td class="tax hide"><select ${r ? "" : "disabled"}>${TAX.map((t) => `<option ${r && r.xero_tax_type===t ? "selected" : (!r && t==="OUTPUT2" ? "selected":"")}>${t}</option>`).join("")}</select></td>
+        <td class="label hide"><input value="${r ? esc(r.line_label||"") : ""}" placeholder="${esc(u.kind==="program_age" ? (state.units.find(x=>x.kind==="program"&&x.id===String(u.programId))?.name||"") + " " + u.name : u.name)}" ${r ? "" : "disabled"}></td>
+        <td class="status">${r ? `<span class="saved">saved</span><span class="clear" title="remove this mapping">✕</span>` : ""}</td></tr>`;
+    }
+    html += `</tbody></table></section>`;
+  }
+  $("#view").innerHTML = html;
+  wireCombos();
+}
+
+function wireCombos() {
+  const active = state.chart.filter((a) => a.status === "ACTIVE").sort((a, b) => (a.cls === "REVENUE" ? 0 : 1) - (b.cls === "REVENUE" ? 0 : 1) || a.code.localeCompare(b.code, undefined, { numeric: true }));
+  document.querySelectorAll("tr[data-kind]").forEach((tr) => {
+    const input = $(".combo input", tr), list = $(".combo .list", tr);
+    let hi = -1, items = [];
+    const show = () => {
+      const t = input.value.trim().toLowerCase();
+      items = active.filter((a) => !t || a.code.toLowerCase().includes(t) || a.name.toLowerCase().includes(t)).slice(0, 60);
+      list.innerHTML = items.map((a, i) => `<div data-i="${i}" class="${i===hi?"hi":""}"><span class="code">${esc(a.code)}</span>${esc(a.name)}<span class="cls">${esc(a.cls)}${a.taxType ? " · " + esc(a.taxType) : ""}</span></div>`).join("") || `<div class="sub">no active account matches</div>`;
+      list.style.display = "block";
+    };
+    const pick = (a) => { list.style.display = "none"; input.value = `${a.code} · ${a.name}`; save(tr, a.code); };
+    input.addEventListener("focus", () => { hi = -1; show(); });
+    input.addEventListener("input", () => { hi = -1; show(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { hi = Math.min(hi + 1, items.length - 1); show(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { hi = Math.max(hi - 1, 0); show(); e.preventDefault(); }
+      else if (e.key === "Enter") { if (items[hi] || items.length === 1) pick(items[hi] || items[0]); e.preventDefault(); }
+      else if (e.key === "Escape") { list.style.display = "none"; input.blur(); }
+    });
+    input.addEventListener("blur", () => setTimeout(() => { list.style.display = "none"; const r = mapOf().get(mapKey(tr.dataset.kind, tr.dataset.id)); const a = r ? acc(r.xero_account_code) : null; input.value = r ? `${r.xero_account_code} · ${a ? a.name : ""}` : ""; }, 150));
+    list.addEventListener("mousedown", (e) => { const d = e.target.closest("div[data-i]"); if (d) { e.preventDefault(); pick(items[Number(d.dataset.i)]); } });
+    const sel = $(".tax select", tr), lab = $(".label input", tr), clr = $(".clear", tr);
+    if (sel) sel.addEventListener("change", () => { const r = mapOf().get(mapKey(tr.dataset.kind, tr.dataset.id)); if (r) save(tr, r.xero_account_code); });
+    if (lab) lab.addEventListener("change", () => { const r = mapOf().get(mapKey(tr.dataset.kind, tr.dataset.id)); if (r) save(tr, r.xero_account_code); });
+    if (clr) clr.addEventListener("click", () => save(tr, null));
+  });
+}
+async function save(tr, code) {
+  const sel = $(".tax select", tr), lab = $(".label input", tr), st = $(".status", tr);
+  st.innerHTML = `<span class="sub">saving…</span>`;
+  const r = await fetch("/api/map", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: tr.dataset.kind, id: tr.dataset.id, code, tax: code && sel && !sel.disabled ? sel.value : null, label: code && lab ? lab.value : null }) });
+  const j = await r.json();
+  if (j.error) { st.innerHTML = `<span class="err">${esc(j.error)}</span>`; return; }
+  state.map = j.map; render();
+}
+
+function renderChart() {
+  const m = mapOf(); const f = filterText();
+  const byCode = new Map();
+  for (const r of state.map) { const u = state.units.find((x) => x.kind === r.unit_kind && x.id === r.unit_id); if (!u) continue; const arr = byCode.get(r.xero_account_code) || []; arr.push(u); byCode.set(r.xero_account_code, arr); }
+  const nowBy = new Map();
+  for (const u of state.units) if (u.now) { const arr = nowBy.get(u.now) || []; arr.push(u); nowBy.set(u.now, arr); }
+  const order = ["REVENUE", "EXPENSE", "ASSET", "LIABILITY", "EQUITY"];
+  let html = `<div class="note blue">Every <b>active</b> account in Xero right now, revenue first. “Mapped by you” is what you have set in the Map tab; “today” is what the automatic coding lands there without any mapping. Archived accounts are left out.</div>`;
+  for (const cls of order) {
+    const accs = state.chart.filter((a) => a.status === "ACTIVE" && a.cls === cls && (!f || `${a.code} ${a.name}`.toLowerCase().includes(f))).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    if (!accs.length) continue;
+    html += `<section class="group"><h2>${cls[0] + cls.slice(1).toLowerCase()} <span class="count">${accs.length} accounts</span></h2><table class="chartgrid"><thead><tr><th>Code</th><th>Name</th><th class="hide">Type · default GST</th><th>Mapped by you</th><th class="hide">Today (automatic)</th></tr></thead><tbody>`;
+    for (const a of accs) {
+      const mine = byCode.get(a.code) || [], now = nowBy.get(a.code) || [];
+      html += `<tr><td class="code">${esc(a.code)}</td><td>${esc(a.name)}${a.description ? `<div class="sub">${esc(a.description)}</div>` : ""}</td><td class="hide sub">${esc(a.type)}${a.taxType ? " · " + esc(a.taxType) : ""}</td>
+        <td class="mapped-list">${mine.map((u) => esc(u.name + (u.parent ? " (" + (state.units.find(x=>x.kind===u.parent.kind&&x.id===u.parent.id)||{}).name + ")" : ""))).join("<br>") || "<span class='sub'>—</span>"}</td>
+        <td class="mapped-list hide">${now.slice(0, 6).map((u) => esc(u.name)).join("<br>")}${now.length > 6 ? `<br><span class="sub">…and ${now.length - 6} more</span>` : ""}${now.length ? "" : "<span class='sub'>—</span>"}</td></tr>`;
+    }
+    html += `</tbody></table></section>`;
+  }
+  $("#view").innerHTML = html;
+}
+
+async function renderDeposits() {
+  if (!state.deposits) {
+    $("#view").innerHTML = `<div class="note blue">Asking Xero what it holds for each deposit ClubOS has posted… (one call per deposit)</div>`;
+    const r = await fetch("/api/deposits"); const j = await r.json();
+    if (j.error) { $("#view").innerHTML = `<div class="note">${esc(j.error)}</div>`; return; }
+    state.deposits = j.deposits;
+  }
+  const f = filterText();
+  let html = `<div class="note"><b>Read this first.</b> In Xero's bank reconciliation, “Find &amp; Match → Add new transaction” opens a <u>blank form that a Xero bank rule pre-fills</u> — that is where the “FS - T3 / Facility hire / MFL / stripe fee” lines with 0.00 come from. It is not what ClubOS posted. ClubOS's entry is in the list under “1. Find &amp; select matching transactions” — search the amount or “Stripe payout” there. Below is every deposit ClubOS has coded, exactly as Xero holds it now.</div>`;
+  for (const d of state.deposits) {
+    if (f && !`${d.date} ${(d.payoutCents/100).toFixed(2)} ${d.payoutId}`.toLowerCase().includes(f)) continue;
+    const x = d.xero;
+    const pill = !x ? (d.status === "skipped" ? `<span class="pill ok">coded by hand in Xero</span>` : d.status === "failed" ? `<span class="pill bad">failed to post</span>` : d.status === "pending" ? `<span class="pill open">posting…</span>` : `<span class="pill bad">not in Xero</span>`) : x.error ? `<span class="pill bad">${esc(x.error)}</span>` : x.status === "DELETED" ? `<span class="pill bad">DELETED in Xero</span>` : x.reconciled ? `<span class="pill ok">reconciled</span>` : `<span class="pill open">waiting to be matched</span>`;
+    const invTotal = (d.invoiced || []).reduce((s, v) => s + v.amountCents, 0);
+    html += `<div class="dep"><h3>${esc(d.date)} · deposit ${money(d.payoutCents)} ${pill} ${x && !x.error ? `<span class="sub">Receive Money ${money(Math.round(x.total*100))}${invTotal ? ` + invoices ${money(invTotal)}` : ""} · dated ${esc(x.date)}</span>` : ""} ${d.url ? `<a href="${d.url}" target="_blank" style="font-size:12px">open in Xero ↗</a>` : ""}</h3>`;
+    if (x && x.lines) {
+      html += `<table><tbody>${x.lines.map((l) => `<tr><td class="code"><b>${esc(l.code)}</b></td><td class="sub">${esc(acc(l.code)?.name || "")}</td><td>${esc(l.description)}</td><td class="money">${money(Math.round(l.amount*100))}</td><td class="sub">${esc(l.tax)}</td></tr>`).join("")}</tbody></table>`;
+      if (d.invoiced && d.invoiced.length) html += `<div class="sub" style="margin-top:6px">Plus academy invoices this deposit also pays: ${d.invoiced.map((v) => `${esc(v.invoiceNumber)} ${esc(v.child)} ${money(v.amountCents)}${v.alreadyPaid ? " (paid)" : ""}`).join(" · ")}</div>`;
+      if (x.reference) html += `<div class="sub" style="margin-top:4px">Reference: ${esc(x.reference)}</div>`;
+    }
+    html += `</div>`;
+  }
+  $("#view").innerHTML = html;
+}
+
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(); }));
+$("#search").addEventListener("input", () => render());
+$("#reload").addEventListener("click", async () => { state.deposits = null; await fetch("/api/chart/refresh", { method: "POST" }); load(); });
+$("#acceptCurrent").addEventListener("click", async () => {
+  if (!confirm("Fill every blank row with the code ClubOS uses today? Rows you have already set are left alone. You can then change the wrong ones.")) return;
+  const r = await fetch("/api/map/accept-current", { method: "POST" }); const j = await r.json();
+  if (j.error) { alert(j.error); return; } state.map = j.map; render();
+});
+load();
+</script>
+</body>
+</html>
