@@ -29,7 +29,9 @@ import {
 } from "lucide-react";
 import {
   CONTRACT_STATE_LABEL, PARTNER_STATUS_LABEL, SIGNATURE_LABEL, SIGNATURE_STATUSES, comparePartners, fmtDateNz,
+  dueInclCents, paidInclCents, leftInclCents, moneySegment, moneySummary,
   type ContractState, type PartnerFlag, type PartnerSortKey, type PartnerStatus, type PaymentState, type SignatureStatus,
+  type MoneySegment, type MoneySummary,
 } from "@shared/sponsorship-partners";
 
 // ── Types (mirror server/sponsorship-partners.ts responses) ──────────────────
@@ -46,10 +48,12 @@ interface PartnerRow extends PartnerBase {
   current: { id: number; state: ContractState; openEnded: boolean; endDate: string | null; node: NodeView | null; contractSourceUrl?: string | null } | null;
   nextPayment: { id: number; amountCents: number; dueOn: string | null; label: string | null; state: PaymentState } | null;
   paidCents: number; overdueCents: number;
+  money: MoneySummary;
 }
 interface ListResp {
   today: string; partners: PartnerRow[];
-  totals: { partners: number; active: number; annualCashCents: number; annualContraCents: number; renewalsDue: number; overdueCents: number; needsAttention: number };
+  totals: { partners: number; active: number; annualCashCents: number; annualContraCents: number; renewalsDue: number; overdueCents: number; needsAttention: number;
+    contractedCents: number; collectedCents: number; owingOverdueCents: number; owingOverduePartners: number; toComeCents: number; paidInFull: number };
 }
 interface Payment {
   id: number; contractId: number; label: string | null; dueOn: string | null; amountCents: number; gstIncluded: boolean;
@@ -122,8 +126,8 @@ const CONTRACT_STATE_STYLE: Record<ContractState, string> = {
 const FLAG_TEXT = { red: "text-red-400", amber: "text-amber-400", grey: "text-white/60" } as const;
 const FLAG_DOT = { red: "bg-red-500", amber: "bg-amber-500", grey: "bg-slate-400" } as const;
 
-const STATUS_FILTERS: { key: "all" | PartnerStatus; label: string }[] = [
-  { key: "all", label: "All" }, { key: "active", label: "Active" }, { key: "renewal_due", label: "Renewal due" },
+const STATUS_FILTERS: { key: "all" | "owing" | PartnerStatus; label: string }[] = [
+  { key: "all", label: "All" }, { key: "owing", label: "Owes money" }, { key: "active", label: "Active" }, { key: "renewal_due", label: "Renewal due" },
   { key: "attention", label: "Needs attention" }, { key: "expired", label: "Expired" }, { key: "no_contract", label: "No contract" },
 ];
 const SORTS: { key: PartnerSortKey; label: string }[] = [
@@ -194,6 +198,129 @@ function OpenButton({ node, size = "sm" }: { node: NodeView | null | undefined; 
   );
 }
 
+
+// ── Money, the MFL Payments way ─────────────────────────────────────────────
+// Every figure here is INCL GST — what the sponsor actually pays — worked out
+// by shared/sponsorship-partners.ts (moneySummary / paidInclCents), never here.
+const fmtMoneyCents = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const SEG_BG: Record<MoneySegment, string> = {
+  paid: "bg-emerald-500", part: "bg-blue-500", overdue: "bg-red-500", due_soon: "bg-amber-500", scheduled: "bg-slate-500/25",
+};
+const SEG_STRIPE: Record<MoneySegment, string> = {
+  paid: "bg-emerald-500", part: "bg-blue-500", overdue: "bg-red-500", due_soon: "bg-amber-500", scheduled: "bg-slate-500/30",
+};
+
+/** One bar per instalment, in date order — green paid, red overdue, grey to come. */
+function PaymentBar({ segments, thin }: { segments: MoneySegment[]; thin?: boolean }) {
+  if (!segments.length) return null;
+  return (
+    <div className={`flex gap-1 w-full ${thin ? "max-w-[160px]" : ""}`} data-testid="payment-bar" aria-label={`${segments.filter(s => s === "paid").length} of ${segments.length} instalments paid`}>
+      {segments.map((g, i) => <span key={i} className={`${thin ? "h-1.5" : "h-2"} flex-1 min-w-[3px] rounded-full ${SEG_BG[g]}`} />)}
+    </div>
+  );
+}
+
+function MissedBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/30 whitespace-nowrap" data-testid="partner-missed"><AlertTriangle className="w-3 h-3" />{count} overdue</span>;
+}
+
+/** The list's Balance cell: what's left, and whether any of it is late. */
+function BalanceCell({ m }: { m: MoneySummary }) {
+  if (!m.instalments) return <span className="text-white/35 text-xs">No cash instalments</span>;
+  if (m.remainingCents === 0) return <span className="text-emerald-400 text-xs font-semibold">Paid in full</span>;
+  return (
+    <div className="tabular-nums">
+      <div className={`font-semibold ${m.overdueCents ? "text-red-400" : "text-amber-400"}`}>{fmtMoneyCents(m.remainingCents)}</div>
+      <div className="text-[11px] text-white/50">{m.overdueCents ? `${fmtMoneyCents(m.overdueCents)} overdue` : "remaining · on track"}</div>
+    </div>
+  );
+}
+
+/** The sponsor sheet's top card: Total · Paid · Remaining, the bar, every
+ *  instalment as a row (stripe + state + amount + date), and a red callout
+ *  with a ready-to-send reminder when anything is late. */
+function PaymentsPanel({ contract, today, contact }: { contract: Contract | undefined; today: string; contact: { name: string | null; email: string | null } }) {
+  if (!contract) return null;
+  const pays = contract.payments.slice().sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999") || a.id - b.id);
+  const m = moneySummary(pays, today);
+  const contra = contract.contraPerYearCents ?? 0;
+  if (!pays.length) {
+    return (
+      <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-1" data-testid="partner-payments">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Banknote className="w-4 h-4" />Payments</h3>
+        <p className="text-sm text-white/55">{contra > 0 ? `No cash on this deal — it is ${fmtMoneyFull(contra)} of value in kind a year.` : "No cash instalments recorded on the current contract."}</p>
+      </section>
+    );
+  }
+  const overdue = pays.filter(p => moneySegment(p, today) === "overdue");
+  const first = (contact.name || "").split(/\s+/)[0] || "there";
+  const lines = overdue.map(p => `- ${p.label || "Instalment"}${p.xeroInvoiceNumber ? ` (${p.xeroInvoiceNumber})` : ""}: ${fmtMoneyCents(leftInclCents(p))}, due ${fmtDateNz(p.dueOn)}`).join("\n");
+  const mail = contact.email && overdue.length
+    ? `mailto:${contact.email}?subject=${encodeURIComponent("Sponsorship payment")}&body=${encodeURIComponent(`Hi ${first},\n\nJust a quick one on the sponsorship. Our records show this is still outstanding:\n\n${lines}\n\nTotal ${fmtMoneyCents(m.overdueCents)} incl GST. Could you let me know when we can expect it?\n\nThanks`)}`
+    : null;
+  return (
+    <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 sm:p-4 space-y-4 min-w-0" data-testid="partner-payments">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Banknote className="w-4 h-4" />Payments</h3>
+        <span className="text-[11px] text-white/45">Current contract · incl GST{contra > 0 ? ` · plus ${fmtMoneyFull(contra)} contra` : ""}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {[
+          { k: "Total", v: m.totalCents, cls: "text-white" },
+          { k: "Paid", v: m.paidCents, cls: "text-emerald-400" },
+          { k: "Remaining", v: m.remainingCents, cls: m.overdueCents ? "text-red-400" : m.remainingCents ? "text-amber-400" : "text-emerald-400" },
+        ].map(t => (
+          <div key={t.k} className="rounded-lg border border-white/[0.08] p-2.5 sm:p-3 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-white/45">{t.k}</div>
+            <div className={`text-base sm:text-lg font-semibold tabular-nums break-words ${t.cls}`} data-testid={`partner-pay-${t.k.toLowerCase()}`}>{fmtMoneyCents(t.v)}</div>
+          </div>
+        ))}
+      </div>
+      <PaymentBar segments={m.segments} />
+      <div className="space-y-2">
+        {pays.map(p => {
+          const g = moneySegment(p, today);
+          const got = paidInclCents(p); const due = dueInclCents(p);
+          const state =
+            g === "paid" ? <span className="text-emerald-400 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />Paid</span>
+            : g === "overdue" ? <span className="text-red-400 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />{got > 0 ? `Part paid · ${fmtMoneyCents(due - got)} overdue` : "Overdue"}</span>
+            : g === "part" ? <span className="text-blue-400">Part paid · {fmtMoneyCents(got)} in</span>
+            : g === "due_soon" ? <span className="text-amber-400 inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Due soon</span>
+            : <span className="text-white/50">{p.dueOn ? "Scheduled" : "No date set"}</span>;
+          return (
+            <div key={p.id} className="relative rounded-lg border border-white/[0.08] bg-white/[0.015] pl-4 pr-3 py-2.5 flex items-center justify-between gap-3 min-w-0" data-testid={`partner-pay-row-${p.id}`}>
+              <span className={`absolute left-1.5 top-2 bottom-2 w-1 rounded-full ${SEG_STRIPE[g]}`} />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-white break-words">{p.label || "Instalment"}</div>
+                <div className="text-xs">{state}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-sm font-semibold text-white tabular-nums">{fmtMoneyCents(due)}</div>
+                <div className="text-[11px] text-white/50 whitespace-nowrap">
+                  {p.paidOn ? `paid ${fmtDateNz(p.paidOn)}` : `due ${fmtDateNz(p.dueOn)}`}{p.xeroInvoiceNumber ? ` · ${p.xeroInvoiceNumber}` : ""}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {m.overdueCents > 0 ? (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/[0.06] p-3 space-y-2" data-testid="partner-pay-behind">
+          <div className="text-sm font-semibold text-red-400 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" />{m.overdueCount} payment{m.overdueCount === 1 ? "" : "s"} overdue — {fmtMoneyCents(m.overdueCents)} behind</div>
+          <p className="text-xs text-white/60">{mail ? `Opens an email to ${contact.name || contact.email} listing what's owed. Nothing sends until you press send.` : "No email on file for the main contact — add one with Edit."}</p>
+          {mail && <Button size="sm" asChild className="bg-amber-500 hover:bg-amber-600 text-black min-h-[44px] md:min-h-0"><a href={mail} data-testid="partner-pay-remind"><Mail className="w-3.5 h-3.5 mr-1.5" />Write the reminder</a></Button>}
+        </div>
+      ) : m.remainingCents === 0 ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-sm text-emerald-400 font-semibold flex items-center gap-1.5"><BadgeCheck className="w-4 h-4" />Paid in full</div>
+      ) : (
+        <div className="rounded-lg border border-white/[0.08] p-3 text-xs text-white/60">On track — {fmtMoneyCents(m.remainingCents)} still to come, nothing late.</div>
+      )}
+    </section>
+  );
+}
+
 // ── Hash state: #partners  /  #partners/<id> ────────────────────────────────
 function readHashId(): number | null {
   if (typeof window === "undefined") return null;
@@ -206,7 +333,7 @@ export function PartnersView() {
   const { toast } = useToast();
   const [openId, setOpenId] = useState<number | null>(() => readHashId());
   const [search, setSearch] = useState("");
-  const [statusF, setStatusF] = useState<"all" | PartnerStatus>("all");
+  const [statusF, setStatusF] = useState<"all" | "owing" | PartnerStatus>("all");
   const [brandF, setBrandF] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<PartnerSortKey>("company");
   const [dir, setDir] = useState<"asc" | "desc">("asc");
@@ -235,7 +362,8 @@ export function PartnersView() {
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = (data?.partners ?? []).filter(p => {
-      if (statusF !== "all" && p.status !== statusF) return false;
+      if (statusF === "owing") { if (!p.money.overdueCents) return false; }
+      else if (statusF !== "all" && p.status !== statusF) return false;
       if (brandF.length && !brandF.some(b => p.brandTags?.includes(b))) return false;
       if (q) {
         const hay = [p.company, p.tradingName, p.primaryContactName, p.primaryContactEmail].filter(Boolean).join(" ").toLowerCase();
@@ -248,21 +376,21 @@ export function PartnersView() {
 
   const t = data?.totals;
   const kpis = [
-    { label: "Active partners", value: t ? String(t.active) : "—", accent: "#22c55e", sub: t ? `of ${t.partners}` : undefined },
-    { label: "Annual cash", value: t ? fmtMoneyFull(t.annualCashCents) : "—", accent: "#3b82f6", sub: "excl GST" },
-    { label: "Annual contra", value: t ? fmtMoneyFull(t.annualContraCents) : "—", accent: "#a855f7", sub: "value in kind" },
-    { label: "Renewals due", value: t ? String(t.renewalsDue) : "—", accent: "#f59e0b", sub: "next 90 days" },
-    { label: "Overdue", value: t ? fmtMoneyFull(t.overdueCents) : "—", accent: "#ef4444", sub: "unpaid instalments" },
-    { label: "Needs attention", value: t ? String(t.needsAttention) : "—", accent: "#ef4444" },
+    { label: "Partners", value: t ? String(t.active) : "—", sub: t ? `active of ${t.partners}` : undefined, cls: "text-white" },
+    { label: "Contracted", value: t ? fmtMoneyFull(t.contractedCents) : "—", sub: "cash, current deals, incl GST", cls: "text-white" },
+    { label: "Collected", value: t ? fmtMoneyFull(t.collectedCents) : "—", sub: t ? `${t.paidInFull} paid in full` : undefined, cls: "text-emerald-400" },
+    { label: "Overdue", value: t ? fmtMoneyFull(t.owingOverdueCents) : "—", sub: t ? `${t.owingOverduePartners} partner${t.owingOverduePartners === 1 ? "" : "s"} behind` : undefined, cls: t && t.owingOverdueCents ? "text-red-400" : "text-white" },
+    { label: "Still to come", value: t ? fmtMoneyFull(t.toComeCents) : "—", sub: "not due yet", cls: "text-amber-400" },
+    { label: "Renewals due", value: t ? String(t.renewalsDue) : "—", sub: t ? `next 90 days · ${fmtMoneyFull(t.annualContraCents)} contra a year` : undefined, cls: t && t.renewalsDue ? "text-amber-400" : "text-white" },
   ];
 
   return (
     <div className="p-4 sm:p-6 space-y-4 min-w-0" data-testid="partners-view">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {kpis.map(k => (
-          <div key={k.label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5" style={{ borderLeft: `3px solid ${k.accent}`, paddingLeft: 6 }}>{k.label}</div>
-            <div className="text-lg font-semibold text-white tabular-nums">{k.value}</div>
+          <div key={k.label} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 sm:p-4 min-w-0" data-testid={`partners-kpi-${k.label.toLowerCase().replace(/\s+/g, "-")}`}>
+            <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1.5">{k.label}</div>
+            <div className={`text-xl font-semibold tabular-nums ${k.cls}`}>{k.value}</div>
             {k.sub && <div className="text-[10px] text-white/40 mt-0.5">{k.sub}</div>}
           </div>
         ))}
@@ -323,7 +451,7 @@ export function PartnersView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-white/40 border-b border-white/[0.06]">
-                  {["Company", "Contract", "Main contact", "Signed on", "Renews / ends", "Annual value", "Status", "Flags"].map(h => <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+                  {["Company", "Contract", "Main contact", "Renews / ends", "Deal a year", "Payments", "Paid", "Balance", "Status"].map(h => <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -336,6 +464,7 @@ export function PartnersView() {
                         <div className="min-w-0">
                           <div className="font-semibold text-white break-words">{p.company}</div>
                           <BrandChips tags={p.brandTags} />
+                          {p.money.overdueCount > 0 && <div className="mt-1.5"><MissedBadge count={p.money.overdueCount} /></div>}
                         </div>
                       </div>
                     </td>
@@ -349,14 +478,17 @@ export function PartnersView() {
                         {p.primaryContactPhone && <a className="text-blue-400 hover:underline" href={`tel:${p.primaryContactPhone}`}>{p.primaryContactPhone}</a>}
                       </div>
                     </td>
-                    <td className="px-2.5 py-2.5 whitespace-nowrap text-white/80">{fmtDateNz(p.since)}</td>
                     <td className="px-2.5 py-2.5 whitespace-nowrap text-white/80">{p.current?.openEnded ? "Ongoing" : fmtDateNz(p.renewalOn)}</td>
                     <td className="px-2.5 py-2.5 whitespace-nowrap tabular-nums">
                       <div className="text-white font-semibold">{fmtMoneyFull(p.cashPerYearCents)}</div>
                       {p.contraPerYearCents > 0 && <div className="text-[11px] text-white/50">+ {fmtMoneyFull(p.contraPerYearCents)} contra</div>}
                     </td>
-                    <td className="px-2.5 py-2.5"><StatusPill status={p.status} /></td>
-                    <td className="px-2.5 py-2.5 min-w-[170px]"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></td>
+                    <td className="px-2.5 py-2.5 min-w-[120px]">
+                      {p.money.instalments ? <><PaymentBar segments={p.money.segments} thin /><div className="text-[11px] text-white/50 mt-1">{p.money.paidCount} of {p.money.instalments} paid</div></> : <span className="text-white/30 text-xs">—</span>}
+                    </td>
+                    <td className="px-2.5 py-2.5 whitespace-nowrap tabular-nums text-white">{p.money.instalments ? fmtMoneyCents(p.money.paidCents) : "—"}</td>
+                    <td className="px-2.5 py-2.5 whitespace-nowrap"><BalanceCell m={p.money} /></td>
+                    <td className="px-2.5 py-2.5 min-w-[150px]"><StatusPill status={p.status} /><div className="mt-1.5"><FlagList flags={p.flags.filter(f => f.severity !== "grey" && f.kind !== "payment_overdue")} max={1} /></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -382,7 +514,17 @@ export function PartnersView() {
                   <div className="text-white tabular-nums font-semibold">{fmtMoneyFull(p.cashPerYearCents)}{p.contraPerYearCents > 0 && <span className="text-white/50 font-normal"> + {fmtMoneyFull(p.contraPerYearCents)} contra</span>}</div>
                   <div className="text-white/50 whitespace-nowrap">{p.current?.openEnded ? "Ongoing" : `Ends ${fmtDateNz(p.renewalOn)}`}</div>
                 </div>
-                {p.flags.some(f => f.severity !== "grey") && <div className="mt-2"><FlagList flags={p.flags.filter(f => f.severity !== "grey")} max={2} /></div>}
+                {p.money.instalments > 0 && (
+                  <div className="mt-2.5 space-y-1.5">
+                    <PaymentBar segments={p.money.segments} />
+                    <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
+                      <span className="text-white/70">Paid <span className="text-emerald-400 font-semibold">{fmtMoneyCents(p.money.paidCents)}</span></span>
+                      {p.money.remainingCents === 0 ? <span className="text-emerald-400 font-semibold">Paid in full</span>
+                        : <span className={p.money.overdueCents ? "text-red-400 font-semibold" : "text-amber-400 font-semibold"}>{p.money.overdueCents ? `${fmtMoneyCents(p.money.overdueCents)} overdue` : `${fmtMoneyCents(p.money.remainingCents)} to come`}</span>}
+                    </div>
+                  </div>
+                )}
+                {p.flags.some(f => f.severity !== "grey" && f.kind !== "payment_overdue") && <div className="mt-2"><FlagList flags={p.flags.filter(f => f.severity !== "grey" && f.kind !== "payment_overdue")} max={2} /></div>}
                 <div className="mt-2.5"><OpenButton node={p.current?.node} size="md" /></div>
               </div>
             ))}
@@ -513,6 +655,8 @@ function PartnerSheet({ id, onClose }: { id: number; onClose: () => void }) {
             </SheetHeader>
 
             {p.flags.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"><FlagList flags={p.flags} /></div>}
+
+            <PaymentsPanel contract={contracts.find(c => c.isCurrent)} today={data.today} contact={{ name: p.primaryContactName, email: p.primaryContactEmail }} />
 
             <div className="rounded-lg border border-white/[0.06] p-3 space-y-1.5 text-sm">
               <div className="text-[10px] uppercase tracking-wider text-white/40">Main contact</div>
@@ -733,8 +877,8 @@ function Instalments({ contract, today }: { contract: Contract; today: string })
   const [dlg, setDlg] = useState<{ payment?: Payment; mode: "edit" | "paid" } | null>(null);
   const [delId, setDelId] = useState<number | null>(null);
   const pays = contract.payments;
-  const paid = pays.reduce((s, p) => s + (p.paidOn ? (p.paidCents ?? p.amountCents) : 0), 0);
-  const outstanding = pays.reduce((s, p) => s + (p.paidOn ? 0 : p.amountCents), 0);
+  const paid = pays.reduce((s, p) => s + paidInclCents(p), 0);
+  const outstanding = pays.reduce((s, p) => s + leftInclCents(p), 0);
 
   const unmark = useMutation({
     mutationFn: async (pid: number) => apiRequest("PATCH", `/api/admin/sponsorship/partners/payments/${pid}`, { paidOn: null }),
@@ -758,6 +902,7 @@ function Instalments({ contract, today }: { contract: Contract; today: string })
             <div className="text-white/60 whitespace-nowrap">Due {fmtDateNz(p.dueOn)}</div>
             <div className="tabular-nums text-white whitespace-nowrap">{fmtMoneyFull(p.amountCents)} <span className="text-white/40">{p.gstIncluded ? "incl GST" : "excl GST"}</span></div>
             {p.paidOn && <div className="text-emerald-400 whitespace-nowrap">Paid {fmtDateNz(p.paidOn)}</div>}
+            {!p.paidOn && paidInclCents(p) > 0 && <div className="text-blue-400 whitespace-nowrap">{fmtMoneyCents(paidInclCents(p))} received</div>}
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${PAY_STYLE[p.state]}`}>{PAY_LABEL[p.state]}</span>
             <div className="flex items-center gap-1 ml-auto">
               {p.paidOn
@@ -773,7 +918,7 @@ function Instalments({ contract, today }: { contract: Contract; today: string })
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <Button size="sm" variant="outline" className="min-h-[44px] md:min-h-0" onClick={() => setDlg({ mode: "edit" })} data-testid="payment-add"><Plus className="w-3.5 h-3.5 mr-1" />Add instalment</Button>
-        <div className="text-xs text-white/60 tabular-nums">Paid <span className="text-emerald-400 font-semibold">{fmtMoneyFull(paid)}</span> · Outstanding <span className="text-white font-semibold">{fmtMoneyFull(outstanding)}</span></div>
+        <div className="text-xs text-white/60 tabular-nums">Paid <span className="text-emerald-400 font-semibold">{fmtMoneyCents(paid)}</span> · Outstanding <span className="text-white font-semibold">{fmtMoneyCents(outstanding)}</span> <span className="text-white/40">incl GST</span></div>
       </div>
       {dlg && <PaymentDialog contractId={contract.id} payment={dlg.payment} mode={dlg.mode} today={today} onClose={() => setDlg(null)} />}
     </div>

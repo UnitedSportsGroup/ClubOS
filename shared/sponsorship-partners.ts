@@ -214,11 +214,11 @@ export function partnerFlags(args: { contracts: ContractLike[]; payments: Paymen
   const overdue = mine.filter(p => paymentState(p, today) === "overdue").sort((a, b) => a.dueOn!.localeCompare(b.dueOn!));
   const soon = mine.filter(p => paymentState(p, today) === "due_soon").sort((a, b) => a.dueOn!.localeCompare(b.dueOn!));
   if (overdue.length) {
-    const total = overdue.reduce((s, p) => s + p.amountCents, 0);
-    out.push({ kind: "payment_overdue", severity: "red", text: `${fmtCents(total)} overdue — ${overdue.length === 1 ? `due ${fmtDateNz(overdue[0].dueOn)}` : `${overdue.length} instalments, oldest ${fmtDateNz(overdue[0].dueOn)}`}` });
+    const total = overdue.reduce((s, p) => s + leftInclCents(p), 0);
+    out.push({ kind: "payment_overdue", severity: "red", text: `${fmtCents(total)} incl GST overdue — ${overdue.length === 1 ? `due ${fmtDateNz(overdue[0].dueOn)}` : `${overdue.length} instalments, oldest ${fmtDateNz(overdue[0].dueOn)}`}` });
   }
   if (soon.length) {
-    out.push({ kind: "payment_due", severity: "amber", text: `${fmtCents(soon[0].amountCents)} due ${fmtDateNz(soon[0].dueOn)}` });
+    out.push({ kind: "payment_due", severity: "amber", text: `${fmtCents(leftInclCents(soon[0]))} incl GST due ${fmtDateNz(soon[0].dueOn)}` });
   }
   const issues = Array.isArray(cur.flags) ? cur.flags.length : 0;
   if (issues) out.push({ kind: "contract_issue", severity: "grey", text: `${issues} note${issues === 1 ? "" : "s"} on the contract` });
@@ -279,4 +279,61 @@ export function comparePartners(key: PartnerSortKey, dir: "asc" | "desc") {
       }
     }
   };
+}
+
+// ── Money — what a sponsor has paid and still owes (the MFL Payments view) ──
+// Daniel, 2026-11-04: "make it so in all sponsors… shows like MFL payments,
+// quite easy and nice visually" — Ryan wants who paid, who hasn't, how much.
+//
+// 🔴 An instalment's `amountCents` is EXCLUSIVE of GST unless gstIncluded
+// (every seeded row is excl), while `paidCents` is what Xero RECEIVED, which
+// includes GST. The screen speaks in what the sponsor actually pays — incl GST
+// — so both sides are put on that one basis here and nowhere else.
+// 🔴 A part payment is a row with paidCents > 0 and no paidOn: it is still
+// open (it can be overdue), and only the remainder is owed.
+
+export interface PaymentMoneyLike extends PaymentLike { gstIncluded?: boolean | null; paidCents?: number | null }
+
+export function dueInclCents(p: PaymentMoneyLike): number {
+  return p.gstIncluded ? p.amountCents : Math.round(p.amountCents * 1.15);
+}
+/** What has landed against this instalment, incl GST, capped at what it asks. */
+export function paidInclCents(p: PaymentMoneyLike): number {
+  const due = dueInclCents(p);
+  if (p.paidOn) return due;
+  return Math.max(0, Math.min(due, p.paidCents ?? 0));
+}
+export function leftInclCents(p: PaymentMoneyLike): number {
+  return dueInclCents(p) - paidInclCents(p);
+}
+
+export type MoneySegment = "paid" | "part" | "overdue" | "due_soon" | "scheduled";
+
+export function moneySegment(p: PaymentMoneyLike, today: string): MoneySegment {
+  const st = paymentState(p, today);
+  if (st === "paid") return "paid";
+  if (st === "overdue") return "overdue";
+  if (paidInclCents(p) > 0) return "part";
+  if (st === "due_soon") return "due_soon";
+  return "scheduled";
+}
+
+export interface MoneySummary {
+  totalCents: number; paidCents: number; remainingCents: number;
+  overdueCents: number; overdueCount: number; instalments: number; paidCount: number;
+  segments: MoneySegment[];
+}
+
+/** Totals over a set of instalments (normally the CURRENT contract's), incl GST.
+ *  Overdue counts only what is LEFT on an instalment past its date. */
+export function moneySummary(payments: PaymentMoneyLike[], today: string): MoneySummary {
+  const sorted = payments.slice().sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999") || a.id - b.id);
+  let total = 0, paid = 0, overdue = 0, overdueCount = 0, paidCount = 0;
+  for (const p of sorted) {
+    total += dueInclCents(p); paid += paidInclCents(p);
+    if (p.paidOn) paidCount++;
+    if (paymentState(p, today) === "overdue") { overdue += leftInclCents(p); overdueCount++; }
+  }
+  return { totalCents: total, paidCents: paid, remainingCents: total - paid, overdueCents: overdue, overdueCount,
+    instalments: sorted.length, paidCount, segments: sorted.map(p => moneySegment(p, today)) };
 }

@@ -31,6 +31,7 @@ import { nzTodayIso } from "@shared/dashboard";
 import {
   SIGNATURE_STATUSES, annualValueCents, contractState, currentContract, daysBetween, isIsoDate, nextPayment,
   partnerFlags, partnerSince, partnerStatus, paymentState,
+  moneySummary,
 } from "@shared/sponsorship-partners";
 import { storeContractFile } from "./sponsorship-partner-files";
 
@@ -150,6 +151,8 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
           nextPayment: next ? { ...next, state: paymentState(next, today) } : null,
           paidCents: pays.reduce((sum, x) => sum + (x.paidCents ?? 0), 0),
           overdueCents: pays.filter(x => paymentState(x, today) === "overdue").reduce((sum, x) => sum + x.amountCents, 0),
+          // Paid / remaining on the CURRENT contract, incl GST (the MFL Payments view).
+          money: moneySummary(cur ? pays.filter(x => x.contractId === cur.id) : [], today),
         };
       });
       const live = rows.filter(r => r.status !== "expired" && r.status !== "no_contract");
@@ -164,6 +167,13 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
           renewalsDue: rows.filter(r => r.flags.some(f => f.kind === "renewal_due" || f.kind === "notice_passed")).length,
           overdueCents: rows.reduce((sum, r) => sum + r.overdueCents, 0),
           needsAttention: rows.filter(r => r.status === "attention" || r.status === "expired" || r.status === "no_contract").length,
+          // Money across every partner's current contract, incl GST.
+          contractedCents: rows.reduce((sum, r) => sum + r.money.totalCents, 0),
+          collectedCents: rows.reduce((sum, r) => sum + r.money.paidCents, 0),
+          owingOverdueCents: rows.reduce((sum, r) => sum + r.money.overdueCents, 0),
+          owingOverduePartners: rows.filter(r => r.money.overdueCents > 0).length,
+          toComeCents: rows.reduce((sum, r) => sum + (r.money.remainingCents - r.money.overdueCents), 0),
+          paidInFull: rows.filter(r => r.money.instalments > 0 && r.money.remainingCents === 0).length,
         },
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
