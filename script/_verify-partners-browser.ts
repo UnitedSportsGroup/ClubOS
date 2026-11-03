@@ -106,6 +106,24 @@ async function main() {
       ok("sheet has instalments, deliverables and ideas sections", !!s && s.hasInstalments && s.hasDeliverables && s.hasIdeas);
       ok("hash carries the partner id", /^#partners\/\d+/.test(s?.hash ?? ""), s?.hash);
       await page.screenshot({ path: join(OUT, `partners-sheet-${label}.png`), fullPage: false });
+      // The MFL-style payments card on a sponsor that owes money (Signbiz, 4 Nov 2026).
+      const owingId = (await pool.query(`select id from sponsorship_partners where company = 'Signbiz' and archived_at is null`)).rows[0]?.id;
+      if (owingId) {
+        await page.evaluate((id: number) => { location.hash = `#partners/${id}`; }, owingId);
+        await sleep(2500);
+        const pay: any = await page.evaluate(`(function(){
+          var sh = document.querySelector('[data-testid="partner-sheet"]'); if (!sh) return null;
+          var t = function(id){ var e = sh.querySelector('[data-testid="'+id+'"]'); return e ? e.innerText.trim() : null; };
+          return { total: t('partner-pay-total'), paid: t('partner-pay-paid'), left: t('partner-pay-remaining'), bars: sh.querySelectorAll('[data-testid="payment-bar"] span').length,
+            behind: t('partner-pay-behind'), remind: !!sh.querySelector('[data-testid="partner-pay-remind"]') };
+        })()`);
+        ok("payments card shows Total / Paid / Remaining", pay?.total === "$17,250.00" && pay?.paid === "$0.00" && pay?.left === "$17,250.00", JSON.stringify(pay));
+        ok("one bar per instalment", pay?.bars === 5, String(pay?.bars));
+        ok("overdue callout names what's behind", /1 payment overdue — \$3,450\.00 behind/.test(pay?.behind ?? ""), pay?.behind ?? "");
+        await page.screenshot({ path: join(OUT, `partners-payments-${label}.png`), fullPage: false });
+        await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => {});
+        await sleep(600);
+      }
       await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => {});
       await sleep(800);
       const closed = await page.$('[data-testid="partner-sheet"]');

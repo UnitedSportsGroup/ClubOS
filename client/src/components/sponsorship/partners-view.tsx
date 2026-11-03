@@ -272,9 +272,9 @@ function PaymentsPanel({ contract, today, contact }: { contract: Contract | unde
           { k: "Paid", v: m.paidCents, cls: "text-emerald-400" },
           { k: "Remaining", v: m.remainingCents, cls: m.overdueCents ? "text-red-400" : m.remainingCents ? "text-amber-400" : "text-emerald-400" },
         ].map(t => (
-          <div key={t.k} className="rounded-lg border border-white/[0.08] p-2.5 sm:p-3 min-w-0">
+          <div key={t.k} className="rounded-lg border border-white/[0.08] px-2 py-2.5 sm:p-3 min-w-0">
             <div className="text-[10px] uppercase tracking-wider text-white/45">{t.k}</div>
-            <div className={`text-base sm:text-lg font-semibold tabular-nums break-words ${t.cls}`} data-testid={`partner-pay-${t.k.toLowerCase()}`}>{fmtMoneyCents(t.v)}</div>
+            <div className={`text-[15px] sm:text-lg font-semibold tabular-nums whitespace-nowrap ${t.cls}`} data-testid={`partner-pay-${t.k.toLowerCase()}`}>{fmtMoneyCents(t.v)}</div>
           </div>
         ))}
       </div>
@@ -451,7 +451,7 @@ export function PartnersView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-white/40 border-b border-white/[0.06]">
-                  {["Company", "Contract", "Main contact", "Renews / ends", "Deal a year", "Payments", "Paid", "Balance", "Status"].map(h => <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>)}
+                  {["Company", "Main contact", "Renews / ends", "Deal a year", "Payments", "Paid", "Balance", "Status"].map(h => <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -464,13 +464,12 @@ export function PartnersView() {
                         <div className="min-w-0">
                           <div className="font-semibold text-white break-words">{p.company}</div>
                           <BrandChips tags={p.brandTags} />
-                          {p.money.overdueCount > 0 && <div className="mt-1.5"><MissedBadge count={p.money.overdueCount} /></div>}
+                          {/* Signed is king: the file sits under the name, never off the right edge */}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5"><OpenButton node={p.current?.node} />{p.money.overdueCount > 0 && <MissedBadge count={p.money.overdueCount} />}</div>
                         </div>
                       </div>
                     </td>
-                    {/* Signed is king: the file sits beside the name, never off the right edge */}
-                    <td className="px-2.5 py-2.5 whitespace-nowrap"><OpenButton node={p.current?.node} /></td>
-                    <td className="px-2.5 py-2.5 min-w-[170px] max-w-[210px]">
+                    <td className="px-2.5 py-2.5 min-w-[150px] max-w-[190px]">
                       <div className="text-white/90 break-words">{p.primaryContactName || "—"}</div>
                       {p.primaryContactRole && <div className="text-[11px] text-white/45 break-words">{p.primaryContactRole}</div>}
                       <div className="flex flex-wrap gap-x-2 text-[11px]" onClick={e => e.stopPropagation()}>
@@ -488,7 +487,7 @@ export function PartnersView() {
                     </td>
                     <td className="px-2.5 py-2.5 whitespace-nowrap tabular-nums text-white">{p.money.instalments ? fmtMoneyCents(p.money.paidCents) : "—"}</td>
                     <td className="px-2.5 py-2.5 whitespace-nowrap"><BalanceCell m={p.money} /></td>
-                    <td className="px-2.5 py-2.5 min-w-[150px]"><StatusPill status={p.status} /><div className="mt-1.5"><FlagList flags={p.flags.filter(f => f.severity !== "grey" && f.kind !== "payment_overdue")} max={1} /></div></td>
+                    <td className="px-2.5 py-2.5 min-w-[130px] max-w-[170px]"><StatusPill status={p.status} /><div className="mt-1.5"><FlagList flags={p.flags.filter(f => f.severity !== "grey" && f.kind !== "payment_overdue")} max={1} /></div></td>
                   </tr>
                 ))}
               </tbody>
