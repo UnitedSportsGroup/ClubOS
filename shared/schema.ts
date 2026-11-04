@@ -499,6 +499,13 @@ export const registrations = pgTable("registrations", {
   // 'term' | 'year'. The full-year plan earns the policy's 5% training-fee
   // discount and is only offered on core academy programmes.
   academyPaymentPlan: text("academy_payment_plan"),
+  // Bank direct debit state (2026-11-04). A debit clears in 2–3 working days, so a
+  // registration can be "clearing" or "failed" while still pending. Nullable, no
+  // default: NULL = nothing to say. See shared/academy-payment-plan.ts.
+  paymentMethodType: text("payment_method_type"),
+  paymentProcessingAt: timestamp("payment_processing_at", { withTimezone: true }),
+  paymentFailedAt: timestamp("payment_failed_at", { withTimezone: true }),
+  paymentFailureReason: text("payment_failure_reason"),
   seasonYear: integer("season_year"),
   /** WHICH TERM this registration is for.
    *

@@ -1,3 +1,4 @@
+import { bankDebitAllowed, BANK_DEBIT_METHOD_TYPES } from "@shared/academy-payment-plan";
 import { removeRegistration, restoreRegistration, removalHistory, RemovalError } from "./registration-removal";
 import { cleanTemplate, openLinkProblems, isPublished, brandKeyOf, slugOf, ESIGN_BRANDS, ESIGN_BRAND_LABELS, ESIGN_BRAND_FOR_ORG_SLUG } from "@shared/esign-template";
 import { draftEsignTemplate } from "./esign-template-ai";
@@ -3646,7 +3647,12 @@ export async function registerRoutes(
         receipt_email: email,
         ...(parentCustomer ? { customer: parentCustomer.customerId } : {}),
         description: `${program.name} — ${option.name} (${plan === "year" ? `${seasonYear} full year` : "one term"})`,
-        automatic_payment_methods: { enabled: true },
+        // NZ bank direct debit is offered ONLY where `bankDebitAllowed` says so
+        // (Pre-Academy, pay the term in full — Daniel, 4 Nov 2026). The account's
+        // default configuration has it OFF, so every other checkout stays as it was.
+        ...(bankDebitAllowed({ programSlug: program.slug, academyPlan: plan })
+          ? { payment_method_types: [...BANK_DEBIT_METHOD_TYPES] }
+          : { automatic_payment_methods: { enabled: true } }),
         // Deliberately no child name here: this metadata rides into Stripe and,
         // via the Purchase event, toward Meta. The parent is the tracked person.
         metadata: {
@@ -20015,6 +20021,10 @@ export async function registerRoutes(
           }
         } else if (registrationId) {
           await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
+          if (paymentIntent.metadata?.registrationType === "academy") {
+            const { stampPaidMethod } = await import("./bank-debit");
+            await stampPaidMethod(registrationId, paymentIntent);
+          }
         }
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
         if (facilityGroupId) {
@@ -20025,12 +20035,26 @@ export async function registerRoutes(
             console.error("[Stripe Webhook] Facility booking confirm failed:", e);
           }
         }
+      } else if (event.type === "payment_intent.processing") {
+        // NZ bank direct debit submitted (the browser's confirm call usually got
+        // here first; this covers a parent who closed the tab). Idempotent.
+        const paymentIntent = event.data.object as any;
+        const registrationId = parseInt(paymentIntent.metadata?.registrationId);
+        if (paymentIntent.metadata?.registrationType === "academy" && registrationId) {
+          const { markBankDebitClearing } = await import("./bank-debit");
+          await markBankDebitClearing(registrationId, paymentIntent);
+        }
       } else if (event.type === "payment_intent.payment_failed") {
         const paymentIntent = event.data.object as any;
         const regType = paymentIntent.metadata?.registrationType;
         const registrationId = parseInt(paymentIntent.metadata?.registrationId);
         if (regType === "league_balance" && registrationId) {
           await handleLeagueBalanceFailed(registrationId);
+        } else if (regType === "academy" && registrationId) {
+          // A bank debit that was clearing has failed. Only acts on one that WAS
+          // clearing (a declined card is retried on the spot and needs no email).
+          const { markBankDebitFailed } = await import("./bank-debit");
+          await markBankDebitFailed(registrationId, paymentIntent);
         } else if (regType === "league_share") {
           // Split Pay: a member's share charge declined → flag them failed so the
           // hub prompts a retry (or the captain resolves). Never re-splits others.
@@ -20244,6 +20268,18 @@ export async function registerRoutes(
           }
           await handlePaymentSuccess(reg.id, pi.id, pi.metadata as any);
           return res.json({ ok: true });
+        }
+        // NZ bank direct debit: submitted, clears in 2–3 working days. NOT a
+        // registration yet (unpaid is not registered) — record it and tell the
+        // family; the payment_intent.succeeded webhook confirms it later.
+        if (pi.status === "processing" && pi.metadata?.registrationType === "academy") {
+          const metaRegistrationId = pi.metadata?.registrationId;
+          if (metaRegistrationId && parseInt(metaRegistrationId) !== reg.id) {
+            return res.status(403).json({ message: "Registration mismatch" });
+          }
+          const { markBankDebitClearing } = await import("./bank-debit");
+          await markBankDebitClearing(reg.id, pi);
+          return res.json({ ok: true, processing: true });
         }
         return res.status(400).json({ message: "Payment not completed" });
       }
