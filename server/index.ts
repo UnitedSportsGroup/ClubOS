@@ -482,6 +482,10 @@ app.use(attributionCookieMiddleware);
   setInterval(sweepAbandonedFacilityBookings, 5 * 60 * 1000);
   setTimeout(sweepAbandonedFacilityBookings, 30 * 1000);
 
+  // NZ Post eShip: push paid delivery orders, read tracking back. Off with no keys.
+  const { startEshipCron } = await import("./eship");
+  startEshipCron();
+
   // United Prints: 24h upload-reminder cron.
   const { startPrintCron } = await import("./print-cron");
   startPrintCron();

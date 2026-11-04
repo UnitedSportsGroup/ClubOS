@@ -131,6 +131,14 @@ function shopBrand(brandKey: string): ShopBrand | undefined {
   return SHOP_BRANDS[String(brandKey || "").toLowerCase()];
 }
 
+/** For server/eship.ts — the brand registry stays private to this file. */
+export function shopBrandForOrg(orgId: number): { brandKey: string; storeName: string } | undefined {
+  const b = shopBrandByOrgId(orgId);
+  return b ? { brandKey: b.brandKey, storeName: b.storeName } : undefined;
+}
+export function shopBrandKeys(): string[] { return Object.keys(SHOP_BRANDS); }
+export function shopBrandOrgId(brandKey: string): number | undefined { return shopBrand(brandKey)?.orgId; }
+
 function shopBrandByOrgId(orgId: number): ShopBrand | undefined {
   return Object.values(SHOP_BRANDS).find((b) => b.orgId === orgId);
 }
@@ -2794,6 +2802,14 @@ export function registerShopOrdersHubRoutes(app: Express) {
             : null,
           totalCents: o.totalCents,
           notes: o.notes,
+          eship: {
+            orderId: o.eshipOrderId, pushedAt: o.eshipPushedAt, error: o.eshipError,
+            international: !!o.addressLine1 && /australia|international|world|overseas/i.test(o.shippingLabel || ""),
+          },
+          tracking: o.trackingNumber
+            ? { number: o.trackingNumber, carrier: o.trackingCarrier, status: o.trackingStatus, updatedAt: o.trackingUpdatedAt,
+                url: `https://www.nzpost.co.nz/tools/tracking/item/${encodeURIComponent(o.trackingNumber)}` }
+            : null,
           items: items.filter((i) => i.orderId === o.id).map((i) => ({
             id: i.id, title: i.title, colourName: i.colourName, size: i.size, qty: i.qty,
             imageUrl: absUrl(shopBrandByOrgId(o.organizationId)!, i.imageUrl),

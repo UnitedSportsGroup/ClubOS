@@ -27595,6 +27595,7 @@ export async function registerRoutes(
   // server/shop-routes.ts; the only other touchpoint is the webhook branch above.
   registerShopRoutes(app);
   registerShopOrdersHubRoutes(app);
+  (await import("./eship")).registerEshipRoutes(app);
 
   // PayShare's inbound hooks + the participant pay bridge. Settlement is
   // injected rather than imported so payshare-routes.ts never has to reach back
