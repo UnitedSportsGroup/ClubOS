@@ -32,7 +32,7 @@ const sharedFaq = [
   { q: "Who is coaching?", a: "South Island United coaches run every session, with professional players from the OFC Pro League joining the camp. The player line-up will be announced in the coming weeks." },
   { q: "Does my child need to play for a club?", a: "No. The camp is open to every young player in the Queenstown Lakes area and beyond, whichever club they play for, or if they don't play for one at all." },
   { q: "What should they bring?", a: "Boots (and trainers in case the ground is hard), shin pads, a full water bottle, a snack, sunscreen and a hat. We provide all the footballs and equipment." },
-  { q: "Is a shirt included?", a: "Yes. Every camper gets an official South Island United shirt." },
+  { q: "Is a shirt included?", a: "Yes. Every camper gets an official South Island United shirt. You choose your child's size when you book (NZ sizing — kids sizes go by age and height, then adult XS–4XL)." },
   { q: "What if it rains?", a: "The camp runs rain or shine. If the weather makes the park unsafe we will contact you before the session." },
   { q: "Who are we in partnership with?", a: "The camp is run with Queenstown AFC at their home ground, Jack Reid Park in Arrowtown." },
 ];
@@ -50,6 +50,8 @@ const camps = [
     descriptionShort: "South Island United holiday camp for 9–13 year olds, 21–23 Dec 2026, 9am – 1pm, Jack Reid Park, Arrowtown. $75 a day.",
     pc: {
       sessions: { MORNING: { label: "Camp day", time: "9am – 1pm" } },
+      // Every camper gets a shirt, so checkout asks each child's size (shared/camp-shirt-size.ts).
+      shirtSize: { ask: true, note: "Every camper gets an official South Island United shirt." },
       trustBadge: "In partnership with Queenstown AFC",
       infoAge: "9–13 years",
       infoDatesWeek1: "Mon 21 – Wed 23 Dec 2026",
@@ -110,6 +112,8 @@ const camps = [
     descriptionShort: "South Island United holiday camp for 14–17 year olds, 21–23 Dec 2026, 3pm – 5pm, Jack Reid Park, Arrowtown. $50 a day or $150 for all three.",
     pc: {
       sessions: { AFTERNOON: { label: "Afternoon session", time: "3pm – 5pm" } },
+      // Every camper gets a shirt, so checkout asks each child's size (shared/camp-shirt-size.ts).
+      shirtSize: { ask: true, note: "Every camper gets an official South Island United shirt." },
       trustBadge: "In partnership with Queenstown AFC",
       infoAge: "14–17 years",
       infoDatesWeek1: "Mon 21 – Wed 23 Dec 2026",

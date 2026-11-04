@@ -214,6 +214,9 @@ export type ProgramPlayer = {
   allergies: string | null;
   epiPen: boolean;
   medicalNotes: string | null;
+  /** From the player's kit sizes (children.shirt_size / contacts.shirt_size).
+   *  Null = nobody told us — never a guess. A camp that gives out a shirt asks it. */
+  shirtSize: string | null;
   parent: { id: number; firstName: string; lastName: string; email: string | null; phone: string | null } | null;
   status: string;                  // best status across their registrations
   registrationIds: number[];
@@ -2103,6 +2106,7 @@ export class DatabaseStorage implements IStorage {
           gender: r.gender,
           allergies: r.allergies,
           epiPen: false,
+          shirtSize: null,
           medicalNotes: r.medicalNotes,
           parent: r.parentId
             ? {
@@ -2220,6 +2224,23 @@ export class DatabaseStorage implements IStorage {
       for (const p of players) {
         if (p.personType === "contact") p.team = teamByContact.get(p.personId) ?? null;
       }
+    }
+
+    // Shirt sizes in one pass per person table (raw columns, shared/kit-sizes.ts).
+    for (const p of players) if ((p as any).shirtSize === undefined) (p as any).shirtSize = null;
+    {
+      const kidIds = players.filter(p => p.personType === "child").map(p => p.personId);
+      const conIds = players.filter(p => p.personType === "contact").map(p => p.personId);
+      const sizeBy = new Map<string, string>();
+      if (kidIds.length) {
+        const r: any = await db.execute(sql`SELECT id, shirt_size FROM children WHERE id IN (${sql.join(kidIds.map(i => sql`${i}`), sql`, `)}) AND shirt_size IS NOT NULL`);
+        for (const row of (r.rows ?? r)) sizeBy.set(`child-${row.id}`, row.shirt_size);
+      }
+      if (conIds.length) {
+        const r: any = await db.execute(sql`SELECT id, shirt_size FROM contacts WHERE id IN (${sql.join(conIds.map(i => sql`${i}`), sql`, `)}) AND shirt_size IS NOT NULL`);
+        for (const row of (r.rows ?? r)) sizeBy.set(`contact-${row.id}`, row.shirt_size);
+      }
+      for (const p of players) p.shirtSize = sizeBy.get(`${p.personType}-${p.personId}`) ?? null;
     }
 
     // child_medical in one pass — allergies and EpiPen matter most on a roll.

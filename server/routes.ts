@@ -1,4 +1,5 @@
 import { removeRegistration, restoreRegistration, removalHistory, RemovalError } from "./registration-removal";
+import { campShirtSize, shirtSizeError, campPageContentOf } from "@shared/camp-shirt-size";
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
@@ -19440,6 +19441,17 @@ export async function registerRoutes(
       });
       if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
 
+      // A camp that hands every child a shirt asks each child's size — checked
+      // here, before a contact, a child or a PaymentIntent is written.
+      const shirtSetting = campShirtSize(campPageContentOf((camp as any).pageContentJson));
+      if (shirtSetting.ask) {
+        for (const c of (Array.isArray(childrenData) ? childrenData : [])) {
+          if (!String(c?.firstName ?? "").trim()) continue;
+          const err = shirtSizeError(c?.shirtSize);
+          if (err) return res.status(400).json({ code: "shirt_size_required", message: err });
+        }
+      }
+
       let parentContact = await storage.findContactByEmail(parent.email);
       if (!parentContact) {
         parentContact = await storage.createContact({
@@ -19466,6 +19478,9 @@ export async function registerRoutes(
           dateOfBirth: childData.dateOfBirth || null,
           gender: childData.gender || null,
         });
+        if (shirtSetting.ask && childData.shirtSize) {
+          await db.execute(sql`UPDATE children SET shirt_size = ${String(childData.shirtSize).trim()}, kit_sizes_updated_at = now() WHERE id = ${child.id}`);
+        }
         if (childData.allergies || childData.epiPen || childData.medicalNotes) {
           await storage.upsertChildMedical(child.id, {
             allergies: childData.allergies || null,
