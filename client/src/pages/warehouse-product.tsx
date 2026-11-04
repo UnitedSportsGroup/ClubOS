@@ -556,7 +556,8 @@ function NewProductView() {
   const shop = meta?.shops.find((s) => s.key === brand);
   const types = shop?.types.length ? shop.types : ["apparel", "accessory"];
   useEffect(() => { if (meta && !vqLoc && meta.locations[0]) setVqLoc(String(meta.locations[0].id)); }, [meta, vqLoc]);
-  useEffect(() => { if (shop && !types.includes(type)) setType(types[0]); }, [brand, meta]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Like Shopify, the category starts unchosen; a vendor change clears one the new shop doesn't sell.
+  useEffect(() => { if (shop && type && !types.includes(type)) setType(""); }, [brand, meta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const colours = options.find((o) => o.kind === "Color")?.values.filter((v) => v.trim()) ?? [];
   const sizes = options.find((o) => o.kind === "Size")?.values.filter((v) => v.trim()) ?? [];
@@ -604,7 +605,7 @@ function NewProductView() {
   });
 
   const badMoney = [price, compareAt].some((s) => Number.isNaN(toCents(s) as number));
-  const canSave = !!brand && !!title.trim() && !badMoney && options.every((o) => o.done || o.values.some((v) => v.trim()));
+  const canSave = !!brand && !!title.trim() && !!type && !badMoney && options.every((o) => o.done || o.values.some((v) => v.trim()));
   const back = () => setLocation(`/admin/warehouse/products${brand ? `?shop=${brand}` : ""}`);
   const setOpt = (i: number, next: Partial<OptionDraft>) => setOptions((prev) => prev.map((o, j) => (j === i ? { ...o, ...next } : o)));
   const remaining: OptionKind[] = (["Color", "Size"] as OptionKind[]).filter((k) => !options.some((o) => o.kind === k));
@@ -714,7 +715,7 @@ function NewProductView() {
                             onChange={(e) => setOpt(i, { values: o.values.map((x, k) => (k === j ? e.target.value : x)) })}
                             className="bg-white/[0.02] border-white/10 text-white"
                           />
-                          <button onClick={() => setOpt(i, { values: o.values.filter((_, k) => k !== j) })} className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-red-400" aria-label={`Remove ${val || "value"}`}><Trash2 className="w-4 h-4" /></button>
+                          <button tabIndex={-1} onClick={() => setOpt(i, { values: o.values.filter((_, k) => k !== j) })} className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-red-400" aria-label={`Remove ${val || "value"}`}><Trash2 className="w-4 h-4" /></button>
                         </div>
                       ))}
                       <div className="flex items-center gap-2">
@@ -798,7 +799,7 @@ function NewProductView() {
             </div>
           </Card>
           {!canSave && dirty && (
-            <p className="text-xs text-white/40 px-1">{!brand ? "Choose a Vendor (which shop sells it) to save." : !title.trim() ? "Give it a title to save." : badMoney ? "Check the price — numbers only." : "Finish the option you're editing (press Done)."}</p>
+            <p className="text-xs text-white/40 px-1">{!brand ? "Choose a Vendor (which shop sells it) to save." : !title.trim() ? "Give it a title to save." : !type ? "Choose a category to save." : badMoney ? "Check the price — numbers only." : "Finish the option you're editing (press Done)."}</p>
           )}
         </div>
       </div>
