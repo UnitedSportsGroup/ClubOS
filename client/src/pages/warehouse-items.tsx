@@ -522,8 +522,8 @@ interface ProductGroup {
 const SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL", "5XL"];
 function sizeRank(size: string | null): [number, number, string] {
   const s = (size ?? "").trim().toUpperCase();
-  const n = parseFloat(s);
-  if (!Number.isNaN(n)) return [0, n, s];
+  // "6", "10 (140)" are kids' ages → numeric; "2XL" is a letter size, not 2.
+  if (/^\d+(\.\d+)?(\s|\(|$)/.test(s)) return [0, parseFloat(s), s];
   const i = SIZE_ORDER.indexOf(s.replace(/^ADULT\s+|^YOUTH\s+/, ""));
   if (i >= 0) return [1, i, s];
   return [2, 0, s];
@@ -589,12 +589,16 @@ export default function WarehouseItems() {
   const activeShop = shops.some((s) => s.key === shop) ? shop : (shops[0]?.key ?? "");
   const needle = q.trim().toLowerCase();
 
-  const shopRows = useMemo(() => rows.filter((r) => r.shop === activeShop && (
-    !needle ||
-    r.productTitle.toLowerCase().includes(needle) ||
-    r.sku.toLowerCase().includes(needle) ||
-    r.name.toLowerCase().includes(needle)
-  )), [rows, activeShop, needle]);
+  // Every word must appear somewhere ("home shirt kids" finds "2026 Home Shirt (Kids)").
+  const shopRows = useMemo(() => {
+    const words = needle ? needle.split(/\s+/) : [];
+    return rows.filter((r) => {
+      if (r.shop !== activeShop) return false;
+      if (!words.length) return true;
+      const hay = `${r.productTitle} ${r.name} ${r.sku} ${r.colour ?? ""} ${r.size ?? ""}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }, [rows, activeShop, needle]);
 
   // Category → products → variants.
   const categories = useMemo(() => {
@@ -766,7 +770,7 @@ export default function WarehouseItems() {
                               </span>
                               <div className="min-w-0">
                                 <div className="text-sm text-white/80 truncate">
-                                  {[it.colour, it.size].filter(Boolean).join(" · ") || it.name}
+                                  {[it.colour && !/^default$/i.test(it.colour) ? it.colour : null, it.size].filter(Boolean).join(" · ") || it.name}
                                   {!it.active && <span className="text-white/30"> · inactive</span>}
                                 </div>
                                 <div className="text-[11px] text-white/35 font-mono truncate">{it.sku}</div>

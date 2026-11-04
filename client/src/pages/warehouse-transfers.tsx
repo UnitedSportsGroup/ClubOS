@@ -176,7 +176,11 @@ function CreateTransferView() {
     if (q.length < 2) return [];
     const taken = new Set(lines.map((l) => l.item.id));
     return catalogue
-      .filter((r) => !taken.has(r.id) && `${r.productTitle} ${r.colour ?? ""} ${r.size ?? ""} ${r.sku} ${r.name}`.toLowerCase().includes(q))
+      .filter((r) => {
+        if (taken.has(r.id)) return false;
+        const hay = `${r.productTitle} ${r.colour ?? ""} ${r.size ?? ""} ${r.sku} ${r.name}`.toLowerCase();
+        return q.split(/\s+/).every((w) => hay.includes(w));
+      })
       .slice(0, 12);
   }, [search, catalogue, lines]);
 
