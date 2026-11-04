@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Search, Plus, X, Tag, MapPin, History, Printer, Trash2, Loader2, ScanLine, ChevronDown, ChevronRight,
+  Search, Plus, X, Tag, MapPin, History, Printer, Trash2, Loader2, ScanLine, ChevronDown, ChevronRight, Package,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BarcodeEditor, BarcodeDraftEditor, type DraftBarcode } from "@/components/warehouse-barcodes";
@@ -508,10 +508,34 @@ interface CatalogueRow {
   locationCode: string | null;
   onHand: number;
   active: boolean;
+  productImage: string | null;
+  colourImage: string | null;
+}
+
+/** The shop's own photo, drawn small. A missing or broken picture shows a
+ *  plain tile rather than the browser's broken-image icon. */
+function Thumb({ src, alt, size = 44 }: { src: string | null; alt: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const box = { width: size, height: size };
+  if (!src || failed) {
+    return <div style={box} className="rounded-lg bg-white/[0.04] border border-white/5 flex-shrink-0 flex items-center justify-center"><Package className="w-4 h-4 text-white/20" /></div>;
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={box}
+      className="rounded-lg bg-white border border-white/5 object-contain flex-shrink-0"
+    />
+  );
 }
 
 interface ProductGroup {
   key: string;
+  image: string | null;
   title: string;
   draft: boolean;
   sort: number | null;
@@ -608,7 +632,7 @@ export default function WarehouseItems() {
       let prods = byCat.get(r.category);
       if (!prods) { prods = new Map(); byCat.set(r.category, prods); }
       let g = prods.get(key);
-      if (!g) { g = { key, title: r.productTitle, draft: r.productDraft, sort: r.productSort, items: [], onHand: 0 }; prods.set(key, g); }
+      if (!g) { g = { key, image: r.productImage ?? r.colourImage, title: r.productTitle, draft: r.productDraft, sort: r.productSort, items: [], onHand: 0 }; prods.set(key, g); }
       g.items.push(r);
       g.onHand += r.onHand;
     }
@@ -743,6 +767,7 @@ export default function WarehouseItems() {
                         aria-expanded={single ? undefined : isOpen}
                       >
                         {!single && (isOpen ? <ChevronDown className="w-4 h-4 text-white/40 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-white/40 flex-shrink-0" />)}
+                        <Thumb src={g.image} alt={g.title} />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm text-white">
                             {g.title}
@@ -762,12 +787,13 @@ export default function WarehouseItems() {
                           {g.items.map((it) => (
                             <div
                               key={it.id}
-                              className="grid grid-cols-[auto_1fr_auto_auto] gap-3 pl-11 pr-4 py-2 items-center border-t border-white/[0.03] first:border-t-0 hover:bg-white/[0.03] cursor-pointer"
+                              className="grid grid-cols-[auto_auto_1fr_auto_auto] gap-3 pl-11 pr-4 py-2 items-center border-t border-white/[0.03] first:border-t-0 hover:bg-white/[0.03] cursor-pointer"
                               onClick={() => setDetailId(it.id)}
                             >
                               <span onClick={(e) => e.stopPropagation()}>
                                 <Checkbox checked={selected.has(it.id)} onCheckedChange={() => setSelected((prev) => toggleId(prev, it.id))} />
                               </span>
+                              <Thumb src={it.colourImage ?? g.image} alt={it.name} size={32} />
                               <div className="min-w-0">
                                 <div className="text-sm text-white/80 truncate">
                                   {[it.colour && !/^default$/i.test(it.colour) ? it.colour : null, it.size].filter(Boolean).join(" · ") || it.name}

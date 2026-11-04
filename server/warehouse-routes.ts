@@ -856,6 +856,10 @@ export function registerWarehouseRoutes(app: Express) {
                p.id AS product_id, p.title AS product_title, p.type AS product_type,
                p.status AS product_status, p.sort_order AS product_sort,
                c.name AS colour, v.size, l.code AS location_code,
+               (SELECT im.url FROM shop_product_images im WHERE im.product_id = p.id
+                 ORDER BY (im.colour_id IS NOT NULL), im.colour_id, im.sort_order, im.id LIMIT 1) AS product_image,
+               (SELECT im.url FROM shop_product_images im WHERE im.colour_id = c.id
+                 ORDER BY im.sort_order, im.id LIMIT 1) AS colour_image,
                COALESCE((SELECT SUM(s.on_hand) FROM wh_stock s
                          JOIN wh_locations sl ON sl.id = s.location_id
                          WHERE s.item_id = w.id AND sl.kind <> 'virtual'), 0) AS on_hand
@@ -884,6 +888,8 @@ export function registerWarehouseRoutes(app: Express) {
           size: (r.size as string | null) ?? null,
           locationCode: (r.location_code as string | null) ?? null,
           onHand: Number(r.on_hand),
+          productImage: (r.product_image as string | null) ?? null,
+          colourImage: (r.colour_image as string | null) ?? null,
           active: r.active as boolean,
         };
       }));
