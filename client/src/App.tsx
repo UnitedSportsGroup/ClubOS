@@ -39,6 +39,7 @@ const AdminMailerHistory = lazy(() => import("@/pages/admin-mailer-history"));
 const AdminMailerAutomations = lazy(() => import("@/pages/admin-mailer-automations"));
 const AdminMailerAutomationDetail = lazy(() => import("@/pages/admin-mailer-automations").then((m) => ({ default: m.AdminMailerAutomationDetail })));
 const AdminXeroPayments = lazy(() => import("@/pages/admin-xero-payments"));
+const AdminPaymentsDue = lazy(() => import("@/pages/admin-payments-due"));
 const Predictor = lazy(() => import("@/pages/predictor"));
 const FootballInstitute = lazy(() => import("@/pages/football-institute"));
 const AdminSettings = lazy(() => import("@/pages/admin-settings"));
@@ -693,6 +694,7 @@ function AdminRouter() {
       <Route path="/admin/sites" component={AdminSites} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
       <Route path="/admin/xero-payments" component={AdminXeroPayments} />
+      <Route path="/admin/payments-due" component={AdminPaymentsDue} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />
       {/* One person page for both people tables, keyed `contact-{id}` /

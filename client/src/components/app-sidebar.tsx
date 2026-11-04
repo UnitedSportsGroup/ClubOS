@@ -84,6 +84,7 @@ import {
   Images,
   Warehouse,
   Receipt,
+  AlarmClock,
   ReceiptText,
   Car,
   Boxes,
@@ -225,6 +226,7 @@ const campsNav = [
     tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck,
     // Bank-transfer families: paid Xero invoices → registrations, and Olga's queue.
     children: [
+      { tab: "registrations", title: "Payments due", url: "/admin/payments-due", icon: AlarmClock },
       { tab: "registrations", title: "Xero payments", url: "/admin/xero-payments", icon: Receipt },
     ],
   },

@@ -308,6 +308,10 @@ app.use(attributionCookieMiddleware);
   const { registerXeroRegistrationRoutes } = await import("./xero-registration-routes");
   registerXeroRegistrationRoutes(app);
 
+  // Payments due — every fee a CUFC family still owes (Xero, live), by programme/age/family/term.
+  const { registerPaymentsDueRoutes } = await import("./payments-due-routes");
+  registerPaymentsDueRoutes(app);
+
   // Fines — both directions (the club owes / owed to the club), with the notice
   // and the payment confirmation stored through the Club Drive storage adapter
   // and served by short-lived signed URL, never a public link.

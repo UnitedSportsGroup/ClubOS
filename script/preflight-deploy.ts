@@ -193,6 +193,8 @@ const CANARIES: Canary[] = [
   // cancel & refund. A deploy without it also brings back the sweep that released
   // paid Player Pay bookings — the same tree carries both.
   { feature: "venue player pay",     path: "/api/admin/venue/splits",                   expect: [401] },
+  // Payments due (2026-11-04): every fee a CUFC family still owes, from Xero, by programme/age/family/term.
+  { feature: "payments due",         path: "/api/admin/payments-due",                   expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree
@@ -212,6 +214,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/content-studio/usage":              { file: "server/studio.ts",              needle: "/api/admin/content-studio/usage" },
   "/api/admin/rambo/threads":             { file: "server/rambo-routes.ts",        needle: "/api/admin/rambo/threads" },
   "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
+  "/api/admin/payments-due":              { file: "server/payments-due-routes.ts", needle: "/api/admin/payments-due" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },
   "/api/admin/chat/bootstrap":            { file: "server/staff-chat-routes.ts",   needle: "/api/admin/chat/bootstrap" },
