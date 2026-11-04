@@ -3,7 +3,8 @@
 // available across workspaces (staff contracts, sponsors, vendors, any doc).
 // Internal admin — session + "esign" tab permission. The signer side is the
 // public /sign/:token page (no login).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { TemplatesPanel } from "@/components/esign/template-builder";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -80,6 +81,23 @@ export default function ESign() {
   const [newOpen, setNewOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [prepareId, setPrepareId] = useState<number | null>(null);
+  // View + open template live in the URL (#templates, #templates/12) so Back
+  // and a shared link land where you were.
+  const readHash = () => {
+    const m = /^#templates(?:\/(\d+))?$/.exec(window.location.hash);
+    return { view: m ? "templates" as const : "documents" as const, templateId: m?.[1] ? Number(m[1]) : null };
+  };
+  const [route, setRoute] = useState(readHash);
+  useEffect(() => {
+    const on = () => setRoute(readHash());
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const go = (hash: string) => {
+    if (!hash) history.pushState(null, "", window.location.pathname + window.location.search);
+    else if (window.location.hash !== hash) window.location.hash = hash;
+    setRoute(readHash());
+  };
 
   const { data: docs = [], isLoading } = useQuery<Doc[]>({ queryKey: ["/api/admin/esign"] });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/esign"] });
@@ -104,10 +122,24 @@ export default function ESign() {
             Send documents for electronic signature — staff contracts, sponsors, vendors. Replaces DocuSign.
           </p>
         </div>
-        <Button onClick={() => setNewOpen(true)} className="gap-1.5">
-          <Plus className="w-4 h-4" /> New document
-        </Button>
+        {route.view === "documents" && (
+          <Button onClick={() => setNewOpen(true)} className="gap-1.5">
+            <Plus className="w-4 h-4" /> New document
+          </Button>
+        )}
       </div>
+
+      <div className="flex gap-1 border-b border-white/10" role="tablist">
+        {([["documents", "Documents", "#"], ["templates", "Templates", "#templates"]] as const).map(([k, label, hash]) => (
+          <button key={k} role="tab" aria-selected={route.view === k} onClick={() => go(hash === "#" ? "" : hash)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${route.view === k ? "border-amber-400 text-white" : "border-transparent text-white/45 hover:text-white/75"}`}
+            data-testid={`esign-view-${k}`}>{label}</button>
+        ))}
+      </div>
+
+      {route.view === "templates" ? (
+        <TemplatesPanel openId={route.templateId} onOpen={(id) => go(id == null ? "#templates" : `#templates/${id}`)} />
+      ) : (<>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -156,6 +188,8 @@ export default function ESign() {
           })}
         </div>
       )}
+
+      </>)}
 
       {newOpen && <NewDocDialog onClose={() => setNewOpen(false)} onDone={(id) => { setNewOpen(false); invalidate(); setPrepareId(id); }} onDoneNative={(id) => { setNewOpen(false); invalidate(); setDetailId(id); }} onErr={onErr} />}
       {detailId != null && <DetailDialog id={detailId} onClose={() => setDetailId(null)} onChanged={invalidate} onErr={onErr} />}

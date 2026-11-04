@@ -1,4 +1,8 @@
 import { removeRegistration, restoreRegistration, removalHistory, RemovalError } from "./registration-removal";
+import { cleanTemplate, openLinkProblems, isPublished, brandKeyOf, slugOf, ESIGN_BRANDS, ESIGN_BRAND_LABELS, ESIGN_BRAND_FOR_ORG_SLUG } from "@shared/esign-template";
+import { draftEsignTemplate } from "./esign-template-ai";
+import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
+import { campShirtSize, shirtSizeError, campPageContentOf } from "@shared/camp-shirt-size";
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
@@ -18399,7 +18403,280 @@ export async function registerRoutes(
     try {
       const orgId = await esignOrgId(req);
       const rows = await db.select().from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.active, true))).orderBy(esignTemplates.name);
-      res.json(rows.map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, variables: t.variables, settings: t.settings, brand: t.brand })));
+      res.json(rows.filter((t) => isPublished(t.settings)).map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, variables: t.variables, settings: t.settings, brand: t.brand })));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Template builder (2026-11-04) ─────────────────────────────────────────
+  // Staff write their own agreements — words, the details a signer fills in,
+  // the brand — and Rambo can draft one. ONE decider: shared/esign-template.ts.
+  // 🔴 A template is a draft until published; only published ones are sent or
+  // opened by link. 🔴 The open link is never set from the request body — only
+  // by its own route, which takes the club's signature (we sign first).
+  const esignRows = (r: any): any[] => (Array.isArray(r) ? r : r?.rows ?? []);
+  async function esignTplForOrg(id: number, orgId: number) {
+    const [t] = await db.select().from(esignTemplates).where(and(eq(esignTemplates.id, id), eq(esignTemplates.organizationId, orgId)));
+    return t ?? null;
+  }
+  async function esignOrgSlug(orgId: number): Promise<string> {
+    const [o] = await db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, orgId));
+    return o?.slug ?? "";
+  }
+  function esignOpenLinkUrl(token: string) { return `${appBaseUrl()}/agree/${token}`; }
+  function esignTplOut(t: typeof esignTemplates.$inferSelect) {
+    const st = (t.settings ?? {}) as Record<string, any>;
+    const ol = st.openLink as any;
+    return {
+      id: t.id, slug: t.slug, name: t.name, description: t.description,
+      brand: t.brand, brandKey: brandKeyOf(t.brand as any), content: t.content, variables: t.variables, form: t.form,
+      settings: { ...st, openLink: undefined },
+      published: isPublished(st),
+      openLink: ol?.token ? { enabled: ol.enabled === true, url: esignOpenLinkUrl(ol.token), clubSignedBy: ol.clubSignature?.name ?? null, clubSignedAt: ol.clubSignature?.adoptedAt ?? null } : null,
+      createdAt: t.createdAt,
+    };
+  }
+  async function esignUniqueSlug(orgId: number, name: string, exceptId?: number) {
+    const base = slugOf(name);
+    for (let i = 0; i < 50; i++) {
+      const slug = i ? `${base}-${i + 1}` : base;
+      const [hit] = await db.select({ id: esignTemplates.id }).from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.slug, slug)));
+      if (!hit || hit.id === exceptId) return slug;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
+  // Every template in this workspace — drafts too — with how often it has been used.
+  app.get("/api/admin/esign/templates/library", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const rows = await db.select().from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.active, true))).orderBy(esignTemplates.name);
+      const counts = esignRows(await db.execute(sql`SELECT template_id, count(*)::int AS sent, count(*) FILTER (WHERE status = 'completed')::int AS signed FROM esign_documents WHERE organization_id = ${orgId} AND template_id IS NOT NULL GROUP BY template_id`));
+      const by = new Map(counts.map((c: any) => [Number(c.template_id), c]));
+      const slug = await esignOrgSlug(orgId);
+      res.json({
+        defaultBrandKey: ESIGN_BRAND_FOR_ORG_SLUG[slug] ?? "usg",
+        brands: Object.keys(ESIGN_BRANDS).map((k) => ({ key: k, label: ESIGN_BRAND_LABELS[k] })),
+        templates: rows.map((t) => ({ ...esignTplOut(t), used: Number((by.get(t.id) as any)?.sent ?? 0), signed: Number((by.get(t.id) as any)?.signed ?? 0) })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/esign/templates/:id/full", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), await esignOrgId(req));
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const { problems } = cleanTemplate({ ...t, settings: t.settings }, { brandKey: brandKeyOf(t.brand as any) });
+      res.json({ ...esignTplOut(t), problems });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/esign/templates", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const b = req.body ?? {};
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const { template } = cleanTemplate({ ...b, name: b.name || "Untitled agreement", settings: { ...(b.settings ?? {}), published: false, openLink: null } }, { brandKey: b.brandKey });
+      template.settings.createdByName = [me?.firstName, me?.lastName].filter(Boolean).join(" ") || me?.email || null;
+      const [row] = await db.insert(esignTemplates).values({
+        organizationId: orgId, slug: await esignUniqueSlug(orgId, template.name), name: template.name, description: template.description,
+        brand: template.brand, content: template.content, variables: template.variables, form: template.form, settings: template.settings as any, active: true,
+      }).returning();
+      res.json(esignTplOut(row));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/admin/esign/templates/:id", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const b = req.body ?? {};
+      const prev = (t.settings ?? {}) as Record<string, any>;
+      const { template, problems } = cleanTemplate({ ...b, settings: { ...(b.settings ?? {}), openLink: prev.openLink ?? null, createdByName: prev.createdByName ?? null } }, { brandKey: b.brandKey });
+      if (template.settings.published && problems.length) return res.status(400).json({ message: "Fix these before publishing:", problems });
+      // Unpublishing switches the open link off — a draft must never be signable.
+      if (!template.settings.published && template.settings.openLink) template.settings.openLink = { ...template.settings.openLink, enabled: false };
+      const [row] = await db.update(esignTemplates).set({
+        name: template.name, slug: await esignUniqueSlug(orgId, template.name, t.id), description: template.description,
+        brand: template.brand, content: template.content, variables: template.variables, form: template.form, settings: template.settings as any,
+      }).where(eq(esignTemplates.id, t.id)).returning();
+      res.json({ ...esignTplOut(row), problems });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/esign/templates/:id/duplicate", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const name = `${t.name} (copy)`.slice(0, 120);
+      const [row] = await db.insert(esignTemplates).values({
+        organizationId: orgId, slug: await esignUniqueSlug(orgId, name), name, description: t.description,
+        brand: t.brand, content: t.content, variables: t.variables, form: t.form,
+        settings: { ...((t.settings ?? {}) as any), published: false, openLink: null, createdByName: [me?.firstName, me?.lastName].filter(Boolean).join(" ") || null },
+        active: true,
+      }).returning();
+      res.json(esignTplOut(row));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Archive, never delete: documents already sent keep pointing at it.
+  app.post("/api/admin/esign/templates/:id/archive", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const st = { ...((t.settings ?? {}) as any) };
+      if (st.openLink) st.openLink = { ...st.openLink, enabled: false };
+      await db.update(esignTemplates).set({ active: false, settings: st }).where(eq(esignTemplates.id, t.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // The exact PDF a signer will get, from the editor's current (unsaved) state.
+  app.post("/api/admin/esign/templates/preview", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const b = req.body ?? {};
+      const { template } = cleanTemplate(b, { brandKey: b.brandKey });
+      const values: Record<string, string> = {};
+      for (const v of template.variables) values[v.key] = v.default || `[${v.label}]`;
+      for (const f of template.form) values[f.key] = `[${f.label}]`;
+      const { renderNativePdf } = await import("./esign-native-pdf");
+      const bytes = await renderNativePdf({
+        brand: template.brand as any, settings: template.settings as any, content: template.content as any, values,
+        formSpec: template.form.map((f) => ({ key: f.key, label: f.label, type: f.type, required: f.required })) as any,
+        formData: null, refereeEmail: null,
+        parties: [
+          { role: template.settings.counterSignerRole, name: null, signatureImage: null, signedAt: null },
+          { role: template.settings.primarySignerRole, name: null, signatureImage: null, signedAt: null },
+        ] as any,
+        guardian: null, logoBytes: await esignLogoBytes(template.brand.logoUrl), envelopeId: null,
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
+      res.send(Buffer.from(bytes));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Rambo drafts (or redrafts) a template. Returns a draft; never saves or sends.
+  app.post("/api/admin/esign/templates/rambo", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const prompt = String(req.body?.prompt ?? "").trim().slice(0, 4000);
+      if (prompt.length < 8) return res.status(400).json({ message: "Tell Rambo what the agreement is for." });
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const limit = ramboDailyLimitFor((me as any)?.mailerAiDailyLimit);
+      const used = await ramboUsedToday(req.session.userId!);
+      if (used >= limit) return res.status(429).json({ message: limit === 0 ? "Rambo is switched off for your account. A super admin can turn it on in Team." : `You've used today's ${limit} Rambo prompts. It resets at midnight NZ time.` });
+      const slug = await esignOrgSlug(orgId);
+      const brandKey = ESIGN_BRANDS[req.body?.brandKey] ? req.body.brandKey : (ESIGN_BRAND_FOR_ORG_SLUG[slug] ?? "usg");
+      const existing = req.body?.template ? cleanTemplate(req.body.template, { brandKey }).template : null;
+      const out = await draftEsignTemplate({
+        prompt, brandKey, brandLabel: ESIGN_BRAND_LABELS[brandKey] ?? "United Sports Group",
+        legalEntity: ["prints", "usc", "usg", "cugc"].includes(brandKey) ? (ESIGN_BRAND_LABELS[brandKey] ?? "United Sports Group") : "Christchurch United Football Club Incorporated",
+        existing, userId: req.session.userId!, orgId,
+      });
+      if ("error" in out) return res.status(502).json({ message: out.error });
+      res.json({ ...out, brandKey });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Switch a template's open link on (with the club's signature) or off.
+  app.post("/api/admin/esign/templates/:id/open-link", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const st = { ...((t.settings ?? {}) as any) };
+      const b = req.body ?? {};
+      if (b.enabled !== true) {
+        if (st.openLink) st.openLink = { ...st.openLink, enabled: false };
+        await db.update(esignTemplates).set({ settings: st }).where(eq(esignTemplates.id, t.id));
+        return res.json(esignTplOut({ ...t, settings: st }));
+      }
+      const { template, problems } = cleanTemplate({ ...t, settings: { ...st, published: isPublished(st) } }, { brandKey: brandKeyOf(t.brand as any) });
+      if (!isPublished(st)) return res.status(400).json({ message: "Publish the template before opening a link to it." });
+      const more = [...problems, ...openLinkProblems(template)];
+      if (more.length) return res.status(400).json({ message: "Fix these first:", problems: more });
+      const signatureName = esignClean(b.signatureName, 120);
+      if (!signatureName || b.consent !== true) return res.status(400).json({ message: "Type your name and agree to sign for the club — every agreement from this link opens already signed by you." });
+      const signatureImage = typeof b.signatureImage === "string" && b.signatureImage.startsWith("data:image") ? b.signatureImage.slice(0, 400000) : null;
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      if (!me?.email) return res.status(400).json({ message: "Your account needs an email address to sign for the club." });
+      st.openLink = {
+        enabled: true, token: st.openLink?.token || esignToken(),
+        clubSignature: { name: signatureName, image: signatureImage, userId: me.id, email: me.email, adoptedAt: new Date().toISOString() },
+      };
+      await db.update(esignTemplates).set({ settings: st }).where(eq(esignTemplates.id, t.id));
+      res.json(esignTplOut({ ...t, settings: st }));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Public: the template's open link ───────────────────────────────────────
+  async function esignTplByOpenToken(token: string) {
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
+    const [t] = await db.select().from(esignTemplates).where(and(eq(esignTemplates.active, true), sql`${esignTemplates.settings}->'openLink'->>'token' = ${token}`));
+    const st = (t?.settings ?? {}) as any;
+    if (!t || st.openLink?.enabled !== true || !isPublished(st) || !st.openLink?.clubSignature) return null;
+    return t;
+  }
+
+  app.get("/api/public/agree/:token", async (req, res) => {
+    try {
+      const t = await esignTplByOpenToken(String(req.params.token));
+      if (!t) return res.status(404).json({ message: "This link isn't open any more. Ask the club for a new one." });
+      const st = (t.settings ?? {}) as any;
+      res.json({ name: t.name, description: t.description, brand: t.brand, docTitle: (t.content as any)?.docTitle ?? t.name, primarySignerRole: st.primarySignerRole ?? "The Signer" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Start an agreement from the open link: creates it ALREADY SIGNED by the club
+  // (the signature adopted when the link was opened) and hands back the signer's
+  // own signing token. 🔴 Nothing is emailed to the address typed here until the
+  // person has signed — a form that mails what is typed into it is a spam relay.
+  app.post("/api/public/agree/:token", async (req, res) => {
+    try {
+      const t = await esignTplByOpenToken(String(req.params.token));
+      if (!t) return res.status(404).json({ message: "This link isn't open any more. Ask the club for a new one." });
+      const b = req.body ?? {};
+      if (String(b.website ?? "").trim()) return res.json({ ok: true, token: null }); // honeypot: same shape, nothing made
+      const email = String(b.email ?? "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return res.status(400).json({ message: "Please enter a valid email address — your signed copy is sent there." });
+      const name = esignClean(b.name, 120);
+      if (!name || name.length < 2) return res.status(400).json({ message: "Please enter your full name." });
+      const ip = esignIp(req);
+      const recent = esignRows(await db.execute(sql`SELECT count(*)::int AS n FROM esign_events WHERE type = 'created' AND ip = ${ip} AND meta->>'via' = 'open_link' AND created_at > now() - interval '1 hour'`));
+      if (Number((recent[0] as any)?.n ?? 0) >= 20) return res.status(429).json({ message: "Too many agreements started from here in the last hour. Try again later." });
+
+      const st = (t.settings ?? {}) as any;
+      const club = st.openLink.clubSignature;
+      const templateData: Record<string, string> = {};
+      for (const v of (t.variables ?? []) as any[]) {
+        let raw = String(v.default ?? "");
+        if (v.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) raw = esignFmtDateNZ(raw);
+        templateData[v.key] = raw.slice(0, 200);
+      }
+      const [doc] = await db.insert(esignDocuments).values({
+        organizationId: t.organizationId, title: `${t.name} — ${name}`.slice(0, 160), message: null, status: "sent", sentAt: new Date(),
+        sequential: true, docType: "native", templateId: t.id, templateData,
+        sourceFileName: null, sourcePdf: "", docHash: "", createdBy: club.userId ?? null,
+      }).returning();
+      const now = new Date();
+      const [clubRow] = await db.insert(esignSigners).values({
+        documentId: doc.id, organizationId: t.organizationId, name: club.name, email: club.email,
+        signingOrder: 0, isFormSigner: false, token: esignToken(), status: "signed",
+        signatureName: club.name, signatureImage: club.image ?? null, signedAt: now, consentedAt: now,
+      }).returning();
+      const [signer] = await db.insert(esignSigners).values({
+        documentId: doc.id, organizationId: t.organizationId, name, email,
+        signingOrder: 1, isFormSigner: true, token: esignToken(),
+      }).returning();
+      const sourceBytes = await esignRenderNativeDoc(doc, t, false);
+      await db.update(esignDocuments).set({ sourcePdf: Buffer.from(sourceBytes).toString("base64"), docHash: esignSha(Buffer.from(sourceBytes)) }).where(eq(esignDocuments.id, doc.id));
+      await esignLog(doc.id, null, "created", { actorEmail: email, ip, userAgent: req.headers["user-agent"], meta: { via: "open_link", template: t.slug } });
+      await esignLog(doc.id, clubRow.id, "signed", { actorEmail: club.email, ip: null, meta: { via: "open_link", adoptedSignature: true, adoptedAt: club.adoptedAt } });
+      res.json({ ok: true, token: signer.token });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -19440,6 +19717,17 @@ export async function registerRoutes(
       });
       if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
 
+      // A camp that hands every child a shirt asks each child's size — checked
+      // here, before a contact, a child or a PaymentIntent is written.
+      const shirtSetting = campShirtSize(campPageContentOf((camp as any).pageContentJson));
+      if (shirtSetting.ask) {
+        for (const c of (Array.isArray(childrenData) ? childrenData : [])) {
+          if (!String(c?.firstName ?? "").trim()) continue;
+          const err = shirtSizeError(c?.shirtSize);
+          if (err) return res.status(400).json({ code: "shirt_size_required", message: err });
+        }
+      }
+
       let parentContact = await storage.findContactByEmail(parent.email);
       if (!parentContact) {
         parentContact = await storage.createContact({
@@ -19466,6 +19754,9 @@ export async function registerRoutes(
           dateOfBirth: childData.dateOfBirth || null,
           gender: childData.gender || null,
         });
+        if (shirtSetting.ask && childData.shirtSize) {
+          await db.execute(sql`UPDATE children SET shirt_size = ${String(childData.shirtSize).trim()}, kit_sizes_updated_at = now() WHERE id = ${child.id}`);
+        }
         if (childData.allergies || childData.epiPen || childData.medicalNotes) {
           await storage.upsertChildMedical(child.id, {
             allergies: childData.allergies || null,

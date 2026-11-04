@@ -41,6 +41,11 @@ export async function ramboUsedToday(userId: number): Promise<number> {
       (SELECT count(*)::int FROM site_ai_usage
         WHERE user_id = ${userId}
           AND (created_at AT TIME ZONE 'Pacific/Auckland')::date = (now() AT TIME ZONE 'Pacific/Auckland')::date)
+      +
+      -- e-Sign (2026-11-04): an agreement template drafted or redrafted.
+      (SELECT count(*)::int FROM esign_ai_usage
+        WHERE user_id = ${userId}
+          AND (created_at AT TIME ZONE 'Pacific/Auckland')::date = (now() AT TIME ZONE 'Pacific/Auckland')::date)
       AS n`));
   return Number(r[0]?.n ?? 0);
 }

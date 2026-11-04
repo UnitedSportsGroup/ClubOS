@@ -199,6 +199,7 @@ const TournamentVendors = lazy(() => import("@/pages/tournament-vendors"));
 const Volunteers = lazy(() => import("@/pages/volunteers"));
 const ESign = lazy(() => import("@/pages/esign"));
 const SignPage = lazy(() => import("@/pages/sign"));
+const AgreePage = lazy(() => import("@/pages/agree"));
 const SignDeclaration = lazy(() => import("@/pages/sign-declaration"));
 const StudioPublicPage = lazy(() => import("@/pages/studio-public"));
 const StudioPreviewPage = lazy(() => import("@/pages/studio-preview"));
@@ -696,6 +697,9 @@ function AdminRouter() {
       <Route path="/admin/academy/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/academy/:id" component={AdminCampDetail} />
       <Route path="/admin/squads" component={AdminSquads} />
+      {/* e-Sign was in CUFC/SIU's tab list and account menu but never in THIS
+          route list, so it 404'd in both (found 2026-11-04 by the template-builder check). */}
+      <Route path="/admin/esign" component={ESign} />
       <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
       <Route path="/admin/sites" component={AdminSites} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
@@ -904,6 +908,8 @@ function App() {
             <Route path="/reset-password" component={ResetPassword} />
             <Route path="/calendar/rsvp/:token" component={RsvpPage} />
             <Route path="/sign/:token" component={SignPage} />
+            {/* e-Sign template open link — one link, each person signs their own (2026-11-04). */}
+            <Route path="/agree/:token" component={AgreePage} />
             <Route path="/declaration/:token" component={SignDeclaration} />
             {/* USG Studio — public proposal pages (unlisted, no auth). Must
                 precede the 2-segment /:slug/* and 1-segment /:slug routes. */}
