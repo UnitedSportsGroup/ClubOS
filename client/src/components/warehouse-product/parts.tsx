@@ -415,16 +415,16 @@ export function MediaManager({ productId, images, colourId }: { productId: numbe
 const UNITS = ["g", "kg", "ml", "l", "cm", "m", "item"];
 const COUNTRIES: [string, string][] = [["CN", "China"], ["NZ", "New Zealand"], ["AU", "Australia"], ["BD", "Bangladesh"], ["VN", "Vietnam"], ["IN", "India"], ["PK", "Pakistan"], ["TH", "Thailand"], ["ID", "Indonesia"], ["KH", "Cambodia"], ["TR", "Türkiye"], ["PT", "Portugal"], ["IT", "Italy"], ["ES", "Spain"], ["US", "United States"], ["GB", "United Kingdom"], ["JP", "Japan"], ["KR", "South Korea"], ["TW", "Taiwan"]];
 
-export function PriceCard({ d, set, hideBase }: { d: VariantDraft; set: (p: Partial<VariantDraft>) => void; hideBase?: boolean }) {
+export function PriceCard({ d, set, hideBase, pricePlaceholder }: { d: VariantDraft; set: (p: Partial<VariantDraft>) => void; hideBase?: boolean; pricePlaceholder?: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>({ compare: !!d.compareAt, unit: !!d.unitMeasure, cost: !!d.cost });
-  const price = toCents(d.price) ?? 0;
+  const price = toCents(d.price || pricePlaceholder || "") ?? 0;
   const cost = toCents(d.cost);
   const profit = cost != null && !Number.isNaN(cost) ? price - cost : null;
   const margin = profit != null && price > 0 ? Math.round((profit / price) * 1000) / 10 : null;
   return (
     <Card className="p-5">
       <h2 className="text-sm font-semibold text-white mb-3">Price</h2>
-      {!hideBase && <div className="max-w-xs"><MoneyField value={d.price} onChange={(v) => set({ price: v })} label="Price" /></div>}
+      {!hideBase && <div className="max-w-xs"><MoneyField value={d.price} placeholder={pricePlaceholder} onChange={(v) => set({ price: v })} label="Price" />{pricePlaceholder && !d.price && <p className="text-[11px] text-white/35 mt-1">Uses the product price (${pricePlaceholder}) — type a price to set this variant's own.</p>}</div>}
       <div className="flex flex-wrap gap-2 mt-3">
         <Chip label="Compare-at" active={open.compare} onClick={() => setOpen((o) => ({ ...o, compare: !o.compare }))} />
         <Chip label="Unit price" active={open.unit} onClick={() => setOpen((o) => ({ ...o, unit: !o.unit }))} />

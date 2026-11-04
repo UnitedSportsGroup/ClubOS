@@ -459,7 +459,7 @@ function VariantView({ id, vid }: { id: number; vid: number }) {
               <Thumb src={image} size={88} />
             </div>
           </Card>
-          <PriceCard d={d} set={set} />
+          <PriceCard d={d} set={set} pricePlaceholder={dollars(p.priceCents)} />
           <InventoryCard d={d} set={set} locations={meta?.locations ?? []} warehouseSku={v.warehouseSku} shopStock={v.shopStock} warehouseDriven={p.warehouseDriven}
             qty={(loc) => <QtyCell productId={id} itemId={v.itemId} locationId={loc} value={v.stock[String(loc)] ?? 0} />} />
           <ShippingCard d={d} set={set} />
