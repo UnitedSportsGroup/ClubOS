@@ -218,3 +218,42 @@ export function missedState(charges: ChargeState[], todayIso: string): MissedSta
   }
   return { missedCount, missedCents, onHold: missedCount >= HOLD_AFTER_MISSES };
 }
+
+// ── Where NZ bank direct debit is offered (Daniel, 4 Nov 2026) ───────────────
+// "turn it on, but only for under-9 and under-12 payments, and just for Term 4 …
+// just with the full payments, not the weekly payments, for now." Plus U13–U20
+// families paying from their parent account (that path is checked separately by
+// `bankDebitForParentPayment`). Everywhere else stays card-only, because the
+// account's default payment-method configuration has bank debit switched OFF.
+//
+// 🔴 This is the ONE place that decides it. A checkout that wants bank debit asks
+// here and, when the answer is yes, sends an explicit method list — the default
+// configuration never offers it.
+export const BANK_DEBIT_PROGRAMME_SLUGS: readonly string[] = ["pre-academy-u9-u12"] as const;
+
+/** What the Payment Element offers when bank debit is allowed: today's default
+ *  set (card incl. Apple Pay / Google Pay, Link, Klarna) plus bank account.
+ *  Verified against Stripe live on 4 Nov 2026 with a cancelled probe. */
+export const BANK_DEBIT_METHOD_TYPES: readonly string[] = ["card", "link", "klarna", "nz_bank_account"] as const;
+
+export function bankDebitAllowed(input: { programSlug: string | null | undefined; academyPlan: string | null | undefined; currency?: string }): boolean {
+  if ((input.currency ?? "NZD").toUpperCase() !== "NZD") return false;
+  if (!input.programSlug || !BANK_DEBIT_PROGRAMME_SLUGS.includes(input.programSlug)) return false;
+  // Pay the term in full only, for now. 'year' is a bigger single debit and the
+  // weekly plan is not built for bank debit yet.
+  return input.academyPlan === "term";
+}
+
+/** A bank debit has been submitted and has not settled or failed yet. */
+export type BankDebitState = "clearing" | "failed" | null;
+
+export function bankDebitState(r: {
+  status?: string | null;
+  paymentProcessingAt?: Date | string | null;
+  paymentFailedAt?: Date | string | null;
+}): BankDebitState {
+  if (r.status && r.status !== "pending") return null; // money landed (or it was removed)
+  if (r.paymentFailedAt) return "failed";
+  if (r.paymentProcessingAt) return "clearing";
+  return null;
+}

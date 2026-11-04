@@ -1,6 +1,6 @@
 // Pure checks for shared/academy-payment-plan.ts — the AutoPay money decider.
 // Run: npx tsx script/_test-academy-payment-plan.ts
-import { planSchedule, splitEvenly, remainingWeekStarts, stripeFeeCents, scheduleFeeCents, missedState } from "../shared/academy-payment-plan";
+import { planSchedule, splitEvenly, remainingWeekStarts, stripeFeeCents, scheduleFeeCents, missedState, bankDebitAllowed, bankDebitState } from "../shared/academy-payment-plan";
 
 let pass = 0, fail = 0;
 function ok(cond: boolean, name: string, detail?: unknown) {
@@ -73,6 +73,18 @@ const two = missedState(ch, "2027-02-27");
 ok(two.missedCount === 2 && two.onHold && two.missedCents === 8100, "2 misses → hold, $81 behind", two);
 ch[2].paid = true;
 ok(!missedState(ch, "2027-02-27").onHold, "paying clears the hold on the next read");
+
+// Where bank debit is offered
+ok(bankDebitAllowed({ programSlug: "pre-academy-u9-u12", academyPlan: "term" }), "pre-academy term → bank debit");
+ok(!bankDebitAllowed({ programSlug: "pre-academy-u9-u12", academyPlan: "year" }), "pre-academy full year → card only");
+ok(!bankDebitAllowed({ programSlug: "u4-u8", academyPlan: "term" }), "U4–U8 → card only");
+ok(!bankDebitAllowed({ programSlug: "technification", academyPlan: "term" }), "technification → card only");
+ok(!bankDebitAllowed({ programSlug: "pre-academy-u9-u12", academyPlan: "term", currency: "AUD" }), "non-NZD → card only");
+ok(!bankDebitAllowed({ programSlug: null, academyPlan: "term" }), "no slug → card only");
+ok(bankDebitState({ status: "pending", paymentProcessingAt: new Date() }) === "clearing", "pending + processing = clearing");
+ok(bankDebitState({ status: "pending", paymentProcessingAt: new Date(), paymentFailedAt: new Date() }) === "failed", "failed beats clearing");
+ok(bankDebitState({ status: "confirmed", paymentProcessingAt: new Date() }) === null, "confirmed = nothing to flag");
+ok(bankDebitState({ status: "pending" }) === null, "plain pending cart = nothing");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
