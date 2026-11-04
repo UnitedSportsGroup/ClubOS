@@ -42,6 +42,7 @@
 // freeze once money lands, a paid sale cannot be deleted. This file decides
 // WHAT to write; the database decides whether it is allowed.
 // ─────────────────────────────────────────────────────────────────────────────
+import { canSell } from "@shared/shop-stock";
 import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
 import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
@@ -204,6 +205,18 @@ export async function fulfilPaidSale(saleId: number): Promise<boolean> {
   const primary = [...succeeded].sort((a, b) => b.amountCents - a.amountCents)[0];
   const method = primary?.method ?? "other";
   const reference = succeeded.map((p) => p.reference).filter(Boolean).join(", ") || null;
+
+  // A till sale comes out of the warehouse too (shops in WH_STOCK_BRANDS),
+  // from the office first — that's where the till is.
+  await (await import("./shop-warehouse-link")).recordShopMovement({
+    lines: sale.lines.filter((l) => l.kind === "variant" && l.variantId).map((l) => ({ variantId: l.variantId!, qty: l.qty })),
+    sign: -1,
+    ref: null,
+    operatorUserId: sale.servedByUserId ?? null,
+    idempotencyKey: `pos-sale:${sale.id}:sale`,
+    note: `Till sale ${sale.id}`,
+    preferLocation: "USC-OFFICE",
+  });
 
   for (const line of sale.lines) {
     try {
@@ -698,7 +711,7 @@ export function registerPosRoutes(app: Express) {
         if (!row || !row.v.active || row.p.status !== "active") return res.status(404).json({ message: "That item is not on sale." });
         const existing = sale.lines.find((l) => l.kind === "variant" && l.variantId === row.v.id);
         const wantQty = (existing?.qty ?? 0) + qty;
-        if (row.v.stock < wantQty) return res.status(409).json({ code: "POS_STOCK", message: `Only ${row.v.stock} of that size in stock.` });
+        if (!canSell(row.v, wantQty)) return res.status(409).json({ code: "POS_STOCK", message: `Only ${row.v.stock} of that size in stock.` });
         const unit = row.v.priceCents ?? row.p.priceCents;
         if (existing) {
           await db.update(posSaleLines).set({ qty: wantQty, lineCents: unit * wantQty }).where(eq(posSaleLines.id, existing.id));
@@ -766,7 +779,7 @@ export function registerPosRoutes(app: Express) {
       if (line.kind === "registration") return res.status(409).json({ message: "A registration is for one player." });
       if (line.kind === "variant" && line.variantId) {
         const [v] = await db.select().from(shopVariants).where(eq(shopVariants.id, line.variantId));
-        if (v && v.stock < qty) return res.status(409).json({ code: "POS_STOCK", message: `Only ${v.stock} of that size in stock.` });
+        if (v && !canSell(v, qty)) return res.status(409).json({ code: "POS_STOCK", message: `Only ${v.stock} of that size in stock.` });
       }
       await db.update(posSaleLines).set({ qty, lineCents: line.unitCents * qty }).where(eq(posSaleLines.id, line.id));
       res.json(await loadSale(sale.id));
