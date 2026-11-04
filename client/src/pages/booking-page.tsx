@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { campSessions, parsePageContent } from "@/lib/camp-sessions";
 import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -264,6 +265,13 @@ export default function BookingPage() {
   const priceFor = (pt: string) => {
     const m = (data?.pricing || []).find((p: any) => p.productType === pt);
     return m ? m.priceCents : (hardcodedPrices[pt] || 0);
+  };
+  // Only the sessions this camp actually prices, with its own labels/times
+  // (shared with the camp landing page — see lib/camp-sessions.ts).
+  const sessions = campSessions(data?.pricing, parsePageContent(data?.camp?.pageContentJson));
+  const sessionInfo = (pt: string) => {
+    const s = sessions.find((x) => x.type === pt);
+    return s ? { label: s.label, time: s.time } : sessionTypes[pt];
   };
 
   const bookMutation = useMutation({
@@ -561,10 +569,10 @@ export default function BookingPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      {(["MORNING", "AFTERNOON", "FULL_DAY"] as const).map(pt => {
+                      {sessions.map(({ type: pt }) => {
                         const isSelected = items.some(i => i.childIndex === 0 && i.campDateId === d.id && i.productType === pt);
                         const price = priceFor(pt);
-                        const info = sessionTypes[pt];
+                        const info = sessionInfo(pt);
                         return (
                           <button
                             key={pt}
@@ -597,7 +605,7 @@ export default function BookingPage() {
                 <div className="space-y-1.5">
                   {items.map((item, i) => (
                     <div key={i} className="flex justify-between text-[13px]">
-                      <span className="text-slate-600">{sessionTypes[item.productType]?.label} — {item.dateName}</span>
+                      <span className="text-slate-600">{sessionInfo(item.productType)?.label} — {item.dateName}</span>
                       <span className="text-slate-700 font-semibold">${(priceFor(item.productType) / 100).toFixed(0)}</span>
                     </div>
                   ))}
@@ -841,7 +849,7 @@ export default function BookingPage() {
                 {items.map((item, i) => (
                   <div key={i} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-2.5">
                     <div>
-                      <p className="text-[13px] font-medium text-slate-700">{sessionTypes[item.productType]?.label}</p>
+                      <p className="text-[13px] font-medium text-slate-700">{sessionInfo(item.productType)?.label}</p>
                       <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                         <Calendar className="w-3 h-3" /> {item.dateName}
                       </p>
