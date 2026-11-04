@@ -1171,6 +1171,40 @@ export async function sendShopOrderConfirmation(params: {
   });
 }
 
+/** "Your order is on its way" — sent ONCE when eShip reports a tracking
+ *  number (server/eship.ts stamps shipped_email_sent_at before calling). */
+export async function sendShopOrderShipped(params: {
+  to: string;
+  firstName: string;
+  orderNumber: string;
+  trackingNumber: string;
+  carrierName?: string | null;
+  trackingUrl: string;
+  brandKey?: string;
+}): Promise<boolean> {
+  const identity = shopEmailIdentity(params.brandKey);
+  const esc = (v: string) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+  const firstName = esc((params.firstName || "").trim() || "there");
+  const carrier = esc(params.carrierName || "NZ Post");
+  const bodyHtml = `
+    <p style="color:#e6e6e6; font-size:14px; line-height:1.65; margin:0;">Hey ${firstName},</p>
+    <p style="color:#e6e6e6; font-size:14px; line-height:1.65; margin:14px 0 0;">
+      Your order <strong style="color:#d1b96e;">${esc(params.orderNumber)}</strong> is on its way with ${carrier}.
+    </p>
+    <div style="background:#000000; border:1px solid #232323; border-radius:14px; padding:18px 20px; margin:18px 0 0;">
+      <table style="width:100%; border-collapse:collapse;">${mflRow("Tracking number", esc(params.trackingNumber), true)}</table>
+    </div>
+    <p style="margin:18px 0 0;"><a href="${esc(params.trackingUrl)}" style="display:inline-block; background:#d1b96e; color:#000; font-weight:600; font-size:14px; padding:12px 20px; border-radius:10px; text-decoration:none;">Track your parcel</a></p>
+    <p style="color:#8a8a8a; font-size:12px; line-height:1.6; margin:14px 0 0;">Tracking can take a few hours to show the first scan.</p>`;
+  return sendEmail({
+    to: params.to,
+    from: identity.from,
+    replyTo: identity.replyTo,
+    subject: `Your order is on its way — ${params.orderNumber}`,
+    html: identity.shell({ heading: "On its way 📦", bodyHtml }),
+  });
+}
+
 /** New paid order heads-up → the store's own admin inbox (brand.adminEmail).
  *  Reply-To is the customer so staff can reply straight from their inbox. */
 export async function sendShopOrderNotification(params: {

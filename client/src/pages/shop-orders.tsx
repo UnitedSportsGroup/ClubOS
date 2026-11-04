@@ -29,6 +29,8 @@ type Order = {
   shippingLabel: string | null; ships: boolean;
   address: { line1: string; line2: string | null; suburb: string | null; city: string | null; postcode: string | null } | null;
   totalCents: number; notes: string | null; items: Item[];
+  eship?: { orderId: number | null; pushedAt: string | null; error: string | null; international: boolean };
+  tracking?: { number: string; carrier: string | null; status: string | null; updatedAt: string | null; url: string } | null;
 };
 type HubData = {
   brands: { key: string; name: string }[];
@@ -130,7 +132,41 @@ function printSlip(o: Order) {
   w.document.close();
 }
 
-function OrderCard({ o }: { o: Order }) {
+function EshipLine({ o, eshipOn, pending, onSend }: { o: Order; eshipOn: boolean; pending: boolean; onSend: () => void }) {
+  if (o.tracking) {
+    return (
+      <div className="mt-2 text-xs" data-testid={`eship-tracking-${o.id}`}>
+        <span className="text-white/50">Tracking </span>
+        <a href={o.tracking.url} target="_blank" rel="noreferrer" className="text-blue-300 hover:underline break-all">{o.tracking.number}</a>
+        {o.tracking.status && <span className="text-white/50"> · {o.tracking.status}</span>}
+      </div>
+    );
+  }
+  if (o.eship?.orderId) {
+    return <div className="mt-2 text-xs text-emerald-300" data-testid={`eship-sent-${o.id}`}>In eShip — print the label there. Tracking comes back here on its own.</div>;
+  }
+  if (o.eship?.international) {
+    return <div className="mt-2 text-xs text-amber-300">International — create this one in eShip by hand.</div>;
+  }
+  if (!eshipOn) return null;
+  return (
+    <div className="mt-2">
+      {o.eship?.error && <div className="text-xs text-red-300 mb-1.5 break-words">eShip: {o.eship.error}</div>}
+      {["paid", "processing"].includes(o.status) && (
+        <button
+          onClick={onSend}
+          disabled={pending}
+          className="h-10 px-3 rounded-lg border border-white/15 text-white/80 text-sm hover:bg-white/5 disabled:opacity-50 inline-flex items-center gap-1.5"
+          data-testid={`button-eship-${o.id}`}
+        >
+          <Truck className="w-4 h-4" /> {pending ? "Sending…" : o.eship?.error ? "Try eShip again" : "Send to eShip"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function OrderCard({ o, eshipOn }: { o: Order; eshipOn: boolean }) {
   const { toast } = useToast();
   const [notes, setNotes] = useState(o.notes || "");
   const [editingNotes, setEditingNotes] = useState(false);
@@ -143,6 +179,11 @@ function OrderCard({ o }: { o: Order }) {
     mutationFn: async () => (await apiRequest("PATCH", `/api/admin/shop-orders/${o.id}/notes`, { notes })).json(),
     onSuccess: () => { setEditingNotes(false); queryClient.invalidateQueries({ queryKey: ["shop-orders-hub"] }); },
     onError: (e: any) => toast({ title: "Couldn't save the note", description: String(e?.message || e), variant: "destructive" }),
+  });
+  const sendToEship = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `/api/admin/shop-orders/${o.id}/eship`)).json(),
+    onSuccess: () => { toast({ title: "Sent to eShip", description: "Print the label in eShip as usual." }); queryClient.invalidateQueries({ queryKey: ["shop-orders-hub"] }); },
+    onError: (e: any) => { toast({ title: "Couldn't send to eShip", description: String(e?.message || e), variant: "destructive" }); queryClient.invalidateQueries({ queryKey: ["shop-orders-hub"] }); },
   });
   const st = STATUS[o.status] || { label: o.status, cls: "bg-white/5 text-white/60 border-white/10" };
   const units = o.items.reduce((n, i) => n + i.qty, 0);
@@ -203,6 +244,7 @@ function OrderCard({ o }: { o: Order }) {
                   </span>
                 </div>
               )}
+              {o.ships && <EshipLine o={o} eshipOn={eshipOn} pending={sendToEship.isPending} onSend={() => sendToEship.mutate()} />}
             </div>
           </div>
         </div>
@@ -297,6 +339,16 @@ export default function ShopOrdersHub() {
       return res.json();
     },
   });
+  const eshipStatus = useQuery<{ brands: { key: string; connected: boolean; autoPush: boolean }[] }>({
+    queryKey: ["shop-orders-eship-status"],
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/shop-orders/eship/status`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const eshipBrands = new Set((eshipStatus.data?.brands || []).filter((b) => b.connected).map((b) => b.key));
   const setAlerts = useMutation({
     mutationFn: async (on: boolean) => (await apiRequest("PUT", `/api/admin/shop-orders/me/alerts`, { on })).json(),
     onSuccess: (r: { on: boolean }) => {
@@ -375,7 +427,7 @@ export default function ShopOrdersHub() {
             <div className="text-sm text-white/50 mt-1">New paid orders from every shop show up here as they come in.</div>
           </div>
         )}
-        {data?.orders.map((o) => <OrderCard key={o.id} o={o} />)}
+        {data?.orders.map((o) => <OrderCard key={o.id} o={o} eshipOn={eshipBrands.has(o.brand.key)} />)}
       </div>
     </div>
   );

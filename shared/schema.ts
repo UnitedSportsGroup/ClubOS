@@ -6079,6 +6079,17 @@ export const shopOrders = pgTable("shop_orders", {
   teamName: text("team_name"),
   allPaidAt: timestamp("all_paid_at"),
   paidAt: timestamp("paid_at"),
+  // NZ Post eShip (Starshipit) — see server/eship.ts. NULL = never sent.
+  eshipOrderId: bigint("eship_order_id", { mode: "number" }),
+  eshipClaimedAt: timestamp("eship_claimed_at", { withTimezone: true }),
+  eshipPushedAt: timestamp("eship_pushed_at", { withTimezone: true }),
+  eshipError: text("eship_error"),
+  eshipAttempts: integer("eship_attempts"),
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  trackingStatus: text("tracking_status"),
+  trackingUpdatedAt: timestamp("tracking_updated_at", { withTimezone: true }),
+  shippedEmailSentAt: timestamp("shipped_email_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
