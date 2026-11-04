@@ -198,6 +198,9 @@ const CANARIES: Canary[] = [
   { feature: "payments chase emails", path: "/api/admin/payments-due/chase/preview",    expect: [401] },
   // NZ Post eShip (2026-11-04): shop delivery orders → eShip, tracking back.
   { feature: "shop eship",           path: "/api/admin/shop-orders/eship/status",      expect: [401] },
+  // Warehouse Products (Shopify-style product page, Add product, Transfers) — 4 Nov 2026.
+  { feature: "warehouse products",   path: "/api/admin/warehouse/product-meta",         expect: [401] },
+  { feature: "warehouse transfers",  path: "/api/admin/warehouse/transfers",            expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree

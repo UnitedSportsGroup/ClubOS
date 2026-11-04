@@ -5947,6 +5947,11 @@ export const shopVariants = pgTable("shop_variants", {
   // where each denomination variant carries its own price.
   priceCents: integer("price_cents"),
   active: boolean("active").notNull().default(true),
+  // Shopify's inventory policy (2026-11-04). trackInventory=false → never sold
+  // out; continueSelling=true → keeps selling at 0. Both decided by
+  // shared/shop-stock.ts canSell(), the ONE rule the catalog and checkout read.
+  trackInventory: boolean("track_inventory").notNull().default(true),
+  continueSelling: boolean("continue_selling").notNull().default(false),
 }, (t) => ({
   colourSizeUnq: uniqueIndex("shop_variants_colour_size_unique").on(t.colourId, t.size),
 }));
