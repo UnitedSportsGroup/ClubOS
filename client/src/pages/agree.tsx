@@ -38,7 +38,9 @@ export default function AgreePage() {
       const r = await fetch(`/api/public/agree/${encodeURIComponent(token)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, website }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.message || "Something went wrong. Try again.");
-      if (j.token) navigate(`/sign/${j.token}`);
+      // A full page load, not an in-app hop: the theme is decided on load, and
+      // an in-app hop kept /agree's mode and printed navy on black.
+      if (j.token) window.location.assign(`/sign/${j.token}`);
     } catch (e: any) { setMsg(e.message); }
     setBusy(false);
   };
