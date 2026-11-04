@@ -237,6 +237,7 @@ const PrintsMaterials = lazy(() => import("@/pages/prints-materials"));
 const PrintsIntegrations = lazy(() => import("@/pages/prints-integrations"));
 const WarehouseItems = lazy(() => import("@/pages/warehouse-items"));
 const WarehouseTransfers = lazy(() => import("@/pages/warehouse-transfers"));
+const WarehouseProduct = lazy(() => import("@/pages/warehouse-product"));
 const WarehouseLocations = lazy(() => import("@/pages/warehouse-locations"));
 const WarehousePOs = lazy(() => import("@/pages/warehouse-pos"));
 const WarehouseRequisitions = lazy(() => import("@/pages/warehouse-requisitions"));
@@ -397,6 +398,7 @@ function AdminRouter() {
         <Route path="/admin/warehouse" component={WarehouseItems} />
         <Route path="/admin/warehouse/items" component={WarehouseItems} />
         <Route path="/admin/warehouse/products" component={WarehouseItems} />
+        <Route path="/admin/warehouse/products/:id" component={WarehouseProduct} />
         <Route path="/admin/warehouse/transfers" component={WarehouseTransfers} />
         <Route path="/admin/warehouse/transfers/:id" component={WarehouseTransfers} />
         <Route path="/admin/warehouse/locations" component={WarehouseLocations} />
