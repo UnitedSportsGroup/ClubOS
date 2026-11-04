@@ -29,6 +29,15 @@ try {
   ok("money is owed and every row owes something", owed > 0 && snap.rows.every((r: any) => r.owedCents > 0), `$${owed / 100} on ${snap.rows.length}`);
   ok("only CUFC family contacts", snap.rows.every((r: any) => /^\((FS|A)[ _)]/i.test(r.xeroContactName)));
   ok("overdue = due date before today", snap.rows.every((r: any) => (r.status === "overdue") === (!!r.due && r.due < snap.today)));
+  ok("ordinary staff cannot escalate (GM's name)", snap.canEscalate === false);
+  const fam = snap.rows.find((r: any) => r.status === "overdue" && r.parentEmail)?.familyKey;
+  const esc = await fetch(`${BASE}/api/admin/payments-due/chase/send`, { method: "POST", headers: { cookie, "x-workspace-slug": "christchurch-united", "Content-Type": "application/json" }, body: JSON.stringify({ kind: "escalation", family: fam }) });
+  ok("an escalation by ordinary staff is REFUSED (nothing sent)", esc.status === 403, String(esc.status));
+  const pv = await fetch(`${BASE}/api/admin/payments-due/chase/preview?kind=reminder&family=${encodeURIComponent(fam)}`, { headers: { cookie, "x-workspace-slug": "christchurch-united" } });
+  const pj: any = await pv.json();
+  ok("reminder preview reads Xero live and has a pay link", pv.status === 200 && pj.totalCents > 0 && /in\.xero\.com/.test(pj.html), `${pv.status} ${pj.subject ?? pj.message ?? ""}`);
+  const pvOther = await fetch(`${BASE}/api/admin/payments-due/chase/preview?kind=reminder&family=x`, { headers: { cookie, "x-workspace-slug": "mini-football-leagues" } });
+  ok("chase preview from another workspace -> 403/404", [403, 404].includes(pvOther.status), String(pvOther.status));
 
   browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", args: ["--no-sandbox"] });
   for (const [w, h] of [[1440, 900], [390, 844]]) {
@@ -54,6 +63,19 @@ try {
     const rowsOverdue: string[] = await page.$$eval('[data-testid="due-row"]', (els: any[]) => els.map((e) => e.innerText));
     ok(`${w}px Overdue shows only overdue rows`, rowsOverdue.length > 0 && rowsOverdue.every((t) => /overdue/i.test(t)), String(rowsOverdue.length));
     await page.screenshot({ path: `${OUT}/payments-due-${w}-rows.png`, fullPage: false });
+    ok(`${w}px every row has a Remind button`, (await page.$$('[data-testid="button-remind"]')).length === rowsOverdue.length);
+    ok(`${w}px no Escalate button for ordinary staff`, (await page.$$('[data-testid="button-escalate"]')).length === 0);
+    const remind = await page.$('[data-testid="button-remind"]:not([disabled])');
+    if (remind) {
+      await remind.click();
+      await page.waitForSelector('[data-testid="chase-preview"], [data-testid="chase-error"]', { timeout: 45000 }).catch(() => {});
+      ok(`${w}px Remind opens the real email preview`, !!(await page.$('[data-testid="chase-preview"]')));
+      const dlg = await page.$eval('[data-testid="chase-dialog"]', (e: any) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; }).catch(() => [0, 0]);
+      ok(`${w}px dialog fits the screen`, dlg[0] >= 0 && dlg[1] <= w + 1, JSON.stringify(dlg));
+      await page.screenshot({ path: `${OUT}/payments-due-${w}-remind.png`, fullPage: false });
+      await page.keyboard.press("Escape"); await settle();   // never press Send here: this is a real family
+      ok(`${w}px Escape closes it without sending`, !(await page.$('[data-testid="chase-dialog"]')));
+    }
     const sw = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     ok(`${w}px no sideways scroll`, sw <= 1, String(sw));
     if (w === 1440) {

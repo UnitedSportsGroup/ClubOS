@@ -10,7 +10,8 @@ import { Link } from "wouter";
 import { workspaceFetch } from "@/lib/queryClient";
 import { withFrom } from "@/lib/back-to";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Search, Download, FileText, Phone, Mail, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { RefreshCw, Search, Download, FileText, Phone, Mail, ChevronDown, ChevronRight, AlertTriangle, BellRing, ShieldAlert, Send } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 type Row = {
   invoiceId: string; invoiceNumber: string | null; reference: string | null; xeroContactName: string; childName: string;
@@ -26,7 +27,11 @@ type Snap = {
   asOf: string; today: string; rows: Row[];
   outOfScope: { label: string; invoices: number; owedCents: number }[];
   coverage: Array<{ programme: string; programmeLabel: string; year: number; term: number; registered: number; invoiced: number; invoicedOpen: number; owedCents: number }>;
+  chase?: Record<string, Partial<Record<ChaseKind, { at: string; by: string }>>>;
+  canEscalate?: boolean;
 };
+type ChaseKind = "reminder" | "escalation";
+type Chase = { kind: ChaseKind; row: Row };
 
 const money = (c: number) => `$${(c / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const money0 = (c: number) => `$${Math.round(c / 100).toLocaleString("en-NZ")}`;
@@ -70,6 +75,7 @@ export default function AdminPaymentsDue() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [chase, setChase] = useState<Chase | null>(null);
 
   // Filters → URL (replace, so nine clicks don't bury the page you came from).
   useEffect(() => {
@@ -264,7 +270,7 @@ export default function AdminPaymentsDue() {
                       {sum(g.rows, "overdue") > 0 && <span className="text-[12.5px] text-red-400 tabular-nums whitespace-nowrap">{money(sum(g.rows, "overdue"))} overdue</span>}
                       <span className="text-[13px] font-semibold text-white tabular-nums whitespace-nowrap w-[110px] text-right">{money(sum(g.rows))}</span>
                     </button>
-                    {isOpen && <div className="border-t border-white/[0.06] divide-y divide-white/[0.06]">{g.rows.map((r) => <DueRowView key={r.invoiceId} r={r} />)}</div>}
+                    {isOpen && <div className="border-t border-white/[0.06] divide-y divide-white/[0.06]">{g.rows.map((r) => <DueRowView key={r.invoiceId} r={r} chased={data.chase?.[r.invoiceId]} canEscalate={!!data.canEscalate} onChase={(kind) => setChase({ kind, row: r })} />)}</div>}
                   </div>
                 );
               })}
@@ -272,6 +278,8 @@ export default function AdminPaymentsDue() {
           )}
 
           <Coverage snap={data} />
+          {chase && <ChaseDialog chase={chase} rows={rows.filter((x) => x.familyKey === chase.row.familyKey)} onClose={() => setChase(null)}
+            onSent={() => { setChase(null); qc.invalidateQueries({ queryKey: ["/api/admin/payments-due"] }); }} />}
 
           {data.outOfScope.length > 0 && (
             <div className="rounded-xl border border-white/[0.08] px-4 py-3 text-[12px] text-white/45" data-testid="out-of-scope">
@@ -293,7 +301,7 @@ function sum(rows: Row[], status?: Row["status"]) {
   return rows.reduce((s, r) => s + (!status || r.status === status ? r.owedCents : 0), 0);
 }
 
-function DueRowView({ r }: { r: Row }) {
+function DueRowView({ r, chased, canEscalate, onChase }: { r: Row; chased?: Partial<Record<ChaseKind, { at: string; by: string }>>; canEscalate: boolean; onChase: (k: ChaseKind) => void }) {
   const { toast } = useToast();
   const here = `${window.location.pathname}${window.location.search}`;
   const pdf = async () => {
@@ -329,6 +337,20 @@ function DueRowView({ r }: { r: Row }) {
           {!r.sent && <Badge tone="amber">Never sent from Xero</Badge>}
           {r.paidInClubOSCents > 0 && <Badge tone="red"><AlertTriangle className="w-3 h-3" /> ClubOS shows {money(r.paidInClubOSCents)} paid for this term — possible duplicate</Badge>}
           {r.kind !== "term_fee" && <Badge tone="grey">{KINDS[r.kind]}</Badge>}
+          {chased?.reminder && <Badge tone="grey"><BellRing className="w-3 h-3" /> Reminded {time(chased.reminder.at)} · {chased.reminder.by}</Badge>}
+          {chased?.escalation && <Badge tone="red"><ShieldAlert className="w-3 h-3" /> Escalated {time(chased.escalation.at)} · {chased.escalation.by}</Badge>}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button onClick={() => onChase("reminder")} disabled={!r.parentEmail} title={r.parentEmail ? "Email the family a reminder with a link to pay" : "No email on file"}
+            className="inline-flex items-center gap-1 rounded-md border border-white/[0.1] px-2.5 py-1.5 text-[11.5px] text-white/70 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-h-[32px]" data-testid="button-remind">
+            <BellRing className="w-3.5 h-3.5" /> Remind
+          </button>
+          {r.status === "overdue" && canEscalate && (
+            <button onClick={() => onChase("escalation")} disabled={!r.parentEmail} title={r.parentEmail ? "Official email from the GM: no pay, no play" : "No email on file"}
+              className="inline-flex items-center gap-1 rounded-md border border-red-500/25 bg-red-500/[0.06] px-2.5 py-1.5 text-[11.5px] text-red-400 hover:bg-red-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-h-[32px]" data-testid="button-escalate">
+              <ShieldAlert className="w-3.5 h-3.5" /> Escalate
+            </button>
+          )}
         </div>
       </div>
       <div className="w-[150px] text-white/55">
@@ -384,5 +406,97 @@ function Coverage({ snap }: { snap: Snap }) {
         </table>
       </div>
     </div>
+  );
+}
+
+type Preview = {
+  to: string; from: string; subject: string; html: string; totalCents: number;
+  invoices: { invoiceNumber: string | null; childName: string; owedCents: number; hasPayLink: boolean }[];
+  lastSent: { at: string; by: string; to: string } | null; blockedUntil: string | null;
+};
+
+/** Shows the real email the family will get (amounts re-read from Xero) before anything is sent. */
+function ChaseDialog({ chase, rows, onClose, onSent }: { chase: Chase; rows: Row[]; onClose: () => void; onSent: () => void }) {
+  const { toast } = useToast();
+  const [note, setNote] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [sending, setSending] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setDebounced(note), 600); return () => clearTimeout(t); }, [note]);
+  const esc = chase.kind === "escalation";
+  const { data, isLoading, error, isFetching } = useQuery<Preview>({
+    queryKey: ["/api/admin/payments-due/chase/preview", chase.kind, chase.row.familyKey, debounced],
+    queryFn: async () => {
+      const q = new URLSearchParams({ kind: chase.kind, family: chase.row.familyKey });
+      if (debounced.trim()) q.set("note", debounced.trim());
+      const r = await workspaceFetch(`/api/admin/payments-due/chase/preview?${q}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.message || `HTTP ${r.status}`);
+      return r.json();
+    },
+    placeholderData: (prev) => prev,
+    staleTime: 60_000,
+  });
+  const send = async () => {
+    setSending(true);
+    try {
+      const r = await workspaceFetch(`/api/admin/payments-due/chase/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: chase.kind, family: chase.row.familyKey, note: note.trim() || undefined }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+      toast({ title: esc ? "Escalation sent" : "Reminder sent", description: `To ${j.to} · ${money(j.totalCents)} across ${j.invoices} invoice${j.invoices === 1 ? "" : "s"}` });
+      onSent();
+    } catch (e: any) {
+      toast({ title: "Not sent", description: String(e?.message ?? ""), variant: "destructive" });
+    } finally { setSending(false); }
+  };
+  const family = rows[0]?.familyLabel ?? chase.row.familyLabel;
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl w-[calc(100vw-24px)] max-h-[90vh] overflow-y-auto min-w-0" data-testid="chase-dialog">
+        <div className="min-w-0 overflow-hidden space-y-3">
+          <DialogHeader>
+            <DialogTitle>{esc ? "Escalate: official email from the GM" : "Send a payment reminder"}</DialogTitle>
+            <DialogDescription>
+              {esc ? "Goes from Ryan Edwards, General Manager. No pay, no play, with a link to pay each invoice." : "Goes from Christchurch United FC Accounts, with a link to pay each invoice."}
+              {" "}One email to {family} covering {esc ? "every overdue invoice" : "everything they owe"}. Amounts are read from Xero again right now.
+            </DialogDescription>
+          </DialogHeader>
+          {isLoading ? <div className="py-10 text-center text-sm text-white/40">Reading the family's invoices from Xero…</div>
+            : error ? <div className="rounded-lg border border-red-500/25 bg-red-500/[0.05] p-4 text-sm text-red-400" data-testid="chase-error">{(error as Error).message}</div>
+            : data && (
+            <>
+              <div className="rounded-lg border border-white/[0.08] px-3 py-2 text-[12.5px] space-y-0.5 break-words">
+                <div><span className="text-white/40">To</span> <span className="text-white">{data.to}</span></div>
+                <div><span className="text-white/40">From</span> <span className="text-white/80">{data.from}</span></div>
+                <div><span className="text-white/40">Subject</span> <span className="text-white/80">{data.subject}</span></div>
+                <div><span className="text-white/40">Covers</span> <span className="text-white/80">{data.invoices.map((i) => `${i.invoiceNumber} ${money(i.owedCents)}`).join(" · ")} = <b>{money(data.totalCents)}</b></span></div>
+                {data.invoices.some((i) => !i.hasPayLink) && <div className="text-amber-400">Xero gave no pay link for one invoice; that line shows the bank details only.</div>}
+              </div>
+              {data.lastSent && (
+                <div className={`rounded-lg border px-3 py-2 text-[12px] ${data.blockedUntil ? "border-amber-500/25 bg-amber-500/[0.06] text-amber-400" : "border-white/[0.08] text-white/50"}`} data-testid="chase-last-sent">
+                  {data.lastSent.by} last sent one of these to {data.lastSent.to} on {time(data.lastSent.at)}.
+                  {data.blockedUntil && <> You can send another after {time(data.blockedUntil)}.</>}
+                </div>
+              )}
+              <label className="block text-[12px] text-white/50">
+                Add a personal line (optional, shows after the opening)
+                <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} className="premium-input w-full mt-1 px-3 py-2 text-[12.5px]" placeholder="e.g. Great to see Jack at training this week." data-testid="chase-note" />
+              </label>
+              <div className={`rounded-lg overflow-hidden border border-white/[0.08] bg-white ${isFetching ? "opacity-70" : ""}`}>
+                <iframe title="Email preview" srcDoc={data.html} sandbox="" className="w-full h-[440px] block bg-white" data-testid="chase-preview" />
+              </div>
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                <button onClick={onClose} className="rounded-lg border border-white/[0.1] px-4 py-2 text-[12.5px] text-white/70 hover:text-white cursor-pointer min-h-[40px]">Cancel</button>
+                <button onClick={send} disabled={sending || !!data.blockedUntil || isFetching}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12.5px] font-semibold text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-h-[40px] ${esc ? "bg-red-600 hover:bg-red-500" : "bg-blue-600 hover:bg-blue-500"}`} data-testid="chase-send">
+                  <Send className="w-3.5 h-3.5" /> {sending ? "Sending…" : esc ? "Send escalation" : "Send reminder"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -195,6 +195,7 @@ const CANARIES: Canary[] = [
   { feature: "venue player pay",     path: "/api/admin/venue/splits",                   expect: [401] },
   // Payments due (2026-11-04): every fee a CUFC family still owes, from Xero, by programme/age/family/term.
   { feature: "payments due",         path: "/api/admin/payments-due",                   expect: [401] },
+  { feature: "payments chase emails", path: "/api/admin/payments-due/chase/preview",    expect: [401] },
   // NZ Post eShip (2026-11-04): shop delivery orders → eShip, tracking back.
   { feature: "shop eship",           path: "/api/admin/shop-orders/eship/status",      expect: [401] },
 ];
@@ -217,6 +218,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/rambo/threads":             { file: "server/rambo-routes.ts",        needle: "/api/admin/rambo/threads" },
   "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
   "/api/admin/payments-due":              { file: "server/payments-due-routes.ts", needle: "/api/admin/payments-due" },
+  "/api/admin/payments-due/chase/preview": { file: "server/payments-due-routes.ts", needle: "/api/admin/payments-due/chase/preview" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },
   "/api/admin/chat/bootstrap":            { file: "server/staff-chat-routes.ts",   needle: "/api/admin/chat/bootstrap" },
