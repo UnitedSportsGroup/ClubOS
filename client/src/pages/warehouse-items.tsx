@@ -669,7 +669,7 @@ export default function WarehouseItems() {
               className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap border flex items-center gap-2 min-h-[44px] ${on ? "bg-blue-600 border-blue-600 text-white" : "bg-white/[0.02] border-white/10 text-white/70 hover:bg-white/[0.06]"}`}
             >
               {s.label}
-              <span className={`text-[11px] ${on ? "text-white/80" : "text-white/40"}`}>{s.products}</span>
+              <span className={`text-[11px] font-semibold ${on ? "text-white" : "text-white/40"}`}>{s.products}</span>
             </button>
           );
         })}
