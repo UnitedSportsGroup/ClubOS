@@ -18,6 +18,19 @@ import { db } from "./db";
 import { requireAuth, requireTab } from "./auth";
 import { runMovementGroup } from "./warehouse";
 import { normaliseSku, locationLabel } from "@shared/warehouse";
+import { cleanProductHtml, productHtmlToText } from "@shared/product-html";
+import multer from "multer";
+import { shrinkForEmail } from "./mailer-image-shrink";
+import { storeMailerImage } from "./mailer-images";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
+const UNITS = ["g", "kg", "ml", "l", "cm", "m", "item"];
+function num(v: unknown, max = 1e7): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > max) throw new ProductError("Numbers must be 0 or more");
+  return n;
+}
 
 // Brand ⇄ the organisation that owns its shop (server/shop-routes.ts SHOP_BRANDS).
 const SHOP_ORG: Record<string, { orgId: number; storefront: string; name: string }> = {
@@ -138,9 +151,12 @@ export function registerWarehouseProductRoutes(app: Express) {
       const brand = brandForOrg(Number(p.organization_id));
       if (!brand) return res.status(404).json({ message: "Product not found" });
       const colours = await rows(sql`SELECT id, name, swatch_hex, sort_order, active FROM shop_product_colours WHERE product_id = ${id} ORDER BY sort_order, id`);
-      const images = await rows(sql`SELECT id, colour_id, url, alt FROM shop_product_images WHERE product_id = ${id} ORDER BY (colour_id IS NOT NULL), sort_order, id`);
+      const collections = await rows(sql`SELECT c.id, c.title, (pc.product_id IS NOT NULL) AS on_it FROM shop_collections c
+        LEFT JOIN shop_product_collections pc ON pc.collection_id = c.id AND pc.product_id = ${id}
+        WHERE c.organization_id = ${p.organization_id} ORDER BY c.sort_order, c.title`);
+      const images = await rows(sql`SELECT id, colour_id, url, alt FROM shop_product_images WHERE product_id = ${id} ORDER BY sort_order, (colour_id IS NOT NULL), id`);
       const variants = await rows(sql`
-        SELECT v.id, v.colour_id, v.size, v.sku, v.active, v.price_cents, w.id AS item_id, w.sku AS wh_sku
+        SELECT v.*, w.id AS item_id, w.sku AS wh_sku
         FROM shop_variants v LEFT JOIN wh_items w ON w.shop_variant_id = v.id
         WHERE v.product_id = ${id} ORDER BY v.colour_id, v.id`);
       const itemIds = variants.map((v) => v.item_id).filter((x) => x != null).map(Number);
@@ -153,8 +169,13 @@ export function registerWarehouseProductRoutes(app: Express) {
       res.json({
         id, brand,
         shopName: SHOP_ORG[brand].name,
+        warehouseDriven: (await import("./shop-warehouse-link")).warehouseDrivesShop(brand),
         storefrontUrl: `${SHOP_ORG[brand].storefront}/products/${p.slug}`,
         slug: p.slug, title: p.title, subtitle: p.subtitle, description: p.description,
+        descriptionHtml: p.description_html ?? null,
+        tags: (p.tags as string[] | null) ?? [],
+        seoTitle: p.seo_title ?? null, seoDescription: p.seo_description ?? null,
+        collections: collections.map((c) => ({ id: Number(c.id), title: c.title, assigned: !!c.on_it })),
         type: p.type, status: p.status, priceCents: Number(p.price_cents),
         compareAtCents: p.compare_at_cents == null ? null : Number(p.compare_at_cents),
         updatedAt: p.updated_at,
@@ -166,6 +187,24 @@ export function registerWarehouseProductRoutes(app: Express) {
           id: Number(v.id), colourId: Number(v.colour_id), size: v.size, sku: v.sku, active: v.active,
           priceCents: v.price_cents == null ? null : Number(v.price_cents),
           itemId: v.item_id == null ? null : Number(v.item_id), warehouseSku: v.wh_sku ?? null,
+          barcode: v.barcode ?? null,
+          compareAtCents: v.compare_at_cents == null ? null : Number(v.compare_at_cents),
+          costCents: v.cost_cents == null ? null : Number(v.cost_cents),
+          chargeTax: v.charge_tax !== false,
+          unitPriceMeasure: v.unit_price_measure == null ? null : Number(v.unit_price_measure),
+          unitPriceUnit: v.unit_price_unit ?? null,
+          unitPriceBaseMeasure: v.unit_price_base_measure == null ? null : Number(v.unit_price_base_measure),
+          unitPriceBaseUnit: v.unit_price_base_unit ?? null,
+          trackInventory: v.track_inventory !== false,
+          continueSelling: v.continue_selling === true,
+          physical: v.physical !== false,
+          weightGrams: v.weight_grams == null ? null : Number(v.weight_grams),
+          lengthCm: v.length_cm == null ? null : Number(v.length_cm),
+          widthCm: v.width_cm == null ? null : Number(v.width_cm),
+          heightCm: v.height_cm == null ? null : Number(v.height_cm),
+          countryOfOrigin: v.country_of_origin ?? null,
+          hsCode: v.hs_code ?? null,
+          shopStock: Number(v.stock),
           stock: Object.fromEntries(stock.filter((s) => Number(s.item_id) === Number(v.item_id)).map((s) => [String(s.location_id), Number(s.on_hand)])),
         })),
       });
@@ -250,7 +289,19 @@ export function registerWarehouseProductRoutes(app: Express) {
           if (!t) throw new ProductError("Title can't be blank");
           sets.push(sql`title = ${t}`);
         }
-        if (b.description !== undefined) sets.push(sql`description = ${cleanText(b.description)}`);
+        if (b.descriptionHtml !== undefined) {
+          // Rich text is cleaned on the server, and the plain text the
+          // storefronts render today is kept in step from it.
+          const html = cleanProductHtml(b.descriptionHtml);
+          sets.push(sql`description_html = ${html || null}`);
+          sets.push(sql`description = ${productHtmlToText(html) || null}`);
+        } else if (b.description !== undefined) sets.push(sql`description = ${cleanText(b.description)}`);
+        if (b.tags !== undefined) {
+          const tags = Array.from(new Set((Array.isArray(b.tags) ? b.tags : []).map((t: unknown) => String(t).trim()).filter(Boolean))).slice(0, 50);
+          sets.push(sql`tags = ${sql`ARRAY[${sql.join(tags.map((t) => sql`${t}`), sql`, `)}]::text[]`}`);
+        }
+        if (b.seoTitle !== undefined) sets.push(sql`seo_title = ${cleanText(b.seoTitle)?.slice(0, 70) ?? null}`);
+        if (b.seoDescription !== undefined) sets.push(sql`seo_description = ${cleanText(b.seoDescription)?.slice(0, 320) ?? null}`);
         if (b.status !== undefined) {
           if (!STATUSES.includes(b.status)) throw new ProductError("Status must be Active, Draft or Archived");
           sets.push(sql`status = ${b.status}`);
@@ -259,6 +310,54 @@ export function registerWarehouseProductRoutes(app: Express) {
         if (b.priceCents !== undefined) sets.push(sql`price_cents = ${cents(b.priceCents) ?? 0}`);
         if (b.compareAtCents !== undefined) sets.push(sql`compare_at_cents = ${cents(b.compareAtCents)}`);
         await tx.execute(sql`UPDATE shop_products SET ${sql.join(sets, sql`, `)} WHERE id = ${id}`);
+        if (b.collectionIds !== undefined) {
+          const ids = (Array.isArray(b.collectionIds) ? b.collectionIds : []).map(Number).filter(Number.isInteger);
+          await tx.execute(sql`DELETE FROM shop_product_collections WHERE product_id = ${id}`);
+          for (const cid of ids) {
+            await tx.execute(sql`INSERT INTO shop_product_collections (product_id, collection_id)
+              SELECT ${id}, c.id FROM shop_collections c WHERE c.id = ${cid} AND c.organization_id = ${p.organization_id}
+              ON CONFLICT DO NOTHING`);
+          }
+        }
+        // Every per-variant field Shopify has — only the keys sent are written.
+        for (const v of Array.isArray(b.variants) ? b.variants : []) {
+          const vid = Number(v?.id);
+          if (!Number.isInteger(vid)) continue;
+          const vs: any[] = [];
+          const has = (k: string) => Object.prototype.hasOwnProperty.call(v, k);
+          if (has("priceCents")) vs.push(sql`price_cents = ${cents(v.priceCents)}`);
+          if (has("compareAtCents")) vs.push(sql`compare_at_cents = ${cents(v.compareAtCents)}`);
+          if (has("costCents")) vs.push(sql`cost_cents = ${cents(v.costCents)}`);
+          if (has("chargeTax")) vs.push(sql`charge_tax = ${v.chargeTax !== false}`);
+          if (has("sku")) vs.push(sql`sku = ${cleanText(v.sku)}`);
+          if (has("barcode")) vs.push(sql`barcode = ${cleanText(v.barcode)}`);
+          if (has("trackInventory")) vs.push(sql`track_inventory = ${v.trackInventory !== false}`);
+          if (has("continueSelling")) vs.push(sql`continue_selling = ${v.continueSelling === true}`);
+          if (has("physical")) vs.push(sql`physical = ${v.physical !== false}`);
+          if (has("weightGrams")) vs.push(sql`weight_grams = ${num(v.weightGrams, 1e6)}`);
+          if (has("lengthCm")) vs.push(sql`length_cm = ${num(v.lengthCm, 1e4)}`);
+          if (has("widthCm")) vs.push(sql`width_cm = ${num(v.widthCm, 1e4)}`);
+          if (has("heightCm")) vs.push(sql`height_cm = ${num(v.heightCm, 1e4)}`);
+          if (has("countryOfOrigin")) {
+            const c = cleanText(v.countryOfOrigin)?.toUpperCase() ?? null;
+            if (c && !/^[A-Z]{2}$/.test(c)) throw new ProductError("Country of origin is a 2-letter code, e.g. CN or NZ");
+            vs.push(sql`country_of_origin = ${c}`);
+          }
+          if (has("hsCode")) {
+            const h = cleanText(v.hsCode)?.replace(/[.\s]/g, "") ?? null;
+            if (h && !/^[0-9]{6,10}$/.test(h)) throw new ProductError("An HS code is 6 to 10 digits");
+            vs.push(sql`hs_code = ${h}`);
+          }
+          if (has("unitPriceMeasure")) vs.push(sql`unit_price_measure = ${num(v.unitPriceMeasure)}`);
+          if (has("unitPriceBaseMeasure")) vs.push(sql`unit_price_base_measure = ${num(v.unitPriceBaseMeasure)}`);
+          for (const k of ["unitPriceUnit", "unitPriceBaseUnit"]) {
+            if (!has(k)) continue;
+            const u = cleanText(v[k]);
+            if (u && !UNITS.includes(u)) throw new ProductError("Unknown unit");
+            vs.push(k === "unitPriceUnit" ? sql`unit_price_unit = ${u}` : sql`unit_price_base_unit = ${u}`);
+          }
+          if (vs.length) await tx.execute(sql`UPDATE shop_variants SET ${sql.join(vs, sql`, `)} WHERE id = ${vid} AND product_id = ${id}`);
+        }
         for (const vp of Array.isArray(b.variantPrices) ? b.variantPrices : []) {
           await tx.execute(sql`UPDATE shop_variants SET price_cents = ${cents(vp.priceCents)} WHERE id = ${Number(vp.variantId)} AND product_id = ${id}`);
         }
@@ -326,5 +425,78 @@ export function registerWarehouseProductRoutes(app: Express) {
         Object.entries(b.quantities ?? {}).map(([loc, qty]) => ({ itemId: made.itemId, locationId: Number(loc), qty: Number(qty) })));
       res.status(201).json(made);
     } catch (e) { fail(res, e, "add the variant"); }
+  });
+
+  // ── Collections (Shopify's manual collections), per shop ──────────────────
+  app.get("/api/admin/warehouse/collections", ...gate, async (req: Request, res: Response) => {
+    try {
+      const shop = SHOP_ORG[String(req.query.shop ?? "")];
+      if (!shop) return res.status(400).json({ message: "Which shop?" });
+      const list = await rows(sql`SELECT c.id, c.title, c.handle, (SELECT count(*) FROM shop_product_collections pc WHERE pc.collection_id = c.id) AS products
+        FROM shop_collections c WHERE c.organization_id = ${shop.orgId} ORDER BY c.sort_order, c.title`);
+      res.json(list.map((c) => ({ id: Number(c.id), title: c.title, handle: c.handle, products: Number(c.products) })));
+    } catch (e) { fail(res, e, "load collections"); }
+  });
+  app.post("/api/admin/warehouse/collections", ...gate, async (req: Request, res: Response) => {
+    try {
+      const shop = SHOP_ORG[String(req.body?.shop ?? "")];
+      const title = cleanText(req.body?.title);
+      if (!shop) throw new ProductError("Which shop?");
+      if (!title) throw new ProductError("A collection needs a name");
+      const handle = slugify(title);
+      const r = (await rows(sql`INSERT INTO shop_collections (organization_id, title, handle, sort_order)
+        VALUES (${shop.orgId}, ${title}, ${handle}, (SELECT coalesce(max(sort_order),0)+1 FROM shop_collections WHERE organization_id = ${shop.orgId}))
+        ON CONFLICT (organization_id, handle) DO UPDATE SET title = shop_collections.title
+        RETURNING id, title`))[0];
+      res.status(201).json({ id: Number(r.id), title: r.title });
+    } catch (e) { fail(res, e, "create the collection"); }
+  });
+
+  // ── Media: upload (shrunk + stored by ClubOS), delete, reorder ────────────
+  app.post("/api/admin/warehouse/products/:id/images", ...gate,
+    (req: Request, res: Response, next) => upload.array("files", 10)(req, res, (err: any) => {
+      if (!err) return next();
+      res.status(400).json({ message: err?.code === "LIMIT_FILE_SIZE" ? "A photo is over 20MB — export a smaller copy." : (err?.message || "Upload failed") });
+    }),
+    async (req: Request, res: Response) => {
+      try {
+        const id = Number(req.params.id);
+        const p = (await rows(sql`SELECT id, organization_id, title FROM shop_products WHERE id = ${id}`))[0];
+        if (!p || !brandForOrg(Number(p.organization_id))) return res.status(404).json({ message: "Product not found" });
+        const files = ((req as any).files ?? []) as { buffer: Buffer; originalname: string; size: number }[];
+        if (!files.length) return res.status(400).json({ message: "No photo arrived — pick one and try again." });
+        const colourId = req.body?.colourId ? Number(req.body.colourId) : null;
+        let sort = Number((await rows(sql`SELECT coalesce(max(sort_order),0) AS n FROM shop_product_images WHERE product_id = ${id}`))[0].n);
+        const added: { id: number; url: string }[] = [];
+        const refused: string[] = [];
+        for (const f of files) {
+          const shrunk = await shrinkForEmail(f.buffer);
+          if (!shrunk.ok) { refused.push(`${f.originalname}: ${shrunk.message}`); continue; }
+          const stored = await storeMailerImage({ orgId: Number(p.organization_id), userId: req.session.userId ?? null, originalName: f.originalname, originalBytes: f.size, image: shrunk.image });
+          const r = (await rows(sql`INSERT INTO shop_product_images (product_id, colour_id, url, alt, sort_order)
+            VALUES (${id}, ${colourId}, ${stored.url}, ${p.title}, ${++sort}) RETURNING id`))[0];
+          added.push({ id: Number(r.id), url: stored.url });
+        }
+        res.status(added.length ? 201 : 400).json({ added, refused, message: refused.length ? refused.join(" · ") : undefined });
+      } catch (e) { fail(res, e, "upload the photo"); }
+    });
+  app.delete("/api/admin/warehouse/products/:id/images/:imageId", ...gate, async (req: Request, res: Response) => {
+    try {
+      const r = await db.execute(sql`DELETE FROM shop_product_images WHERE id = ${Number(req.params.imageId)} AND product_id = ${Number(req.params.id)} RETURNING id`);
+      if (!r.rows.length) return res.status(404).json({ message: "Photo not found" });
+      res.json({ ok: true });
+    } catch (e) { fail(res, e, "remove the photo"); }
+  });
+  // Body: { ids: number[] } — the new order, first = the main photo.
+  app.post("/api/admin/warehouse/products/:id/images/order", ...gate, async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(Number.isInteger);
+      await db.transaction(async (tx) => {
+        let i = 0;
+        for (const imageId of ids) await tx.execute(sql`UPDATE shop_product_images SET sort_order = ${++i} WHERE id = ${imageId} AND product_id = ${id}`);
+      });
+      res.json({ ok: true });
+    } catch (e) { fail(res, e, "reorder the photos"); }
   });
 }

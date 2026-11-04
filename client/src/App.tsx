@@ -399,6 +399,7 @@ function AdminRouter() {
         <Route path="/admin/warehouse/items" component={WarehouseItems} />
         <Route path="/admin/warehouse/products" component={WarehouseItems} />
         <Route path="/admin/warehouse/products/:id" component={WarehouseProduct} />
+        <Route path="/admin/warehouse/products/:id/variants/:vid" component={WarehouseProduct} />
         <Route path="/admin/warehouse/transfers" component={WarehouseTransfers} />
         <Route path="/admin/warehouse/transfers/:id" component={WarehouseTransfers} />
         <Route path="/admin/warehouse/locations" component={WarehouseLocations} />

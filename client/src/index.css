@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 136 translucent white utilities → dark ink on light */
+/* 137 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -280,6 +280,7 @@ html:not(.dark) .hover\:bg-white\/\[0\.05\]:hover { background-color: rgb(15 23 
 html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(15 23 42 / 0.04) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.07\]:hover { background-color: rgb(15 23 42 / 0.045) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover { background-color: rgb(15 23 42 / 0.05) !important; }
+html:not(.dark) .hover\:bg-white\/\[0\.09\]:hover { background-color: rgb(15 23 42 / 0.055) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.1\]:hover { background-color: rgb(15 23 42 / 0.06) !important; }
 html:not(.dark) .hover\:bg-white\/\[0\.12\]:hover { background-color: rgb(15 23 42 / 0.07) !important; }
 html:not(.dark) .hover\:bg-white\/10:hover { background-color: rgb(15 23 42 / 0.06) !important; }
@@ -1369,3 +1370,14 @@ html:not(.dark) [class*="divide-blue-500\/\[0\.04\]"] > * + * { border-color: hs
     transform: none !important;
   }
 }
+
+/* Product description editor (warehouse-product parts.tsx RichText) — the
+   base reset strips list bullets and heading sizes, so put them back inside
+   the editor only. */
+.prose-description ul { list-style: disc; padding-left: 1.25rem; margin: 0.25rem 0; }
+.prose-description ol { list-style: decimal; padding-left: 1.25rem; margin: 0.25rem 0; }
+.prose-description h2 { font-size: 1.15rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.prose-description h3 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.prose-description blockquote { border-left: 3px solid currentColor; opacity: 0.8; padding-left: 0.75rem; margin: 0.5rem 0; }
+.prose-description p { margin: 0.25rem 0; }
+.prose-description a { text-decoration: underline; }

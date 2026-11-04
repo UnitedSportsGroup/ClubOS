@@ -43,6 +43,8 @@ import {
 } from "@shared/schema";
 // T13 — WMS reservation on payment-confirm (dark-launched, see finalizeShopOrderPaid).
 import { runReserveStock, runReleaseReservationsForRef } from "./warehouse";
+import { canSell, inStock as shopInStock } from "@shared/shop-stock";
+import { recordShopMovement, reverseRecordedSale } from "./shop-warehouse-link";
 
 // ─── Brand registry — add a row per brand to open a new store ──────────────
 
@@ -515,7 +517,7 @@ async function priceCart(
     const variant = variants.find((v) => v.colourId === colour.id && v.size === it.size && v.active);
     if (!variant) throw new ShopError(`Size ${it.size} is no longer available for ${product.title}.`);
     demand.set(variant.id, (demand.get(variant.id) || 0) + it.qty);
-    if (demand.get(variant.id)! > variant.stock) {
+    if (!canSell(variant, demand.get(variant.id)!)) {
       throw new ShopError(`${product.title} (${colour.name} · ${it.size}) is out of stock.`, 409);
     }
     const image = images.find((im) => im.colourId === colour.id) || images.find((im) => im.productId === product.id && im.colourId == null) || null;
@@ -682,6 +684,7 @@ export function shopDownloadPageUrl(orgId: number, orderToken: string): string |
 
 /** A fully refunded till sale takes its Store orders (and photo downloads) with it. */
 export async function markPosSaleShopOrdersRefunded(saleId: number): Promise<void> {
+  await reverseRecordedSale(`pos-sale:${saleId}:sale`, `pos-sale:${saleId}:return`, `Till sale ${saleId} refunded`, null);
   await db.update(shopOrders).set({ status: "refunded", updatedAt: new Date() } as any)
     .where(and(eq(shopOrders.posSaleId, saleId), sql`${shopOrders.status} <> 'refunded'`));
 }
@@ -767,6 +770,17 @@ export async function finalizeShopOrderPaid(orderId: number, paymentIntentId: st
       }
     }
   }
+
+  // The warehouse is the stock of record for a shop switched on in
+  // WH_STOCK_BRANDS: the sale comes out of it (and the shop's count follows).
+  await recordShopMovement({
+    lines: items.filter((i) => i.variantId).map((i) => ({ variantId: i.variantId!, qty: i.qty })),
+    sign: -1,
+    ref: { kind: "shop_order", id: order.id },
+    operatorUserId: null,
+    idempotencyKey: `shop-order:${order.id}:sale`,
+    note: `Online order ${order.orderNumber ?? order.id}`,
+  });
 
   // Discount usage.
   if (order.discountCode) {
@@ -959,6 +973,16 @@ async function finalizeTeamOrderAllPaid(orderId: number): Promise<void> {
             WHERE colour_id = ${colour.id} AND size = ${size}
           `);
         }
+        const teamLines: { variantId: number; qty: number }[] = [];
+        for (const [size, count] of Array.from(sizeCounts.entries())) {
+          const [v] = await db.select({ id: shopVariants.id }).from(shopVariants)
+            .where(and(eq(shopVariants.colourId, colour.id), eq(shopVariants.size, size)));
+          if (v) teamLines.push({ variantId: v.id, qty: count });
+        }
+        await recordShopMovement({
+          lines: teamLines, sign: -1, ref: { kind: "shop_order", id: order.id }, operatorUserId: null,
+          idempotencyKey: `shop-order:${order.id}:sale`, note: `Team order ${order.orderNumber ?? order.id}`,
+        });
       } else {
         console.error(`[Shop] team order ${order.id}: colour "${item.colourName}" no longer exists — stock not decremented`);
       }
@@ -1261,7 +1285,7 @@ export function registerShopRoutes(app: Express) {
                 .filter((v) => v.colourId === c.id)
                 .map((v) => ({
                   size: v.size,
-                  inStock: v.stock > 0,
+                  inStock: shopInStock(v),
                   // Only variable-price products (e.g. gift cards) carry a per-variant
                   // price; MFL kits leave this null so the field is omitted.
                   ...(v.priceCents != null ? { priceDollars: toDollars(v.priceCents) } : {}),
@@ -1651,7 +1675,7 @@ export function registerShopRoutes(app: Express) {
       for (const [size, count] of Array.from(sizeCounts.entries())) {
         const variant = variants.find((v) => v.size === size);
         if (!variant) throw new ShopError(`Size ${size} isn't available for ${product.title}.`);
-        if (count > variant.stock) {
+        if (!canSell(variant, count)) {
           throw new ShopError(`${product.title} (${colour.name} · ${size}) doesn't have enough stock for your roster.`, 409);
         }
       }
@@ -2410,6 +2434,12 @@ export function registerShopRoutes(app: Express) {
       // stays permanently reduced by a promise that will never be dispatched.
       // Best-effort + idempotent (releaseReservationsForRef only touches
       // still-active reservations): never fails the status update itself.
+      if (status === "cancelled" || status === "refunded") {
+        // Put back exactly what the sale took out of the warehouse — only
+        // ever the mirror of a recorded sale, so an unpaid order moves nothing.
+        await reverseRecordedSale(`shop-order:${updated.id}:sale`, `shop-order:${updated.id}:return`,
+          `Order ${updated.orderNumber ?? updated.id} ${status}`, req.session.userId ?? null);
+      }
       if (process.env.WMS_NATIVE_SYNC === "1" && (status === "cancelled" || status === "refunded")) {
         try {
           await runReleaseReservationsForRef({ kind: "shop_order", id: updated.id });
