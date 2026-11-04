@@ -696,6 +696,9 @@ function AdminRouter() {
       <Route path="/admin/academy/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/academy/:id" component={AdminCampDetail} />
       <Route path="/admin/squads" component={AdminSquads} />
+      {/* e-Sign was in CUFC/SIU's tab list and account menu but never in THIS
+          route list, so it 404'd in both (found 2026-11-04 by the template-builder check). */}
+      <Route path="/admin/esign" component={ESign} />
       <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
       <Route path="/admin/sites" component={AdminSites} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
