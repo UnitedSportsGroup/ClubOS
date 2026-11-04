@@ -142,6 +142,11 @@ app.use(attributionCookieMiddleware);
   const { registerWarehouseV2Routes } = await import("./warehouse-v2-routes");
   registerWarehouseV2Routes(app);
 
+  // Warehouse → Products: one product's page + Add product, Shopify-style
+  // (2026-11-04). Edits the SAME shop product the storefront sells.
+  const { registerWarehouseProductRoutes } = await import("./warehouse-product-routes");
+  registerWarehouseProductRoutes(app);
+
   // Warehouse models (D32–D35): the model layer above the barcoded variants,
   // the autocomplete the counting cockpit runs on, and the catalogue CSV in
   // Dima's column order. Same requireTab("warehouse") gate as v1 and v2.

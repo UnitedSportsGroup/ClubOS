@@ -673,8 +673,11 @@ export default function WarehouseItems() {
           <button onClick={() => setLocation("/admin/warehouse/locations")} className={navButton}>Locations</button>
           <button onClick={() => setLocation("/admin/warehouse/assets")} className={navButton}>Assets</button>
           <button onClick={() => setLocation("/admin/warehouse/fields")} className={navButton}>Fields</button>
-          <Button onClick={() => setCreating(true)} className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
-            <Plus className="w-4 h-4" /> New item
+          <button onClick={() => setCreating(true)} className={navButton} title="A warehouse item with no shop behind it — materials, equipment">
+            <Plus className="w-3.5 h-3.5" /> Item
+          </button>
+          <Button onClick={() => setLocation(`/admin/warehouse/products/new${["cufc", "siu", "mfl", "cic"].includes(activeShop) ? `?shop=${activeShop}` : ""}`)} className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Add product
           </Button>
         </div>
       </div>
@@ -761,12 +764,17 @@ export default function WarehouseItems() {
                   const single = g.items.length === 1 && !g.key.startsWith("p");
                   return (
                     <div key={g.key} className={gi > 0 ? "border-t border-white/5" : ""}>
+                      <div className="w-full flex items-center gap-1 pl-2 pr-4 hover:bg-white/[0.03] min-h-[52px]">
+                        {!single ? (
+                          <button onClick={() => toggleOpen(g.key)} aria-expanded={isOpen} aria-label={isOpen ? "Hide sizes" : "Show sizes"} className="w-9 h-11 flex items-center justify-center flex-shrink-0 rounded-lg hover:bg-white/[0.06]">
+                            {isOpen ? <ChevronDown className="w-4 h-4 text-white/50" /> : <ChevronRight className="w-4 h-4 text-white/50" />}
+                          </button>
+                        ) : <span className="w-9 flex-shrink-0" />}
                       <button
-                        onClick={() => (single ? setDetailId(g.items[0].id) : toggleOpen(g.key))}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.03] min-h-[52px]"
-                        aria-expanded={single ? undefined : isOpen}
+                        onClick={() => (g.key.startsWith("p") ? setLocation(`/admin/warehouse/products/${g.key.slice(1)}`) : setDetailId(g.items[0].id))}
+                        className="flex-1 min-w-0 flex items-center gap-3 py-3 text-left"
+                        data-testid={`product-row-${g.key}`}
                       >
-                        {!single && (isOpen ? <ChevronDown className="w-4 h-4 text-white/40 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-white/40 flex-shrink-0" />)}
                         <Thumb src={g.image} alt={g.title} />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm text-white">
@@ -782,6 +790,7 @@ export default function WarehouseItems() {
                           <div className="text-[10px] text-white/30">on hand</div>
                         </div>
                       </button>
+                      </div>
                       {isOpen && !single && (
                         <div className="bg-white/[0.015] border-t border-white/5">
                           {g.items.map((it) => (
