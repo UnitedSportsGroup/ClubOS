@@ -195,6 +195,8 @@ const CANARIES: Canary[] = [
   { feature: "venue player pay",     path: "/api/admin/venue/splits",                   expect: [401] },
   // Payments due (2026-11-04): every fee a CUFC family still owes, from Xero, by programme/age/family/term.
   { feature: "payments due",         path: "/api/admin/payments-due",                   expect: [401] },
+  // NZ Post eShip (2026-11-04): shop delivery orders → eShip, tracking back.
+  { feature: "shop eship",           path: "/api/admin/shop-orders/eship/status",      expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree

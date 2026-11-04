@@ -78,7 +78,28 @@ class EshipError extends Error {
   constructor(message: string, public status: number, public ambiguous = false) { super(message); }
 }
 
+// The Developer subscription allows 2 calls a second (429 above that); keep
+// every call ≥600ms apart on this machine and retry a 429 a few times.
+let nextSlot = 0;
+async function paced() {
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + 600;
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+}
+
 async function call(creds: Creds, method: "GET" | "POST", path: string, body?: unknown): Promise<any> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await callOnce(creds, method, path, body); }
+    catch (e) {
+      if (e instanceof EshipError && e.status === 429 && attempt < 4) { await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); continue; }
+      throw e;
+    }
+  }
+}
+
+async function callOnce(creds: Creds, method: "GET" | "POST", path: string, body?: unknown): Promise<any> {
+  await paced();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   let res: globalThis.Response;

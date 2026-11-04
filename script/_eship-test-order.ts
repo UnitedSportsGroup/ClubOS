@@ -7,12 +7,21 @@ const apiKey = process.env.ESHIP_API_KEY || "";
 const subKey = process.env.ESHIP_SUBSCRIPTION_KEY || "";
 if (!apiKey || !subKey) { console.error("✗ ESHIP_API_KEY / ESHIP_SUBSCRIPTION_KEY missing from .env"); process.exit(1); }
 const keep = process.argv.includes("--keep");
+const cleanupId = process.argv.find((a) => a.startsWith("--delete="))?.split("=")[1];
 const headers = { "Content-Type": "application/json", "StarShipIT-Api-Key": apiKey, "Ocp-Apim-Subscription-Key": subKey };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function call(method: string, path: string, body?: unknown) {
+  await sleep(1100);
   const r = await fetch(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const t = await r.text();
   let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
   return { status: r.status, json: j, text: t.slice(0, 300) };
+}
+if (cleanupId) {
+  for (const [m, path, body] of [["DELETE", `/api/orders/delete?order_id=${cleanupId}`, undefined], ["DELETE", "/api/orders/delete", { order_id: Number(cleanupId) }], ["POST", "/api/orders/archive", { order_id: Number(cleanupId) }]] as const) {
+    const r = await call(m, path, body); console.log(m, path, r.status, r.text.slice(0, 120)); if (r.status === 200 && r.json?.success !== false) break;
+  }
+  process.exit(0);
 }
 const num = `TEST-CLUBOS-${Date.now().toString().slice(-6)}`;
 const created = await call("POST", "/api/orders", { order: {
@@ -32,5 +41,6 @@ const shipped = await call("GET", `/api/orders/shipped?limit=1`);
 console.log(shipped.status === 200 ? "✓ shipped list readable (tracking sync will work)" : `✗ shipped list: HTTP ${shipped.status} ${shipped.text}`);
 if (keep) { console.log(`… left in eShip's New tab as ${num}`); process.exit(0); }
 let del = await call("DELETE", `/api/orders/delete?order_id=${id}`);
-if (del.status !== 200 || del.json?.success === false) del = await call("DELETE", `/api/orders/delete`, { order_id: id });
+if (del.status !== 200 || del.json?.success === false) { console.log(`  (delete by query: ${del.status})`); del = await call("DELETE", `/api/orders/delete`, { order_id: id }); }
+if (del.status !== 200 || del.json?.success === false) { console.log(`  (delete by body: ${del.status} ${del.text})`); del = await call("POST", `/api/orders/archive`, { order_id: id }); if (del.status === 200) console.log("  archived instead of deleted"); }
 console.log(del.status === 200 && del.json?.success !== false ? "✓ deleted the test order" : `✗ delete: HTTP ${del.status} ${del.text} — remove ${num} in eShip by hand`);
