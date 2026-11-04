@@ -72,6 +72,9 @@ import {
   type RefKind, type MovementType, type ReasonCode, type PoStatus, type RequisitionStatus,
   type LoanStatus, type ConditionGrade, type CountStatus, type CountLineResolution,
   type ShopifyStoreKey,
+  shopCategoryFor,
+  locationLabel,
+  transferNumber,
 } from "@shared/warehouse";
 import {
   runReserveStock,
@@ -624,6 +627,270 @@ export function registerWarehouseRoutes(app: Express) {
   // Items — everything stocked (D4: brand_owner is part of an item's
   // identity, never a pooled row across brands).
   // ═══════════════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Transfers (2026-11-04) — Shopify's Transfers, stage 1. A transfer is a
+  // document (from → to, lines, reference, note, who); stock moves ONLY when
+  // it is marked transferred, as ONE movement group (−qty at the origin,
+  // +qty at the destination for every line) tagged ref 'transfer'/id, in the
+  // same database transaction that stamps the transfer. Drafts move nothing.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function markTransferred(transferId: number, userId: number) {
+    const result = await db.transaction(async (tx) => {
+      const head = (await tx.execute(sql`
+        SELECT t.id, t.status, t.reference,
+               o.id AS o_id, o.code AS o_code, o.kind AS o_kind, o.active AS o_active,
+               d.id AS d_id, d.code AS d_code, d.kind AS d_kind, d.active AS d_active
+        FROM wh_transfers t
+        JOIN wh_locations o ON o.id = t.origin_location_id
+        JOIN wh_locations d ON d.id = t.destination_location_id
+        WHERE t.id = ${transferId}
+        FOR UPDATE OF t`)).rows[0] as Record<string, any> | undefined;
+      if (!head) throw new WarehouseRouteError("Transfer not found", 404);
+      if (head.status !== "draft") throw new WarehouseRouteError("This transfer has already been transferred", 409);
+      if (!head.o_active || !head.d_active) throw new WarehouseRouteError("One of the locations is no longer active");
+      const lines = (await tx.execute(sql`
+        SELECT l.item_id, l.qty, i.allow_negative
+        FROM wh_transfer_lines l JOIN wh_items i ON i.id = l.item_id
+        WHERE l.transfer_id = ${transferId} ORDER BY l.id`)).rows as Array<Record<string, any>>;
+      if (lines.length === 0) throw new WarehouseRouteError("A transfer needs at least one product");
+      const legs = lines.flatMap((l) => buildLocationMoveLegs(
+        { id: Number(l.item_id), allowNegative: !!l.allow_negative },
+        { id: Number(head.o_id), code: head.o_code },
+        { id: Number(head.d_id), code: head.d_code },
+        Number(l.qty),
+      ));
+      const group = await postMovementGroup(warehouseDbFromTx(tx), {
+        legs,
+        movementType: "transfer",
+        ref: { kind: "transfer", id: transferId },
+        operatorUserId: userId,
+        idempotencyKey: `transfer:${transferId}`,
+        note: head.reference ? `Transfer ${transferNumber(transferId)} · ${head.reference}` : `Transfer ${transferNumber(transferId)}`,
+      });
+      await tx.execute(sql`
+        UPDATE wh_transfers SET status = 'transferred', transferred_at = now(),
+               transferred_by_user_id = ${userId}, movement_group_id = ${group.groupId}
+        WHERE id = ${transferId}`);
+      return group;
+    });
+    if (!result.alreadyProcessed) notifyMovementCommitted(result.affectedItemIds);
+  }
+
+  app.get("/api/admin/warehouse/transfers", requireAuth, requireTab("warehouse"), async (_req, res) => {
+    try {
+      const rows = (await db.execute(sql`
+        SELECT t.id, t.status, t.reference, t.note, t.created_at, t.transferred_at,
+               o.code AS o_code, o.name AS o_name, d.code AS d_code, d.name AS d_name,
+               trim(coalesce(u.first_name,'') || ' ' || coalesce(u.last_name,'')) AS created_by,
+               (SELECT count(*) FROM wh_transfer_lines l WHERE l.transfer_id = t.id) AS line_count,
+               (SELECT coalesce(sum(l.qty),0) FROM wh_transfer_lines l WHERE l.transfer_id = t.id) AS units
+        FROM wh_transfers t
+        JOIN wh_locations o ON o.id = t.origin_location_id
+        JOIN wh_locations d ON d.id = t.destination_location_id
+        LEFT JOIN users u ON u.id = t.created_by_user_id
+        ORDER BY t.id DESC
+        LIMIT 500`)).rows as Array<Record<string, any>>;
+      const stats = (await db.execute(sql`
+        SELECT count(DISTINCT t.id) AS transfers, coalesce(sum(l.qty),0) AS units, count(DISTINCT l.item_id) AS items
+        FROM wh_transfers t JOIN wh_transfer_lines l ON l.transfer_id = t.id
+        WHERE t.status = 'transferred' AND t.transferred_at > now() - interval '30 days'`)).rows[0] as Record<string, any>;
+      res.json({
+        stats: { transfers: Number(stats.transfers), units: Number(stats.units), items: Number(stats.items) },
+        transfers: rows.map((r) => ({
+          id: Number(r.id),
+          number: transferNumber(Number(r.id)),
+          status: r.status,
+          reference: r.reference ?? null,
+          note: r.note ?? null,
+          origin: locationLabel({ code: r.o_code, name: r.o_name }),
+          destination: locationLabel({ code: r.d_code, name: r.d_name }),
+          createdBy: r.created_by || null,
+          createdAt: r.created_at,
+          transferredAt: r.transferred_at ?? null,
+          lineCount: Number(r.line_count),
+          units: Number(r.units),
+        })),
+      });
+    } catch (e: any) {
+      handleWarehouseError(res, e, "transfers list");
+    }
+  });
+
+  app.get("/api/admin/warehouse/transfers/:id", requireAuth, requireTab("warehouse"), async (req, res) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) return res.status(400).json({ message: "Bad id" });
+      const head = (await db.execute(sql`
+        SELECT t.*, o.code AS o_code, o.name AS o_name, d.code AS d_code, d.name AS d_name,
+               trim(coalesce(u.first_name,'') || ' ' || coalesce(u.last_name,'')) AS created_by,
+               trim(coalesce(x.first_name,'') || ' ' || coalesce(x.last_name,'')) AS transferred_by
+        FROM wh_transfers t
+        JOIN wh_locations o ON o.id = t.origin_location_id
+        JOIN wh_locations d ON d.id = t.destination_location_id
+        LEFT JOIN users u ON u.id = t.created_by_user_id
+        LEFT JOIN users x ON x.id = t.transferred_by_user_id
+        WHERE t.id = ${id}`)).rows[0] as Record<string, any> | undefined;
+      if (!head) return res.status(404).json({ message: "Transfer not found" });
+      const lines = (await db.execute(sql`
+        SELECT l.id, l.item_id, l.qty, i.sku, i.name, p.title AS product_title, c.name AS colour, v.size,
+               coalesce((SELECT on_hand FROM wh_stock s WHERE s.item_id = l.item_id AND s.location_id = ${head.origin_location_id}), 0) AS origin_on_hand,
+               coalesce((SELECT on_hand FROM wh_stock s WHERE s.item_id = l.item_id AND s.location_id = ${head.destination_location_id}), 0) AS destination_on_hand
+        FROM wh_transfer_lines l
+        JOIN wh_items i ON i.id = l.item_id
+        LEFT JOIN shop_variants v ON v.id = i.shop_variant_id
+        LEFT JOIN shop_product_colours c ON c.id = v.colour_id
+        LEFT JOIN shop_products p ON p.id = v.product_id
+        WHERE l.transfer_id = ${id} ORDER BY l.id`)).rows as Array<Record<string, any>>;
+      res.json({
+        id,
+        number: transferNumber(id),
+        status: head.status,
+        reference: head.reference ?? null,
+        note: head.note ?? null,
+        originLocationId: Number(head.origin_location_id),
+        destinationLocationId: Number(head.destination_location_id),
+        origin: locationLabel({ code: head.o_code, name: head.o_name }),
+        destination: locationLabel({ code: head.d_code, name: head.d_name }),
+        createdBy: head.created_by || null,
+        createdAt: head.created_at,
+        transferredBy: head.transferred_by || null,
+        transferredAt: head.transferred_at ?? null,
+        lines: lines.map((l) => ({
+          id: Number(l.id),
+          itemId: Number(l.item_id),
+          qty: Number(l.qty),
+          sku: l.sku,
+          title: l.product_title ?? l.name,
+          variant: [l.colour, l.size].filter(Boolean).join(" / ") || null,
+          originOnHand: Number(l.origin_on_hand),
+          destinationOnHand: Number(l.destination_on_hand),
+        })),
+      });
+    } catch (e: any) {
+      handleWarehouseError(res, e, "transfer");
+    }
+  });
+
+  // Body: { originLocationId, destinationLocationId, reference?, note?,
+  //         lines: [{ itemId, qty }], transferNow?: boolean }
+  app.post("/api/admin/warehouse/transfers", requireAuth, requireTab("warehouse"), async (req, res) => {
+    try {
+      const b = req.body || {};
+      const origin = await resolveRealLocationForMove(b.originLocationId, "originLocationId");
+      const destination = await resolveRealLocationForMove(b.destinationLocationId, "destinationLocationId");
+      if (origin.id === destination.id) throw new WarehouseRouteError("Origin and destination must be different locations");
+      const raw = Array.isArray(b.lines) ? b.lines : [];
+      const merged = new Map<number, number>();
+      for (const l of raw) {
+        const itemId = parseId(l?.itemId);
+        const qty = Number(l?.qty);
+        if (itemId === null) throw new WarehouseRouteError("Every line needs a product");
+        if (!Number.isFinite(qty) || qty <= 0) throw new WarehouseRouteError("Every quantity must be more than zero");
+        merged.set(itemId, (merged.get(itemId) ?? 0) + qty);
+      }
+      if (merged.size === 0) throw new WarehouseRouteError("Add at least one product");
+      const userId = req.session.userId!;
+      const id = await db.transaction(async (tx) => {
+        const t = (await tx.execute(sql`
+          INSERT INTO wh_transfers (origin_location_id, destination_location_id, reference, note, created_by_user_id)
+          VALUES (${origin.id}, ${destination.id}, ${clean(b.reference) ?? null}, ${clean(b.note) ?? null}, ${userId})
+          RETURNING id`)).rows[0] as { id: number };
+        for (const [itemId, qty] of Array.from(merged.entries())) {
+          await tx.execute(sql`INSERT INTO wh_transfer_lines (transfer_id, item_id, qty) VALUES (${t.id}, ${itemId}, ${qty})`);
+        }
+        return Number(t.id);
+      });
+      if (b.transferNow) {
+        try {
+          await markTransferred(id, userId);
+        } catch (e: any) {
+          // The draft is kept so nothing typed is lost; say why the stock didn't move.
+          return res.status(e instanceof WarehouseRouteError ? e.status : 409).json({
+            id, number: transferNumber(id), status: "draft",
+            message: `Saved as a draft — the stock was not moved: ${e.message}`,
+          });
+        }
+      }
+      res.status(201).json({ id, number: transferNumber(id), status: b.transferNow ? "transferred" : "draft" });
+    } catch (e: any) {
+      handleWarehouseError(res, e, "create transfer");
+    }
+  });
+
+  app.post("/api/admin/warehouse/transfers/:id/transfer", requireAuth, requireTab("warehouse"), async (req, res) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) return res.status(400).json({ message: "Bad id" });
+      await markTransferred(id, req.session.userId!);
+      res.json({ id, status: "transferred" });
+    } catch (e: any) {
+      handleWarehouseError(res, e, "mark transferred");
+    }
+  });
+
+  app.delete("/api/admin/warehouse/transfers/:id", requireAuth, requireTab("warehouse"), async (req, res) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) return res.status(400).json({ message: "Bad id" });
+      const r = await db.execute(sql`DELETE FROM wh_transfers WHERE id = ${id} AND status = 'draft' RETURNING id`);
+      if (r.rows.length === 0) throw new WarehouseRouteError("Only a draft can be deleted — a transferred one is part of the stock history", 409);
+      res.json({ ok: true });
+    } catch (e: any) {
+      handleWarehouseError(res, e, "delete transfer");
+    }
+  });
+
+  // The catalogue by SHOP → shop category → product → variant (2026-11-04).
+  // Every item in one light read so the landing page can group it the way each
+  // storefront does. The category is decided by shopCategoryFor() — the same
+  // function the page would use — so the two can never disagree. On hand
+  // counts real places only (zones + bins), never the virtual SUPPLIER/
+  // CUSTOMER/SCRAP/PRODUCTION legs of the ledger.
+  app.get("/api/admin/warehouse/catalogue", requireAuth, requireTab("warehouse"), async (req, res) => {
+    try {
+      const active = parseActiveFilter(req.query.active);
+      const result = await db.execute(sql`
+        SELECT w.id, w.sku, w.name, w.brand_owner, w.category, w.active,
+               p.id AS product_id, p.title AS product_title, p.type AS product_type,
+               p.status AS product_status, p.sort_order AS product_sort,
+               c.name AS colour, v.size, l.code AS location_code,
+               COALESCE((SELECT SUM(s.on_hand) FROM wh_stock s
+                         JOIN wh_locations sl ON sl.id = s.location_id
+                         WHERE s.item_id = w.id AND sl.kind <> 'virtual'), 0) AS on_hand
+        FROM wh_items w
+        LEFT JOIN shop_variants v ON v.id = w.shop_variant_id
+        LEFT JOIN shop_product_colours c ON c.id = v.colour_id
+        LEFT JOIN shop_products p ON p.id = v.product_id
+        LEFT JOIN wh_locations l ON l.id = w.default_location_id
+        ${active === undefined ? sql`` : sql`WHERE w.active = ${active}`}
+        ORDER BY w.id
+      `);
+      const rows = result.rows as Array<Record<string, any>>;
+      res.json(rows.map((r) => {
+        const title = (r.product_title as string | null) ?? (r.name as string);
+        return {
+          id: Number(r.id),
+          sku: r.sku as string,
+          name: r.name as string,
+          shop: r.brand_owner as string,
+          category: shopCategoryFor(r.brand_owner, (r.product_type as string | null) ?? (r.category as string | null), title),
+          productId: r.product_id == null ? null : Number(r.product_id),
+          productTitle: title,
+          productDraft: r.product_status === "draft",
+          productSort: r.product_sort == null ? null : Number(r.product_sort),
+          colour: (r.colour as string | null) ?? null,
+          size: (r.size as string | null) ?? null,
+          locationCode: (r.location_code as string | null) ?? null,
+          onHand: Number(r.on_hand),
+          active: r.active as boolean,
+        };
+      }));
+    } catch (e: any) {
+      handleWarehouseError(res, e, "catalogue");
+    }
+  });
 
   app.get("/api/admin/warehouse/items", requireAuth, requireTab("warehouse"), async (req, res) => {
     try {

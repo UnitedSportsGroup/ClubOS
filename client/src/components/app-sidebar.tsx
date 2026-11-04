@@ -102,6 +102,8 @@ import {
   QrCode,
   TrendingUp,
   KanbanSquare,
+  Package,
+  ArrowLeftRight,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -533,7 +535,14 @@ const printsNav = [
   { tab: "landing", title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
   { tab: "email", title: "Mailer", url: "/admin/print-email", icon: Send },
   { tab: "shop-orders", title: "Shop Orders", url: "/admin/shop-orders", icon: ShoppingBag },
-  { tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse },
+  {
+    tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse,
+    // Shopify's Products ▸ Transfers, copied (2026-11-04) — built stage by stage.
+    children: [
+      { tab: "warehouse", title: "Products", url: "/admin/warehouse/products", icon: Package },
+      { tab: "warehouse", title: "Transfers", url: "/admin/warehouse/transfers", icon: ArrowLeftRight },
+    ],
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 
