@@ -6,6 +6,7 @@ import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
 import { campShirtSize, shirtSizeError, campPageContentOf } from "@shared/camp-shirt-size";
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { officeSellableTerms } from "@shared/office-term-window";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
 import type { Program } from "@shared/schema";
 import { lineCents } from "@shared/registration-split";
@@ -2929,10 +2930,16 @@ export async function registerRoutes(
     return t;
   }
 
-  /** Every term this programme's workspace has, for the counter's term picker. */
+  /**
+   * The terms the counter may sell: the one running now and the next one
+   * (in the holidays, the next two). 🔴 Not every term the workspace has —
+   * listing all of 2027 newest-first put Term 4 2027 at the top of the grid,
+   * and two Term 4 2026 walk-ups were filed under it (5 Nov 2026).
+   */
   async function academyTermsFor(program: any): Promise<any[]> {
     if (!program.organizationId) return [];
-    return db.select().from(terms).where(eq(terms.organizationId, program.organizationId));
+    const all = await db.select().from(terms).where(eq(terms.organizationId, program.organizationId));
+    return officeSellableTerms(all as any[], nzTodayIso());
   }
 
   const ACADEMY_DEFAULT_SESSIONS = 10;   // NZ school term
@@ -5754,7 +5761,7 @@ export async function registerRoutes(
           : null,
         // Every term the counter can sell, each priced in its own right — the
         // one running now costs its remaining sessions, a future one costs the
-        // full term. Sorted newest first so the two that matter are on top.
+        // full term. Only the term running now and the next one (officeSellableTerms).
         terms: (await academyTermsFor(program))
           .map((t: any) => {
             const q = option ? academyQuoteFor(program, t, section, option.fullPriceCents, "term") : null;
@@ -5785,8 +5792,9 @@ export async function registerRoutes(
               // counter would have read "3 of sessions left".
               sessionsTotal: q ? q.totalSessions ?? null : null,
             };
-          })
-          .sort((a: any, b: any) => (b.year - a.year) || (b.termNumber - a.termNumber)),
+          }),
+        // ↑ Already in date order from officeSellableTerms: the term running
+        // now first, then the next one.
         allowFullYear,
         options: sellable.map((o: any) => ({ id: o.id, name: o.name, fullPriceCents: o.fullPriceCents, scheduleText: o.scheduleText })),
         quote,
@@ -6003,6 +6011,11 @@ export async function registerRoutes(
         const term = await academyTermFor(program, askedTermId);
         if (askedTermId != null && !term) {
           return res.status(400).json({ message: "That term doesn't belong to this programme's workspace." });
+        }
+        // 🔴 Same window as the picker: the office sells the term running now
+        // or the next one, never a term a year away (5 Nov 2026).
+        if (askedTermId != null && !(await academyTermsFor(program)).some((t: any) => t.id === askedTermId)) {
+          return res.status(400).json({ message: "The office can only register for the term running now or the next one." });
         }
         if (plan === "year" && !academyFullYearAvailable(section, term?.termNumber ?? null)) {
           return res.status(400).json({ message: "The full-year plan isn't available for this programme right now — it's charged per term." });
