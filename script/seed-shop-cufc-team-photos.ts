@@ -40,6 +40,7 @@ const TEAMS: { slug: string; team: string }[] = [
   { slug: "u9-kakapo", team: "U9 Kakapo" },
   { slug: "u9-magpies", team: "U9 Magpies" },
   { slug: "u9-sparrows", team: "U9 Sparrows" }, // added 19 Oct
+  { slug: "u9-kiwis", team: "U9 Kiwis" }, // added 5 Nov
   { slug: "u10-blue", team: "U10 Blue" },
   { slug: "u10-royal", team: "U10 Royal" },
   { slug: "u10-gold", team: "U10 Gold" },
