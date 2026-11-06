@@ -211,6 +211,10 @@ const Cic7sRegistrations = lazy(() => import("@/pages/cic7s-registrations"));
 const EthnicCupRegistrations = lazy(() => import("@/pages/ethnic-cup-registrations"));
 const FootballFest = lazy(() => import("@/pages/football-fest"));
 const TeamEntries = lazy(() => import("@/pages/team-entries"));
+const CicPackagesAdmin = lazy(() => import("@/pages/cic-packages-admin"));
+const CicPackageTeamPage = lazy(() => import("@/pages/cic-packages/team"));
+const CicPackageJoinPage = lazy(() => import("@/pages/cic-packages/join"));
+const CicPackagePlayerPage = lazy(() => import("@/pages/cic-packages/player"));
 const TeampayEnterPage = lazy(() => import("@/pages/teampay/enter"));
 const TeampayDashboard = lazy(() => import("@/pages/teampay/dashboard"));
 const TeampayPlayerPage = lazy(() => import("@/pages/teampay/player"));
@@ -557,6 +561,7 @@ function AdminRouter() {
         <Route path="/admin/ethnic-cup-registrations" component={EthnicCupRegistrations} />
         <Route path="/admin/football-fest" component={FootballFest} />
         <Route path="/admin/team-entries" component={TeamEntries} />
+        <Route path="/admin/cic-packages" component={CicPackagesAdmin} />
         <Route path="/admin/cic-registrations" component={CicInbox} />
         <Route path="/admin/cic-livechat" component={CicLiveChat} />
         <Route path="/admin/mfl-livechat" component={MflLiveChat} />
@@ -1012,6 +1017,10 @@ function App() {
             <Route path="/captain/teams" component={CaptainTeamsPage} />
             <Route path="/captain" component={CaptainSignInPage} />
             <Route path="/pay/:token" component={TeampayPlayerPage} />
+            {/* CIC 2027 packages (join.cicyouth.com) — token-addressed, no login. */}
+            <Route path="/cic-package/:token" component={CicPackageTeamPage} />
+            <Route path="/cic-join/:token" component={CicPackageJoinPage} />
+            <Route path="/cic-player/:token" component={CicPackagePlayerPage} />
             <Route path="/fill-in/reply/:token" component={TeampayHoldPage} />
             <Route path="/fill-in/:slug" component={TeampayFillinPage} />
             {/* CIC Skills Challenge registration (join.cicyouth.com) */}

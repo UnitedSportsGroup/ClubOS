@@ -274,6 +274,8 @@ app.use(attributionCookieMiddleware);
   // the URL and no login; the staff board is gated by requireTab("team-entries").
   const { registerTeampayRoutes } = await import("./teampay-routes");
   registerTeampayRoutes(app);
+  const { registerCicPackagesRoutes } = await import("./cic-packages-routes");
+  registerCicPackagesRoutes(app);
 
   // The captain's own account — a second door to the same dashboard, never a
   // replacement for the organiser-token links, which keep working untouched.

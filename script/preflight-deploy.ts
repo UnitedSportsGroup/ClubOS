@@ -139,6 +139,10 @@ const CANARIES: Canary[] = [
   { feature: "cic 7s enter bridge",  path: "/api/public/cic7s/register-interest/probe/enter", method: "OPTIONS", expect: [204] },
   { feature: "cic 7s marketplace",   path: "/api/public/teampay/marketplace/cic-summer-7s-2027-open", expect: [200] },
   { feature: "team pay captain login", path: "/api/public/teampay/captain/me", expect: [401] },
+  // CIC 2027 packages (2026-11-06): packages.cicyouth.com books here and takes
+  // the 10% deposit. If a deploy drops it, Book dead-ends for every club.
+  { feature: "cic packages booking", path: "/api/public/cic/packages/booking/00000000000000000000000000000000", expect: [404] },
+  { feature: "cic packages admin",   path: "/api/admin/cic-packages",                                            expect: [401] },
   // The rebuilt dashboard's only endpoint. Silent if it goes: the page falls
   // back to nothing and every workspace's revenue simply stops appearing,
   // which is indistinguishable from a quiet month.

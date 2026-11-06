@@ -216,6 +216,9 @@ const tournamentTabs: TabDef[] = [
   // Team Pay — entered teams, their squads, who has paid, and the fill-in pool.
   // NOT super-admin locked: Isaac runs the tournaments and this is his board.
   { slug: "team-entries", title: "Team Entries", url: "/admin/team-entries" },
+  // CIC 2027 packages — bookings, deposits, players and extras (packages.cicyouth.com).
+  // NOT locked: Isaac and Ryan run it. Shows club manager contacts, no money secrets.
+  { slug: "cic-packages", title: "Packages", url: "/admin/cic-packages" },
   { slug: "store", title: "Store", url: "/admin/store" },
   { slug: "media", title: "Media", url: "/admin/media" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },

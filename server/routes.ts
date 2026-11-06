@@ -19989,6 +19989,12 @@ export async function registerRoutes(
           // Club Events (ticketed dinners etc.). Idempotent: an atomic status flip.
           const { markPaidByPaymentIntent } = await import("./club-events");
           await markPaidByPaymentIntent(paymentIntent);
+        } else if (paymentIntent.metadata?.kind === "cic_package" && paymentIntent.metadata?.cicPkgPaymentId) {
+          // CIC 2027 packages: a deposit, instalment or player payment. Idempotent —
+          // an atomic UPDATE ... WHERE paid_at IS NULL. MUST precede the generic
+          // registrationId branch below.
+          const { markPaidByPaymentIntent } = await import("./cic-packages");
+          await markPaidByPaymentIntent(paymentIntent);
         } else if (paymentIntent.metadata?.kind === "teampay" && paymentIntent.metadata?.teampayPlayerId) {
           // Team Pay: one squad member's share cleared. Idempotent — the flip is
           // an atomic UPDATE ... WHERE paid_at IS NULL, so a webhook retry racing

@@ -379,6 +379,7 @@ const tournamentNav = [
   { tab: "vendors", title: "Vendors", url: "/admin/vendors", icon: UtensilsCrossed },
   { tab: "volunteers", title: "Volunteers", url: "/admin/volunteers", icon: HeartHandshake },
   { tab: "cic-registrations", title: "Registrations", url: "/admin/cic-registrations", icon: Inbox },
+  { tab: "cic-packages", title: "Packages", url: "/admin/cic-packages", icon: Package },
   { tab: "cic-livechat", title: "Live Chat", url: "/admin/cic-livechat", icon: MessageCircle },
   { tab: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer", icon: Mail },
   { tab: "cic-push", title: "Notifications", url: "/admin/cic-push", icon: BellRing },
