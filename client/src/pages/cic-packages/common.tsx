@@ -6,10 +6,12 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Loader2, Lock } from "lucide-react";
 import { brandFor } from "@shared/teampay";
-import { Button, Card, Notice, money } from "../teampay/shell";
+import { Button, Card, Notice } from "../teampay/shell";
 
 export const brand = brandFor("cic");
-export { money };
+/** $1,700.00 — with the thousands comma (Team Pay's money() has none). */
+export const money = (cents: number | null | undefined) =>
+  cents == null ? "—" : "$" + (cents / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
