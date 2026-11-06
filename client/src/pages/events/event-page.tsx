@@ -78,6 +78,9 @@ export default function ClubEventPage() {
           <span style={{ color: brand.mute }}> · {time}</span>
         </p>
         {ev.tagline && <p className="mt-2 max-w-2xl text-[15px] leading-relaxed" style={{ color: brand.mute }}>{ev.tagline}</p>}
+        {data.selling && data.pricing?.current?.salesEnd && (
+          <SalesCountdown brand={brand} endsAt={data.pricing.current.salesEnd} label={`${dollars(data.pricing.current.priceCents)} tickets close in`} banner />
+        )}
       </header>
 
       <div className="grid gap-6 md:grid-cols-[1fr_400px] md:items-start">
@@ -135,12 +138,68 @@ export default function ClubEventPage() {
         </div>
 
         {/* ── tickets ── */}
-        <div className="md:sticky md:top-6 md:order-2">
+        <div id="tickets" className="scroll-mt-4 md:sticky md:top-6 md:order-2">
           <TicketCard brand={brand} slug={slug} data={data} />
         </div>
       </div>
     </TeampayShell>
   );
+}
+
+/**
+ * A live countdown to the moment the ticket on sale stops selling. It reads the
+ * ticket type's own salesEnd, which the server enforces, so the clock is the
+ * truth: when it reaches zero the checkout really does close. Shown only inside
+ * the last 14 days, and never for a ticket with no end date.
+ */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  return now;
+}
+
+function SalesCountdown({ brand, endsAt, label, banner }: { brand: any; endsAt: string; label: string; banner?: boolean }) {
+  const now = useNow();
+  const left = new Date(endsAt).getTime() - now;
+  if (!Number.isFinite(left) || left <= 0 || left > 14 * 86400000) return null;
+  const s = Math.floor(left / 1000);
+  const parts: [number, string][] = [[Math.floor(s / 86400), "days"], [Math.floor(s / 3600) % 24, "hrs"], [Math.floor(s / 60) % 60, "min"], [s % 60, "sec"]];
+  const units = parts[0][0] > 0 ? parts : parts.slice(1);
+  const close = `${nzLongDate(endsAt)}, ${nzClock(endsAt)}`;
+  const clock = (
+    <div className="flex items-start gap-2 sm:gap-3" role="timer" aria-label={`${label} ${units.map(([n, u]) => `${n} ${u}`).join(" ")}`}>
+      {units.map(([n, u]) => (
+        <div key={u} className="min-w-[46px] text-center">
+          <div className="text-[26px] font-bold leading-none tabular-nums sm:text-[30px]" style={{ fontFamily: brand.fontHeading }}>{String(n).padStart(2, "0")}</div>
+          <div className="mt-1 text-[10px] uppercase" style={{ color: brand.mute, letterSpacing: "0.12em" }}>{u}</div>
+        </div>
+      ))}
+    </div>
+  );
+  if (!banner) {
+    return (
+      <div className="mt-4 rounded-xl px-4 py-3" style={{ border: `1px solid ${brand.line}` }}>
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase" style={{ color: brand.accent, letterSpacing: "0.12em" }}><Clock size={13} />{label}</div>
+        {clock}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-5 flex flex-col gap-4 rounded-2xl p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5" style={{ border: `1px solid ${brand.accent}` }}>
+      <div>
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold uppercase" style={{ color: brand.accent, letterSpacing: "0.14em" }}><Clock size={14} />{label}</div>
+        <div className="mt-3">{clock}</div>
+        <div className="mt-2 text-[12px]" style={{ color: brand.mute }}>Sales close {close}. Secure your seat before then.</div>
+      </div>
+      <a href="#tickets" className="inline-flex min-h-[48px] items-center justify-center rounded-full px-6 text-[15px] font-semibold" style={{ background: brand.accent, color: brand.onAccent ?? "#000" }}>Book tickets</a>
+    </div>
+  );
+}
+
+/** Every ticket type has an end date and all of them have passed. */
+function salesEnded(pricing: any): boolean {
+  const all: any[] = pricing?.allTypes ?? [];
+  return all.length > 0 && all.every((t) => t.salesEnd && new Date(t.salesEnd).getTime() <= Date.now());
 }
 
 function windowLabel(t: { salesStart?: string | null; salesEnd?: string | null }): string {
@@ -224,7 +283,7 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
     return (
       <Card brand={brand} className="p-6">
         <h2 className="text-[22px]" style={{ fontFamily: brand.fontHeading, fontWeight: 700 }}>
-          {data.soldOut ? "Sold out" : ev.status === "closed" ? "Ticket sales have closed" : next ? `Tickets open ${nzShortDate(next.salesStart)}` : "Tickets aren't on sale yet"}
+          {data.soldOut ? "Sold out" : (ev.status === "closed" || salesEnded(pricing)) ? "Ticket sales have closed" : next ? `Tickets open ${nzShortDate(next.salesStart)}` : "Tickets aren't on sale yet"}
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed" style={{ color: brand.mute }}>
           {data.soldOut ? "Every seat has gone." : "Check back soon."}{ev.contactEmail ? <> Questions: <a className="underline" href={`mailto:${ev.contactEmail}`}>{ev.contactEmail}</a>.</> : null}
@@ -326,6 +385,7 @@ function TicketCard({ brand, slug, data }: { brand: any; slug: string; data: any
           <span className="text-[20px] font-bold" style={{ fontFamily: brand.fontHeading, color: brand.accent }}>{dollars(firstTable.totalCents)}</span>
         </button>
       )}
+      {current.salesEnd && <SalesCountdown brand={brand} endsAt={current.salesEnd} label="Closes in" />}
       {data.seatsLeft != null && data.seatsLeft <= 30 && (
         <div className="mt-3 text-[13px] font-medium" style={{ color: brand.accent }}>{data.seatsLeft} {data.seatsLeft === 1 ? "seat" : "seats"} left</div>
       )}
