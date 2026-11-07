@@ -19677,6 +19677,44 @@ export async function registerRoutes(
     }
   });
 
+  // Recent bookings for the camp page's bottom-left "A family booked …" toast
+  // (Daniel 2026-11-07, the MFL /recent pattern). REAL paid bookings only —
+  // status 'confirmed' (never pending, never refunded), last 30 days, THIS
+  // camp. 🔴 These are children: no name, no suburb, no email — only how many
+  // children, how many days, which session kind, and when. Nothing invented:
+  // no bookings → an empty list → the page shows nothing.
+  app.get("/api/public/camps/:slug/recent", async (req, res) => {
+    try {
+      const camp = await storage.getProgramBySlug(req.params.slug);
+      if (!camp || !camp.isActive) return res.json({ bookings: [] });
+      const rows = await db.execute(sql`
+        SELECT coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AS at,
+               count(DISTINCT ri.child_id)::int AS children,
+               count(DISTINCT ri.camp_date_id)::int AS days,
+               bool_and(ri.product_type = 'FULL_DAY') AS all_full,
+               bool_and(ri.product_type IN ('MORNING','AFTERNOON')) AS all_half
+          FROM registrations r
+          JOIN registration_items ri ON ri.registration_id = r.id AND ri.camp_date_id IS NOT NULL
+         WHERE r.program_id = ${camp.id}
+           AND r.status = 'confirmed'
+           AND coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') >= now() - interval '30 days'
+         GROUP BY r.id, r.paid_at, r.registered_at
+         ORDER BY 1 DESC
+         LIMIT 8`);
+      const list: any[] = (rows as any).rows ?? (rows as any);
+      const bookings = list
+        .filter((b) => Number(b.days) > 0)
+        .map((b) => ({
+          at: new Date(b.at).toISOString(),
+          children: Math.max(1, Number(b.children) || 1),
+          days: Number(b.days),
+          kind: b.all_full ? "full" : b.all_half ? "half" : "mixed",
+        }));
+      res.set("Cache-Control", "public, max-age=120");
+      res.json({ bookings });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.get("/api/public/resolve-domain", async (req, res) => {
     try {
       const hostname = (req.query.hostname as string || "").toLowerCase().trim();
