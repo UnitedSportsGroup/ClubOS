@@ -49,6 +49,7 @@ const TEAMS: { slug: string; team: string }[] = [
   { slug: "u11-blue", team: "U11 Blue" },
   { slug: "u11-gold", team: "U11 Gold" },
   { slug: "u11-yellow", team: "U11 Yellow" },
+  { slug: "u11-white", team: "U11 White" }, // added 8 Nov
   { slug: "u12-white", team: "U12 White" },
   { slug: "u12-blue", team: "U12 Blue" }, // added 19 Oct (Max's resend)
   { slug: "u13-blue", team: "U13 Blue" },
