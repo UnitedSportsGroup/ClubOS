@@ -98,7 +98,7 @@ async function main() {
   const web = bodies["web-analytics"];
   ok("websites have visitors", web?.totals?.visitors > 1000, `${web?.totals?.visitors} visitors, ${web?.sites?.length} sites`);
   ok("pages are listed, most viewed first", web?.pages?.length > 10 && web.pages[0].views >= web.pages[5].views);
-  ok("the club's own sites are never counted as a referrer", !(web?.referrers ?? []).some((r: any) => /cufc\.co\.nz$|app\.usg\.co\.nz$/.test(r.host)));
+  ok("the club's own sites are never counted as a referrer", !(web?.referrers ?? []).some((r: any) => /cufc\.co\.nz$|usg\.co\.nz$|southislandunited\.com$|cicyouth\.com$|minifootball\.co\.nz$/.test(r.host)));
   const adminWeb = await (await call(admin, "web-analytics/report?period=30d", USG)).json();
   ok("admin and ordinary staff see the same visitors", adminWeb?.totals?.visitors === web?.totals?.visitors, `${adminWeb?.totals?.visitors} vs ${web?.totals?.visitors}`);
   const one = await call(staff, "web-analytics/report?period=30d&site=cufc.co.nz", USG);

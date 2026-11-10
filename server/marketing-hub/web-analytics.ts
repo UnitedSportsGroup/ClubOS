@@ -43,10 +43,10 @@ type PvRow = {
 type EvRow = { event_type: string; session_id: string | null; path: string | null; s: string | null; m: string | null; n: string | null; txt: string | null; href: string | null };
 
 const rawCache = new Map<string, { at: number; p: Promise<unknown[]> }>();
-/** The raw rows for a date range, kept three minutes so changing website does not re-read them. */
+/** The raw rows for a date range, kept ten minutes: reading a month takes ~15s, changing website should take none. */
 function raw<T>(key: string, fn: () => Promise<T[]>): Promise<T[]> {
   const hit = rawCache.get(key);
-  if (hit && Date.now() - hit.at < 3 * 60_000) return hit.p as Promise<T[]>;
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.p as Promise<T[]>;
   const p = fn();
   rawCache.set(key, { at: Date.now(), p });
   p.then((rows) => {
@@ -86,6 +86,13 @@ const behaviourEvents = (from: string, to: string) =>
 
 const STAFF_HOSTS = STAFF_HOST_PATTERN_SOURCES.map((src) => new RegExp(src));
 const isStaffHost = (h: string) => STAFF_HOSTS.some((re) => re.test(h));
+const OWN_HOSTS = Object.keys(SITES);
+/**
+ * One of the club's own sites, listed or not. dinner.southislandunited.com and
+ * packages.cicyouth.com are not in SITES, and a visitor arriving from them has
+ * not been "referred" by another website (found by the live check, 2026-11-10).
+ */
+const isOwnHost = (h: string) => OWN_HOSTS.some((own) => h === own || h.endsWith(`.${own}`));
 
 class Tally {
   visitors = new Set<string>();
@@ -165,7 +172,7 @@ export async function webAnalytics(scope: HubScope, site: string | null): Promis
     tally(days, r.day, r);
     tally(channels, r.channel || "", r);
     tally(devices, r.device || "not recorded", r);
-    if (r.ref && !SITES[normaliseHost(r.ref)] && !isStaffHost(r.ref)) tally(refs, r.ref, r);
+    if (r.ref && !isOwnHost(normaliseHost(r.ref)) && !isStaffHost(r.ref)) tally(refs, r.ref, r);
     if (r.utm_source) tally(utms, JSON.stringify([r.utm_source, r.utm_medium, r.utm_campaign]), r);
     const path = r.path || "/";
     tally(pageTally, `${r.host}|${path}`, r);
@@ -311,7 +318,7 @@ export function registerWebAnalyticsRoutes(app: Express) {
           throw new HubInputError("That website is not in this workspace.");
         }
         const key = `web-analytics|${scope.range.from}|${scope.range.to}|${scope.filter.workspace ?? ""}|${site ?? ""}`;
-        res.json(await cached(key, 2 * 60_000, () => webAnalytics(scope, site)));
+        res.json(await cached(key, 5 * 60_000, () => webAnalytics(scope, site)));
       } catch (e: any) {
         if (e instanceof HubInputError) return res.status(400).json({ message: e.message });
         console.error("[WebAnalytics]", e?.message ?? e);
