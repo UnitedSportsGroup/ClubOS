@@ -22,8 +22,8 @@ import { nzBounds, qSorted, type HubScope } from "./common";
 
 // Host from the page's own URL, lower-cased, with port, trailing dot and "www."
 // removed — the same normalisation as normaliseHost() in shared/marketing-hub.ts.
-const HOST = `lower(regexp_replace(regexp_replace(regexp_replace(substring(t.landing_url from '^https?://([^/?#]+)'), ':[0-9]+$', ''), '[.]$', ''), '^www[.]', ''))`;
-const DAY = `(t."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
+export const HOST = `lower(regexp_replace(regexp_replace(regexp_replace(substring(t.landing_url from '^https?://([^/?#]+)'), ':[0-9]+$', ''), '[.]$', ''), '^www[.]', ''))`;
+export const DAY = `(t."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
 
 /**
  * Page views across the current AND previous period in one pass, each tagged

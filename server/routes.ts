@@ -177,6 +177,8 @@ import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerSocialRoutes } from "./social/routes";
+import { registerWebAnalyticsRoutes } from "./marketing-hub/web-analytics";
+import { registerMarketingChannelRoutes } from "./marketing-hub/channels";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -28049,6 +28051,10 @@ export async function registerRoutes(
   // Social media — Marketing → Social media: every brand's accounts, posts and
   // follower history. Group workspace only. See server/social/ and shared/social.ts.
   registerSocialRoutes(app);
+  // Website analytics — Marketing → Website analytics: one site in depth.
+  registerWebAnalyticsRoutes(app);
+  // Email · SMS · Paid ads · WhatsApp — one report tab each under Marketing.
+  registerMarketingChannelRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 

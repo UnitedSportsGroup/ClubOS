@@ -28,9 +28,10 @@ function divide(numerator: number, denominator: number): number | null {
   return denominator === 0 ? null : numerator / denominator;
 }
 
-export function AdsSection({ query }: { query: string }) {
-  const url = `/api/admin/marketing-hub/ads?${query}`;
-  const trackedUrl = `/api/admin/marketing-hub/tracked?${query}`;
+/** `base` lets the Paid ads tab read the same two reports behind its own permission. */
+export function AdsSection({ query, base = "/api/admin/marketing-hub" }: { query: string; base?: string }) {
+  const url = `${base}/ads?${query}`;
+  const trackedUrl = `${base}/tracked?${query}`;
 
   const { data, isLoading, isError, error, refetch } = useQuery<AdsResponse>({
     queryKey: [url],

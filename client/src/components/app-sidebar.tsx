@@ -105,6 +105,8 @@ import {
   Package,
   ArrowLeftRight,
   AtSign,
+  MousePointerClick,
+  MessageSquare,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -464,6 +466,11 @@ const groupNav = [
     tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
     children: [
       { tab: "social-media", title: "Social media", url: "/admin/social-media", icon: AtSign },
+      { tab: "web-analytics", title: "Website analytics", url: "/admin/web-analytics", icon: MousePointerClick },
+      { tab: "paid-ads", title: "Paid ads", url: "/admin/paid-ads", icon: Megaphone },
+      { tab: "email-stats", title: "Email", url: "/admin/email-stats", icon: Mail },
+      { tab: "sms-stats", title: "SMS", url: "/admin/sms-stats", icon: MessageSquare },
+      { tab: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats", icon: MessageCircle },
     ],
   },
   // Website (2026-11-01) — every club site; who may publish is a per-site grant.

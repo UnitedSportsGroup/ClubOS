@@ -326,6 +326,17 @@ const groupTabs: TabDef[] = [
   // calendar of everything ever posted. Sits under Marketing in the sidebar.
   // NOT locked: it shows what is already public on each platform, plus reach.
   { slug: "social-media", title: "Social media", url: "/admin/social-media" },
+  // Website analytics (2026-11-10, Daniel): one website in depth — visitors,
+  // pages, where people came from, time on page, buttons pressed. Named so it
+  // is not mistaken for "Website" (the tab that PUBLISHES news to the sites).
+  { slug: "web-analytics", title: "Website analytics", url: "/admin/web-analytics" },
+  // The other marketing channels (2026-11-10, Daniel: "the foundational stuff,
+  // all built and mapped out"). REPORT tabs: nothing is sent from them. Email
+  // is sent from each workspace's Mailer; these show what happened afterwards.
+  { slug: "paid-ads", title: "Paid ads", url: "/admin/paid-ads" },
+  { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
+  { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },
+  { slug: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats" },
   // Website — every club site in one list (see cufcExtraTabs for the CUFC copy).
   { slug: "sites", title: "Website", url: "/admin/sites" },
   // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever
