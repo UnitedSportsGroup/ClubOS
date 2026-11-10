@@ -633,7 +633,8 @@ async function runOne(a: AccountRow, trigger: string, opts: SyncOpts): Promise<S
   ]);
   await q(
     `UPDATE social_accounts SET last_error = $2, last_synced_at = CASE WHEN $3 THEN now() ELSE last_synced_at END WHERE id = $1`,
-    [a.id, error, status === "ok"],
+    // A pull that was skipped (the platform is not switched on yet) is not a failure.
+    [a.id, status === "error" ? error : null, status === "ok"],
   );
   if (status === "error") console.error(`[Social] ${label}: ${error}`);
   return { accountId: a.id, label, status, posts, error };
