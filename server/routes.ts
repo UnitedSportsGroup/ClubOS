@@ -179,6 +179,7 @@ import { registerMarketingHubRoutes } from "./marketing-hub/routes";
 import { registerSocialRoutes } from "./social/routes";
 import { registerWebAnalyticsRoutes } from "./marketing-hub/web-analytics";
 import { registerMarketingChannelRoutes } from "./marketing-hub/channels";
+import { registerCampaignRoutes } from "./campaigns/routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -28055,6 +28056,8 @@ export async function registerRoutes(
   registerWebAnalyticsRoutes(app);
   // Email · SMS · Paid ads · WhatsApp — one report tab each under Marketing.
   registerMarketingChannelRoutes(app);
+  // Campaigns — plan a campaign, set its goal, watch it move from real sales.
+  registerCampaignRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 

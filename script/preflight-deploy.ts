@@ -160,6 +160,7 @@ const CANARIES: Canary[] = [
   { feature: "social media",         path: "/api/admin/social/accounts",                expect: [401] },
   { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
   { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },
+  { feature: "campaigns",            path: "/api/admin/campaigns",                      expect: [401] },
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
@@ -266,6 +267,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/social/accounts":           { file: "server/social/routes.ts", needle: "/accounts" },
   "/api/admin/web-analytics/report":      { file: "server/marketing-hub/web-analytics.ts", needle: "/api/admin/web-analytics/report" },
   "/api/admin/email-stats/report":        { file: "server/marketing-hub/channels.ts", needle: "/api/admin/email-stats/report" },
+  "/api/admin/campaigns":                 { file: "server/campaigns/routes.ts", needle: "/api/admin/campaigns" },
   "/api/public/teampay/captain/league/mine": { file: "server/league-captain-routes.ts", needle: "/api/public/teampay/captain/league/mine" },
   "/api/public/teampay/marketplace/mfl-term-4": { file: "server/teampay-captain-routes.ts", needle: "/api/public/teampay/marketplace/:slug" },
   "/api/admin/sites":                     { file: "server/site-routes.ts",         needle: "/api/admin/sites" },

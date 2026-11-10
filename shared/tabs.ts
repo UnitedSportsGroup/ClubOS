@@ -333,6 +333,11 @@ const groupTabs: TabDef[] = [
   // The other marketing channels (2026-11-10, Daniel: "the foundational stuff,
   // all built and mapped out"). REPORT tabs: nothing is sent from them. Email
   // is sent from each workspace's Mailer; these show what happened afterwards.
+  // Campaigns (2026-11-10, Daniel): plan a campaign, set a revenue and sign-up
+  // goal, link what ClubOS sells, and watch the goal move live; tasks, a
+  // timeline, channels and split tests hang off it. Slug is `campaign-planner`
+  // because "campaigns" already means email sends in two other places.
+  { slug: "campaign-planner", title: "Campaigns", url: "/admin/campaigns" },
   { slug: "paid-ads", title: "Paid ads", url: "/admin/paid-ads" },
   { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
   { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },

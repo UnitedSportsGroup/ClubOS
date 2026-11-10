@@ -465,6 +465,7 @@ const groupNav = [
   {
     tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
     children: [
+      { tab: "campaign-planner", title: "Campaigns", url: "/admin/campaigns", icon: Target },
       { tab: "social-media", title: "Social media", url: "/admin/social-media", icon: AtSign },
       { tab: "web-analytics", title: "Website analytics", url: "/admin/web-analytics", icon: MousePointerClick },
       { tab: "paid-ads", title: "Paid ads", url: "/admin/paid-ads", icon: Megaphone },
