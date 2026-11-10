@@ -104,6 +104,7 @@ import {
   KanbanSquare,
   Package,
   ArrowLeftRight,
+  AtSign,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -456,7 +457,15 @@ const groupNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
   // hidden, and two "Marketing" megaphones would be one too many if it returns.
-  { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
+  // Marketing — one section for every marketing tool (Daniel, 10 Nov: "a number of
+  // dropdowns … similar to how finance is"). The section row opens the numbers
+  // hub; each child keeps its own tab.
+  {
+    tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
+    children: [
+      { tab: "social-media", title: "Social media", url: "/admin/social-media", icon: AtSign },
+    ],
+  },
   // Website (2026-11-01) — every club site; who may publish is a per-site grant.
   { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
   // Finance — one section for every money tool (Daniel, 21 Sep: "trim the fat… a dropdown called Finance").

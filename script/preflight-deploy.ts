@@ -155,6 +155,9 @@ const CANARIES: Canary[] = [
   // Marketing hub (2026-09-15): Daniel's one-stop marketing dashboard. A deploy
   // without it would leave a sidebar link to a page whose every section 404s.
   { feature: "marketing hub",        path: "/api/admin/marketing-hub/overview",         expect: [401] },
+  // Social media (2026-11-10): Marketing → Social media. A deploy without it
+  // leaves a sidebar link to a page that cannot load an account.
+  { feature: "social media",         path: "/api/admin/social/accounts",                expect: [401] },
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
@@ -258,6 +261,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/public/club-events/club-dinner-2026": { file: "server/club-events-routes.ts", needle: "/api/public/club-events/:slug" },
   "/api/admin/club-events":               { file: "server/club-events-routes.ts",  needle: "/api/admin/club-events" },
   "/api/admin/marketing-hub/overview":    { file: "server/marketing-hub/routes.ts", needle: "/overview" },
+  "/api/admin/social/accounts":           { file: "server/social/routes.ts", needle: "/accounts" },
   "/api/public/teampay/captain/league/mine": { file: "server/league-captain-routes.ts", needle: "/api/public/teampay/captain/league/mine" },
   "/api/public/teampay/marketplace/mfl-term-4": { file: "server/teampay-captain-routes.ts", needle: "/api/public/teampay/marketplace/:slug" },
   "/api/admin/sites":                     { file: "server/site-routes.ts",         needle: "/api/admin/sites" },

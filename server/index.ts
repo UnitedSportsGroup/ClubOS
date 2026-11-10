@@ -551,6 +551,9 @@ app.use(attributionCookieMiddleware);
   // marketing_daily every 6h (no-op unless MARKETING_HUB_SYNC=1).
   const { startMarketingHubCron } = await import("./marketing-hub/cron");
   startMarketingHubCron();
+  // Social media: every brand's accounts and posts, every 6h (same switch).
+  const { startSocialCron } = await import("./social/sync");
+  startSocialCron();
   // Marketing Suite ("MarketingOS", Phase B) — durable send worker (graphile-worker).
   // Self-guards on DATABASE_URL / MARKETING_WORKER_DISABLED and never crashes boot.
   const { startMarketingWorker } = await import("./marketing/worker");

@@ -321,6 +321,11 @@ const groupTabs: TabDef[] = [
   // (email/SMS), which is hidden in every sidebar. NOT locked: every figure is
   // an aggregate, with no names, emails or salaries in it.
   { slug: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub" },
+  // Social media (2026-11-10, Daniel): every brand's Instagram, Facebook,
+  // YouTube, TikTok, X and LinkedIn in one place — accounts, stats, posts and a
+  // calendar of everything ever posted. Sits under Marketing in the sidebar.
+  // NOT locked: it shows what is already public on each platform, plus reach.
+  { slug: "social-media", title: "Social media", url: "/admin/social-media" },
   // Website — every club site in one list (see cufcExtraTabs for the CUFC copy).
   { slug: "sites", title: "Website", url: "/admin/sites" },
   // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever

@@ -98,6 +98,7 @@ const CodingBudget = lazy(() => import("@/pages/coding-budget"));
 const EquipmentHolder = lazy(() => import("@/pages/equipment-holder"));
 const GroupSponsors = lazy(() => import("@/pages/group-sponsors"));
 const MarketingHub = lazy(() => import("@/pages/marketing-hub"));
+const SocialMedia = lazy(() => import("@/pages/social-media"));
 const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
 const GroupVideos = lazy(() => import("@/pages/group-videos"));
 const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
@@ -474,6 +475,7 @@ function AdminRouter() {
         <Route path="/admin/energy" component={EnergyPage} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/marketing-hub" component={MarketingHub} />
+        <Route path="/admin/social-media" component={SocialMedia} />
         <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />
         <Route path="/admin/videos/record" component={GroupVideoRecord} />

@@ -176,6 +176,7 @@ import { registerRamboRoutes } from "./rambo-routes";
 import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
+import { registerSocialRoutes } from "./social/routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -28045,6 +28046,9 @@ export async function registerRoutes(
   // across the group (websites, forms, ads, social) in one place; group
   // workspace only. See server/marketing-hub/ and shared/marketing-hub.ts.
   registerMarketingHubRoutes(app);
+  // Social media — Marketing → Social media: every brand's accounts, posts and
+  // follower history. Group workspace only. See server/social/ and shared/social.ts.
+  registerSocialRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 
