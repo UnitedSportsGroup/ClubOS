@@ -217,6 +217,7 @@ const CANARIES: Canary[] = [
   // Warehouse Products (Shopify-style product page, Add product, Transfers) — 4 Nov 2026.
   { feature: "warehouse products",   path: "/api/admin/warehouse/product-meta",         expect: [401] },
   { feature: "warehouse transfers",  path: "/api/admin/warehouse/transfers",            expect: [401] },
+  { feature: "canterbury sport",     path: "/api/admin/canterbury-sport",               expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree

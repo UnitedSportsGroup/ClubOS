@@ -420,10 +420,13 @@ const printsTabs: TabDef[] = [
   { slug: "settings", title: "Settings", url: "/admin/settings", secondary: true },
 ];
 
-// Sandbox — private super-admin experimentation workspace (Daniel only). New
-// features get trialled here before they touch a real workspace. First project:
-// the Club Dossier. Keep this tab set minimal; add tabs as experiments land.
+// Sandbox — shown as "Canterbury Sport" since 2026-11-11 (Daniel: "keep the stuff inside of the sandbox one but just
+// rename and rebrand it to canterbury sport workspace"). The SLUG stays "sandbox" — code switches on it; the name and
+// the ram logo are the organizations row. Home of the land company's numbers (United Sports Group Ltd, formerly
+// Canterbury Sport Ltd); the earlier experiments (Club Dossier, Market Research) stay here.
 const sandboxTabs: TabDef[] = [
+  // Locked below AND limited to named people (shared/canterbury-sport.ts).
+  { slug: "canterbury-sport", title: "Land Company", url: "/admin/canterbury-sport" },
   { slug: "club-dossier", title: "Club Dossier", url: "/admin/club-dossier" },
   { slug: "market-research", title: "Market Research", url: "/admin/market-research" },
   { slug: "team", title: "Team", url: "/admin/team", secondary: true },
@@ -526,6 +529,9 @@ export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
   // register, and a mis-click during UAT could create real NRS records.
   // Daniel-only until the integration passes UAT and the deeds are signed.
   "sporty",
+  // The land company's loans, owners' money and bank balance. Daniel only — and named in shared/canterbury-sport.ts,
+  // because a super-admin lock alone also admits Slava (Daniel, 2026-11-11: "only give me access to it for now").
+  "canterbury-sport",
   "cashflow", // Club-wide cashflow insight (Xero patterns, wage-level data). Daniel only.
   "projects", // Work Management System v1 — launched dark while Daniel shapes it. Remove to open to admins/managers.
   "business-plan", // MFL business plan + who-opened-it access log — Daniel only for privacy. Remove to open to admins/managers.

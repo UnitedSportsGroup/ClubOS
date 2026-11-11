@@ -112,7 +112,23 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         LIMIT 40`);
 
       const today = nzTodayIso();
-      const seen = new Set<number>();
+      // 🔴 The join repeats a child once PER GUARDIAN, and the guardian columns
+      // are blank on the rows of parents with no address. Keeping the FIRST row
+      // per child called Abbas Ahmadi unreachable — mum (no email) sorted ahead
+      // of dad (has one) — found 11 Nov 2026 by the person-link verifier. Every
+      // row for a child is folded into one record first, carrying every parent
+      // with an address, and only then is the rule applied.
+      type Folded = { r: any; guardians: { name: string; email: string }[]; firstGuardian: string | null };
+      const folded = new Map<number, Folded>();
+      for (const r of rows) {
+        if (hidden.has(r.id)) continue;
+        const f = folded.get(r.id) ?? { r, guardians: [], firstGuardian: null };
+        const guardianEmail = String(r.g_email ?? "").trim();
+        const guardianName = [r.g_first, r.g_last].filter(Boolean).join(" ").trim();
+        if (guardianName && !f.firstGuardian) f.firstGuardian = guardianName;
+        if (guardianEmail) f.guardians.push({ name: guardianName, email: guardianEmail });
+        folded.set(r.id, f);
+      }
       // 🔴 Collapse the SAME PERSON recorded twice — same name, same resolved
       // address. ClubOS carries ~175 duplicate-people groups from the abandoned
       // checkout path, and "Beauden Tubb" really does appear twice in this
@@ -123,17 +139,14 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
       // and collapsing siblings would silently drop one from the send.
       const byPerson = new Set<string>();
       const people: PersonHit[] = [];
-      for (const r of rows) {
-        if (seen.has(r.id) || hidden.has(r.id)) continue;   // the join can repeat a child per guardian
-        seen.add(r.id);
+      for (const { r, guardians, firstGuardian } of Array.from(folded.values())) {
         const own = String(r.email ?? "").trim();
-        const guardianEmail = String(r.g_email ?? "").trim();
-        const guardianName = [r.g_first, r.g_last].filter(Boolean).join(" ").trim();
 
-        // 🔴 Their own address wins when they have one; otherwise the guardian's,
+        // 🔴 Their own address wins when they have one; otherwise a parent's,
         // named. Never silently. ONE rule (shared/mailer-reach.ts) — the same
-        // one the profile's "Email" button and the Contacts list use.
-        const reach = reachableAddresses(own, guardianEmail ? [{ name: guardianName, email: guardianEmail }] : [])[0];
+        // one the profile's "Email" button and the Contacts list use. The
+        // search shows ONE address per person; the person link carries them all.
+        const reach = reachableAddresses(own, guardians)[0];
         const email: string | null = reach?.email ?? null;
         const emailOwner: string | null = reach?.owner ?? null;
         const unreachable: string | null = reach ? null : unreachableReason(r.type);
@@ -151,7 +164,7 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
           email, emailOwner, unreachable,
           detail: r.programme ?? null,
           ageGroup: r.type === "player" ? grade(r.dob, today) : null,
-          parentName: r.type === "player" ? (guardianName || null) : null,
+          parentName: r.type === "player" ? (firstGuardian || null) : null,
         });
         if (people.length >= 20) break;
       }

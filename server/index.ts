@@ -266,6 +266,9 @@ app.use(attributionCookieMiddleware);
   registerFootballFestRoutes(app);
   const { registerFinanceInsightRoutes } = await import("./finance-insight-routes");
   registerFinanceInsightRoutes(app);
+  // Canterbury Sport — the land company's costs, loans, break-even and cash (Daniel only).
+  const { registerCanterburySportRoutes } = await import("./canterbury-sport-routes");
+  registerCanterburySportRoutes(app);
   const { registerXeroInvoiceRoutes } = await import("./xero-invoices-routes");
   registerXeroInvoiceRoutes(app);
 

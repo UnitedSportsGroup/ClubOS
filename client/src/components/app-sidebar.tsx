@@ -197,6 +197,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
 import { canAccessTab, canAccessTabAnywhere } from "@shared/tabs";
+import { canSeeCanterburySport } from "@shared/canterbury-sport";
 import { HIDDEN_GLOBAL, HIDDEN_BY_WORKSPACE } from "@shared/sidebar-hidden";
 import { fromParam } from "@/lib/back-to";
 
@@ -595,8 +596,9 @@ const printsSecondary = [
   { tab: "settings", title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
-// Sandbox — private super-admin experimentation workspace (Daniel only).
+// Sandbox workspace — shown as "Canterbury Sport" (the land company) since 2026-11-11.
 const sandboxNav = [
+  { tab: "canterbury-sport", title: "Land Company", url: "/admin/canterbury-sport", icon: Landmark },
   { tab: "club-dossier", title: "Club Dossier", url: "/admin/club-dossier", icon: Fingerprint },
   { tab: "market-research", title: "Market Research", url: "/admin/market-research", icon: Telescope },
 ];
@@ -803,7 +805,7 @@ function getWorkspaceLabel(slug: string | undefined) {
   if (isGymnasticsWorkspace(slug)) return "Gymnastics";
   if (isGroupWorkspace(slug)) return "Group";
   if (isPrintsWorkspace(slug)) return "Print Studio";
-  if (isSandboxWorkspace(slug)) return "Sandbox";
+  if (isSandboxWorkspace(slug)) return "Land & Fields";
   return "Management";
 }
 
@@ -814,7 +816,7 @@ function getWorkspaceInitials(slug: string | undefined) {
   if (isGymnasticsWorkspace(slug)) return "UG";
   if (isGroupWorkspace(slug)) return "SG";
   if (isPrintsWorkspace(slug)) return "UP";
-  if (isSandboxWorkspace(slug)) return "SB";
+  if (isSandboxWorkspace(slug)) return "CS";
   return "CU";
 }
 
@@ -906,7 +908,9 @@ export function AppSidebar() {
   const hiddenHere = new Set(
     HIDDEN_GLOBAL.concat(HIDDEN_BY_WORKSPACE[currentOrg?.slug ?? ""] ?? []),
   );
-  const canSee = (item: NavItem) => !hiddenHere.has(item.tab) && navFilter(item);
+  // Canterbury Sport is named-people-only on top of its super-admin lock (shared/canterbury-sport.ts).
+  const canSee = (item: NavItem) => !hiddenHere.has(item.tab) && navFilter(item)
+    && (item.tab !== "canterbury-sport" || canSeeCanterburySport((user as { id?: number } | undefined)?.id));
   // 🔴 See lib/nav-tree.ts: nesting must never subtract a destination.
   const mainNav = buildNav(allMainNav, canSee);
   // The System section is now the four things staff USE — the account and
