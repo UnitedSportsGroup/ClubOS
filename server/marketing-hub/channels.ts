@@ -24,7 +24,7 @@ import {
   type WhatsAppReport,
 } from "@shared/marketing-channels";
 import { requireAuth, requireTab } from "../auth";
-import { HubInputError, cached, nzBounds, parseScope, q, requireHubWorkspace, scopeKey, type HubScope } from "./common";
+import { HubInputError, cached, keepWarm, nzBounds, parseScope, q, requireHubWorkspace, scopeKey, type HubScope } from "./common";
 import { ads, tracked } from "./routes";
 
 const NZ_DAY_NAIVE = (col: string) => `(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date::text`;
@@ -192,11 +192,11 @@ async function smsReport(scope: HubScope): Promise<SmsReport> {
 
 async function whatsappReport(scope: HubScope): Promise<WhatsAppReport> {
   const rows = await q<{ day: string; href: string; visitor_id: string | null }>(
-    `SELECT ${NZ_DAY_NAIVE('t."timestamp"')} AS day, left(t.metadata->>'href', 200) AS href, t.visitor_id
-     FROM analytics_events t
-     WHERE t.event_type IN ('click', 'cta_click') AND COALESCE(t.is_bot, false) = false
-       AND ${nzBounds('t."timestamp"', "timestamp", "$1", "$2")}
-       AND (t.metadata->>'href' ILIKE '%wa.me/%' OR t.metadata->>'href' ILIKE '%whatsapp.com%')`,
+    // web_events_slim keeps every button press, and plain link clicks only when they go to WhatsApp.
+    `SELECT t.day::text AS day, left(t.href, 200) AS href, t.visitor_id
+     FROM web_events_slim t
+     WHERE t.kind IN ('click', 'cta_click') AND ${nzBounds("t.ts", "timestamp", "$1", "$2")}
+       AND (t.href ILIKE '%wa.me/%' OR t.href ILIKE '%whatsapp.com%')`,
     [scope.range.from, scope.range.to],
   );
   const days = new Map<string, number>();
@@ -220,6 +220,7 @@ async function whatsappReport(scope: HubScope): Promise<WhatsAppReport> {
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
 function report<T>(name: string, fn: (s: HubScope) => Promise<T>) {
+  keepWarm(name, fn);
   return async (req: Request, res: Response) => {
     try {
       const scope = await parseScope(req);

@@ -18,65 +18,45 @@ import {
   hubWorkspace,
   type WebsitesResponse,
 } from "@shared/marketing-hub";
-import { nzBounds, qSorted, type HubScope } from "./common";
+import { type HubScope } from "./common";
+import { slimPageViews, type PvRow } from "./web-slim";
 
-// Host from the page's own URL, lower-cased, with port, trailing dot and "www."
-// removed — the same normalisation as normaliseHost() in shared/marketing-hub.ts.
-export const HOST = `lower(regexp_replace(regexp_replace(regexp_replace(substring(t.landing_url from '^https?://([^/?#]+)'), ':[0-9]+$', ''), '[.]$', ''), '^www[.]', ''))`;
-export const DAY = `(t."timestamp" AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific/Auckland')::date`;
+export { DAY, HOST } from "./web-slim";
+
+// 🔴 Rewritten 2026-11-11. This used to count distinct visitors in Postgres
+// straight off analytics_events (17–28 s on a cold cache; 10 s even from the
+// narrow copy, because GROUPING SETS over count(DISTINCT) sorts the rows once
+// per grouping). Now the rows are read once from web_events_slim and counted
+// here. Checked against the old queries on production: identical to the digit.
+
+const STAFF = STAFF_HOST_PATTERN_SOURCES.map((src) => new RegExp(src));
 
 /**
- * Page views across the current AND previous period in one pass, each tagged
- * with its period and workspace. Staff and build hosts are removed here, using
- * the patterns from shared/marketing-hub.ts. A customer host that is not listed
- * in SITES keeps a NULL workspace: it still counts towards the whole
- * organisation, and is dropped only when a single workspace is chosen.
+ * Page views across the current AND previous period, each tagged with its
+ * period. Staff and build hosts are removed. A customer host that is not listed
+ * in SITES has no workspace: it still counts towards the whole organisation,
+ * and is dropped only when a single workspace is chosen.
  */
-//
-// 🔴 Two shapes, both MATERIALIZED so the host expression (three regexes) runs
-// once per row instead of once per reference. The visitor-count shape also
-// drops duplicate page views of the same visitor on the same site and day
-// BEFORE counting — the counts are identical and the sort is a fraction of the
-// size. Measured on production: 30 days went from 5.1s to 0.8s, with the
-// totals checked equal to the digit.
-function scopedCte(mode: "visitors" | "detail"): string {
-  const columns =
-    mode === "visitors"
-      ? `DISTINCT ${HOST} AS host, t.visitor_id, ${DAY} AS day`
-      : `${HOST} AS host, t.visitor_id, t.session_id, t.channel,
-             split_part(COALESCE(t.page, ''), '?', 1) AS path, ${DAY} AS day`;
-  return `
-    WITH pv AS MATERIALIZED (
-      SELECT ${columns}
-      FROM analytics_events t
-      WHERE t.event_type = 'page_view'
-        AND COALESCE(t.is_bot, false) = false
-        AND ${nzBounds('t."timestamp"', "timestamp", "$1", "$2")}
-    ),
-    scoped AS MATERIALIZED (
-      SELECT pv.*,
-             m.ws,
-             CASE WHEN pv.day >= $3::date THEN 'current' ELSE 'previous' END AS period
-      FROM pv
-      LEFT JOIN unnest($4::text[], $5::text[]) AS m(host, ws) ON m.host = pv.host
-      WHERE pv.host IS NOT NULL AND pv.host <> ''
-        AND NOT (pv.host ~ ANY($6::text[]))
-        AND ($7::text IS NULL OR m.ws = $7::text)
-    )`;
+async function scopedRows(scope: HubScope): Promise<{ r: PvRow; host: string; ws: string | null; current: boolean }[]> {
+  const rows = await slimPageViews(scope.previous.from, scope.range.to);
+  const want = scope.filter.workspace;
+  const out: { r: PvRow; host: string; ws: string | null; current: boolean }[] = [];
+  for (const r of rows) {
+    const host = r.host;
+    if (!host || STAFF.some((re) => re.test(host))) continue;
+    const ws = SITES[host]?.workspace ?? null;
+    if (want && ws !== want) continue;
+    out.push({ r, host, ws, current: r.day >= scope.range.from });
+  }
+  return out;
 }
 
-function params(scope: HubScope): unknown[] {
-  const hosts = Object.keys(SITES);
-  return [
-    scope.previous.from,
-    scope.range.to,
-    scope.range.from,
-    hosts,
-    hosts.map((h) => SITES[h].workspace),
-    STAFF_HOST_PATTERN_SOURCES,
-    scope.filter.workspace,
-  ];
-}
+const add = (map: Map<string, Set<string>>, key: string, v: string | null) => {
+  if (!v) return;
+  const s = map.get(key);
+  if (s) s.add(v);
+  else map.set(key, new Set([v]));
+};
 
 export type TrafficOverview = {
   current: number;
@@ -88,39 +68,30 @@ export type TrafficOverview = {
 };
 
 export async function trafficOverview(scope: HubScope): Promise<TrafficOverview> {
-  const rows = await qSorted<{
-    period: string;
-    ws: string | null;
-    host: string | null;
-    day: string | null;
-    visitors: number;
-    g_ws: number;
-    g_host: number;
-    g_day: number;
-  }>(
-    `${scopedCte("visitors")}
-     SELECT period, ws, host, day::text AS day,
-            count(DISTINCT visitor_id)::int AS visitors,
-            GROUPING(ws)::int AS g_ws, GROUPING(host)::int AS g_host, GROUPING(day)::int AS g_day
-     FROM scoped
-     GROUP BY GROUPING SETS ((period), (period, ws), (period, day), (host))`,
-    params(scope),
-  );
-
-  const out: TrafficOverview = { current: 0, previous: 0, byWorkspace: new Map(), series: new Map(), untracked: [] };
+  const rows = await scopedRows(scope);
+  const cur = new Set<string>();
+  const prev = new Set<string>();
+  const byWs = new Map<string, Set<string>>();
+  const byDay = new Map<string, Set<string>>();
   const seenHosts = new Set<string>();
-  for (const r of rows) {
-    if (r.g_host === 0) {
-      if (r.host) seenHosts.add(r.host);
-    } else if (r.g_ws === 1 && r.g_day === 1) {
-      if (r.period === "current") out.current = r.visitors;
-      else out.previous = r.visitors;
-    } else if (r.g_ws === 0 && r.period === "current") {
-      if (r.ws) out.byWorkspace.set(r.ws, r.visitors);
-    } else if (r.g_day === 0 && r.period === "current" && r.day) {
-      out.series.set(r.day, r.visitors);
+  for (const { r, host, ws, current } of rows) {
+    seenHosts.add(host);
+    if (!r.visitor_id) continue;
+    if (!current) {
+      prev.add(r.visitor_id);
+      continue;
     }
+    cur.add(r.visitor_id);
+    if (ws) add(byWs, ws, r.visitor_id);
+    add(byDay, r.day, r.visitor_id);
   }
+  const out: TrafficOverview = {
+    current: cur.size,
+    previous: prev.size,
+    byWorkspace: new Map(Array.from(byWs, ([k, v]) => [k, v.size])),
+    series: new Map(Array.from(byDay, ([k, v]) => [k, v.size])),
+    untracked: [],
+  };
   out.untracked = Object.entries(SITES)
     .filter(([host, s]) => s.kind === "site" && !seenHosts.has(host))
     .filter(([, s]) => !scope.filter.workspace || s.workspace === scope.filter.workspace)
@@ -129,62 +100,46 @@ export async function trafficOverview(scope: HubScope): Promise<TrafficOverview>
 }
 
 export async function trafficDetail(scope: HubScope): Promise<WebsitesResponse["firstParty"]> {
-  const p = params(scope);
-  const [grouped, pages] = await Promise.all([
-    qSorted<{
-      period: string;
-      host: string | null;
-      channel: string | null;
-      day: string | null;
-      visitors: number;
-      views: number;
-      sessions: number;
-      g_host: number;
-      g_channel: number;
-      g_day: number;
-    }>(
-      `${scopedCte("detail")}
-       SELECT period, host, channel, day::text AS day,
-              count(DISTINCT visitor_id)::int AS visitors,
-              count(*)::int AS views,
-              count(DISTINCT session_id)::int AS sessions,
-              GROUPING(host)::int AS g_host, GROUPING(channel)::int AS g_channel, GROUPING(day)::int AS g_day
-       FROM scoped
-       GROUP BY GROUPING SETS ((period, host), (period, channel), (period, day))`,
-      p,
-    ),
-    qSorted<{ host: string; path: string; views: number }>(
-      `${scopedCte("detail")}
-       SELECT host, path, count(*)::int AS views
-       FROM scoped
-       WHERE period = 'current'
-       GROUP BY 1, 2
-       ORDER BY 3 DESC
-       LIMIT 15`,
-      p,
-    ),
-  ]);
+  const rows = await scopedRows(scope);
+  type SiteTally = { v: Set<string>; pv: Set<string>; s: Set<string>; views: number };
+  const siteTally = new Map<string, SiteTally>();
+  const channelSets = new Map<string, Set<string>>();
+  const daySets = new Map<string, Set<string>>();
+  const dayViews = new Map<string, number>();
+  const pageViews = new Map<string, number>();
+  for (const { r, host, current } of rows) {
+    let t = siteTally.get(host);
+    if (!t) siteTally.set(host, (t = { v: new Set(), pv: new Set(), s: new Set(), views: 0 }));
+    if (!current) {
+      if (r.visitor_id) t.pv.add(r.visitor_id);
+      continue;
+    }
+    t.views++;
+    if (r.visitor_id) t.v.add(r.visitor_id);
+    if (r.session_id) t.s.add(r.session_id);
+    const ch = r.channel ?? "";
+    if (!channelSets.has(ch)) channelSets.set(ch, new Set());
+    if (r.visitor_id) channelSets.get(ch)!.add(r.visitor_id);
+    if (!daySets.has(r.day)) daySets.set(r.day, new Set());
+    if (r.visitor_id) daySets.get(r.day)!.add(r.visitor_id);
+    dayViews.set(r.day, (dayViews.get(r.day) ?? 0) + 1);
+    const pk = `${host}|${r.path ?? ""}`;
+    pageViews.set(pk, (pageViews.get(pk) ?? 0) + 1);
+  }
 
   const sites = new Map<string, { visitors: number; visitorsPrevious: number; pageViews: number; sessions: number }>();
-  const channels = new Map<string, number>();
-  const days = new Map<string, { visitors: number; pageViews: number }>();
-  for (const r of grouped) {
-    if (r.g_host === 0 && r.host) {
-      const s = sites.get(r.host) ?? { visitors: 0, visitorsPrevious: 0, pageViews: 0, sessions: 0 };
-      if (r.period === "current") {
-        s.visitors = r.visitors;
-        s.pageViews = r.views;
-        s.sessions = r.sessions;
-      } else {
-        s.visitorsPrevious = r.visitors;
-      }
-      sites.set(r.host, s);
-    } else if (r.g_channel === 0 && r.period === "current") {
-      channels.set(r.channel ?? "", r.visitors);
-    } else if (r.g_day === 0 && r.period === "current" && r.day) {
-      days.set(r.day, { visitors: r.visitors, pageViews: r.views });
-    }
-  }
+  siteTally.forEach((t, host) => sites.set(host, { visitors: t.v.size, visitorsPrevious: t.pv.size, pageViews: t.views, sessions: t.s.size }));
+  const channels = new Map<string, number>(Array.from(channelSets, ([k, v]) => [k, v.size]));
+  const days = new Map<string, { visitors: number; pageViews: number }>(
+    Array.from(daySets, ([k, v]) => [k, { visitors: v.size, pageViews: dayViews.get(k) ?? 0 }]),
+  );
+  const grouped = rows;
+  const pages = Array.from(pageViews, ([key, views]) => {
+    const i = key.indexOf("|");
+    return { host: key.slice(0, i), path: key.slice(i + 1), views };
+  })
+    .sort((a, b) => b.views - a.views)
+    .slice(0, 15);
 
   const siteRows = Array.from(sites.entries())
     .map(([host, s]) => {
