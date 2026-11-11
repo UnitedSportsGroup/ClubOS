@@ -233,25 +233,30 @@ export function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Pro
 // worked out every few minutes in the background, so the first person in after
 // a quiet hour, or a deploy, does not wait for it. Per machine; one report at a
 // time so the database never sees them all at once.
-type Warmer = { name: string; key: (s: HubScope) => string; run: (s: HubScope) => Promise<unknown> };
+type Warmer = { name: string; key: (s: HubScope) => string; run: (s: HubScope) => Promise<unknown>; yearToo: boolean };
 const warmers: Warmer[] = [];
 
-export function keepWarm(name: string, run: (s: HubScope) => Promise<unknown>, key?: (s: HubScope) => string) {
-  if (!warmers.some((w) => w.name === name)) warmers.push({ name, run, key: key ?? ((s) => scopeKey(name, s)) });
+/** `yearToo`: also pre-load "year to date" (every third round; it reads far more rows). */
+export function keepWarm(name: string, run: (s: HubScope) => Promise<unknown>, key?: (s: HubScope) => string, yearToo = false) {
+  if (!warmers.some((w) => w.name === name)) warmers.push({ name, run, key: key ?? ((s) => scopeKey(name, s)), yearToo });
 }
 
 let warming = false;
+let round = 0;
 async function warmAll() {
   if (warming) return;
   warming = true;
   try {
     const scope = await parseScope({ query: {} } as unknown as Request);
+    const year = round++ % 3 === 0 ? await parseScope({ query: { period: "ytd" } } as unknown as Request) : null;
     for (const w of warmers) {
-      try {
-        const value = await w.run(scope);
-        store(w.key(scope), Date.now(), Promise.resolve(value));
-      } catch (e: any) {
-        console.error(`[Marketing] Could not pre-load ${w.name}:`, e?.message ?? e);
+      for (const sc of w.yearToo && year ? [scope, year] : [scope]) {
+        try {
+          const value = await w.run(sc);
+          store(w.key(sc), Date.now(), Promise.resolve(value));
+        } catch (e: any) {
+          console.error(`[Marketing] Could not pre-load ${w.name}:`, e?.message ?? e);
+        }
       }
     }
   } catch (e: any) {

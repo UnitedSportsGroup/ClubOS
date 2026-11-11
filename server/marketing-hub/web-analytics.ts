@@ -258,7 +258,7 @@ const reportKey = (scope: HubScope, site: string | null) =>
   `web-analytics|${scope.range.from}|${scope.range.to}|${scope.filter.workspace ?? ""}|${site ?? ""}`;
 
 export function registerWebAnalyticsRoutes(app: Express) {
-  keepWarm("web-analytics", (s) => webAnalytics(s, null), (s) => reportKey(s, null));
+  keepWarm("web-analytics", (s) => webAnalytics(s, null), (s) => reportKey(s, null), true);
   app.get(
     "/api/admin/web-analytics/report",
     requireAuth,

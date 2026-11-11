@@ -34,7 +34,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import sharp from "sharp";
 import { pool } from "../db";
-import { requireHubWorkspace } from "../marketing-hub/common";
+import { keepWarm, requireHubWorkspace } from "../marketing-hub/common";
 import {
   SocialNotConfigured,
   checkOauthState,
@@ -258,6 +258,19 @@ async function syncState(): Promise<{ nextSyncAt: string | null; syncing: boolea
 
 export function registerSocialRoutes(app: Express) {
   const gate = [requireAuth, requireTab(SOCIAL_TAB), requireHubWorkspace] as const;
+
+  // Nothing reads this answer: running the account list every few minutes keeps
+  // its rows in the database's memory, so the first person in does not wait
+  // 2–3 seconds for a cold read. The page itself is never served from a cache
+  // (a brand change or a new account must show at once).
+  keepWarm(
+    "social-accounts-db",
+    () => {
+      const to = nzTodayIso();
+      return listAccounts({ brand: null, accountId: null, platform: null, from: addDaysIso(to, -29), to, period: socialPeriod("30d") });
+    },
+    () => "warm|social-accounts",
+  );
 
   // ── Accounts ──────────────────────────────────────────────────────────────
   app.get(`${BASE}/accounts`, ...gate, handle(async (req, res) => {
