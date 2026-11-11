@@ -8,7 +8,9 @@
  *   YouTube                      public channel data, by link. Needs "YouTube
  *                                Data API v3" switched on in the Google project
  *                                (YOUTUBE_API_KEY, else the service account).
- *   TikTok · X · LinkedIn        saved links only; no puller until each
+ *   X                            read with X_BEARER_TOKEN (pay per read, so a
+ *                                scheduled pull reads the newest 50 posts only).
+ *   TikTok · LinkedIn            saved links only; no puller until each
  *                                platform grants read access.
  *
  * 🔴 Every pull is a row in social_sync_runs with the platform's own error.
@@ -574,6 +576,104 @@ async function syncYoutube(a: AccountRow, opts: SyncOpts): Promise<number> {
   return written;
 }
 
+// ── X ───────────────────────────────────────────────────────────────────────
+//
+// X is pay-per-read (a post 0.5c, a profile 1c; the same thing read twice in
+// one UTC day is charged once). So a scheduled pull reads the profile and the
+// newest 50 posts only; the whole history is read once, on a full pull.
+
+async function xApi(path: string, params: Record<string, string>): Promise<any> {
+  const token = process.env.X_BEARER_TOKEN;
+  if (!token) throw new SocialNotConfigured("No X access on this server yet.");
+  const url = `https://api.x.com/2/${path}?${new URLSearchParams(params).toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
+  } catch (e: any) {
+    throw new Error(`X: request failed (${e?.name === "TimeoutError" ? "timed out" : "network error"})`);
+  }
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (res.status === 402 || /credit/i.test(String(json?.detail ?? json?.title ?? ""))) {
+      throw new Error("X: the account has run out of credit or reached its monthly spending limit.");
+    }
+    throw new Error(`X: ${json?.detail ?? json?.title ?? json?.errors?.[0]?.message ?? `HTTP ${res.status}`}`);
+  }
+  return json;
+}
+
+/** Look an X account up by id or @handle. Used when connecting and on every pull. */
+export async function xProfile(ref: { id?: string | null; handle?: string | null }) {
+  const fields = { "user.fields": "public_metrics,profile_image_url,name,username" };
+  const json = ref.id ? await xApi(`users/${ref.id}`, fields) : await xApi(`users/by/username/${encodeURIComponent(String(ref.handle))}`, fields);
+  const u = json?.data;
+  if (!u?.id) throw new Error("X: no account with that name was found.");
+  return {
+    id: String(u.id),
+    name: (u.name as string) ?? null,
+    handle: (u.username as string) ?? null,
+    avatar: (u.profile_image_url as string) ?? null,
+    followers: num(u.public_metrics?.followers_count),
+    posts: num(u.public_metrics?.tweet_count),
+  };
+}
+
+async function syncX(a: AccountRow, opts: SyncOpts): Promise<number> {
+  const u = await xProfile({ id: a.external_id, handle: a.handle });
+  await q(
+    `UPDATE social_accounts SET external_id = COALESCE(external_id, $2), display_name = COALESCE($3, display_name),
+            avatar_url = COALESCE($4, avatar_url), connection = 'api' WHERE id = $1`,
+    [a.id, u.id, u.name, u.avatar],
+  );
+  await saveReading(a.id, { followers: u.followers, postsCount: u.posts });
+
+  let written = 0;
+  let next: string | undefined;
+  let reachedEnd = false;
+  // X only lists an account's newest 3,200 posts; 40 pages of 100 covers that.
+  const maxPages = opts.fullHistory ? 40 : 1;
+  for (let page = 0; page < maxPages; page++) {
+    const list = await xApi(`users/${u.id}/tweets`, {
+      max_results: opts.fullHistory ? "100" : "50",
+      exclude: "retweets,replies",
+      "tweet.fields": "created_at,public_metrics,attachments",
+      expansions: "attachments.media_keys",
+      "media.fields": "type,url,preview_image_url",
+      ...(next ? { pagination_token: next } : {}),
+    });
+    const media = new Map<string, any>((list.includes?.media ?? []).map((m: any) => [String(m.media_key), m]));
+    written += await upsertPosts(
+      a.id,
+      (list.data ?? []).map((t: any) => {
+        const m = media.get(String(t.attachments?.media_keys?.[0] ?? ""));
+        const pm = t.public_metrics ?? {};
+        const shares = num(pm.retweet_count);
+        const quotes = num(pm.quote_count);
+        return {
+          externalId: String(t.id),
+          postedAt: t.created_at,
+          kind: m?.type === "video" || m?.type === "animated_gif" ? "video" : m ? "image" : "text",
+          caption: (t.text as string) ?? null,
+          permalink: `https://x.com/${u.handle ?? a.handle}/status/${t.id}`,
+          thumbUrl: m?.preview_image_url ?? m?.url ?? null,
+          likes: num(pm.like_count),
+          comments: num(pm.reply_count),
+          shares: shares == null && quotes == null ? null : (shares ?? 0) + (quotes ?? 0),
+          views: num(pm.impression_count),
+          insightsIncluded: true,
+        };
+      }),
+    );
+    next = list.meta?.next_token;
+    if (!next) {
+      reachedEnd = true;
+      break;
+    }
+  }
+  if (opts.fullHistory && reachedEnd) await q(`UPDATE social_accounts SET history_complete = true WHERE id = $1`, [a.id]);
+  return written;
+}
+
 // ── Picture links expire ────────────────────────────────────────────────────
 
 /** Ask the platform for a fresh picture link for one post. Null if it has none. */
@@ -604,6 +704,7 @@ const PULLERS: Partial<Record<SocialPlatformKey, (a: AccountRow, o: SyncOpts) =>
   instagram: syncInstagram,
   facebook: syncFacebook,
   youtube: syncYoutube,
+  x: syncX,
 };
 
 export type SocialSyncResult = { accountId: number; label: string; status: "ok" | "error" | "skipped"; posts: number; error: string | null };
@@ -673,9 +774,9 @@ export async function runSocialSync(
       const accounts = await q<AccountRow>(
         `SELECT id, platform, external_id, handle, connection, history_complete, marketing_source_id
          FROM social_accounts
-         WHERE archived_at IS NULL AND (connection = 'api' OR platform = 'youtube') AND ($1::int IS NULL OR id = $1)
+         WHERE archived_at IS NULL AND (connection = 'api' OR platform = 'youtube' OR (platform = 'x' AND $2::boolean)) AND ($1::int IS NULL OR id = $1)
          ORDER BY id`,
-        [only?.accountId ?? null],
+        [only?.accountId ?? null, Boolean(process.env.X_BEARER_TOKEN)],
       );
       for (const a of accounts) {
         results.push(

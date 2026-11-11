@@ -90,11 +90,11 @@ export const SOCIAL_PLATFORMS: readonly SocialPlatformDef[] = [
   {
     key: "x",
     label: "X",
-    mode: "link",
+    mode: "api",
     audience: "followers",
     setup: [
-      "X charges for read access (the Basic tier, about US$200 a month).",
-      "Until that is bought, the link is saved here and followers can be typed in.",
+      "X charges a little for each read (about half a cent a post), paid from prepaid credit on the club's X developer account.",
+      "Paste an X profile link here and ClubOS reads its posts and stats itself. If the credit runs out, the account shows a failed update.",
     ],
   },
   {

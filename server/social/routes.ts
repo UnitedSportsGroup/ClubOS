@@ -35,7 +35,7 @@ import { join } from "path";
 import sharp from "sharp";
 import { pool } from "../db";
 import { requireHubWorkspace } from "../marketing-hub/common";
-import { SocialNotConfigured, discoverMetaAccounts, refreshThumb, runSocialSync, saveReading, youtubeChannel } from "./sync";
+import { SocialNotConfigured, discoverMetaAccounts, refreshThumb, runSocialSync, saveReading, xProfile, youtubeChannel } from "./sync";
 
 const BASE = "/api/admin/social";
 const NZ = "Pacific/Auckland";
@@ -443,6 +443,20 @@ export function registerSocialRoutes(app: Express) {
       } catch (e: any) {
         if (!(e instanceof SocialNotConfigured)) throw new InputError(String(e?.message ?? e));
         note = "Saved. ClubOS will read this channel once YouTube access is switched on.";
+      }
+    }
+    if (platform === "x") {
+      try {
+        const u = await xProfile({ handle: parsed.handle });
+        externalId = u.id;
+        displayName = u.name;
+        avatar = u.avatar;
+        handleName = u.handle ?? parsed.handle;
+        connection = "api";
+        reading = { followers: u.followers, postsCount: u.posts, totalViews: null };
+      } catch (e: any) {
+        if (!(e instanceof SocialNotConfigured)) throw new InputError(String(e?.message ?? e));
+        note = "Saved. ClubOS will read this account once X access is switched on.";
       }
     }
     const dup = await q(
