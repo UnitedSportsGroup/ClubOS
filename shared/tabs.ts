@@ -325,11 +325,11 @@ const groupTabs: TabDef[] = [
   // YouTube, TikTok, X and LinkedIn in one place — accounts, stats, posts and a
   // calendar of everything ever posted. Sits under Marketing in the sidebar.
   // NOT locked: it shows what is already public on each platform, plus reach.
-  { slug: "social-media", title: "Social media", url: "/admin/social-media" },
+  { slug: "social-media", title: "Social Media", url: "/admin/social-media" },
   // Website analytics (2026-11-10, Daniel): one website in depth — visitors,
   // pages, where people came from, time on page, buttons pressed. Named so it
   // is not mistaken for "Website" (the tab that PUBLISHES news to the sites).
-  { slug: "web-analytics", title: "Website analytics", url: "/admin/web-analytics" },
+  { slug: "web-analytics", title: "Websites", url: "/admin/web-analytics" },
   // The other marketing channels (2026-11-10, Daniel: "the foundational stuff,
   // all built and mapped out"). REPORT tabs: nothing is sent from them. Email
   // is sent from each workspace's Mailer; these show what happened afterwards.
@@ -338,7 +338,7 @@ const groupTabs: TabDef[] = [
   // timeline, channels and split tests hang off it. Slug is `campaign-planner`
   // because "campaigns" already means email sends in two other places.
   { slug: "campaign-planner", title: "Campaigns", url: "/admin/campaigns" },
-  { slug: "paid-ads", title: "Paid ads", url: "/admin/paid-ads" },
+  { slug: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads" },
   { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
   { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },
   { slug: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats" },

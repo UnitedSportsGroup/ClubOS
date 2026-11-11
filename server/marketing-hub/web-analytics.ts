@@ -17,10 +17,8 @@ import { eachDay } from "@shared/dashboard";
 import { SITES, STAFF_HOST_PATTERN_SOURCES, channelLabel, hubWorkspace, normaliseHost } from "@shared/marketing-hub";
 import { WEB_ANALYTICS_TAB, type WebAnalyticsResponse, type WebCount } from "@shared/web-analytics";
 import { requireAuth, requireTab } from "../auth";
-import { HubInputError, cached, nzBounds, parseScope, q, qSorted, requireHubWorkspace, str, type HubScope } from "./common";
-import { DAY, HOST } from "./traffic";
-
-const REF_HOST = `lower(regexp_replace(substring(t.referrer from '^https?://([^/?#]+)'), '^www[.]', ''))`;
+import { HubInputError, cached, nzBounds, parseScope, q, requireHubWorkspace, str, type HubScope } from "./common";
+import { topUpSlim } from "./web-slim";
 
 // 🔴 Measured 2026-11-10: counting distinct visitors seven ways in Postgres took
 // 30–50 seconds for a month (three heavy sorts at once on a small database).
@@ -57,29 +55,27 @@ function raw<T>(key: string, fn: () => Promise<T[]>): Promise<T[]> {
   return p;
 }
 
+// 🔴 Measured 2026-11-11: analytics_events is 400 MB with page views scattered
+// through it; a month of visits meant ~500 MB of pages and 6–50 seconds when
+// they were not in memory. The report reads web_events_slim instead: a narrow,
+// time-ordered copy with the website name already worked out (web-slim.ts).
 const pageViews = (from: string, to: string) =>
   raw<PvRow>(`pv|${from}|${to}`, () =>
-    qSorted<PvRow>(
-      `SELECT ${HOST} AS host, t.visitor_id, t.session_id, t.channel,
-              split_part(COALESCE(t.page, ''), '?', 1) AS path, ${DAY}::text AS day, t.device, ${REF_HOST} AS ref,
-              NULLIF(t.utm_source, '') AS utm_source, NULLIF(t.utm_medium, '') AS utm_medium, NULLIF(t.utm_campaign, '') AS utm_campaign
-       FROM analytics_events t
-       WHERE t.event_type = 'page_view' AND COALESCE(t.is_bot, false) = false
-         AND ${nzBounds('t."timestamp"', "timestamp", "$1", "$2")}`,
+    q<PvRow>(
+      `SELECT t.host, t.visitor_id, t.session_id, t.channel, t.path, t.day::text AS day, t.device, t.ref_host AS ref,
+              t.utm_source, t.utm_medium, t.utm_campaign
+       FROM web_events_slim t
+       WHERE t.kind = 'page_view' AND ${nzBounds("t.ts", "timestamp", "$1", "$2")}`,
       [from, to],
     ),
   );
 
 const behaviourEvents = (from: string, to: string) =>
   raw<EvRow>(`ev|${from}|${to}`, () =>
-    qSorted<EvRow>(
-      `SELECT t.event_type, t.session_id, split_part(COALESCE(t.page, ''), '?', 1) AS path,
-              t.metadata->>'seconds' AS s, t.metadata->>'maxPercent' AS m, t.metadata->>'isNewVisitor' AS n,
-              left(btrim(t.metadata->>'text'), 80) AS txt, left(t.metadata->>'href', 300) AS href
-       FROM analytics_events t
-       WHERE t.event_type IN ('time_on_page', 'scroll_depth', 'bounce', 'session_start', 'cta_click')
-         AND COALESCE(t.is_bot, false) = false
-         AND ${nzBounds('t."timestamp"', "timestamp", "$1", "$2")}`,
+    q<EvRow>(
+      `SELECT t.kind AS event_type, t.session_id, t.path, t.s, t.m, t.n, t.txt, t.href
+       FROM web_events_slim t
+       WHERE t.kind <> 'page_view' AND ${nzBounds("t.ts", "timestamp", "$1", "$2")}`,
       [from, to],
     ),
   );
@@ -124,14 +120,14 @@ const numeric = (v: string | null): number | null => (v != null && /^[0-9]+([.][
 
 export async function webAnalytics(scope: HubScope, site: string | null): Promise<WebAnalyticsResponse> {
   const ws = scope.filter.workspace;
+  await topUpSlim();
   const [pvAll, evAll, live] = await Promise.all([
     pageViews(scope.previous.from, scope.range.to),
     behaviourEvents(scope.range.from, scope.range.to),
     q<{ host: string | null; visitor_id: string | null }>(
-      `SELECT DISTINCT ${HOST} AS host, t.visitor_id
-       FROM analytics_events t
-       WHERE t.event_type = 'page_view' AND COALESCE(t.is_bot, false) = false
-         AND t."timestamp" > (now() AT TIME ZONE 'UTC') - interval '30 minutes'`,
+      `SELECT DISTINCT t.host, t.visitor_id
+       FROM web_events_slim t
+       WHERE t.kind = 'page_view' AND t.ts > (now() AT TIME ZONE 'UTC') - interval '30 minutes'`,
     ),
   ]);
 

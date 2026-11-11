@@ -466,9 +466,9 @@ const groupNav = [
     tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
     children: [
       { tab: "campaign-planner", title: "Campaigns", url: "/admin/campaigns", icon: Target },
-      { tab: "social-media", title: "Social media", url: "/admin/social-media", icon: AtSign },
-      { tab: "web-analytics", title: "Website analytics", url: "/admin/web-analytics", icon: MousePointerClick },
-      { tab: "paid-ads", title: "Paid ads", url: "/admin/paid-ads", icon: Megaphone },
+      { tab: "social-media", title: "Social Media", url: "/admin/social-media", icon: AtSign },
+      { tab: "web-analytics", title: "Websites", url: "/admin/web-analytics", icon: MousePointerClick },
+      { tab: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads", icon: Megaphone },
       { tab: "email-stats", title: "Email", url: "/admin/email-stats", icon: Mail },
       { tab: "sms-stats", title: "SMS", url: "/admin/sms-stats", icon: MessageSquare },
       { tab: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats", icon: MessageCircle },
