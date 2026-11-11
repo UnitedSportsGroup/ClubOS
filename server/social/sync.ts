@@ -1019,8 +1019,16 @@ export async function runSocialSync(
   const results: SocialSyncResult[] = [];
   let discovered: { found: number; added: number } | undefined;
   try {
-    const got = await lock.query(`SELECT pg_try_advisory_lock($1) AS ok`, [LOCK_KEY]);
-    if (!got.rows[0]?.ok) return { ran: false, reason: "Another server is already pulling social media.", results };
+    // 🔴 The database is reached through a pooler that hands each statement to
+    // whichever backend is free, so a SESSION lock can be taken on one backend
+    // and "released" on another: it leaked and blocked every pull (11 Nov 2026).
+    // A lock inside a transaction stays on one backend and ends with it.
+    await lock.query("BEGIN");
+    const got = await lock.query(`SELECT pg_try_advisory_xact_lock($1) AS ok`, [LOCK_KEY]);
+    if (!got.rows[0]?.ok) {
+      await lock.query("ROLLBACK").catch(() => {});
+      return { ran: false, reason: "Another server is already pulling social media.", results };
+    }
     try {
       if (!only?.accountId) {
         try {
@@ -1043,7 +1051,7 @@ export async function runSocialSync(
         );
       }
     } finally {
-      await lock.query(`SELECT pg_advisory_unlock($1)`, [LOCK_KEY]).catch(() => {});
+      await lock.query("COMMIT").catch(() => {});
     }
   } finally {
     lock.release();
