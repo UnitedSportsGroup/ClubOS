@@ -557,6 +557,12 @@ app.use(attributionCookieMiddleware);
   // Social media: every brand's accounts and posts, every 6h (same switch).
   const { startSocialCron } = await import("./social/sync");
   startSocialCron();
+  // Websites: keep the narrow copy of the tracker's visits up to date, and the
+  // default view of every Marketing report pre-loaded.
+  const { startWebSlimCron } = await import("./marketing-hub/web-slim");
+  startWebSlimCron();
+  const { startHubWarmers } = await import("./marketing-hub/common");
+  startHubWarmers();
   // Marketing Suite ("MarketingOS", Phase B) — durable send worker (graphile-worker).
   // Self-guards on DATABASE_URL / MARKETING_WORKER_DISABLED and never crashes boot.
   const { startMarketingWorker } = await import("./marketing/worker");

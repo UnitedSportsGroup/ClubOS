@@ -106,6 +106,10 @@ const PaidAdsPage = lazy(() => import("@/pages/marketing-channels").then((m) => 
 const EmailStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.EmailStatsPage })));
 const SmsStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.SmsStatsPage })));
 const WhatsAppStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.WhatsAppStatsPage })));
+const SignagePage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.SignagePage })));
+const BillboardsPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.BillboardsPage })));
+const TraditionalMediaPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.TraditionalMediaPage })));
+const BrandingPage = lazy(() => import("@/pages/branding"));
 const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
 const CanterburySport = lazy(() => import("@/pages/canterbury-sport"));
 const GroupVideos = lazy(() => import("@/pages/group-videos"));
@@ -492,6 +496,10 @@ function AdminRouter() {
         <Route path="/admin/email-stats" component={EmailStatsPage} />
         <Route path="/admin/sms-stats" component={SmsStatsPage} />
         <Route path="/admin/whatsapp-stats" component={WhatsAppStatsPage} />
+        <Route path="/admin/signage" component={SignagePage} />
+        <Route path="/admin/billboards" component={BillboardsPage} />
+        <Route path="/admin/traditional-media" component={TraditionalMediaPage} />
+        <Route path="/admin/branding" component={BrandingPage} />
         <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />
         <Route path="/admin/videos/record" component={GroupVideoRecord} />

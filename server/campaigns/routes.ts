@@ -262,9 +262,9 @@ async function channelsFor(c: CampaignRow): Promise<{ channels: ChannelRow[]; sp
 
     if (utm) {
       const [v] = await q<{ visitors: number }>(
-        `SELECT count(DISTINCT t.visitor_id)::int AS visitors FROM analytics_events t
-         WHERE t.event_type = 'page_view' AND COALESCE(t.is_bot, false) = false AND lower(t.utm_campaign) = lower($1)
-           AND ($2::date IS NULL OR t."timestamp" >= ($2::date::timestamp AT TIME ZONE 'Pacific/Auckland' AT TIME ZONE 'UTC'))`,
+        `SELECT count(DISTINCT t.visitor_id)::int AS visitors FROM web_events_slim t
+         WHERE t.kind = 'page_view' AND lower(t.utm_campaign) = lower($1)
+           AND ($2::date IS NULL OR t.day >= $2::date)`,
         [utm, c.startsOn],
       );
       stats.visitors = v.visitors;

@@ -71,6 +71,9 @@ import {
   Briefcase,
   Clapperboard,
   MessageCircle,
+  Signpost,
+  RectangleHorizontal,
+  Tv,
   Radio,
   FlaskConical,
   Fingerprint,
@@ -473,8 +476,13 @@ const groupNav = [
       { tab: "email-stats", title: "Email", url: "/admin/email-stats", icon: Mail },
       { tab: "sms-stats", title: "SMS", url: "/admin/sms-stats", icon: MessageSquare },
       { tab: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats", icon: MessageCircle },
+      { tab: "signage", title: "Signage", url: "/admin/signage", icon: Signpost },
+      { tab: "billboards", title: "Billboards", url: "/admin/billboards", icon: RectangleHorizontal },
+      { tab: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media", icon: Tv },
     ],
   },
+  // Branding (2026-11-11) — on its own, not under Marketing: "branding is different to marketing".
+  { tab: "branding", title: "Branding", url: "/admin/branding", icon: Palette },
   // Website (2026-11-01) — every club site; who may publish is a per-site grant.
   { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
   // Finance — one section for every money tool (Daniel, 21 Sep: "trim the fat… a dropdown called Finance").
