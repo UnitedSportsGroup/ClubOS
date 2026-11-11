@@ -15,63 +15,20 @@
 import type { Express, Request, Response } from "express";
 import { eachDay } from "@shared/dashboard";
 import { SITES, STAFF_HOST_PATTERN_SOURCES, channelLabel, hubWorkspace, normaliseHost } from "@shared/marketing-hub";
+import { rawRows, slimPageViews as pageViews, type PvRow } from "./web-slim";
 import { WEB_ANALYTICS_TAB, type WebAnalyticsResponse, type WebCount } from "@shared/web-analytics";
 import { requireAuth, requireTab } from "../auth";
-import { HubInputError, cached, nzBounds, parseScope, q, requireHubWorkspace, str, type HubScope } from "./common";
-import { topUpSlim } from "./web-slim";
+import { HubInputError, cached, keepWarm, nzBounds, parseScope, q, requireHubWorkspace, str, type HubScope } from "./common";
 
 // 🔴 Measured 2026-11-10: counting distinct visitors seven ways in Postgres took
 // 30–50 seconds for a month (three heavy sorts at once on a small database).
 // So the database only READS the rows — two plain index scans — and the
 // counting is done here, where sixty thousand rows is nothing.
 
-type PvRow = {
-  host: string | null;
-  visitor_id: string | null;
-  session_id: string | null;
-  channel: string | null;
-  path: string | null;
-  day: string;
-  device: string | null;
-  ref: string | null;
-  utm_source: string | null;
-  utm_medium: string | null;
-  utm_campaign: string | null;
-};
 type EvRow = { event_type: string; session_id: string | null; path: string | null; s: string | null; m: string | null; n: string | null; txt: string | null; href: string | null };
 
-const rawCache = new Map<string, { at: number; p: Promise<unknown[]> }>();
-/** The raw rows for a date range, kept ten minutes: reading a month takes ~15s, changing website should take none. */
-function raw<T>(key: string, fn: () => Promise<T[]>): Promise<T[]> {
-  const hit = rawCache.get(key);
-  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.p as Promise<T[]>;
-  const p = fn();
-  rawCache.set(key, { at: Date.now(), p });
-  p.then((rows) => {
-    // A year of rows is not worth holding in memory on two machines.
-    if (rows.length > 120_000) rawCache.delete(key);
-  }).catch(() => rawCache.delete(key));
-  if (rawCache.size > 6) rawCache.delete(rawCache.keys().next().value as string);
-  return p;
-}
-
-// 🔴 Measured 2026-11-11: analytics_events is 400 MB with page views scattered
-// through it; a month of visits meant ~500 MB of pages and 6–50 seconds when
-// they were not in memory. The report reads web_events_slim instead: a narrow,
-// time-ordered copy with the website name already worked out (web-slim.ts).
-const pageViews = (from: string, to: string) =>
-  raw<PvRow>(`pv|${from}|${to}`, () =>
-    q<PvRow>(
-      `SELECT t.host, t.visitor_id, t.session_id, t.channel, t.path, t.day::text AS day, t.device, t.ref_host AS ref,
-              t.utm_source, t.utm_medium, t.utm_campaign
-       FROM web_events_slim t
-       WHERE t.kind = 'page_view' AND ${nzBounds("t.ts", "timestamp", "$1", "$2")}`,
-      [from, to],
-    ),
-  );
-
 const behaviourEvents = (from: string, to: string) =>
-  raw<EvRow>(`ev|${from}|${to}`, () =>
+  rawRows<EvRow>(`ev|${from}|${to}`, () =>
     q<EvRow>(
       `SELECT t.kind AS event_type, t.session_id, t.path, t.s, t.m, t.n, t.txt, t.href
        FROM web_events_slim t
@@ -120,7 +77,6 @@ const numeric = (v: string | null): number | null => (v != null && /^[0-9]+([.][
 
 export async function webAnalytics(scope: HubScope, site: string | null): Promise<WebAnalyticsResponse> {
   const ws = scope.filter.workspace;
-  await topUpSlim();
   const [pvAll, evAll, live] = await Promise.all([
     pageViews(scope.previous.from, scope.range.to),
     behaviourEvents(scope.range.from, scope.range.to),
@@ -298,7 +254,11 @@ export async function webAnalytics(scope: HubScope, site: string | null): Promis
   };
 }
 
+const reportKey = (scope: HubScope, site: string | null) =>
+  `web-analytics|${scope.range.from}|${scope.range.to}|${scope.filter.workspace ?? ""}|${site ?? ""}`;
+
 export function registerWebAnalyticsRoutes(app: Express) {
+  keepWarm("web-analytics", (s) => webAnalytics(s, null), (s) => reportKey(s, null), true);
   app.get(
     "/api/admin/web-analytics/report",
     requireAuth,
@@ -313,8 +273,7 @@ export function registerWebAnalyticsRoutes(app: Express) {
         if (site && scope.filter.workspace && SITES[site] && SITES[site].workspace !== scope.filter.workspace) {
           throw new HubInputError("That website is not in this workspace.");
         }
-        const key = `web-analytics|${scope.range.from}|${scope.range.to}|${scope.filter.workspace ?? ""}|${site ?? ""}`;
-        res.json(await cached(key, 5 * 60_000, () => webAnalytics(scope, site)));
+        res.json(await cached(reportKey(scope, site), 5 * 60_000, () => webAnalytics(scope, site)));
       } catch (e: any) {
         if (e instanceof HubInputError) return res.status(400).json({ message: e.message });
         console.error("[WebAnalytics]", e?.message ?? e);
