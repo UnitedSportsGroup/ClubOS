@@ -107,6 +107,7 @@ const EmailStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) 
 const SmsStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.SmsStatsPage })));
 const WhatsAppStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.WhatsAppStatsPage })));
 const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
+const CanterburySport = lazy(() => import("@/pages/canterbury-sport"));
 const GroupVideos = lazy(() => import("@/pages/group-videos"));
 const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
 const GroupVideoDetail = lazy(() => import("@/pages/group-video-detail"));
@@ -370,7 +371,8 @@ function AdminRouter() {
   if (isSandbox) {
     return (
       <Switch>
-        <Route path="/admin"><Redirect to="/admin/club-dossier" /></Route>
+        <Route path="/admin"><Redirect to="/admin/canterbury-sport" /></Route>
+        <Route path="/admin/canterbury-sport" component={CanterburySport} />
         <Route path="/admin/club-dossier" component={ClubDossier} />
         <Route path="/admin/market-research" component={MarketResearch} />
         <Route path="/admin/team" component={AdminTeam} />
