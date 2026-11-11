@@ -342,6 +342,16 @@ const groupTabs: TabDef[] = [
   { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
   { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },
   { slug: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats" },
+  // Offline marketing (2026-11-11, Daniel): registers staff keep. Signage is
+  // what the club puts up or prints itself; Billboards is campaigns booked with
+  // companies such as Go Media; Traditional Media is TV, radio and news outlets
+  // and what has gone out through them. Under Marketing in the sidebar.
+  { slug: "signage", title: "Signage", url: "/admin/signage" },
+  { slug: "billboards", title: "Billboards", url: "/admin/billboards" },
+  { slug: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media" },
+  // Branding (2026-11-11, Daniel: "branding is different to marketing"): each
+  // brand's guidelines site with a working board. Its own item in the sidebar.
+  { slug: "branding", title: "Branding", url: "/admin/branding" },
   // Website — every club site in one list (see cufcExtraTabs for the CUFC copy).
   { slug: "sites", title: "Website", url: "/admin/sites" },
   // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever

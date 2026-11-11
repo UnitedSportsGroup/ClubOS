@@ -180,6 +180,7 @@ import { registerSocialRoutes } from "./social/routes";
 import { registerWebAnalyticsRoutes } from "./marketing-hub/web-analytics";
 import { registerMarketingChannelRoutes } from "./marketing-hub/channels";
 import { registerCampaignRoutes } from "./campaigns/routes";
+import { registerOfflineMarketingRoutes } from "./offline-marketing-routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -28058,6 +28059,7 @@ export async function registerRoutes(
   registerMarketingChannelRoutes(app);
   // Campaigns — plan a campaign, set its goal, watch it move from real sales.
   registerCampaignRoutes(app);
+  registerOfflineMarketingRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 
