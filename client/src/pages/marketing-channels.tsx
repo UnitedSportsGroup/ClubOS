@@ -25,6 +25,7 @@ import { money, shortDate } from "@/components/marketing-hub/format";
 import { workspaceColor } from "@/components/marketing-hub/palette";
 import { DASHBOARD_PERIODS, resolvePeriod, type DashboardPeriod, type DateRange } from "@shared/dashboard";
 import { HUB_WORKSPACES } from "@shared/marketing-hub";
+import { OtherNewsletters } from "./marketing-more";
 import type { EmailCampaignRow, EmailReport, SmsReport, WhatsAppReport } from "@shared/marketing-channels";
 
 const n = (v: number) => v.toLocaleString("en-NZ");
@@ -193,7 +194,7 @@ export function EmailStatsPage() {
   return (
     <Shell
       title="Email"
-      blurb="Every email campaign ClubOS has sent, and what happened to it."
+      blurb="Every email campaign ClubOS has sent and what happened to it, then the outside newsletters the club is in."
       controls={<PeriodPicker period={f.period} custom={f.custom} onChange={(period, custom) => f.write({ period, custom })} />}
     >
       {isLoading ? (
@@ -249,6 +250,9 @@ export function EmailStatsPage() {
           </Panel>
         </div>
       )}
+      <div className="pt-4 border-t border-border">
+        <OtherNewsletters />
+      </div>
     </Shell>
   );
 }

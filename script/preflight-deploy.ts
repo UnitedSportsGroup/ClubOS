@@ -164,6 +164,8 @@ const CANARIES: Canary[] = [
   // Signage · Billboards · Traditional Media · Branding (2026-11-11). A deploy
   // without them empties four tabs in the United Sports Group workspace.
   { feature: "offline marketing",    path: "/api/admin/offline-marketing/signage",      expect: [401] },
+  { feature: "marketing word of mouth", path: "/api/admin/word-of-mouth/report",        expect: [401] },
+  { feature: "marketing offers",     path: "/api/admin/offers-codes/report",            expect: [401] },
   { feature: "branding",             path: "/api/admin/branding/boards",                expect: [401] },
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.

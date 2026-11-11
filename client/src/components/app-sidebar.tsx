@@ -110,6 +110,11 @@ import {
   AtSign,
   MousePointerClick,
   MessageSquare,
+  PartyPopper,
+  Search,
+  Smartphone,
+  TicketPercent,
+  Gem,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -478,6 +483,15 @@ const groupNav = [
       { tab: "signage", title: "Signage", url: "/admin/signage", icon: Signpost },
       { tab: "billboards", title: "Billboards", url: "/admin/billboards", icon: RectangleHorizontal },
       { tab: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media", icon: Tv },
+      { tab: "flyers-print", title: "Flyers & Print", url: "/admin/flyers-print", icon: Printer },
+      { tab: "events-activations", title: "Events & Activations", url: "/admin/events-activations", icon: PartyPopper },
+      { tab: "search-reviews", title: "Search & Reviews", url: "/admin/search-reviews", icon: Search },
+      { tab: "listings", title: "Listings", url: "/admin/listings", icon: ListChecks },
+      { tab: "mobile-apps", title: "Mobile Apps", url: "/admin/mobile-apps", icon: Smartphone },
+      { tab: "partners-ambassadors", title: "Partners & Ambassadors", url: "/admin/partners-ambassadors", icon: Handshake },
+      { tab: "word-of-mouth", title: "Word of Mouth", url: "/admin/word-of-mouth", icon: MessagesSquare },
+      { tab: "offers-codes", title: "Offers & Codes", url: "/admin/offers-codes", icon: TicketPercent },
+      { tab: "product-quality", title: "Product Quality", url: "/admin/product-quality", icon: Gem },
     ],
   },
   // Branding (2026-11-11) — on its own, not under Marketing: "branding is different to marketing".

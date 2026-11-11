@@ -349,6 +349,18 @@ const groupTabs: TabDef[] = [
   { slug: "signage", title: "Signage", url: "/admin/signage" },
   { slug: "billboards", title: "Billboards", url: "/admin/billboards" },
   { slug: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media" },
+  // The rest of the marketing map (2026-11-12, Daniel). Registers staff keep,
+  // except Word of Mouth and Offers & Codes, which read what checkouts record.
+  // Email also holds "Other people's newsletters" (no tab of its own).
+  { slug: "flyers-print", title: "Flyers & Print", url: "/admin/flyers-print" },
+  { slug: "events-activations", title: "Events & Activations", url: "/admin/events-activations" },
+  { slug: "search-reviews", title: "Search & Reviews", url: "/admin/search-reviews" },
+  { slug: "listings", title: "Listings", url: "/admin/listings" },
+  { slug: "mobile-apps", title: "Mobile Apps", url: "/admin/mobile-apps" },
+  { slug: "partners-ambassadors", title: "Partners & Ambassadors", url: "/admin/partners-ambassadors" },
+  { slug: "word-of-mouth", title: "Word of Mouth", url: "/admin/word-of-mouth" },
+  { slug: "offers-codes", title: "Offers & Codes", url: "/admin/offers-codes" },
+  { slug: "product-quality", title: "Product Quality", url: "/admin/product-quality" },
   // Branding (2026-11-11, Daniel: "branding is different to marketing"): each
   // brand's guidelines site with a working board. Its own item in the sidebar.
   { slug: "branding", title: "Branding", url: "/admin/branding" },

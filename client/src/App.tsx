@@ -109,6 +109,15 @@ const WhatsAppStatsPage = lazy(() => import("@/pages/marketing-channels").then((
 const SignagePage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.SignagePage })));
 const BillboardsPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.BillboardsPage })));
 const TraditionalMediaPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.TraditionalMediaPage })));
+const FlyersPrintPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.FlyersPrintPage })));
+const EventsActivationsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.EventsActivationsPage })));
+const SearchReviewsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.SearchReviewsPage })));
+const ListingsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ListingsPage })));
+const MobileAppsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.MobileAppsPage })));
+const PartnersAmbassadorsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.PartnersAmbassadorsPage })));
+const WordOfMouthPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.WordOfMouthPage })));
+const OffersCodesPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.OffersCodesPage })));
+const ProductQualityPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ProductQualityPage })));
 const BrandingPage = lazy(() => import("@/pages/branding"));
 const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
 const GroupVideos = lazy(() => import("@/pages/group-videos"));
@@ -497,6 +506,15 @@ function AdminRouter() {
         <Route path="/admin/signage" component={SignagePage} />
         <Route path="/admin/billboards" component={BillboardsPage} />
         <Route path="/admin/traditional-media" component={TraditionalMediaPage} />
+        <Route path="/admin/flyers-print" component={FlyersPrintPage} />
+        <Route path="/admin/events-activations" component={EventsActivationsPage} />
+        <Route path="/admin/search-reviews" component={SearchReviewsPage} />
+        <Route path="/admin/listings" component={ListingsPage} />
+        <Route path="/admin/mobile-apps" component={MobileAppsPage} />
+        <Route path="/admin/partners-ambassadors" component={PartnersAmbassadorsPage} />
+        <Route path="/admin/word-of-mouth" component={WordOfMouthPage} />
+        <Route path="/admin/offers-codes" component={OffersCodesPage} />
+        <Route path="/admin/product-quality" component={ProductQualityPage} />
         <Route path="/admin/branding" component={BrandingPage} />
         <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />

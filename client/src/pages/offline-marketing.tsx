@@ -49,9 +49,12 @@ const control = "h-11 md:h-9";
 
 type ListTab = { key: OfflineChannelKey; label: string };
 
-function OfflinePage({ path, title, blurb, lists }: { path: string; title: string; blurb: string; lists: ListTab[] }) {
-  const search = useSearch();
+export function OfflinePage({ path, title, blurb, lists, top, embedded }: { path: string; title: string; blurb: string; lists: ListTab[]; top?: React.ReactNode; embedded?: boolean }) {
+  const urlSearch = useSearch();
   const [, navigate] = useLocation();
+  // Inside another page (Email) the filters are kept here, so they never touch that page's own URL.
+  const [local, setLocal] = useState("");
+  const search = embedded ? local : urlSearch;
   const f = useMemo(() => {
     const p = new URLSearchParams(search);
     return {
@@ -71,7 +74,8 @@ function OfflinePage({ path, title, blurb, lists }: { path: string; title: strin
     if (m.status !== "all") p.set("status", m.status);
     if (m.removed) p.set("removed", "1");
     const qs = p.toString();
-    navigate(`${path}${qs ? `?${qs}` : ""}`, { replace: true });
+    if (embedded) setLocal(qs);
+    else navigate(`${path}${qs ? `?${qs}` : ""}`, { replace: true });
   };
 
   const def = OFFLINE_CHANNELS[f.list];
@@ -87,10 +91,14 @@ function OfflinePage({ path, title, blurb, lists }: { path: string; title: strin
   const today = data?.today ?? "";
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5 min-w-0">
+    <div className={cn("space-y-5 min-w-0", !embedded && "p-4 md:p-6 max-w-7xl mx-auto")} data-testid={`register-${lists[0].key}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+          {embedded ? (
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+          ) : (
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+          )}
           <p className="text-sm text-muted-foreground mt-0.5">{blurb}</p>
         </div>
         <Button className={control} onClick={() => setEditing("new")} data-testid="offline-add">
@@ -99,8 +107,10 @@ function OfflinePage({ path, title, blurb, lists }: { path: string; title: strin
         </Button>
       </div>
 
+      {top}
+
       {lists.length > 1 && (
-        <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
+        <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-0.5">
           {lists.map((l) => (
             <button
               key={l.key}
@@ -205,7 +215,12 @@ function ItemCard({ def, item, today, onEdit, listKey }: { def: OfflineChannelDe
   const facts: [string, string][] = [];
   if (item.supplier) facts.push([def.labels.supplier, item.supplier]);
   if (item.location) facts.push([def.labels.location, item.location]);
-  if (def.fields.size && (item.size || item.quantity != null)) facts.push(["Size", [item.quantity != null ? `${item.quantity} ×` : null, item.size].filter(Boolean).join(" ") || "—"]);
+  if ((def.fields.size || def.fields.quantity) && (item.size || item.quantity != null)) {
+    if (def.labels.size || def.labels.quantity) {
+      if (item.size) facts.push([def.labels.size ?? "Size", item.size]);
+      if (item.quantity != null) facts.push([def.labels.quantity ?? "How many", count(item.quantity)]);
+    } else facts.push(["Size", [item.quantity != null ? `${item.quantity} ×` : null, item.size].filter(Boolean).join(" ") || "—"]);
+  }
   if (def.fields.dates && (item.startsOn || item.endsOn)) {
     facts.push([item.endsOn && item.startsOn ? "Dates" : item.startsOn ? def.labels.starts : def.labels.ends, item.startsOn && item.endsOn ? `${niceDay(item.startsOn)} – ${niceDay(item.endsOn)}` : niceDay(item.startsOn ?? item.endsOn)]);
   }
@@ -384,10 +399,10 @@ function ItemDialog({ def, item, onClose }: { def: OfflineChannelDef; item: Offl
             </Select>)}
           {field("om-supplier", def.labels.supplier, <Input id="om-supplier" className={control} value={form.supplier} onChange={(e) => set("supplier")(e.target.value)} autoComplete="off" />)}
           {field("om-location", def.labels.location, <Input id="om-location" className={control} value={form.location} onChange={(e) => set("location")(e.target.value)} autoComplete="off" />, !def.fields.size)}
-          {def.fields.size && field("om-size", "Size", <Input id="om-size" className={control} value={form.size} onChange={(e) => set("size")(e.target.value)} placeholder="e.g. 3000 × 1000 mm" autoComplete="off" />)}
-          {def.fields.quantity && field("om-qty", "How many", <Input id="om-qty" className={control} inputMode="numeric" value={form.quantity} onChange={(e) => set("quantity")(e.target.value.replace(/[^0-9]/g, ""))} autoComplete="off" />)}
+          {def.fields.size && field("om-size", def.labels.size ?? "Size", <Input id="om-size" className={control} value={form.size} onChange={(e) => set("size")(e.target.value)} placeholder={def.labels.sizeHint ?? "e.g. 3000 × 1000 mm"} autoComplete="off" />)}
+          {def.fields.quantity && field("om-qty", def.labels.quantity ?? "How many", <Input id="om-qty" className={control} inputMode="numeric" value={form.quantity} onChange={(e) => set("quantity")(e.target.value.replace(/[^0-9]/g, ""))} autoComplete="off" />)}
           {def.fields.dates && field("om-start", def.labels.starts, <DatePickerInput value={form.startsOn} onChange={(e) => set("startsOn")(e.target.value)} className={control} />)}
-          {def.fields.dates && field("om-end", def.labels.ends, <DatePickerInput value={form.endsOn} onChange={(e) => set("endsOn")(e.target.value)} className={control} />)}
+          {def.fields.dates && def.labels.ends && field("om-end", def.labels.ends, <DatePickerInput value={form.endsOn} onChange={(e) => set("endsOn")(e.target.value)} className={control} />)}
           {def.labels.cost && field("om-cost", def.labels.cost, <MoneyInput id="om-cost" className={control} value={form.cost} onChange={set("cost")} />)}
           {def.labels.audience && field("om-aud", def.labels.audience, <Input id="om-aud" className={control} inputMode="numeric" value={form.audience} onChange={(e) => set("audience")(e.target.value.replace(/[^0-9,]/g, ""))} autoComplete="off" />)}
           {def.fields.contact && field("om-cn", "Contact name", <Input id="om-cn" className={control} value={form.contactName} onChange={(e) => set("contactName")(e.target.value)} autoComplete="off" />)}
