@@ -31,6 +31,9 @@ import { nzTodayIso } from "@shared/academy";
 import { viewerCanReachTab } from "@shared/knowledge-base";
 import { buildViewer } from "./rambo";
 import { bounceMap, bounceLabel, type BounceKind } from "./email-bounces";
+import { reachableAddresses, unreachableReason } from "@shared/mailer-reach";
+import { parsePersonKey } from "@shared/family";
+import { resolveFamily } from "./family-routes";
 
 /** One child shown under a parent, so two "Sarah Smith"s can be told apart. */
 export type PersonChild = { name: string; ageGroup: string | null; programme: string | null };
@@ -128,11 +131,12 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         const guardianName = [r.g_first, r.g_last].filter(Boolean).join(" ").trim();
 
         // 🔴 Their own address wins when they have one; otherwise the guardian's,
-        // named. Never silently.
-        let email: string | null = null, emailOwner: string | null = null, unreachable: string | null = null;
-        if (own) email = own;
-        else if (guardianEmail) { email = guardianEmail; emailOwner = guardianName || "their parent"; }
-        else unreachable = r.type === "player" ? "no email, and no parent on file with one" : "no email on file";
+        // named. Never silently. ONE rule (shared/mailer-reach.ts) — the same
+        // one the profile's "Email" button and the Contacts list use.
+        const reach = reachableAddresses(own, guardianEmail ? [{ name: guardianName, email: guardianEmail }] : [])[0];
+        const email: string | null = reach?.email ?? null;
+        const emailOwner: string | null = reach?.owner ?? null;
+        const unreachable: string | null = reach ? null : unreachableReason(r.type);
 
         const personKey = `${[r.first_name, r.last_name].filter(Boolean).join(" ").trim().toLowerCase()}|${(email ?? "").toLowerCase()}`;
         if (byPerson.has(personKey)) continue;
@@ -245,6 +249,73 @@ export function registerMailerPeopleSearch(app: Express, requireAuth: any) {
         p.bounce = b ? { kind: b.kind, label: bounceLabel(b) } : null;
       }
       res.json({ people: all });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  /**
+   * "Email this person" — a Contacts row or a profile, straight into the Mailer.
+   *
+   * Daniel, 2026-11-03: "from list view and from profile when click into
+   * contact can one click email the contact so like goes to mailer with them
+   * already preselected as send to that person … if kid doesn't have email for
+   * them personally it will email parents but still shows up on kids profile."
+   *
+   * Takes person keys (`contact-123`, `child-45` — the same keys the Contacts
+   * list and `/admin/people/:key` use, so a camp child is reachable too) and
+   * answers in EXACTLY the search's row shape, so the Mailer draws the chip the
+   * same way it would have drawn a picked search result: the CHILD's name, the
+   * address, and "via <parent>" when the mailbox is not their own.
+   *
+   * 🔴 A child with two parents on file is two rows — one per parent address —
+   * both carrying the child's name. A person nobody can reach is still a row,
+   * with the reason, so the page can say so rather than silently add nothing.
+   *
+   * 🔴 Resolved through `resolveFamily()`, the ONE family resolver (all three
+   * link mechanisms, merges followed) — never a second query over the edges.
+   */
+  app.get("/api/admin/mailer/people", requireAuth, async (req, res) => {
+    try {
+      const keys = String(req.query.keys ?? "").split(",").map((k) => k.trim()).filter(Boolean).slice(0, 50);
+      const people: PersonHit[] = [];
+      const seenEmails = new Set<string>();
+      for (const key of keys) {
+        const parsed = parsePersonKey(key);
+        if (!parsed) continue;
+        const fam = await resolveFamily(parsed.kind, parsed.id);
+        if (!fam) {
+          people.push({ key, contactId: parsed.id, name: key, type: "unknown", email: null, emailOwner: null,
+            unreachable: "no such person", detail: null });
+          continue;
+        }
+        const p = fam.person;
+        const name = [p.firstName, p.lastName].filter(Boolean).join(" ").trim();
+        const guardians = fam.guardians.map((g) => ({ name: [g.firstName, g.lastName].filter(Boolean).join(" ").trim(), email: g.email }));
+        const reach = reachableAddresses(p.email, guardians);
+        const latest = fam.registrations?.[0]?.programName ?? null;
+        const base = {
+          contactId: p.kind === "contact" ? p.id : -p.id,
+          name, type: p.type ?? "", detail: latest,
+          ageGroup: p.type === "player" ? grade(p.dateOfBirth, nzTodayIso()) : null,
+          parentName: p.type === "player" ? (guardians[0]?.name || null) : null,
+        };
+        if (!reach.length) {
+          people.push({ ...base, key: p.key, email: null, emailOwner: null, unreachable: unreachableReason(p.type) });
+          continue;
+        }
+        reach.forEach((a, i) => {
+          if (seenEmails.has(a.email)) return;   // two keys, one mailbox = one send
+          seenEmails.add(a.email);
+          people.push({ ...base, key: i === 0 ? p.key : `${p.key}-${i}`, email: a.email, emailOwner: a.owner, unreachable: null });
+        });
+      }
+      const bounces = await bounceMap(people.map((p) => p.email).filter((e): e is string => !!e));
+      for (const p of people) {
+        const b = p.email ? bounces.get(p.email.toLowerCase()) : undefined;
+        p.bounce = b ? { kind: b.kind, label: bounceLabel(b) } : null;
+      }
+      res.json({ people });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
