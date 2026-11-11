@@ -72,9 +72,9 @@ export const SOCIAL_PLATFORMS: readonly SocialPlatformDef[] = [
     mode: "link",
     audience: "followers",
     setup: [
-      "TikTok only shares an account's posts and stats with an approved developer app.",
-      "At developers.tiktok.com, create an app for the club and request the Display API (a review of a few days).",
-      "Then each TikTok account signs in once to approve it. Until then, the link is saved here and followers can be typed in.",
+      "TikTok only shares an account's videos and numbers after that account signs in and approves it.",
+      "On the Accounts tab, press \"Sign in with TikTok\" and log in as the account. ClubOS then reads it by itself.",
+      "The sign-in lasts about six months of no use; if it runs out, the account shows a failed update and the same button renews it.",
     ],
   },
   {
@@ -273,6 +273,8 @@ export type SocialAccountsResponse = {
   /** When a person may press Sync again, or null if they may now. */
   nextSyncAt: string | null;
   syncing: boolean;
+  /** True when this server can send a TikTok account to sign in. */
+  tiktokSignIn: boolean;
 };
 
 export type SocialSeriesPoint = { day: string; value: number };

@@ -35,7 +35,20 @@ import { join } from "path";
 import sharp from "sharp";
 import { pool } from "../db";
 import { requireHubWorkspace } from "../marketing-hub/common";
-import { SocialNotConfigured, discoverMetaAccounts, refreshThumb, runSocialSync, saveReading, xProfile, youtubeChannel } from "./sync";
+import {
+  SocialNotConfigured,
+  checkOauthState,
+  connectTiktok,
+  discoverMetaAccounts,
+  refreshThumb,
+  runSocialSync,
+  saveReading,
+  signOauthState,
+  tiktokAuthUrl,
+  tiktokConfigured,
+  xProfile,
+  youtubeChannel,
+} from "./sync";
 
 const BASE = "/api/admin/social";
 const NZ = "Pacific/Auckland";
@@ -251,7 +264,7 @@ export function registerSocialRoutes(app: Express) {
     // The account list is never narrowed to one account: the strip shows them all.
     const s = { ...parseScope(req), accountId: null, platform: null };
     const [accounts, state] = await Promise.all([listAccounts(s), syncState()]);
-    const body: SocialAccountsResponse = { today: s.to, period: s.period.key, accounts, ...state };
+    const body: SocialAccountsResponse = { today: s.to, period: s.period.key, accounts, ...state, tiktokSignIn: tiktokConfigured() };
     res.json(body);
   }));
 
@@ -534,6 +547,34 @@ export function registerSocialRoutes(app: Express) {
   // ── A post's picture, small ───────────────────────────────────────────────
   // Fetched from the platform, shrunk to 480px WebP (~25KB) and kept on this
   // machine's disk. If the platform's link has expired, a fresh one is asked for.
+  // ── TikTok sign-in ────────────────────────────────────────────────────────
+  // Both are opened by the browser itself (a link, then TikTok sending the
+  // person back), so neither can carry the workspace header: requireTabAnywhere.
+  const back = (res: Response, result: string, extra = "") =>
+    res.redirect(`/admin/social-media?view=accounts&tiktok=${result}${extra}`);
+
+  app.get(`${BASE}/connect/tiktok`, requireAuth, requireTabAnywhere(SOCIAL_TAB), (req, res) => {
+    try {
+      res.redirect(tiktokAuthUrl(signOauthState(req.session.userId!)));
+    } catch {
+      back(res, "off");
+    }
+  });
+
+  app.get(`${BASE}/oauth/tiktok/callback`, requireAuth, requireTabAnywhere(SOCIAL_TAB), async (req, res) => {
+    if (!checkOauthState(req.query.state, req.session.userId!)) return back(res, "expired");
+    if (req.query.error || !req.query.code) return back(res, "declined");
+    try {
+      const r = await connectTiktok(String(req.query.code), req.session.userId!);
+      void runSocialSync("manual", { accountId: r.accountId }).catch(() => {});
+      back(res, r.added ? "added" : "connected", `&name=${encodeURIComponent(r.handle)}`);
+    } catch (e: any) {
+      console.error(`[Social] TikTok sign-in failed: ${String(e?.message ?? e).slice(0, 300)}`);
+      back(res, "failed");
+    }
+  });
+
+  // ── Small pictures ────────────────────────────────────────────────────────
   app.get(`${BASE}/thumb/:id`, requireAuth, requireTabAnywhere(SOCIAL_TAB), async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(404).end();

@@ -277,6 +277,9 @@ export default function SocialMedia() {
         <AccountsView
           accounts={(f.brand === "all" ? allQuery.data?.accounts : accounts) ?? []}
           loading={allQuery.isLoading}
+          tiktokSignIn={Boolean(allQuery.data?.tiktokSignIn)}
+          tiktokResult={new URLSearchParams(search).get("tiktok")}
+          tiktokName={new URLSearchParams(search).get("name")}
           onConnect={() => setConnect({ platform: null })}
           onFollowers={setFollowersFor}
         />
@@ -753,11 +756,17 @@ function CalendarView({
 function AccountsView({
   accounts,
   loading,
+  tiktokSignIn,
+  tiktokResult,
+  tiktokName,
   onConnect,
   onFollowers,
 }: {
   accounts: SocialAccount[];
   loading: boolean;
+  tiktokSignIn: boolean;
+  tiktokResult: string | null;
+  tiktokName: string | null;
   onConnect: () => void;
   onFollowers: (a: SocialAccount) => void;
 }) {
@@ -785,8 +794,28 @@ function AccountsView({
   });
 
   if (loading) return <Loading rows={4} />;
+  const tiktokNote =
+    tiktokResult === "connected" ? `TikTok @${tiktokName ?? ""} is connected. Its videos are loading now.`
+    : tiktokResult === "added" ? `TikTok @${tiktokName ?? ""} is connected. Pick its brand in the list below.`
+    : tiktokResult === "declined" ? "TikTok sign-in was cancelled. Nothing changed."
+    : tiktokResult === "expired" ? "That sign-in took too long. Press Sign in with TikTok again."
+    : tiktokResult === "off" ? "TikTok sign-in is not switched on yet."
+    : tiktokResult === "failed" ? "TikTok did not accept the sign-in. Try again; if it keeps failing, the account may not be on the club's approved list at TikTok."
+    : null;
   return (
     <div className="space-y-5">
+      {tiktokNote && (
+        <p
+          role="status"
+          data-testid="tiktok-result"
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            tiktokResult === "connected" || tiktokResult === "added" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900",
+          )}
+        >
+          {tiktokNote}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button className="h-11 md:h-9" onClick={onConnect}>
           <Plus className="w-4 h-4 mr-1.5" aria-hidden />
@@ -796,6 +825,11 @@ function AccountsView({
           <SearchIcon className="w-4 h-4 mr-1.5" aria-hidden />
           {discover.isPending ? "Looking…" : "Find Instagram and Facebook accounts"}
         </Button>
+        {tiktokSignIn && (
+          <Button asChild variant="outline" className="h-11 md:h-9">
+            <a href="/api/admin/social/connect/tiktok" data-testid="tiktok-sign-in">Sign in with TikTok</a>
+          </Button>
+        )}
         {found && <span className="text-sm text-muted-foreground" role="status">{found}</span>}
       </div>
 
@@ -867,6 +901,11 @@ function AccountsView({
                     <TableCell className="text-right tabular-nums">{a.connection === "api" ? count(a.postsStored) : "—"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{a.connection === "api" ? relativeTime(a.lastSyncedAt) : "—"}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
+                      {a.platform === "tiktok" && tiktokSignIn && (a.connection === "link" || /sign-in|signed in/i.test(a.lastError ?? "")) && (
+                        <Button asChild className="h-11 md:h-8 mr-1.5">
+                          <a href="/api/admin/social/connect/tiktok">Sign in with TikTok</a>
+                        </Button>
+                      )}
                       {a.connection === "link" && (
                         <Button variant="outline" className="h-11 md:h-8 mr-1.5" onClick={() => onFollowers(a)}>Type in followers</Button>
                       )}

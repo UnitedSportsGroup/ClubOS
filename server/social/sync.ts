@@ -10,8 +10,11 @@
  *                                (YOUTUBE_API_KEY, else the service account).
  *   X                            read with X_BEARER_TOKEN (pay per read, so a
  *                                scheduled pull reads the newest 50 posts only).
- *   TikTok · LinkedIn            saved links only; no puller until each
- *                                platform grants read access.
+ *   TikTok                       each account signs in once (TIKTOK_CLIENT_KEY /
+ *                                TIKTOK_CLIENT_SECRET); its tokens are kept
+ *                                encrypted in social_account_tokens.
+ *   LinkedIn                     saved links only; no puller until LinkedIn
+ *                                grants read access.
  *
  * 🔴 Every pull is a row in social_sync_runs with the platform's own error.
  * 🔴 A request URL carries a token, so errors are rebuilt from the platform's
@@ -20,6 +23,7 @@
  *    Every write is an upsert on a natural key, so an overlap could only
  *    rewrite the same numbers.
  */
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { JWT } from "google-auth-library";
 import { nzTodayIso } from "@shared/dashboard";
 import { META_BRAND_BY_ID, socialBrand, type SocialPlatformKey } from "@shared/social";
@@ -674,12 +678,264 @@ async function syncX(a: AccountRow, opts: SyncOpts): Promise<number> {
   return written;
 }
 
+// ── TikTok ──────────────────────────────────────────────────────────────────
+//
+// TikTok shares an account's numbers only after that account signs in and
+// approves the club's developer app. Sign-in gives a 2-hour access token and a
+// refresh token (about 180 days). 🔴 Every refresh REPLACES the refresh token
+// and the old one dies at once, so the new pair is saved before anything else.
+
+const APP_URL = (process.env.APP_URL || "https://app.usg.co.nz").replace(/\/+$/, "");
+export const TIKTOK_REDIRECT = `${APP_URL}/api/admin/social/oauth/tiktok/callback`;
+const TIKTOK_SCOPES = "user.info.basic,user.info.profile,user.info.stats,video.list";
+
+export function tiktokConfigured(): boolean {
+  return Boolean(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
+}
+
+function tokenKey(): Buffer {
+  const secret = process.env.SOCIAL_TOKEN_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new SocialNotConfigured("No key on this server to keep sign-in tokens safe.");
+  return createHash("sha256").update(`social-tokens:${secret}`).digest();
+}
+
+function seal(plain: string): string {
+  const iv = randomBytes(12);
+  const c = createCipheriv("aes-256-gcm", tokenKey(), iv);
+  const body = Buffer.concat([c.update(plain, "utf8"), c.final()]);
+  return `v1.${iv.toString("base64url")}.${c.getAuthTag().toString("base64url")}.${body.toString("base64url")}`;
+}
+
+function unseal(sealed: string): string {
+  const [v, iv, tag, body] = sealed.split(".");
+  if (v !== "v1" || !iv || !tag || !body) throw new Error("stored token is unreadable");
+  const d = createDecipheriv("aes-256-gcm", tokenKey(), Buffer.from(iv, "base64url"));
+  d.setAuthTag(Buffer.from(tag, "base64url"));
+  return Buffer.concat([d.update(Buffer.from(body, "base64url")), d.final()]).toString("utf8");
+}
+
+/** A signed, 15-minute ticket tying the trip to TikTok and back to the staff member who started it. */
+export function signOauthState(userId: number): string {
+  const body = Buffer.from(JSON.stringify({ u: userId, t: Date.now(), n: randomBytes(8).toString("hex") })).toString("base64url");
+  return `${body}.${createHmac("sha256", tokenKey()).update(body).digest("base64url")}`;
+}
+
+export function checkOauthState(state: unknown, userId: number): boolean {
+  const [body, sig] = String(state ?? "").split(".");
+  if (!body || !sig) return false;
+  const want = createHmac("sha256", tokenKey()).update(body).digest();
+  const got = Buffer.from(sig, "base64url");
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return false;
+  try {
+    const p = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    return p.u === userId && Date.now() - Number(p.t) < 15 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
+export function tiktokAuthUrl(state: string): string {
+  if (!tiktokConfigured()) throw new SocialNotConfigured("TikTok sign-in is not switched on yet.");
+  return `https://www.tiktok.com/v2/auth/authorize/?${new URLSearchParams({
+    client_key: process.env.TIKTOK_CLIENT_KEY!,
+    scope: TIKTOK_SCOPES,
+    response_type: "code",
+    redirect_uri: TIKTOK_REDIRECT,
+    state,
+    // Always show TikTok's own screen, so the person sees which account is signing in.
+    disable_auto_auth: "1",
+  }).toString()}`;
+}
+
+type TiktokTokens = { access_token: string; refresh_token?: string; expires_in?: number; refresh_expires_in?: number; scope?: string; open_id?: string };
+
+async function tiktokToken(form: Record<string, string>): Promise<TiktokTokens> {
+  if (!tiktokConfigured()) throw new SocialNotConfigured("TikTok sign-in is not switched on yet.");
+  let res: Response;
+  try {
+    res = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_key: process.env.TIKTOK_CLIENT_KEY!, client_secret: process.env.TIKTOK_CLIENT_SECRET!, ...form }).toString(),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    throw new Error(`TikTok: request failed (${e?.name === "TimeoutError" ? "timed out" : "network error"})`);
+  }
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok || !json?.access_token) {
+    throw new Error(`TikTok: ${json?.error_description ?? json?.error ?? `HTTP ${res.status}`}`);
+  }
+  return json as TiktokTokens;
+}
+
+async function saveTiktokTokens(accountId: number, t: TiktokTokens, userId: number | null) {
+  await q(
+    `INSERT INTO social_account_tokens (account_id, access_token_enc, refresh_token_enc, access_expires_at, refresh_expires_at, scope, connected_by)
+     VALUES ($1, $2, $3, now() + make_interval(secs => $4), CASE WHEN $5::float8 IS NULL THEN NULL ELSE now() + make_interval(secs => $5) END, $6, $7)
+     ON CONFLICT (account_id) DO UPDATE SET
+       access_token_enc = EXCLUDED.access_token_enc,
+       refresh_token_enc = COALESCE(EXCLUDED.refresh_token_enc, social_account_tokens.refresh_token_enc),
+       access_expires_at = EXCLUDED.access_expires_at,
+       refresh_expires_at = COALESCE(EXCLUDED.refresh_expires_at, social_account_tokens.refresh_expires_at),
+       scope = COALESCE(EXCLUDED.scope, social_account_tokens.scope),
+       connected_by = COALESCE(EXCLUDED.connected_by, social_account_tokens.connected_by),
+       updated_at = now()`,
+    [accountId, seal(t.access_token), t.refresh_token ? seal(t.refresh_token) : null, Number(t.expires_in) > 0 ? Number(t.expires_in) : 3600,
+     Number(t.refresh_expires_in) > 0 ? Number(t.refresh_expires_in) : null, t.scope ?? null, userId],
+  );
+}
+
+const SIGN_IN_AGAIN = "TikTok: this account's sign-in has run out. Press \"Sign in with TikTok\" on the Accounts tab to renew it.";
+
+/** A working access token for one account, refreshed (and the new pair saved) when it is close to running out. */
+async function tiktokAccess(accountId: number): Promise<string> {
+  const [row] = await q<{ access_token_enc: string; refresh_token_enc: string | null; fresh: boolean }>(
+    `SELECT access_token_enc, refresh_token_enc, access_expires_at > now() + interval '5 minutes' AS fresh
+     FROM social_account_tokens WHERE account_id = $1`,
+    [accountId],
+  );
+  if (!row) throw new Error("TikTok: this account has not signed in yet. Press \"Sign in with TikTok\" on the Accounts tab.");
+  if (row.fresh) return unseal(row.access_token_enc);
+  if (!row.refresh_token_enc) throw new Error(SIGN_IN_AGAIN);
+  let t: TiktokTokens;
+  try {
+    t = await tiktokToken({ grant_type: "refresh_token", refresh_token: unseal(row.refresh_token_enc) });
+  } catch (e: any) {
+    if (e instanceof SocialNotConfigured || /request failed|HTTP 5\d\d/.test(String(e?.message))) throw e;
+    throw new Error(SIGN_IN_AGAIN);
+  }
+  await saveTiktokTokens(accountId, t, null);
+  return t.access_token;
+}
+
+async function tiktokApi(token: string, path: string, fields: string, body?: unknown): Promise<any> {
+  let res: Response;
+  try {
+    res = await fetch(`https://open.tiktokapis.com/v2/${path}?fields=${encodeURIComponent(fields)}`, {
+      method: body ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e: any) {
+    throw new Error(`TikTok: request failed (${e?.name === "TimeoutError" ? "timed out" : "network error"})`);
+  }
+  const json: any = await res.json().catch(() => null);
+  const code = json?.error?.code;
+  if (!res.ok || (code && code !== "ok")) {
+    if (code === "access_token_invalid" || code === "scope_not_authorized") throw new Error(SIGN_IN_AGAIN);
+    throw new Error(`TikTok: ${json?.error?.message || code || `HTTP ${res.status}`}`);
+  }
+  return json?.data ?? {};
+}
+
+async function tiktokUser(token: string) {
+  const d = await tiktokApi(token, "user/info/", "open_id,display_name,avatar_url,username,follower_count,likes_count,video_count");
+  const u = d.user ?? {};
+  if (!u.open_id) throw new Error("TikTok: the account's details did not come back.");
+  return {
+    id: String(u.open_id),
+    handle: (u.username as string) || null,
+    name: (u.display_name as string) || null,
+    avatar: (u.avatar_url as string) || null,
+    followers: num(u.follower_count),
+    videos: num(u.video_count),
+  };
+}
+
+/**
+ * Finish a TikTok sign-in: swap the code for tokens, see which account it is,
+ * and attach it to the saved link with the same @name (or add it, not yet
+ * filed under a brand, when there is none).
+ */
+export async function connectTiktok(code: string, userId: number): Promise<{ accountId: number; handle: string; added: boolean }> {
+  const t = await tiktokToken({ grant_type: "authorization_code", code, redirect_uri: TIKTOK_REDIRECT });
+  const u = await tiktokUser(t.access_token);
+  if (!u.handle) throw new Error("TikTok: the account's @name did not come back, so it could not be matched.");
+  const [existing] = await q<{ id: number }>(
+    `SELECT id FROM social_accounts WHERE platform = 'tiktok'
+       AND (external_id = $1 OR (archived_at IS NULL AND lower(handle) = lower($2)))
+     ORDER BY (external_id = $1) DESC NULLS LAST, id LIMIT 1`,
+    [u.id, u.handle],
+  );
+  let accountId: number;
+  if (existing) {
+    accountId = existing.id;
+    await q(
+      `UPDATE social_accounts SET external_id = $2, handle = $3, display_name = COALESCE($4, display_name), avatar_url = COALESCE($5, avatar_url),
+              profile_url = $6, connection = 'api', archived_at = NULL, last_error = NULL WHERE id = $1`,
+      [accountId, u.id, u.handle, u.name, u.avatar, `https://www.tiktok.com/@${u.handle}`],
+    );
+  } else {
+    const [row] = await q<{ id: number }>(
+      `INSERT INTO social_accounts (platform, brand, external_id, handle, display_name, profile_url, avatar_url, connection, created_by)
+       VALUES ('tiktok', NULL, $1, $2, $3, $4, $5, 'api', $6) RETURNING id`,
+      [u.id, u.handle, u.name, `https://www.tiktok.com/@${u.handle}`, u.avatar, userId],
+    );
+    accountId = row.id;
+  }
+  await saveTiktokTokens(accountId, t, userId);
+  await saveReading(accountId, { followers: u.followers, postsCount: u.videos });
+  return { accountId, handle: u.handle, added: !existing };
+}
+
+const TIKTOK_VIDEO_FIELDS = "id,create_time,cover_image_url,share_url,video_description,title,like_count,comment_count,share_count,view_count";
+
+async function syncTiktok(a: AccountRow, opts: SyncOpts): Promise<number> {
+  const token = await tiktokAccess(a.id);
+  const u = await tiktokUser(token);
+  await q(
+    `UPDATE social_accounts SET display_name = COALESCE($2, display_name), avatar_url = COALESCE($3, avatar_url), handle = COALESCE($4, handle) WHERE id = $1`,
+    [a.id, u.name, u.avatar, u.handle],
+  );
+  await saveReading(a.id, { followers: u.followers, postsCount: u.videos });
+
+  let written = 0;
+  let cursor: number | undefined;
+  let reachedEnd = false;
+  // TikTok lists 20 videos a page, newest first. A scheduled pull re-reads the newest 60.
+  const maxPages = opts.fullHistory ? 500 : 3;
+  for (let page = 0; page < maxPages; page++) {
+    const d = await tiktokApi(token, "video/list/", TIKTOK_VIDEO_FIELDS, { max_count: 20, ...(cursor ? { cursor } : {}) });
+    written += await upsertPosts(
+      a.id,
+      (d.videos ?? []).map((v: any) => ({
+        externalId: String(v.id),
+        postedAt: new Date(Number(v.create_time) * 1000).toISOString(),
+        kind: "video",
+        caption: (v.video_description as string) || (v.title as string) || null,
+        permalink: (v.share_url as string) || null,
+        thumbUrl: (v.cover_image_url as string) || null,
+        likes: num(v.like_count),
+        comments: num(v.comment_count),
+        shares: num(v.share_count),
+        views: num(v.view_count),
+        insightsIncluded: true,
+      })),
+    );
+    if (!d.has_more || !d.cursor) {
+      reachedEnd = true;
+      break;
+    }
+    cursor = Number(d.cursor);
+  }
+  if (opts.fullHistory && reachedEnd) await q(`UPDATE social_accounts SET history_complete = true WHERE id = $1`, [a.id]);
+  return written;
+}
+
+/** TikTok cover pictures stop working after six hours; ask for the one video again. */
+async function tiktokCover(accountId: number, videoId: string): Promise<string | null> {
+  const d = await tiktokApi(await tiktokAccess(accountId), "video/query/", "id,cover_image_url", { filters: { video_ids: [videoId] } });
+  return (d.videos?.[0]?.cover_image_url as string) || null;
+}
+
 // ── Picture links expire ────────────────────────────────────────────────────
 
 /** Ask the platform for a fresh picture link for one post. Null if it has none. */
 export async function refreshThumb(postId: number): Promise<string | null> {
-  const [p] = await q<{ external_id: string; platform: string; account_external: string | null; thumb_url: string | null }>(
-    `SELECT p.external_id, a.platform, a.external_id AS account_external, p.thumb_url
+  const [p] = await q<{ external_id: string; platform: string; account_id: number; account_external: string | null; thumb_url: string | null }>(
+    `SELECT p.external_id, a.platform, a.id AS account_id, a.external_id AS account_external, p.thumb_url
      FROM social_posts p JOIN social_accounts a ON a.id = p.account_id WHERE p.id = $1`,
     [postId],
   );
@@ -691,6 +947,8 @@ export async function refreshThumb(postId: number): Promise<string | null> {
   } else if (p.platform === "facebook" && p.account_external) {
     const m = await graph(`/${p.external_id}`, { fields: "full_picture" }, await pageToken(p.account_external));
     url = m.full_picture ?? null;
+  } else if (p.platform === "tiktok") {
+    url = await tiktokCover(p.account_id, p.external_id);
   } else {
     return p.thumb_url;
   }
@@ -705,6 +963,7 @@ const PULLERS: Partial<Record<SocialPlatformKey, (a: AccountRow, o: SyncOpts) =>
   facebook: syncFacebook,
   youtube: syncYoutube,
   x: syncX,
+  tiktok: syncTiktok,
 };
 
 export type SocialSyncResult = { accountId: number; label: string; status: "ok" | "error" | "skipped"; posts: number; error: string | null };
