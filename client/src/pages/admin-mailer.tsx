@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect, Fragment, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { RecipientSearch } from "@/components/mailer/recipient-search";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
+import { RecipientSearch, type PersonHit } from "@/components/mailer/recipient-search";
 import { ProgrammePicker } from "@/components/mailer/programme-picker";
 import { audienceLabel, termIdsFor, type AudienceCatalogue, type AudienceGroup, type AudienceTerm } from "@shared/mailer-audiences";
 import { useToast } from "@/hooks/use-toast";
@@ -269,6 +269,53 @@ export default function AdminMailer() {
     const n = Number(new URLSearchParams(window.location.search).get("reuse"));
     return Number.isInteger(n) && n > 0 ? n : null;
   });
+
+  // ?to=<person keys> — the "Email" button on a profile or a Contacts row
+  // (Daniel, 2026-11-03). The keys are resolved by the SERVER into the same
+  // rows the recipient search returns (own address, else each parent's, named),
+  // so a child with no email of their own lands as "Abbas Ahmadi · via Sumaya
+  // Ahmadi". Read once, on mount: a link names people, it does not keep naming
+  // them on every render.
+  const [toKeys] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    const raw = new URLSearchParams(window.location.search).get("to") ?? "";
+    return raw.split(",").map((k) => k.trim()).filter(Boolean);
+  });
+  const { data: seedPeople } = useQuery<{ people: PersonHit[] }>({
+    queryKey: ["/api/admin/mailer/people", toKeys.join(",")],
+    enabled: toKeys.length > 0,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/mailer/people?keys=${encodeURIComponent(toKeys.join(","))}`);
+      if (!res.ok) throw new Error("Couldn't look that person up");
+      return res.json();
+    },
+  });
+  // A link that names people means the Custom List, whatever was chosen last.
+  useEffect(() => {
+    if (toKeys.length) { setSegmentType("custom"); setConfirmAll(false); }
+  }, [toKeys]);
+  const onSeeded = useCallback((added: PersonHit[], unreachable: PersonHit[]) => {
+    // The link has done its job: drop it from the URL so a refresh, or Back,
+    // does not put the same person back after they were taken off the list.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("to");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch { /* nothing to tidy */ }
+    if (unreachable.length) {
+      const names = unreachable.map((p) => p.name || p.key).join(", ");
+      toast({
+        title: unreachable.length === 1 ? `Can't email ${names}` : `Can't email ${unreachable.length} people`,
+        description: unreachable.map((p) => `${p.name || p.key}: ${p.unreachable ?? "no email on file"}`).join(" · "),
+        variant: "destructive",
+      });
+    }
+    if (added.some((p) => p.emailOwner)) {
+      const via = added.filter((p) => p.emailOwner).map((p) => `${p.name} → ${p.emailOwner}`).join(" · ");
+      toast({ title: "Going to the parent", description: via });
+    }
+  }, [toast]);
 
   // Debounced so typing doesn't fire a query per keystroke.
   useEffect(() => {
@@ -813,6 +860,8 @@ export default function AdminMailer() {
                   onAdd={(e) => setManualEmails(prev => prev.includes(e) ? prev : [...prev, e])}
                   onRemove={removeManualEmail}
                   label="Recipients"
+                  seed={seedPeople?.people ?? null}
+                  onSeeded={onSeeded}
                 />
               </div>
             )}
