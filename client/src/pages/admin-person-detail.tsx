@@ -16,6 +16,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { KIT_SIZE_FIELDS, socksFromBoot, type KitSizes } from "@shared/kit-sizes";
 import { useBackTo } from "@/lib/back-to";
+import { useMailerLink } from "@/lib/mailer-link";
+import { reachableAddresses } from "@shared/mailer-reach";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -581,6 +583,7 @@ export default function AdminPersonDetail() {
   const [, navigate] = useLocation();
   const personKeyParam = params?.key || "";
   const back = useBackTo("/admin/contacts", "Back to Contacts");
+  const mailerLink = useMailerLink();
   const { toast } = useToast();
   const [linking, setLinking] = useState<null | "guardian" | "child">(null);
   // Correcting details taken over the phone (Daniel, 2026-09-04).
@@ -677,6 +680,16 @@ export default function AdminPersonDetail() {
 
   const openPerson = (key: string) => navigate(`/admin/people/${key}`);
 
+  // Who an email to this person actually reaches — their own address, else
+  // every parent on file with one (shared/mailer-reach.ts, the same rule the
+  // Mailer resolves the link by). Here it only decides the button's words.
+  const reach = reachableAddresses(p.email, guardians.map((g: any) => ({ name: `${g.firstName ?? ""} ${g.lastName ?? ""}`.trim(), email: g.email })));
+  const viaParents = reach.length > 0 && !String(p.email ?? "").trim();
+  const emailLabel = reach.length === 0 ? "No email on file" : viaParents ? (reach.length > 1 ? "Email parents" : "Email parent") : "Email";
+  const emailTitle = reach.length === 0
+    ? (isPlayer ? "No email on file, and no parent with one" : "No email on file")
+    : viaParents ? `Goes to ${reach.map((a) => `${a.owner} (${a.email})`).join(" and ")}` : `Goes to ${reach[0].email}`;
+
   return (
     <div className="p-4 sm:p-8 max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
@@ -714,6 +727,23 @@ export default function AdminPersonDetail() {
             on their profile, then all details already automatically filled in
             simply select program confirm and take payment." Opens the office
             flow with this record filled and the who-are-you step skipped. */}
+        {/* One click into the Mailer with this person on the list (Daniel,
+            2026-11-03). On a child's page it still says the CHILD's name —
+            Olga knows the kid from the roll, not the parent — and the button
+            says whose mailbox it will go to. */}
+        {mailerLink && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reach.length === 0}
+            title={emailTitle}
+            onClick={() => navigate(mailerLink(p.key))}
+            className="rounded-xl h-9 text-[12.5px] flex-shrink-0 border-blue-500/25 text-blue-300 hover:bg-blue-500/10 disabled:opacity-50"
+            data-testid="button-email-from-profile"
+          >
+            <Mail className="w-3.5 h-3.5 mr-1.5" /> {emailLabel}
+          </Button>
+        )}
         <Button
           size="sm"
           onClick={() => setShowRegister(true)}

@@ -508,16 +508,20 @@ export async function searchPeople(q: string, filter: SearchFilter, limit: numbe
  * name should show WHOSE child they are right there, without a second click.
  * Batched over the visible page only — never the whole table.
  */
-async function familySummaries(rows: any[]): Promise<Map<string, { parents: string[]; children: string[] }>> {
-  const out = new Map<string, { parents: string[]; children: string[] }>();
+type FamilySummary = { parents: string[]; children: string[]; parentHasEmail: boolean };
+async function familySummaries(rows: any[]): Promise<Map<string, FamilySummary>> {
+  const out = new Map<string, FamilySummary>();
+  const blank = (): FamilySummary => ({ parents: [], children: [], parentHasEmail: false });
   const contactIds = rows.filter(r => r.kind === "contact").map(r => Number(r.id));
   const childIds = rows.filter(r => r.kind === "child").map(r => Number(r.id));
 
   if (contactIds.length) {
     const ids = sql.join(contactIds.map(i => sql`${i}`), sql`, `);
     // Parents of each contact (explicit edge OR implied by a registration).
+    // Their email rides along — not shown on the row, but it decides whether
+    // "Email" on a child's row leads anywhere (shared/mailer-reach.ts).
     const parents = await db.execute(sql`
-      SELECT x.player_id AS person_id, g.first_name, g.last_name FROM (
+      SELECT x.player_id AS person_id, g.first_name, g.last_name, g.email FROM (
         SELECT cr.player_id, cr.guardian_id FROM contact_relationships cr WHERE cr.player_id IN (${ids})
         UNION
         SELECT r.contact_id, r.guardian_id FROM registrations r
@@ -526,9 +530,10 @@ async function familySummaries(rows: any[]): Promise<Map<string, { parents: stri
       ) x JOIN contacts g ON g.id = x.guardian_id`);
     for (const row of parents.rows as any[]) {
       const k = personKey("contact", Number(row.person_id));
-      const e = out.get(k) || { parents: [], children: [] };
+      const e = out.get(k) || blank();
       const nm = `${row.first_name} ${row.last_name}`.trim();
       if (!e.parents.includes(nm)) e.parents.push(nm);
+      if (String(row.email ?? "").trim()) e.parentHasEmail = true;
       out.set(k, e);
     }
     // Children of each contact, from all three sources.
@@ -548,7 +553,7 @@ async function familySummaries(rows: any[]): Promise<Map<string, { parents: stri
       ) x`);
     for (const row of kids.rows as any[]) {
       const k = personKey("contact", Number(row.person_id));
-      const e = out.get(k) || { parents: [], children: [] };
+      const e = out.get(k) || blank();
       const nm = `${row.first_name} ${row.last_name}`.trim();
       if (!e.children.includes(nm)) e.children.push(nm);
       out.set(k, e);
@@ -558,12 +563,13 @@ async function familySummaries(rows: any[]): Promise<Map<string, { parents: stri
   if (childIds.length) {
     const ids = sql.join(childIds.map(i => sql`${i}`), sql`, `);
     const parents = await db.execute(sql`
-      SELECT ch.id AS person_id, c.first_name, c.last_name
+      SELECT ch.id AS person_id, c.first_name, c.last_name, c.email
       FROM children ch JOIN contacts c ON c.id = ch.parent_id WHERE ch.id IN (${ids})`);
     for (const row of parents.rows as any[]) {
       const k = personKey("child", Number(row.person_id));
-      const e = out.get(k) || { parents: [], children: [] };
+      const e = out.get(k) || blank();
       e.parents.push(`${row.first_name} ${row.last_name}`.trim());
+      if (String(row.email ?? "").trim()) e.parentHasEmail = true;
       out.set(k, e);
     }
   }
@@ -589,7 +595,7 @@ export function registerFamilyRoutes(app: Express) {
 
       let people = rows.map(r => {
         const key = personKey(r.kind as PersonKind, Number(r.id));
-        const f = fam.get(key) || { parents: [], children: [] };
+        const f = fam.get(key) || { parents: [], children: [], parentHasEmail: false };
         return {
           key, kind: r.kind, id: Number(r.id),
           firstName: r.first_name, lastName: r.last_name,
@@ -597,6 +603,9 @@ export function registerFamilyRoutes(app: Express) {
           email: r.email, phone: r.phone,
           dateOfBirth: isoDate(r.date_of_birth),
           parents: f.parents, children: f.children,
+          // Whether "Email" on this row leads anywhere: their own address, else
+          // a parent's (the same rule the Mailer resolves it by).
+          canEmail: !!String(r.email ?? "").trim() || f.parentHasEmail,
         };
       });
 
