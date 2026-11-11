@@ -425,14 +425,25 @@ async function fbPostsPage(url: string): Promise<any> {
       u.searchParams.set("fields", FB_FIELDS);
     },
   ];
+  let base = url;
   let last: unknown;
-  for (const change of attempts) {
-    const u = new URL(url);
-    change(u);
+  for (let i = 0; i < attempts.length; i++) {
+    const u = new URL(base);
+    attempts[i](u);
     try {
       return await getJson(u.toString(), "Meta");
     } catch (e: any) {
       last = e;
+      // A page shared from another Meta business can be read but its per-post
+      // insights are refused. Ask again without them (views stay blank), and
+      // start the smaller-page attempts over from there.
+      if (/permissions error/i.test(String(e?.message)) && new URL(base).searchParams.get("fields") !== FB_FIELDS) {
+        const plain = new URL(base);
+        plain.searchParams.set("fields", FB_FIELDS);
+        base = plain.toString();
+        i = -1;
+        continue;
+      }
       if (!/reduce the amount of data|timed out|unknown error|unexpected error/i.test(String(e?.message))) throw e;
     }
   }
