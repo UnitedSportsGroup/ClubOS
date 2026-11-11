@@ -339,8 +339,8 @@ function QualitySignals() {
       ) : !data ? null : (
         <div className="space-y-3">
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3" data-testid="quality-tiles">
-            <StatTile label="Came because someone told them" value={data.answered ? pct(people, data.answered) : "—"} note={data.answered ? `${n(people)} of ${n(data.answered)} answers` : "No answers yet"} />
-            <StatTile label="Said they had been before" value={data.answered ? pct(before, data.answered) : "—"} note={data.answered ? `${n(before)} of ${n(data.answered)} answers` : undefined} />
+            <StatTile label="Told by someone" value={data.answered ? pct(people, data.answered) : "—"} note={data.answered ? `${n(people)} of ${n(data.answered)} answers` : "No answers yet"} />
+            <StatTile label="Been before" value={data.answered ? pct(before, data.answered) : "—"} note={data.answered ? `${n(before)} of ${n(data.answered)} answers` : undefined} />
             <StatTile label="Answers counted" value={n(data.answered)} note={`of ${n(data.bookings)} paid bookings`} />
           </div>
           {data.byWorkspace.some((w) => w.answered > 0) && (

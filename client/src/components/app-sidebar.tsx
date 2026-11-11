@@ -489,7 +489,7 @@ const groupNav = [
       { tab: "search-reviews", title: "Search & Reviews", url: "/admin/search-reviews", icon: Search },
       { tab: "listings", title: "Listings", url: "/admin/listings", icon: ListChecks },
       { tab: "mobile-apps", title: "Mobile Apps", url: "/admin/mobile-apps", icon: Smartphone },
-      { tab: "partners-ambassadors", title: "Partners & Ambassadors", url: "/admin/partners-ambassadors", icon: Handshake },
+      { tab: "partners-ambassadors", title: "Partners", url: "/admin/partners-ambassadors", icon: Handshake },
       { tab: "word-of-mouth", title: "Word of Mouth", url: "/admin/word-of-mouth", icon: MessagesSquare },
       { tab: "offers-codes", title: "Offers & Codes", url: "/admin/offers-codes", icon: TicketPercent },
       { tab: "product-quality", title: "Product Quality", url: "/admin/product-quality", icon: Gem },
