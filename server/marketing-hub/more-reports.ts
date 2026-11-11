@@ -18,7 +18,7 @@ import { cached, q, requireHubWorkspace } from "./common";
 /** "since" as a parameter: NULL means all time. registered_at is a naive UTC timestamp. */
 const sinceOf = (days: number | null): string | null => (days == null ? null : new Date(Date.now() - days * 86_400_000).toISOString());
 
-async function wordOfMouth(periodKey: unknown): Promise<WordOfMouthReport> {
+export async function wordOfMouth(periodKey: unknown): Promise<WordOfMouthReport> {
   const period = morePeriod(periodKey);
   const rows = await q<{ org: string; source: string | null; n: string }>(
     `SELECT o.name AS org, NULLIF(btrim(r.referral_source), '') AS source, count(*) AS n
@@ -63,7 +63,7 @@ async function wordOfMouth(periodKey: unknown): Promise<WordOfMouthReport> {
   };
 }
 
-async function offers(periodKey: unknown): Promise<OffersReport> {
+export async function offers(periodKey: unknown): Promise<OffersReport> {
   const period = morePeriod(periodKey);
   const since = sinceOf(period.days);
   const [used, defs, shopUsed, shopDefs] = await Promise.all([
@@ -143,7 +143,7 @@ const APP_NAMES: Record<string, string> = {
   "mfl": "Mini Football app",
 };
 
-async function apps(): Promise<AppsReport> {
+export async function apps(): Promise<AppsReport> {
   const [tokens, users, pushes] = await Promise.all([
     q<{ app: string; platform: string; n: string }>(`SELECT app, platform, count(*) AS n FROM device_push_tokens WHERE NOT disabled GROUP BY 1, 2`),
     q<{ app: string; n: string }>(`SELECT app, count(*) AS n FROM app_users GROUP BY 1`),
