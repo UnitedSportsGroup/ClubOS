@@ -336,10 +336,13 @@ export function FeedView({
         </p>
       ) : (
         <div className="mx-auto w-full max-w-[560px] space-y-4" data-testid="feed-list">
-          {posts.map((p) => (
-            <FeedCard key={p.id} post={p} labels={labelsOf(p)} allLabels={allLabels} onChange={(next) => setChanged((c) => ({ ...c, [p.id]: next }))} />
+          {posts.map((p, i) => (
+            <div key={p.id} className="space-y-4">
+              {/* The marker sits a few posts before the end, so the next page is on its way before the last post is reached. */}
+              {i === Math.max(0, posts.length - 4) && <div ref={end} aria-hidden />}
+              <FeedCard post={p} labels={labelsOf(p)} allLabels={allLabels} onChange={(next) => setChanged((c) => ({ ...c, [p.id]: next }))} />
+            </div>
           ))}
-          <div ref={end} />
           {canMore ? (
             <div className="flex justify-center">
               <Button variant="outline" className="h-11 md:h-9" disabled={isFetching} onClick={() => setPages((v) => v + 1)}>
