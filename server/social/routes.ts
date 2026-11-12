@@ -34,6 +34,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import sharp from "sharp";
 import { pool } from "../db";
+import { registerSocialLabelRoutes } from "./labels-routes";
 import { keepWarm, requireHubWorkspace } from "../marketing-hub/common";
 import {
   SocialNotConfigured,
@@ -54,12 +55,12 @@ const BASE = "/api/admin/social";
 const NZ = "Pacific/Auckland";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-async function q<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
+export async function q<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
   const r = await pool.query(text, params as any[]);
   return r.rows as T[];
 }
 
-class InputError extends Error {}
+export class InputError extends Error {}
 
 // ── Small pictures ──────────────────────────────────────────────────────────
 
@@ -85,8 +86,13 @@ async function fetchBytes(url: string): Promise<Buffer | null> {
   return Buffer.from(await r.arrayBuffer());
 }
 
-async function smallThumb(postId: number): Promise<Buffer | null> {
-  const file = join(THUMB_DIR, `${postId}.webp`);
+/**
+ * "small" is the 480px square the grids use. "large" is the whole picture,
+ * uncropped, up to 1080px wide — the feed shows it, and Rambo reads it (a
+ * line-up graphic cropped to a square loses the names down its edges).
+ */
+export async function smallThumb(postId: number, size: "small" | "large" = "small"): Promise<Buffer | null> {
+  const file = join(THUMB_DIR, `${postId}${size === "large" ? "-l" : ""}.webp`);
   const cached = await fs.readFile(file).catch(() => null);
   if (cached) return cached;
   return withThumbSlot(async () => {
@@ -98,16 +104,19 @@ async function smallThumb(postId: number): Promise<Buffer | null> {
       if (fresh) src = await fetchBytes(fresh);
     }
     if (!src) return null;
-    const out = await sharp(src).rotate().resize({ width: 480, height: 480, fit: "cover", withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
+    const out =
+      size === "large"
+        ? await sharp(src).rotate().resize({ width: 1080, height: 1350, fit: "inside", withoutEnlargement: true }).webp({ quality: 76 }).toBuffer()
+        : await sharp(src).rotate().resize({ width: 480, height: 480, fit: "cover", withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
     await fs.mkdir(THUMB_DIR, { recursive: true }).catch(() => {});
     await fs.writeFile(file, out).catch(() => {});
     return out;
   });
 }
 
-type Scope = { brand: string | null; accountId: number | null; platform: string | null; from: string | null; to: string; period: ReturnType<typeof socialPeriod> };
+export type Scope = { brand: string | null; accountId: number | null; platform: string | null; from: string | null; to: string; period: ReturnType<typeof socialPeriod> };
 
-function parseScope(req: Request): Scope {
+export function parseScope(req: Request): Scope {
   const brandRaw = String(req.query.brand ?? "");
   const brand = brandRaw && brandRaw !== "all" ? brandRaw : null;
   if (brand && brand !== "none" && !socialBrand(brand)) throw new InputError("Unknown brand.");
@@ -122,20 +131,20 @@ function parseScope(req: Request): Scope {
 }
 
 /** WHERE for accounts `a`, parameters $1..$3. "none" = not filed under a brand yet. */
-const ACCOUNT_SCOPE = `a.archived_at IS NULL
+export const ACCOUNT_SCOPE = `a.archived_at IS NULL
   AND ($1::text IS NULL OR ($1 = 'none' AND a.brand IS NULL) OR a.brand = $1)
   AND ($2::int IS NULL OR a.id = $2)
   AND ($3::text IS NULL OR a.platform = $3)`;
-const scopeParams = (s: Scope) => [s.brand, s.accountId, s.platform];
+export const scopeParams = (s: Scope) => [s.brand, s.accountId, s.platform];
 
-const POST_COLUMNS = `p.id, p.account_id, a.platform, a.brand, a.handle, p.posted_at,
+export const POST_COLUMNS = `p.id, p.account_id, a.platform, a.brand, a.handle, p.posted_at,
   (p.posted_at AT TIME ZONE '${NZ}')::date::text AS day, p.kind, p.caption, p.permalink,
   p.thumb_url, p.thumb_fetched_at, p.likes, p.comments, p.shares, p.saves, p.views, p.reach, p.clicks,
   (COALESCE(p.likes,0) + COALESCE(p.comments,0) + COALESCE(p.shares,0) + COALESCE(p.saves,0))::bigint AS interactions`;
 
 const n = (v: unknown): number | null => (v == null ? null : Number(v));
 
-function toPost(r: any): SocialPost {
+export function toPost(r: any): SocialPost {
   // Instagram and Facebook picture links stop working after a few days, so they
   // run through /thumb, which also hands back a small picture: the platforms'
   // own files are 300KB–1MB each, and a grid of sixty of those is 30MB.
@@ -193,7 +202,7 @@ function fillBuckets(points: SocialSeriesPoint[], bucket: "day" | "week" | "mont
   return out;
 }
 
-function handle(fn: (req: Request, res: Response) => Promise<unknown>) {
+export function handle(fn: (req: Request, res: Response) => Promise<unknown>) {
   return async (req: Request, res: Response) => {
     try {
       await fn(req, res);
@@ -592,7 +601,7 @@ export function registerSocialRoutes(app: Express) {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(404).end();
     try {
-      const bytes = await smallThumb(id);
+      const bytes = await smallThumb(id, req.query.size === "l" ? "large" : "small");
       if (!bytes) return res.status(404).end();
       res.setHeader("Content-Type", "image/webp");
       res.setHeader("Cache-Control", "private, max-age=2592000, immutable");
@@ -601,4 +610,6 @@ export function registerSocialRoutes(app: Express) {
       res.status(404).end();
     }
   });
+
+  registerSocialLabelRoutes(app, gate);
 }

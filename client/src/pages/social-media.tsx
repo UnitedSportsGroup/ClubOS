@@ -35,6 +35,8 @@ import {
   longDay,
   refreshSocial,
 } from "@/components/social/parts";
+import { FeedView, LabelsView } from "@/components/social/labels";
+import { isLabelKind, type LabelKind } from "@shared/social-labels";
 import {
   POST_KIND_LABEL,
   SOCIAL_BRANDS,
@@ -54,6 +56,8 @@ import {
 
 const VIEWS = [
   { key: "overview", label: "Overview" },
+  { key: "feed", label: "Feed" },
+  { key: "labels", label: "Labels" },
   { key: "posts", label: "Posts" },
   { key: "calendar", label: "Calendar" },
   { key: "accounts", label: "Accounts" },
@@ -69,7 +73,24 @@ function accountName(a: { handle: string; displayName?: string | null }): string
   return /^\d+$/.test(a.handle) ? a.displayName || a.handle : `@${a.handle}`;
 }
 
-type Filters = { brand: string; account: number | null; period: string; view: ViewKey; month: string | null; sort: string; kind: string };
+type Filters = {
+  brand: string;
+  account: number | null;
+  period: string;
+  view: ViewKey;
+  month: string | null;
+  sort: string;
+  kind: string;
+  /** Feed: "all" · "none" · "check" · a label id; and "suggested" to see only Rambo's unchecked ones. */
+  label: string;
+  lstatus: string;
+  /** Feed and Labels: a calendar year ("2026" or "all") and a month ("01".."12"). null = not chosen. */
+  ly: string | null;
+  lm: string | null;
+  /** Labels: which list, and the label whose report is open. */
+  lk: LabelKind;
+  open: number | null;
+};
 
 export default function SocialMedia() {
   const search = useSearch();
@@ -91,6 +112,12 @@ export default function SocialMedia() {
       month: month && /^\d{4}-\d{2}$/.test(month) ? month : null,
       sort: p.get("sort") || "recent",
       kind: p.get("kind") || "all",
+      label: p.get("label") || "all",
+      lstatus: p.get("lstatus") === "suggested" ? "suggested" : "",
+      ly: p.get("ly") && /^(\d{4}|all)$/.test(p.get("ly")!) ? p.get("ly") : null,
+      lm: p.get("lm") && /^(0[1-9]|1[0-2])$/.test(p.get("lm")!) ? p.get("lm") : null,
+      lk: isLabelKind(p.get("lk")) ? (p.get("lk") as LabelKind) : "asset",
+      open: p.get("open") && Number.isInteger(Number(p.get("open"))) ? Number(p.get("open")) : null,
     };
   }, [search]);
 
@@ -105,6 +132,12 @@ export default function SocialMedia() {
       if (m.view === "calendar" && m.month) p.set("month", m.month);
       if (m.view === "posts" && m.sort !== "recent") p.set("sort", m.sort);
       if (m.view === "posts" && m.kind !== "all") p.set("kind", m.kind);
+      if (m.view === "feed" && m.label !== "all") p.set("label", m.label);
+      if (m.view === "feed" && m.lstatus) p.set("lstatus", m.lstatus);
+      if ((m.view === "feed" || m.view === "labels") && m.ly) p.set("ly", m.ly);
+      if ((m.view === "feed" || m.view === "labels") && m.ly && m.ly !== "all" && m.lm) p.set("lm", m.lm);
+      if (m.view === "labels" && m.lk !== "asset") p.set("lk", m.lk);
+      if (m.view === "labels" && m.open != null) p.set("open", String(m.open));
       const qs = p.toString();
       navigate(`/admin/social-media${qs ? `?${qs}` : ""}`, { replace: true });
     },
@@ -267,6 +300,29 @@ export default function SocialMedia() {
       </div>
 
       {f.view === "overview" && <OverviewView query={scopeQuery} period={f.period} showAccount={!selected} onOpen={setOpenPost} onSeeAll={() => write({ view: "posts", sort: "top" })} />}
+      {f.view === "feed" && (
+        <FeedView
+          query={scopeQuery}
+          label={f.label}
+          status={f.lstatus}
+          year={f.ly && f.ly !== "all" ? f.ly : null}
+          month={f.lm}
+          onFilter={(next) => write({ label: next.label ?? f.label, lstatus: next.status ?? f.lstatus, ly: next.year === undefined ? f.ly : next.year, lm: next.month === undefined ? f.lm : next.month })}
+        />
+      )}
+      {f.view === "labels" && (
+        <LabelsView
+          brand={f.brand}
+          year={f.ly ?? (accountsQuery.data?.today ?? String(new Date().getFullYear())).slice(0, 4)}
+          month={f.lm}
+          kind={f.lk}
+          open={f.open}
+          today={accountsQuery.data?.today ?? null}
+          onChange={(next) => write({ ly: next.year ?? f.ly, lm: next.month === undefined ? f.lm : next.month, lk: next.kind ?? f.lk, open: next.open === undefined ? f.open : next.open })}
+          onFeed={(next) => write({ view: "feed", label: next.label, lstatus: next.status ?? "", ly: next.year ?? null, lm: next.month ?? null, period: "all" })}
+          onOpenPost={setOpenPost}
+        />
+      )}
       {f.view === "posts" && (
         <PostsView query={scopeQuery} sort={f.sort} kind={f.kind} showAccount={!selected} onOpen={setOpenPost} onSort={(sort) => write({ sort })} onKind={(kind) => write({ kind })} />
       )}
