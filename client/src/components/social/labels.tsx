@@ -71,7 +71,7 @@ function LabelChip({ label, onConfirm, onRemove, busy }: { label: PostLabel; onC
   const suggested = label.status === "suggested";
   return (
     <span
-      className={cn("inline-flex items-center gap-1 rounded-full border pl-2.5 pr-1 h-8 text-[13px] max-w-full", chipTone(label.kind, suggested))}
+      className={cn("inline-flex items-center gap-1 rounded-full border pl-2.5 pr-1 h-10 md:h-8 text-[13px] max-w-full", chipTone(label.kind, suggested))}
       data-testid="feed-label"
       data-status={label.status}
       title={suggested ? `Rambo's suggestion${label.reason ? `: ${label.reason}` : ""}` : label.kind === "sponsor" ? "Sponsor" : "Content type"}
@@ -79,11 +79,11 @@ function LabelChip({ label, onConfirm, onRemove, busy }: { label: PostLabel; onC
       {suggested && <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-hidden />}
       <span className="truncate">{label.name}</span>
       {suggested && (
-        <button type="button" disabled={busy} onClick={onConfirm} aria-label={`Yes, ${label.name}`} data-testid="feed-label-confirm" className="w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-emerald-500/20 text-emerald-700">
+        <button type="button" disabled={busy} onClick={onConfirm} aria-label={`Yes, ${label.name}`} data-testid="feed-label-confirm" className="w-9 h-9 md:w-7 md:h-7 rounded-full inline-flex items-center justify-center hover:bg-emerald-500/20 text-emerald-700">
           <Check className="w-4 h-4" aria-hidden />
         </button>
       )}
-      <button type="button" disabled={busy} onClick={onRemove} aria-label={`${suggested ? "No, not" : "Remove"} ${label.name}`} data-testid="feed-label-remove" className="w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-foreground/10 text-muted-foreground">
+      <button type="button" disabled={busy} onClick={onRemove} aria-label={`${suggested ? "No, not" : "Remove"} ${label.name}`} data-testid="feed-label-remove" className="w-9 h-9 md:w-7 md:h-7 rounded-full inline-flex items-center justify-center hover:bg-foreground/10 text-muted-foreground">
         <X className="w-4 h-4" aria-hidden />
       </button>
     </span>
@@ -101,12 +101,12 @@ function LabelPicker({ labels, taken, onPick, onCreate }: { labels: SocialLabel[
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setText(""); }}>
       <PopoverTrigger asChild>
-        <button type="button" data-testid="feed-add-label" className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-3 h-8 text-[13px] text-muted-foreground hover:text-foreground hover:border-foreground/40">
+        <button type="button" data-testid="feed-add-label" className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-3 h-10 md:h-8 text-[13px] text-muted-foreground hover:text-foreground hover:border-foreground/40">
           <Plus className="w-3.5 h-3.5" aria-hidden />
           Label
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[280px] p-2">
+      <PopoverContent align="start" collisionPadding={12} className="w-[280px] p-2">
         <Input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="Find or type a new label" className="h-10" data-testid="feed-label-search" />
         <div className="mt-2 max-h-[280px] overflow-y-auto">
           {LABEL_KINDS.map((k) => {
@@ -736,7 +736,7 @@ function LabelReport({
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Tile label="Posts" value={r.posts.toLocaleString("en-NZ")} note={r.previous ? `${r.previous.posts.toLocaleString("en-NZ")} the year before` : null} testid="label-tile-posts" />
-        <Tile label="Views" value={r.views == null ? "—" : compactCount(r.views)} note={change(r.views, r.previous?.views) ?? (r.views != null ? `${r.views.toLocaleString("en-NZ")} exactly` : "The platforms gave no view counts")} testid="label-tile-views" />
+        <Tile label="Views" value={r.views == null ? "—" : compactCount(r.views)} note={r.posts === 0 ? "No confirmed posts in this period yet" : change(r.views, r.previous?.views) ?? (r.views != null ? `${r.views.toLocaleString("en-NZ")} exactly` : "The platforms gave no view counts")} testid="label-tile-views" />
         <Tile label="Likes, comments, shares, saves" value={r.interactions.toLocaleString("en-NZ")} />
         <Tile label="Same views bought as ads" value={ads != null ? nzd(ads) : "—"} note={cpm != null ? `At ${nzdExact(cpm)} per 1,000 views, what our own Meta ads cost` : "No ad spend on record to compare with"} />
       </div>

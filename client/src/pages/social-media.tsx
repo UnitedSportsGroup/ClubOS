@@ -216,6 +216,7 @@ export default function SocialMedia() {
             {unfiled > 0 && <SelectItem value="none">Not filed under a brand ({unfiled})</SelectItem>}
           </SelectContent>
         </Select>
+        {f.view !== "labels" && !(f.view === "feed" && f.ly && f.ly !== "all") && (
         <Select value={f.period} onValueChange={(v) => write({ period: v })}>
           <SelectTrigger className="h-11 md:h-9 w-full sm:w-[180px]" aria-label="Period">
             <SelectValue />
@@ -226,6 +227,7 @@ export default function SocialMedia() {
             ))}
           </SelectContent>
         </Select>
+        )}
         <span className="text-xs text-muted-foreground sm:ml-auto">
           {lastSynced ? `Updated ${relativeTime(lastSynced)}` : accountsQuery.isLoading ? "" : "Not pulled yet"}
         </span>
