@@ -338,6 +338,9 @@ const groupTabs: TabDef[] = [
   // timeline, channels and split tests hang off it. Slug is `campaign-planner`
   // because "campaigns" already means email sends in two other places.
   { slug: "campaign-planner", title: "Campaigns", url: "/admin/campaigns" },
+  // Ideas (2026-11-12, Daniel): the marketing ideas backlog and the plan. Every
+  // idea names the Marketing section it belongs to and also shows on that page.
+  { slug: "marketing-ideas", title: "Ideas", url: "/admin/marketing-ideas" },
   { slug: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads" },
   { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
   { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },

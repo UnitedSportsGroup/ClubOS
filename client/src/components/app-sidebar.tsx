@@ -115,6 +115,7 @@ import {
   Smartphone,
   TicketPercent,
   Gem,
+  Lightbulb,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -474,6 +475,7 @@ const groupNav = [
   {
     tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
     children: [
+      { tab: "marketing-ideas", title: "Ideas", url: "/admin/marketing-ideas", icon: Lightbulb },
       { tab: "campaign-planner", title: "Campaigns", url: "/admin/campaigns", icon: Target },
       { tab: "social-media", title: "Social Media", url: "/admin/social-media", icon: AtSign },
       { tab: "web-analytics", title: "Websites", url: "/admin/web-analytics", icon: MousePointerClick },

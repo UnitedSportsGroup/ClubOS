@@ -14,6 +14,7 @@ import { Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-context";
 import { CommandPalette } from "@/components/command-palette";
+import { SectionIdeasButton } from "@/components/marketing-ideas";
 import { ViewAsBar } from "@/components/view-as-bar";
 import { AccountMenu } from "@/components/account-menu";
 
@@ -115,6 +116,7 @@ const SearchReviewsPage = lazy(() => import("@/pages/marketing-more").then((m) =
 const ListingsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ListingsPage })));
 const MobileAppsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.MobileAppsPage })));
 const PartnersAmbassadorsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.PartnersAmbassadorsPage })));
+const MarketingIdeasPage = lazy(() => import("@/pages/marketing-ideas"));
 const WordOfMouthPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.WordOfMouthPage })));
 const OffersCodesPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.OffersCodesPage })));
 const ProductQualityPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ProductQualityPage })));
@@ -514,6 +516,7 @@ function AdminRouter() {
         <Route path="/admin/listings" component={ListingsPage} />
         <Route path="/admin/mobile-apps" component={MobileAppsPage} />
         <Route path="/admin/partners-ambassadors" component={PartnersAmbassadorsPage} />
+        <Route path="/admin/marketing-ideas" component={MarketingIdeasPage} />
         <Route path="/admin/word-of-mouth" component={WordOfMouthPage} />
         <Route path="/admin/offers-codes" component={OffersCodesPage} />
         <Route path="/admin/product-quality" component={ProductQualityPage} />
@@ -881,6 +884,8 @@ function AdminLayout() {
             </main>
           </div>
         </div>
+        {/* The "Ideas" button on every Marketing page (draws nothing elsewhere). */}
+        <SectionIdeasButton />
         <CommandPalette />
       </SidebarProvider>
     </AuthGuard>

@@ -167,6 +167,8 @@ const CANARIES: Canary[] = [
   { feature: "marketing word of mouth", path: "/api/admin/word-of-mouth/report",        expect: [401] },
   { feature: "marketing offers",     path: "/api/admin/offers-codes/report",            expect: [401] },
   { feature: "branding",             path: "/api/admin/branding/boards",                expect: [401] },
+  // Marketing → Ideas (2026-11-12): the ideas backlog and the plan, and the Ideas button on every Marketing page.
+  { feature: "marketing ideas",      path: "/api/admin/marketing-ideas",                expect: [401] },
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
