@@ -274,12 +274,17 @@ export function FeedView({
   // Load the next page when the end of the list comes into view.
   const end = useRef<HTMLDivElement | null>(null);
   const canMore = posts.length < (data?.total ?? 0) && FEED_PAGE * pages < 200;
-  useEffect(() => {
-    const el = end.current;
-    if (!el || !canMore || isFetching) return;
-    const io = new IntersectionObserver((entries) => { if (entries[0]?.isIntersecting) setPages((v) => v + 1); }, { rootMargin: "600px" });
-    io.observe(el);
-    return () => io.disconnect();
+useEffect(() => {
+    if (!canMore || isFetching) return;
+    // The admin page scrolls inside its own panel, so listen for any scroll (capture) and ask
+    // where the marker is. An observer misses a fast fling that jumps straight past the marker.
+    const check = () => {
+      const el = end.current;
+      if (el && el.getBoundingClientRect().top < window.innerHeight + 800) setPages((v) => v + 1);
+    };
+    check();
+    window.addEventListener("scroll", check, { capture: true, passive: true });
+    return () => window.removeEventListener("scroll", check, { capture: true } as EventListenerOptions);
   }, [canMore, isFetching, posts.length]);
 
   // Rambo's unchecked suggestions for the chosen label, among the posts on screen.
