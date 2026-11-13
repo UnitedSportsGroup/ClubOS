@@ -170,6 +170,10 @@ export const METRICS: MetricDef[] = [
   { key: "hr_max", label: "Max heart rate", unit: "bpm", category: "gps", higherIsBetter: null, aliases: ["hr max", "max heart rate", "heart rate max", "max hr"] },
   { key: "hr_load", label: "Heart-rate load", unit: "au", category: "gps", higherIsBetter: null, aliases: ["hr load", "heart rate load", "trimp"] },
   { key: "time_red_zone_min", label: "Time in red zone", unit: "min", category: "gps", higherIsBetter: null, decimals: 1, aliases: ["time in red zone", "red zone", "time in red zone min"] },
+  { key: "max_acceleration", label: "Max acceleration", unit: "m/s²", category: "gps", higherIsBetter: null, decimals: 2, aliases: ["max acceleration", "max accel"] },
+  { key: "max_deceleration", label: "Max deceleration", unit: "m/s²", category: "gps", higherIsBetter: null, decimals: 2, aliases: ["max deceleration", "max decel"] },
+  { key: "power_score", label: "Power score", unit: "W/kg", category: "gps", higherIsBetter: null, decimals: 1, aliases: ["power score"] },
+  { key: "work_ratio", label: "Work ratio", unit: null, category: "gps", higherIsBetter: null, aliases: ["work ratio"] },
   // Wearables
   { key: "recovery_pct", label: "Recovery", unit: "%", category: "wearable", higherIsBetter: true, aliases: ["recovery", "recovery score", "recovery pct"] },
   { key: "hrv_ms", label: "HRV", unit: "ms", category: "wearable", higherIsBetter: true, aliases: ["hrv", "heart rate variability", "rmssd"] },

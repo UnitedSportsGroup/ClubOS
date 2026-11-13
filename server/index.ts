@@ -511,6 +511,9 @@ app.use(attributionCookieMiddleware);
 
   // Term programmes: make next term's sessions (and so its roll) exist on
   // their own, from each programme's saved weekly pattern. Insert-only.
+  // Catapult One → Performance Hub, every few minutes. OFF unless CATAPULT_SYNC=1.
+  const { startCatapultSyncCron } = await import("./catapult-sync");
+  startCatapultSyncCron();
   const { startTermSessionsCron } = await import("./term-sessions-cron");
   startTermSessionsCron();
 
