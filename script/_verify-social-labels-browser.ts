@@ -239,6 +239,20 @@ async function main() {
     ok("it has the update to send", !!(await page.$('[data-testid="label-message"]')) && !!(await page.$('[data-testid="label-copy"]')));
     ok("the report has no sideways scroll", (await overflow()) <= 0, `${await overflow()}px`);
     await shot("report");
+    // Every number, one platform at a time, and every post behind them.
+    ok("the report shows every kind of number", /Engagements/.test(rep) && /Likes/.test(rep) && /Comments/.test(rep) && /Shares/.test(rep) && /Views a post/.test(rep));
+    const rowsAll = (await page.$$('[data-testid="label-platform-row"]')).length;
+    const postsAll = await page.evaluate(() => (document.querySelector('[data-testid="label-tile-posts"]') as HTMLElement).innerText);
+    ok("the platform table lists Instagram and Facebook", rowsAll >= 2, `${rowsAll}`);
+    ok("every post is listed under the numbers", (await page.$$('[data-testid="label-post-row"]')).length > 0);
+    await page.click('[data-testid="labels-platform-instagram"]');
+    await page.waitForFunction(() => location.search.includes("lp=instagram") && document.querySelectorAll('[data-testid="label-platform-row"]').length === 1, { timeout: 20_000 }).catch(() => {});
+    const postsIg = await page.evaluate(() => (document.querySelector('[data-testid="label-tile-posts"]') as HTMLElement).innerText);
+    ok("Instagram only is in the URL and narrows the numbers", page.url().includes("lp=instagram") && postsIg !== postsAll, `${postsAll.split("\n").join(" ")} -> ${postsIg.split("\n").join(" ")}`);
+    ok("one platform still has no sideways scroll", (await overflow()) <= 0, `${await overflow()}px`);
+    await shot("report-instagram");
+    await page.click('[data-testid="labels-platform-all"]');
+    await page.waitForFunction(() => !location.search.includes("lp="), { timeout: 20_000 }).catch(() => {});
     await page.click('[data-testid="label-back"]');
     await page.waitForSelector('[data-testid="label-row"]', { timeout: 20_000 }).catch(() => {});
     ok("Labels goes back to the list", !page.url().includes("open="), page.url());
