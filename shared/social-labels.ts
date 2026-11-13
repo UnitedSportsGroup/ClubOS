@@ -115,6 +115,9 @@ export type LabelPlatformRow = {
   /** People reached, added over the posts that carry a figure. Only ever shown as an average a post. */
   reachSum: number;
   reachPosts: number;
+  /** Of `posts`, the ones shared with another account as a collaboration, and their views (inside `views`). */
+  collabPosts: number;
+  collabViews: number;
 };
 
 export type LabelSummaryRow = {
@@ -129,6 +132,9 @@ export type LabelSummaryRow = {
   saves: number;
   reachSum: number;
   reachPosts: number;
+  /** Of `posts`, the collaboration posts, and their views (inside `views`). Instagram is the only platform that says. */
+  collabPosts: number;
+  collabViews: number;
   byPlatform: LabelPlatformRow[];
   /** Same window a year earlier; null when the window is "all time". */
   previous: { posts: number; views: number | null } | null;
@@ -157,6 +163,11 @@ export type LabelReportResponse = {
   posts: SocialPost[];
   adCost: AdCost;
 };
+
+/** Views on the club's own posts alone: the total less the collaboration posts. */
+export function ownViews(r: { views: number | null; collabViews: number }): number | null {
+  return r.views == null ? null : r.views - r.collabViews;
+}
 
 /** Average people reached a post, or null when no post carried a figure. Reach is never added up. */
 export function averageReach(r: { reachSum: number; reachPosts: number }): number | null {
@@ -195,6 +206,7 @@ export function sponsorMessage(row: LabelSummaryRow, window: LabelWindow, brandN
     const name = PLATFORM_NAME[p.platform] ?? p.platform;
     lines.push(`${name}: ${plural(p.posts, "post")}${p.views != null ? `, ${num(p.views)} views` : ""}`);
   }
+  if (row.collabPosts > 0) lines.push(`Of these, ${plural(row.collabPosts, "post")} ${row.collabPosts === 1 ? "was a collaboration" : "were collaborations"} shared with another account: ${num(row.collabViews)} views.`);
   if (row.interactions > 0) lines.push(`Likes, comments, shares and saves: ${num(row.interactions)}`);
   if (row.postsWithoutViews > 0) {
     lines.push("", `${plural(row.postsWithoutViews, "post")} had no view count from the platform, so the real total is higher.`);

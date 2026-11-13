@@ -140,6 +140,7 @@ export const scopeParams = (s: Scope) => [s.brand, s.accountId, s.platform];
 export const POST_COLUMNS = `p.id, p.account_id, a.platform, a.brand, a.handle, p.posted_at,
   (p.posted_at AT TIME ZONE '${NZ}')::date::text AS day, p.kind, p.caption, p.permalink,
   p.thumb_url, p.thumb_fetched_at, p.likes, p.comments, p.shares, p.saves, p.views, p.reach, p.clicks,
+  p.collab_with,
   (COALESCE(p.likes,0) + COALESCE(p.comments,0) + COALESCE(p.shares,0) + COALESCE(p.saves,0))::bigint AS interactions`;
 
 const n = (v: unknown): number | null => (v == null ? null : Number(v));
@@ -160,6 +161,7 @@ export function toPost(r: any): SocialPost {
     kind: r.kind,
     caption: r.caption,
     permalink: r.permalink,
+    collabWith: Array.isArray(r.collab_with) ? r.collab_with : [],
     thumb,
     likes: n(r.likes),
     comments: n(r.comments),

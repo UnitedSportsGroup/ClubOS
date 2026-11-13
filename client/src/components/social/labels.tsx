@@ -25,6 +25,7 @@ import {
   LABEL_KINDS,
   adEquivalentCents,
   averageReach,
+  ownViews,
   cpmCents,
   sponsorMessage,
   type FeedPost,
@@ -187,6 +188,9 @@ function FeedCard({ post, labels, allLabels, onChange }: { post: FeedPost; label
             {longDay(post.day)} · {POST_KIND_LABEL[post.kind] ?? post.kind}
             {socialBrand(post.brand) ? ` · ${socialBrand(post.brand)!.short}` : ""}
           </p>
+          {post.collabWith.length > 0 && (
+            <p className="text-xs text-foreground truncate" data-testid="feed-post-collab">Collaboration with {post.collabWith.map((c) => `@${c}`).join(", ")}</p>
+          )}
         </div>
         {post.permalink && (
           <a href={post.permalink} target="_blank" rel="noreferrer" aria-label={`Open on ${socialPlatform(post.platform).label}`} className="w-11 h-11 md:w-9 md:h-9 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted shrink-0">
@@ -284,8 +288,13 @@ function FeedTile({ post, labels, selected, onToggle, onOpen }: { post: FeedPost
         <span className="inline-flex items-center gap-1 shrink-0 text-foreground font-medium" title="Views"><Eye className="w-3 h-3 text-muted-foreground" aria-hidden />{post.views == null ? "—" : compactCount(post.views)}</span>
       </div>
       <div className="px-1.5 py-1 min-h-[28px] flex flex-wrap gap-1" data-testid="feed-tile-labels">
+        {post.collabWith.length > 0 && (
+          <span title={`Collaboration with ${post.collabWith.map((c) => `@${c}`).join(", ")}`} className="inline-flex items-center rounded-full border border-border bg-muted px-1.5 h-5 text-[11px] text-foreground max-w-full" data-testid="feed-tile-collab">
+            <span className="truncate">With @{post.collabWith[0]}{post.collabWith.length > 1 ? ` +${post.collabWith.length - 1}` : ""}</span>
+          </span>
+        )}
         {labels.length === 0 ? (
-          <span className="text-[11px] text-muted-foreground">No label</span>
+          post.collabWith.length > 0 ? null : <span className="text-[11px] text-muted-foreground">No label</span>
         ) : (
           labels.map((l) => (
             <span key={l.labelId} title={l.status === "suggested" ? "Rambo's suggestion, not confirmed" : undefined} className={cn("inline-flex items-center rounded-full border px-1.5 h-5 text-[11px] max-w-full", chipTone(l.kind, l.status === "suggested"))}>
@@ -432,6 +441,7 @@ export function FeedView({
             <SelectItem value="all">Every post</SelectItem>
             <SelectItem value="none">Not labelled yet</SelectItem>
             <SelectItem value="check">Rambo's suggestions to check</SelectItem>
+            <SelectItem value="collab">Collaboration posts</SelectItem>
             {LABEL_KINDS.map((k) => allLabels.filter((l) => l.kind === k.key).map((l) => (
               <SelectItem key={l.id} value={String(l.id)}>{k.one}: {l.name}</SelectItem>
             )))}
@@ -504,7 +514,7 @@ export function FeedView({
         <LoadError error={error} onRetry={refetch} />
       ) : posts.length === 0 ? (
         <p className="text-sm text-muted-foreground rounded-xl border border-border bg-card p-6 text-center">
-          {label === "check" ? "Nothing waiting to be checked." : label === "none" ? "Every post here has a label." : "No posts match. Try another year or account."}
+          {label === "check" ? "Nothing waiting to be checked." : label === "none" ? "Every post here has a label." : label === "collab" ? "No collaboration posts here. Instagram is the only platform that tells us." : "No posts match. Try another year or account."}
         </p>
       ) : (
         <div className={cn("w-full", !grid && "mx-auto max-w-[560px]")} data-testid="feed-list">
@@ -770,6 +780,7 @@ function LabelPosts({ posts, onOpen }: { posts: SocialPost[]; onOpen: (p: Social
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 text-sm text-foreground"><PlatformIcon platform={p.platform} />{longDay(p.day)}</span>
                 <span className="block text-xs text-muted-foreground tabular-nums">{count(p.views)} views · {count(p.likes)} likes · {count(p.comments)} comments · {count(p.shares)} shares</span>
+                {p.collabWith.length > 0 && <span className="block text-xs text-foreground truncate">With {p.collabWith.map((c) => `@${c}`).join(", ")}</span>}
               </span>
             </button>
           ))}
@@ -779,6 +790,7 @@ function LabelPosts({ posts, onOpen }: { posts: SocialPost[]; onOpen: (p: Social
             <TableHeader>
               <TableRow>
                 <TableHead>Post</TableHead>
+                <TableHead>Shared with</TableHead>
                 {POST_SORTS.map((s) => (
                   <TableHead key={s.key} className={s.key === "day" ? "" : "text-right"}>
                     <button type="button" onClick={() => pick(s.key)} className={cn("inline-flex items-center gap-1 hover:text-foreground", sort.key === s.key && "text-foreground font-semibold")} data-testid={`label-posts-sort-${s.key}`}>
@@ -792,6 +804,7 @@ function LabelPosts({ posts, onOpen }: { posts: SocialPost[]; onOpen: (p: Social
               {shown.map((p) => (
                 <TableRow key={p.id} className="cursor-pointer" onClick={() => onOpen(p)} data-testid="label-post-row">
                   <TableCell><span className="inline-flex items-center gap-2">{thumb(p)}<PlatformIcon platform={p.platform} /></span></TableCell>
+                  <TableCell className="text-xs max-w-[180px] truncate" data-testid="label-post-collab">{p.collabWith.length > 0 ? p.collabWith.map((c) => `@${c}`).join(", ") : <span className="text-muted-foreground">Ours alone</span>}</TableCell>
                   <TableCell className="whitespace-nowrap">{longDay(p.day)}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">{count(p.views)}</TableCell>
                   <TableCell className="text-right tabular-nums">{count(p.reach)}</TableCell>
@@ -943,6 +956,7 @@ export function LabelsView({
                 <button key={r.label.id} type="button" onClick={() => onChange({ open: r.label.id })} className="w-full text-left p-4 space-y-1 hover:bg-muted" data-testid="label-row">
                   <p className="text-sm font-medium text-foreground">{r.label.name}</p>
                   <p className="text-sm text-muted-foreground">{r.posts.toLocaleString("en-NZ")} posts · {count(r.views)} views · {r.interactions.toLocaleString("en-NZ")} engagements</p>
+                  {r.collabPosts > 0 && <p className="text-xs text-muted-foreground">{count(ownViews(r))} on our posts alone · {count(r.collabViews)} on {r.collabPosts} collaboration {r.collabPosts === 1 ? "post" : "posts"}</p>}
                   {r.toCheck > 0 && <p className="text-xs text-amber-700">{r.toCheck} from Rambo to check</p>}
                 </button>
               ))}
@@ -956,6 +970,8 @@ export function LabelsView({
                     {!platform && <TableHead className="text-right">Instagram views</TableHead>}
                     {!platform && <TableHead className="text-right">Facebook views</TableHead>}
                     <TableHead className="text-right">{platform ? "Views" : "All views"}</TableHead>
+                    <TableHead className="text-right" title="Views on posts that were ours alone">Our posts alone</TableHead>
+                    <TableHead className="text-right" title="Views on posts shared with another account as a collaboration">Collaborations</TableHead>
                     <TableHead className="text-right">Views a post</TableHead>
                     <TableHead className="text-right">Likes</TableHead>
                     <TableHead className="text-right">Comments</TableHead>
@@ -977,6 +993,8 @@ export function LabelsView({
                         {!platform && <TableCell className="text-right tabular-nums">{count(ig?.views ?? null)}</TableCell>}
                         {!platform && <TableCell className="text-right tabular-nums">{count(fb?.views ?? null)}</TableCell>}
                         <TableCell className="text-right tabular-nums font-medium">{count(r.views)}</TableCell>
+                        <TableCell className="text-right tabular-nums" data-testid="label-row-own">{count(ownViews(r))}</TableCell>
+                        <TableCell className="text-right tabular-nums" data-testid="label-row-collab">{r.collabPosts > 0 ? count(r.collabViews) : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{count(perPost(r.views, r.posts - r.postsWithoutViews))}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.posts ? r.likes.toLocaleString("en-NZ") : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.posts ? r.comments.toLocaleString("en-NZ") : "—"}</TableCell>
@@ -1097,6 +1115,39 @@ function LabelReport({
       {r.postsWithoutViews > 0 && (
         <p className="text-xs text-muted-foreground">{r.postsWithoutViews} of these posts had no view count from the platform (usually older posts), so the real total is higher.</p>
       )}
+
+      <Card data-testid="label-collab">
+        <CardHeader className="pb-2">
+          <p className="text-sm font-medium text-foreground">Our posts and collaborations</p>
+          <p className="text-xs text-muted-foreground">A collaboration is a post shared with another account, so it showed on their page as well as ours. Instagram is the only platform that tells us which posts those were.</p>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Kind of post</TableHead>
+                <TableHead className="text-right">Posts</TableHead>
+                <TableHead className="text-right">Views</TableHead>
+                <TableHead className="text-right">Views a post</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow data-testid="label-collab-own">
+                <TableCell>Our posts alone</TableCell>
+                <TableCell className="text-right tabular-nums">{(r.posts - r.collabPosts).toLocaleString("en-NZ")}</TableCell>
+                <TableCell className="text-right tabular-nums font-medium">{count(ownViews(r))}</TableCell>
+                <TableCell className="text-right tabular-nums">{count(perPost(ownViews(r), r.posts - r.collabPosts))}</TableCell>
+              </TableRow>
+              <TableRow data-testid="label-collab-shared">
+                <TableCell>Collaboration posts</TableCell>
+                <TableCell className="text-right tabular-nums">{r.collabPosts.toLocaleString("en-NZ")}</TableCell>
+                <TableCell className="text-right tabular-nums font-medium">{r.collabPosts > 0 ? count(r.collabViews) : "—"}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.collabPosts > 0 ? count(perPost(r.collabViews, r.collabPosts)) : "—"}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Card data-testid="label-by-platform">
         <CardHeader className="pb-2">

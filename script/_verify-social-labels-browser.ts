@@ -90,6 +90,13 @@ async function main() {
   const bulkOff = await (await api("/api/admin/social/posts/bulk-labels", { method: "POST", body: JSON.stringify({ postIds: ids, labelId: probe.id, remove: true }) })).json();
   ok("and comes off them at once", ids.every((id: number) => !bulkOff.labels[id]?.some((l: any) => l.labelId === probe.id)));
   ok("bulk with no posts is refused", (await api("/api/admin/social/posts/bulk-labels", { method: "POST", body: JSON.stringify({ postIds: [], labelId: probe.id }) })).status === 400);
+  // Collaboration posts: Instagram says which posts were shared with another account.
+  const collabFeed = await (await api("/api/admin/social/feed?brand=siu&label=collab&limit=5")).json();
+  ok("the feed can show only collaboration posts", collabFeed.total > 0 && collabFeed.posts.every((p: any) => Array.isArray(p.collabWith) && p.collabWith.length > 0), `${collabFeed.total}`);
+  const siuSum = await (await api("/api/admin/social/labels/summary?brand=siu&year=2026")).json();
+  const withCollab = siuSum.rows.find((r: any) => r.collabPosts > 0);
+  ok("a label's totals split our own posts from collaborations", Boolean(withCollab) && withCollab.collabPosts <= withCollab.posts && withCollab.collabViews <= (withCollab.views ?? 0), withCollab ? `${withCollab.label.name}: ${withCollab.collabPosts} of ${withCollab.posts} posts, ${withCollab.collabViews} of ${withCollab.views} views` : "none");
+  const collabLabelId: number | null = withCollab ? withCollab.label.id : null;
   const find = await (await api("/api/admin/social/labels/find?brand=cufc&year=2026")).json();
   ok("the Rambo search reports where it is up to", typeof find.unchecked === "number" && typeof find.estimateCents === "number", `${find.unchecked} not looked at`);
 
@@ -251,6 +258,14 @@ async function main() {
     ok("Instagram only is in the URL and narrows the numbers", page.url().includes("lp=instagram") && postsIg !== postsAll, `${postsAll.split("\n").join(" ")} -> ${postsIg.split("\n").join(" ")}`);
     ok("one platform still has no sideways scroll", (await overflow()) <= 0, `${await overflow()}px`);
     await shot("report-instagram");
+    if (collabLabelId) {
+      await page.goto(`${BASE}/admin/social-media?brand=siu&view=labels&ly=2026&open=${collabLabelId}`, { waitUntil: "networkidle2", timeout: 90_000 });
+      await page.waitForSelector('[data-testid="label-collab"]', { timeout: 40_000 });
+      const split = await page.evaluate(() => (document.querySelector('[data-testid="label-collab"]') as HTMLElement).innerText);
+      ok("the report shows our posts and collaborations apart", /Our posts alone/i.test(split) && /Collaboration posts/i.test(split), split.split("\n").slice(-8).join(" "));
+      ok("the collaboration report has no sideways scroll", (await overflow()) <= 0, `${await overflow()}px`);
+      await shot("report-collab");
+    }
     await page.click('[data-testid="labels-platform-all"]');
     await page.waitForFunction(() => !location.search.includes("lp="), { timeout: 20_000 }).catch(() => {});
     await page.click('[data-testid="label-back"]');

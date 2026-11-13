@@ -66,7 +66,7 @@ const num = (v: unknown): number | null => (v == null ? null : Number(v));
 
 /** Confirmed totals per label and platform inside one window. */
 async function totals(s: Scope, w: LabelWindow, labelId: number | null) {
-  return q<{ label_id: number; platform: string; posts: number; views: string | null; no_views: number; interactions: string; to_check: number; likes: string; comments: string; shares: string; saves: string; reach_sum: string; reach_posts: number }>(
+  return q<{ label_id: number; platform: string; posts: number; views: string | null; no_views: number; interactions: string; to_check: number; likes: string; comments: string; shares: string; saves: string; reach_sum: string; reach_posts: number; collab_posts: number; collab_views: string }>(
     `SELECT pl.label_id, a.platform,
             count(*) FILTER (WHERE pl.confirmed_at IS NOT NULL)::int AS posts,
             sum(p.views) FILTER (WHERE pl.confirmed_at IS NOT NULL) AS views,
@@ -78,6 +78,8 @@ async function totals(s: Scope, w: LabelWindow, labelId: number | null) {
             COALESCE(sum(p.saves) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS saves,
             COALESCE(sum(p.reach) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS reach_sum,
             count(p.reach) FILTER (WHERE pl.confirmed_at IS NOT NULL)::int AS reach_posts,
+            count(*) FILTER (WHERE pl.confirmed_at IS NOT NULL AND cardinality(p.collab_with) > 0)::int AS collab_posts,
+            COALESCE(sum(p.views) FILTER (WHERE pl.confirmed_at IS NOT NULL AND cardinality(p.collab_with) > 0), 0) AS collab_views,
             count(*) FILTER (WHERE pl.confirmed_at IS NULL)::int AS to_check
      FROM social_post_labels pl
      JOIN social_posts p ON p.id = pl.post_id
@@ -111,6 +113,8 @@ async function summaryRows(s: Scope, w: LabelWindow, prev: LabelWindow | null, l
         saves: Number(r.saves),
         reachSum: Number(r.reach_sum),
         reachPosts: r.reach_posts,
+        collabPosts: r.collab_posts,
+        collabViews: Number(r.collab_views),
       }))
       .sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
     const anyViews = byPlatform.some((p) => p.views != null);
@@ -128,6 +132,8 @@ async function summaryRows(s: Scope, w: LabelWindow, prev: LabelWindow | null, l
       saves: byPlatform.reduce((t, p) => t + p.saves, 0),
       reachSum: byPlatform.reduce((t, p) => t + p.reachSum, 0),
       reachPosts: byPlatform.reduce((t, p) => t + p.reachPosts, 0),
+      collabPosts: byPlatform.reduce((t, p) => t + p.collabPosts, 0),
+      collabViews: byPlatform.reduce((t, p) => t + p.collabViews, 0),
       byPlatform,
       previous: prev
         ? { posts: old.reduce((t, r) => t + r.posts, 0), views: oldAnyViews ? old.reduce((t, r) => t + Number(r.views ?? 0), 0) : null }
@@ -224,7 +230,7 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
     const s = parseScope(req);
     const filter = String(req.query.label ?? "all");
     const labelId = /^\d+$/.test(filter) ? Number(filter) : null;
-    if (!labelId && !["all", "none", "check"].includes(filter)) throw new InputError("Unknown label.");
+    if (!labelId && !["all", "none", "check", "collab"].includes(filter)) throw new InputError("Unknown label.");
     const only = String(req.query.status ?? "");
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 20));
     const offset = Math.max(0, Number(req.query.offset) || 0);
@@ -240,7 +246,9 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
           ? `AND $6::int IS NULL AND NOT EXISTS (SELECT 1 FROM social_post_labels pl WHERE pl.post_id = p.id AND pl.rejected_at IS NULL)`
           : filter === "check"
             ? `AND $6::int IS NULL AND EXISTS (SELECT 1 FROM social_post_labels pl WHERE pl.post_id = p.id AND pl.rejected_at IS NULL AND pl.confirmed_at IS NULL)`
-            : `AND $6::int IS NULL`;
+            : filter === "collab"
+              ? `AND $6::int IS NULL AND cardinality(p.collab_with) > 0`
+              : `AND $6::int IS NULL`;
     const where = `${ACCOUNT_SCOPE}
       AND ($4::date IS NULL OR ${DAY} >= $4::date)
       AND ($5::date IS NULL OR ${DAY} <= $5::date)

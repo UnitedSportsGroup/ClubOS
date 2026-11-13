@@ -254,6 +254,8 @@ export type SocialPost = {
   kind: string;
   caption: string | null;
   permalink: string | null;
+  /** Other accounts this post was shared with as a collaboration (Instagram only). Empty = the club's post alone, or not known. */
+  collabWith: string[];
   thumb: string | null;
   likes: number | null;
   comments: number | null;

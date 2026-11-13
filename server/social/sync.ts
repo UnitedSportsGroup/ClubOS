@@ -373,6 +373,18 @@ async function syncInstagram(a: AccountRow, opts: SyncOpts): Promise<number> {
                     shares = COALESCE($5, shares), insights_at = now(), insights_error = NULL WHERE id = $1`,
             [p.id, got.reach ?? null, got.views ?? null, got.saved ?? null, got.shares ?? null],
           );
+          // Who the post was shared with as a collaboration. Only accounts that
+          // ACCEPTED: an invite nobody took put the post on nobody else's page.
+          // Its own try: a failure here must not mark the numbers above as failed.
+          try {
+            const c = await graph(`/${p.external_id}/collaborators`, {}, token);
+            const names = (c.data ?? [])
+              .filter((d: any) => d.invite_status === "Accepted" && d.username)
+              .map((d: any) => String(d.username).toLowerCase());
+            await q(`UPDATE social_posts SET collab_with = $2, collab_checked_at = now() WHERE id = $1`, [p.id, names]);
+          } catch {
+            /* left as "not asked"; the next read tries again */
+          }
         } catch (e: any) {
           await q(`UPDATE social_posts SET insights_at = now(), insights_error = $2 WHERE id = $1`, [
             p.id,
