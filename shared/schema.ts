@@ -757,6 +757,11 @@ export const emailCampaigns = pgTable("email_campaigns", {
   // project } from the builder, or { engine:'html', html } from its small-screen
   // fallback. Null on every campaign sent before 2026-09-09.
   bodyDoc: jsonb("body_doc"),
+  // The workspace that sent it (2026-11-14, one Mailer for every workspace):
+  // History lists a workspace's own sends, and a later step of the send (an
+  // A/B test's winner) uses that workspace's unsubscribe list. NULLABLE, no
+  // default: campaigns from before today are placed by their segment prefix.
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "restrict" }),
   recipientCount: integer("recipient_count").default(0),
   sentCount: integer("sent_count").default(0),
   failedCount: integer("failed_count").default(0),

@@ -8,7 +8,7 @@ import type { VenueSplitSummary } from "@shared/venue-booking-truth";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
 import { resolveMailerAudience } from "./mailer-audience";
-import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
 import { contentHashOf } from "./studio/hash";
@@ -548,7 +548,7 @@ export interface IStorage {
   createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog>;
 
   getEmailCampaigns(): Promise<EmailCampaign[]>;
-  searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
+  searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number; scope?: SQL }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
   getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
   getCampaignRecipients(campaignId: number): Promise<{ email: string; name: string | null; status: string | null; sentAt: Date | null; firstOpenedAt: Date | null; openCount: number; variant: string | null; inTest: boolean; firstClickedAt: Date | null; clickCount: number }[]>;
   createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
@@ -2515,14 +2515,16 @@ export class DatabaseStorage implements IStorage {
   // mailer (camps, CIC, CUFC, MFL, league), newest first. `q` matches the
   // subject OR the email content, so "goalkeeper" finds the send that mentioned
   // it even when the subject line didn't. Paged, and body-free (see the type).
-  async searchEmailCampaigns(opts: { q?: string; limit?: number; offset?: number } = {}): Promise<{ rows: EmailCampaignSummary[]; total: number }> {
+  async searchEmailCampaigns(opts: { q?: string; limit?: number; offset?: number; scope?: SQL } = {}): Promise<{ rows: EmailCampaignSummary[]; total: number }> {
     const raw = (opts.q ?? "").trim();
     // `%` and `_` are ILIKE wildcards — a search for "50% off" must not match
     // every campaign ever sent. Backslash is Postgres's default escape char.
     const term = raw.replace(/[\\%_]/g, (c) => `\\${c}`);
-    const where = term
-      ? or(ilike(emailCampaigns.subject, `%${term}%`), ilike(emailCampaigns.body, `%${term}%`))
-      : undefined;
+    const where = and(
+      term ? or(ilike(emailCampaigns.subject, `%${term}%`), ilike(emailCampaigns.body, `%${term}%`)) : undefined,
+      // One workspace's sends (the Mailer's history). Absent = every campaign.
+      opts.scope,
+    );
 
     const limit = Number.isFinite(opts.limit) ? Math.min(Math.max(Math.trunc(opts.limit!), 1), 100) : 20;
     const offset = Number.isFinite(opts.offset) ? Math.max(Math.trunc(opts.offset!), 0) : 0;

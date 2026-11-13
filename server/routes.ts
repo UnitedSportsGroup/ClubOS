@@ -6623,10 +6623,36 @@ export async function registerRoutes(
     }
   });
 
+  // ONE Mailer, every workspace (2026-11-14). Every /api/admin/mailer route
+  // that reads people or sends reads the workspace here: a missing header is
+  // an error (never a guess — the CUFC default is how a gym email could have
+  // gone to football parents), and a member of another workspace gets 404.
+  async function mailerWsReq(req: any, res: any): Promise<MailerWs | null> {
+    const org = await workspaceOrg(req);
+    if (!org) { res.status(400).json({ message: "No workspace on this request — reload the page and try again." }); return null; }
+    const uid = req.session?.userId;
+    const user = uid ? await storage.getUser(uid) : undefined;
+    if (!user) { res.status(401).json({ message: "Sign in again." }); return null; }
+    if (user.role !== "super_admin" && !(await checkUserOrg(uid, org.id))) { res.status(404).json({ message: "Not found" }); return null; }
+    return mailerWsFor(org);
+  }
+
+  // What this workspace's Mailer is: where its people live, and its senders.
+  app.get("/api/admin/mailer/workspace", requireAuth, async (req, res) => {
+    try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json({ slug: ws.slug, kind: ws.kind === "programmes" ? "programmes" : "groups", defaultFrom: ws.defaultFrom, defaultReplyTo: ws.defaultReplyTo });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
   // Send history — searchable + paged. `q` matches subject OR email content.
   // Returns summaries without the body; open one for the content it sent.
+  // One workspace's sends only.
   app.get("/api/admin/mailer/campaigns", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const q = typeof req.query.q === "string" ? req.query.q : "";
       const limit = parseInt(String(req.query.limit ?? ""));
       const offset = parseInt(String(req.query.offset ?? ""));
@@ -6634,6 +6660,7 @@ export async function registerRoutes(
         q,
         limit: Number.isFinite(limit) ? limit : undefined,
         offset: Number.isFinite(offset) ? offset : undefined,
+        scope: mailerCampaignOrgSql(ws),
       });
       res.json({ campaigns: rows, total });
     } catch (error: any) {
@@ -6644,10 +6671,12 @@ export async function registerRoutes(
   // One past send, in full — including the exact HTML that went out.
   app.get("/api/admin/mailer/campaigns/:id", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       res.json(campaign);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6665,10 +6694,12 @@ export async function registerRoutes(
   // cannot see would be worse than admitting the gap.
   app.get("/api/admin/mailer/campaigns/:id/recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       const people = await storage.getCampaignRecipients(id);
       // The A/B test (if one ran), each version's numbers, every link's clicks.
       const results = await campaignResults(id).catch(() => null);
@@ -6773,8 +6804,9 @@ export async function registerRoutes(
   // Mailer is the club's).
   app.get("/api/admin/mailer/audiences", requireAuth, async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
-      res.json(await mailerAudienceCatalogue(org?.id ?? 1));
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json(ws.kind === "programmes" ? await mailerAudienceCatalogue(ws.orgId) : await mailerGroupCatalogue(ws));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6782,8 +6814,10 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/preview-recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { segmentType, segmentConfig } = req.body;
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) {
         return res.status(400).json({ message: "Invalid segment type" });
       }
@@ -6793,9 +6827,8 @@ export async function registerRoutes(
       // filter as the send, so what is shown is what goes out — each address
       // with the parent's name and the children it stands for, and a flag
       // where the domain cannot take mail.
-      const audience = await resolveMailerAudience(segmentType, segmentConfig);
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const audience = await resolveWorkspaceMailerAudience(ws, segmentType, segmentConfig);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const LIMIT = 500;
       const shown = audience.emails.slice(0, LIMIT);
       const checks = await checkManyDeliverability(shown);
@@ -6849,6 +6882,8 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/test-send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
       if (!RESEND_API_KEY) return res.status(500).json({ message: "RESEND_API_KEY not configured" });
 
@@ -6861,13 +6896,12 @@ export async function registerRoutes(
       const { to, from: fromAddr, fromEmail: fromChosen, subject, body, replyTo } = req.body;
       // The page posts `fromEmail`; this read only `from`, so every test came
       // from "CUFC Camps" whatever sender was chosen.
-      const senderEmail = fromChosen || fromAddr || "CUFC Camps <noreply@cufc.co.nz>";
+      const senderEmail = fromChosen || fromAddr || ws.defaultFrom;
       const att = readMailerAttachments(req.body.attachments);
       if (!att.ok) return res.status(400).json({ message: att.message });
       const dest = String(to || "").trim();
       if (!dest.includes("@")) return res.status(400).json({ message: "A test address is required" });
 
-      const orgId = await predictorOrgId();
       const hasCampaign = typeof body === "string" && body.trim().length > 0;
       // The test address is resolved the way a real recipient is — so a staff
       // member who is also a parent sees their own children's names where a
@@ -6875,7 +6909,8 @@ export async function registerRoutes(
       const who = await lookupMailerRecipient(dest);
       const testCtx = {
         email: dest,
-        unsubscribeUrl: cufcUnsubUrl(orgId, dest),
+        unsubscribeUrl: ws.unsubUrl(dest),
+        listName: ws.listName,
         firstName: who.firstName,
         lastName: who.lastName,
         players: who.players,
@@ -6911,13 +6946,15 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { subject, body, bodyDoc, fromEmail, replyTo, segmentType, segmentConfig, manualEmails } = req.body;
       if (!subject || typeof subject !== 'string' || subject.length > 500) return res.status(400).json({ message: "Valid subject required (max 500 chars)" });
       if (!body || typeof body !== 'string') return res.status(400).json({ message: "Email body is required" });
       // A document can be structurally valid and say nothing — a stray spacer,
       // or a design cleared but not retyped. Refuse before it reaches a list.
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
       // 🔴 The same email twice is refused (28 Oct 2026: "United Together" went
       // out as #91 and, seven seconds later, #92 — 2,297 families got it
@@ -6953,7 +6990,8 @@ export async function registerRoutes(
       // {{player_first_name}} (Zach, 2026-10-05 — an academy invitation is
       // addressed to the player and lands in the parent's inbox). The preview
       // count reads the same function, so the number shown is the number sent.
-      const audience = await resolveMailerAudience(
+      const audience = await resolveWorkspaceMailerAudience(
+        ws,
         segmentType,
         segmentConfig,
         Array.isArray(manualEmails) ? manualEmails : undefined,
@@ -6962,8 +7000,7 @@ export async function registerRoutes(
 
       // 🔴 Honour the opt-out list. Every other mailer in ClubOS does; this one
       // never has, so anyone who unsubscribed kept receiving camp campaigns.
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const requested = emails.length;
       emails = emails.filter((e) => !unsubscribed.has(e.trim().toLowerCase()));
       const suppressed = requested - emails.length;
@@ -6987,8 +7024,8 @@ export async function registerRoutes(
 
       if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
 
-      const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
-      const replyAddress = replyTo || "info@cufc.co.nz";
+      const senderEmail = fromEmail || ws.defaultFrom;
+      const replyAddress = replyTo || ws.defaultReplyTo;
 
       const campaign = await storage.createEmailCampaign({
         subject,
@@ -7000,6 +7037,7 @@ export async function registerRoutes(
         replyTo: replyAddress,
         segmentType,
         segmentConfig: JSON.stringify(segmentConfig || {}),
+        organizationId: ws.orgId,
         recipientCount: emails.length,
         sentCount: 0,
         failedCount: 0,
@@ -7085,7 +7123,8 @@ export async function registerRoutes(
             firstName: who?.firstName ?? null,
             lastName: who?.lastName ?? null,
             players: who?.players ?? [],
-            unsubscribeUrl: cufcUnsubUrl(orgId, email),
+            unsubscribeUrl: ws.unsubUrl(email),
+            listName: ws.listName,
             pixelUrl,
           };
           const variant = variantOf.get(email) ?? null;
@@ -28022,7 +28061,29 @@ export async function registerRoutes(
   registerMailerAiRoutes(app);
   registerMailerImageRoutes(app);
   // A/B tests, click tracking and "preview as a person" (2026-10-27).
-  const mailerTestDeps = { runBroadcastQueue, cufcUnsubUrl, predictorOrgId, getUnsubscribedEmails };
+  // A campaign's later steps (an A/B winner, a click) run in the workspace that
+  // SENT it — its unsubscribe list, link and audience — never CUFC's by default.
+  const mailerWsForCampaign = async (c: { organizationId?: number | null }): Promise<MailerWs> => {
+    const [org] = c.organizationId != null
+      ? await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations).where(eq(organizations.id, c.organizationId))
+      : [];
+    return mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+  };
+  const mailerTestDeps = {
+    runBroadcastQueue, getUnsubscribedEmails,
+    forCampaign: async (c: { organizationId?: number | null }) => {
+      const ws = await mailerWsForCampaign(c);
+      return {
+        orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName,
+        audience: (segmentType: string, cfg: any, manual?: string[]) => resolveWorkspaceMailerAudience(ws, segmentType, cfg, manual),
+      };
+    },
+    forRequest: async (req: any) => {
+      const org = await workspaceOrg(req);
+      const ws = mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+      return { orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName };
+    },
+  };
   registerMailerTestRoutes(app, mailerTestDeps);
   startMailerTests(mailerTestDeps);
   // Content Studio (2026-10-27): graphics, landing pages on the brand hosts
@@ -28037,7 +28098,14 @@ export async function registerRoutes(
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {
-    const automationDeps = { unsubUrl: cufcUnsubUrl, unsubscribed: getUnsubscribedEmails };
+    // Each workspace's own unsubscribe link and list (One Mailer, 2026-11-14).
+    const orgSlugById = new Map((await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations)).map((o) => [o.id, o.slug]));
+    const wsById = (orgId: number) => mailerWsFor({ id: orgId, slug: orgSlugById.get(orgId) ?? "" });
+    const automationDeps = {
+      unsubUrl: (orgId: number, email: string) => wsById(orgId).unsubUrl(email),
+      unsubscribed: (orgId: number) => getUnsubscribedEmails(wsById(orgId).unsubOrg),
+      listName: (orgId: number) => wsById(orgId).listName,
+    };
     registerMailerAutomationRoutes(app, automationDeps);
     startMailerAutomations(automationDeps);
   }
@@ -29850,6 +29918,8 @@ type MailerWs = {
   unsubUrl: (email: string) => string;
   defaultFrom: string;
   defaultReplyTo: string;
+  /** Whose contact list the footer names. */
+  listName: string;
   /** Guardians with no ClubOS registration at all (Friendly Manager history)
    *  count as this workspace's families — CUFC only. */
   includeUntied: boolean;
@@ -29859,21 +29929,21 @@ function mailerWsFor(org: { id: number; slug: string }): MailerWs {
   switch (org.slug) {
     case "united-gymnastics":
       return { orgId: org.id, slug: org.slug, kind: "cugc", unsubOrg: org.id, unsubUrl: (e) => cugcUnsubUrl(org.id, e),
-        defaultFrom: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>", defaultReplyTo: "info@cugc.co.nz", includeUntied: false };
+        defaultFrom: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>", defaultReplyTo: "info@cugc.co.nz", listName: "Christchurch United Gymnastics Club", includeUntied: false };
     case "mini-football-leagues":
       return { orgId: org.id, slug: org.slug, kind: "league", unsubOrg: org.id, unsubUrl: (e) => mflUnsubUrl(org.id, e),
-        defaultFrom: "Mini Football Leagues <noreply@minifootball.co.nz>", defaultReplyTo: "minifootball@cufc.co.nz", includeUntied: false };
+        defaultFrom: "Mini Football Leagues <noreply@minifootball.co.nz>", defaultReplyTo: "minifootball@cufc.co.nz", listName: "Mini Football Leagues", includeUntied: false };
     case "christchurch-international-cup":
       return { orgId: org.id, slug: org.slug, kind: "cic", unsubOrg: org.id, unsubUrl: (e) => cicUnsubUrl(org.id, e),
-        defaultFrom: "Christchurch International Cup <noreply@cicyouth.com>", defaultReplyTo: "info@cicyouth.com", includeUntied: false };
+        defaultFrom: "Christchurch International Cup <noreply@cicyouth.com>", defaultReplyTo: "info@cicyouth.com", listName: "the Christchurch International Cup", includeUntied: false };
     case "south-island-united":
       return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
-        defaultFrom: "South Island United <noreply@southislandunited.com>", defaultReplyTo: "info@southislandunited.com", includeUntied: false };
+        defaultFrom: "South Island United <noreply@southislandunited.com>", defaultReplyTo: "info@southislandunited.com", listName: "South Island United", includeUntied: false };
     default:
       // Christchurch United, and any workspace that had the Mailer through the
       // shared camps switch before today: exactly what it did yesterday.
       return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
-        defaultFrom: "CUFC Camps <noreply@cufc.co.nz>", defaultReplyTo: "info@cufc.co.nz", includeUntied: org.slug === "christchurch-united" };
+        defaultFrom: "CUFC Camps <noreply@cufc.co.nz>", defaultReplyTo: "info@cufc.co.nz", listName: "Christchurch United Football Club", includeUntied: org.slug === "christchurch-united" };
   }
 }
 
@@ -29886,6 +29956,15 @@ function mailerCampaignOrgSql(ws: MailerWs) {
     : ws.slug === "christchurch-united" ? sql`segment_type NOT LIKE 'cugc%' AND segment_type NOT LIKE 'league%' AND segment_type NOT LIKE 'cic%'`
     : sql`false`;
   return sql`(organization_id = ${ws.orgId} OR (organization_id IS NULL AND ${legacy}))`;
+}
+
+/** The same rule as mailerCampaignOrgSql, for one campaign already loaded. */
+function campaignInMailerWs(ws: MailerWs, c: { organizationId?: number | null; segmentType?: string | null }): boolean {
+  if (c.organizationId != null) return c.organizationId === ws.orgId;
+  const st = String(c.segmentType || "");
+  const tagged = st.startsWith("cugc") ? "cugc" : st.startsWith("league") ? "league" : st.startsWith("cic") ? "cic" : null;
+  if (ws.kind === "cugc" || ws.kind === "league" || ws.kind === "cic") return tagged === ws.kind;
+  return tagged === null && ws.slug === "christchurch-united";
 }
 
 const splitName = (full: string): { firstName: string | null; lastName: string | null } => {
