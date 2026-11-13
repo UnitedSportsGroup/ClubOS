@@ -35,7 +35,7 @@ import {
   longDay,
   refreshSocial,
 } from "@/components/social/parts";
-import { FeedView, LabelsView } from "@/components/social/labels";
+import { FEED_COLS, FeedView, LabelsView, rememberedFeedCols } from "@/components/social/labels";
 import { isLabelKind, type LabelKind } from "@shared/social-labels";
 import {
   POST_KIND_LABEL,
@@ -90,6 +90,8 @@ type Filters = {
   /** Labels: which list, and the label whose report is open. */
   lk: LabelKind;
   open: number | null;
+  /** Feed: posts in a row. 1 = one at a time, 3–6 = a grid. null = whatever this person used last. */
+  cols: number | null;
 };
 
 export default function SocialMedia() {
@@ -118,6 +120,7 @@ export default function SocialMedia() {
       lm: p.get("lm") && /^(0[1-9]|1[0-2])$/.test(p.get("lm")!) ? p.get("lm") : null,
       lk: isLabelKind(p.get("lk")) ? (p.get("lk") as LabelKind) : "asset",
       open: p.get("open") && Number.isInteger(Number(p.get("open"))) ? Number(p.get("open")) : null,
+      cols: (FEED_COLS as readonly number[]).includes(Number(p.get("cols"))) ? Number(p.get("cols")) : null,
     };
   }, [search]);
 
@@ -134,6 +137,7 @@ export default function SocialMedia() {
       if (m.view === "posts" && m.kind !== "all") p.set("kind", m.kind);
       if (m.view === "feed" && m.label !== "all") p.set("label", m.label);
       if (m.view === "feed" && m.lstatus) p.set("lstatus", m.lstatus);
+      if (m.view === "feed" && m.cols != null) p.set("cols", String(m.cols));
       if ((m.view === "feed" || m.view === "labels") && m.ly) p.set("ly", m.ly);
       if ((m.view === "feed" || m.view === "labels") && m.ly && m.ly !== "all" && m.lm) p.set("lm", m.lm);
       if (m.view === "labels" && m.lk !== "asset") p.set("lk", m.lk);
@@ -172,6 +176,13 @@ export default function SocialMedia() {
     if (selected) p.set("account", String(selected.id));
     return p.toString();
   }, [f.brand, f.period, selected]);
+
+  // The feed is every post ever, narrowed by its own year and month pickers — not the page's period.
+  const feedQuery = useMemo(() => {
+    const p = new URLSearchParams({ brand: f.brand });
+    if (selected) p.set("account", String(selected.id));
+    return p.toString();
+  }, [f.brand, selected]);
 
   const missingPlatforms =
     f.brand !== "all" && f.brand !== "none"
@@ -216,7 +227,7 @@ export default function SocialMedia() {
             {unfiled > 0 && <SelectItem value="none">Not filed under a brand ({unfiled})</SelectItem>}
           </SelectContent>
         </Select>
-        {f.view !== "labels" && !(f.view === "feed" && f.ly && f.ly !== "all") && (
+        {f.view !== "labels" && f.view !== "feed" && (
         <Select value={f.period} onValueChange={(v) => write({ period: v })}>
           <SelectTrigger className="h-11 md:h-9 w-full sm:w-[180px]" aria-label="Period">
             <SelectValue />
@@ -304,12 +315,14 @@ export default function SocialMedia() {
       {f.view === "overview" && <OverviewView query={scopeQuery} period={f.period} showAccount={!selected} onOpen={setOpenPost} onSeeAll={() => write({ view: "posts", sort: "top" })} />}
       {f.view === "feed" && (
         <FeedView
-          query={scopeQuery}
+          query={feedQuery}
           label={f.label}
           status={f.lstatus}
           year={f.ly && f.ly !== "all" ? f.ly : null}
           month={f.lm}
-          onFilter={(next) => write({ label: next.label ?? f.label, lstatus: next.status ?? f.lstatus, ly: next.year === undefined ? f.ly : next.year, lm: next.month === undefined ? f.lm : next.month })}
+          cols={f.cols ?? rememberedFeedCols()}
+          firstYear={2018}
+          onFilter={(next) => write({ label: next.label ?? f.label, lstatus: next.status ?? f.lstatus, ly: next.year === undefined ? f.ly : next.year, lm: next.month === undefined ? f.lm : next.month, cols: next.cols ?? f.cols })}
         />
       )}
       {f.view === "labels" && (

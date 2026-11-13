@@ -5,8 +5,8 @@
 //    dashed outline and a tick and a cross until a person decides.
 // 🔴 A number the platform did not give is "—", never 0.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Bookmark, Check, ChevronLeft, Copy, ExternalLink, Eye, Heart, ImageOff, MessageCircle, Pencil, Plus, Share2, Sparkles, Tag, Users, X } from "lucide-react";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { Bookmark, Check, ChevronLeft, Copy, ExternalLink, Eye, Heart, ImageOff, Maximize2, MessageCircle, Pencil, Plus, Share2, Sparkles, Tag, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -92,7 +92,7 @@ function LabelChip({ label, onConfirm, onRemove, busy }: { label: PostLabel; onC
 
 // ── Pick a label for a post ─────────────────────────────────────────────────
 
-function LabelPicker({ labels, taken, onPick, onCreate }: { labels: SocialLabel[]; taken: Set<number>; onPick: (id: number) => void; onCreate: (kind: LabelKind, name: string) => void }) {
+function LabelPicker({ labels, taken, onPick, onCreate, triggerLabel = "Label" }: { labels: SocialLabel[]; taken: Set<number>; onPick: (id: number) => void; onCreate: (kind: LabelKind, name: string) => void; triggerLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const needle = text.trim().toLowerCase();
@@ -103,7 +103,7 @@ function LabelPicker({ labels, taken, onPick, onCreate }: { labels: SocialLabel[
       <PopoverTrigger asChild>
         <button type="button" data-testid="feed-add-label" className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-3 h-10 md:h-8 text-[13px] text-muted-foreground hover:text-foreground hover:border-foreground/40">
           <Plus className="w-3.5 h-3.5" aria-hidden />
-          Label
+          {triggerLabel}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" collisionPadding={12} className="w-[280px] p-2">
@@ -232,7 +232,75 @@ function FeedCard({ post, labels, allLabels, onChange }: { post: FeedPost; label
 
 // ── The feed ────────────────────────────────────────────────────────────────
 
-const FEED_PAGE = 15;
+/** 1 = one post at a time (like Instagram); 3–6 = a grid that many posts wide, for labelling in bulk. */
+export const FEED_COLS = [1, 3, 4, 5, 6] as const;
+const COLS_KEY = "social-feed-cols";
+export function rememberedFeedCols(): number {
+  try {
+    const n = Number(window.localStorage.getItem(COLS_KEY));
+    return (FEED_COLS as readonly number[]).includes(n) ? n : 4;
+  } catch {
+    return 4;
+  }
+}
+
+function ColsIcon({ n }: { n: number }) {
+  if (n === 1) return <span className="block w-3 h-4 rounded-[2px] bg-current" aria-hidden />;
+  return (
+    <span className="flex gap-[2px]" aria-hidden>
+      {Array.from({ length: n }, (_, i) => <span key={i} className="block w-[3px] h-4 rounded-[1px] bg-current" />)}
+    </span>
+  );
+}
+
+/** One post as a square tile: picture, views, date, its labels. Click selects it. */
+function FeedTile({ post, labels, selected, onToggle, onOpen }: { post: FeedPost; labels: PostLabel[]; selected: boolean; onToggle: (shift: boolean) => void; onOpen: () => void }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div
+      className={cn("rounded-lg border bg-card overflow-hidden min-w-0 relative", selected ? "border-blue-600 ring-2 ring-blue-600" : "border-border")}
+      data-testid="feed-tile"
+      data-post={post.id}
+      data-selected={selected ? "1" : "0"}
+    >
+      <button type="button" onClick={(e) => onToggle(e.shiftKey)} aria-pressed={selected} aria-label={`${selected ? "Unselect" : "Select"} post from ${longDay(post.day)}`} className="block w-full text-left">
+        <div className="relative aspect-square bg-muted">
+          {post.thumb && !failed ? (
+            <img src={post.thumb} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="absolute inset-0 w-full h-full object-cover" />
+          ) : (
+            <div className="absolute inset-0 p-2 text-[11px] leading-snug text-muted-foreground overflow-hidden">{post.caption ? post.caption.slice(0, 140) : <ImageOff className="w-5 h-5" aria-hidden />}</div>
+          )}
+          <span className={cn("absolute top-1.5 left-1.5 w-6 h-6 rounded-full border-2 inline-flex items-center justify-center", selected ? "bg-blue-600 border-blue-600 text-white" : "bg-white/80 border-white text-transparent")}>
+            <Check className="w-3.5 h-3.5" aria-hidden />
+          </span>
+          <span className="absolute bottom-0 inset-x-0 flex items-center justify-between gap-1 px-1.5 py-1 bg-black/60 text-white text-[11px] tabular-nums">
+            <span className="inline-flex items-center gap-1 min-w-0"><PlatformIcon platform={post.platform} className="w-3 h-3" /><span className="truncate">{shortDay(post.day)}</span></span>
+            <span className="inline-flex items-center gap-1 shrink-0"><Eye className="w-3 h-3" aria-hidden />{post.views == null ? "—" : compactCount(post.views)}</span>
+          </span>
+        </div>
+      </button>
+      <button type="button" onClick={onOpen} aria-label="Open this post" data-testid="feed-tile-open" className="absolute top-1.5 right-1.5 w-8 h-8 rounded-md bg-white/85 text-slate-900 inline-flex items-center justify-center hover:bg-white">
+        <Maximize2 className="w-4 h-4" aria-hidden />
+      </button>
+      <div className="px-1.5 py-1 min-h-[28px] flex flex-wrap gap-1" data-testid="feed-tile-labels">
+        {labels.length === 0 ? (
+          <span className="text-[11px] text-muted-foreground">No label</span>
+        ) : (
+          labels.map((l) => (
+            <span key={l.labelId} title={l.status === "suggested" ? "Rambo's suggestion, not confirmed" : undefined} className={cn("inline-flex items-center rounded-full border px-1.5 h-5 text-[11px] max-w-full", chipTone(l.kind, l.status === "suggested"))}>
+              <span className="truncate">{l.name}</span>
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+const shortDay = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${Number(d)} ${MONTHS[Number(m) - 1]?.slice(0, 3)} ${y.slice(2)}`;
+};
 
 export function FeedView({
   query,
@@ -240,6 +308,8 @@ export function FeedView({
   status,
   year,
   month,
+  cols,
+  firstYear,
   onFilter,
 }: {
   query: string;
@@ -248,44 +318,64 @@ export function FeedView({
   status: string;
   year: string | null;
   month: string | null;
-  onFilter: (next: { label?: string; status?: string; year?: string | null; month?: string | null }) => void;
+  /** 1 = list, 3–6 = grid. */
+  cols: number;
+  firstYear: number;
+  onFilter: (next: { label?: string; status?: string; year?: string | null; month?: string | null; cols?: number }) => void;
 }) {
   const labelsQuery = useLabels();
   const allLabels = labelsQuery.data?.labels ?? [];
+  const grid = cols > 1;
+  const pageSize = grid ? 60 : 15;
   const key = `${query}&label=${label}${status ? `&status=${status}` : ""}${year ? `&year=${year}` : ""}${year && month ? `&month=${month}` : ""}`;
-  const [pages, setPages] = useState(1);
-  const [seenKey, setSeenKey] = useState(key);
   // Labels changed on this screen, by post — so a tick shows at once without re-reading the feed.
   const [changed, setChanged] = useState<Record<number, PostLabel[]>>({});
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [lastTapped, setLastTapped] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [seenKey, setSeenKey] = useState(key);
   if (seenKey !== key) {
     setSeenKey(key);
-    setPages(1);
     setChanged({});
+    setSelected(new Set());
+    setLastTapped(null);
   }
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<FeedResponse>({
-    queryKey: [`/api/admin/social/feed?${key}&limit=${FEED_PAGE * pages}`],
+  const { data, isLoading, isError, error, refetch, isFetching, fetchNextPage, hasNextPage } = useInfiniteQuery<FeedResponse>({
+    queryKey: ["/api/admin/social/feed", key, pageSize],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => (await apiRequest("GET", `/api/admin/social/feed?${key}&limit=${pageSize}&offset=${pageParam}`)).json(),
+    getNextPageParam: (last, all) => {
+      const got = all.reduce((n, p) => n + p.posts.length, 0);
+      return last.posts.length > 0 && got < last.total ? got : undefined;
+    },
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
   });
-  const posts = data?.posts ?? [];
+  const total = data?.pages[0]?.total ?? 0;
+  const posts = useMemo(() => {
+    const seen = new Set<number>();
+    const out: FeedPost[] = [];
+    for (const page of data?.pages ?? []) for (const p of page.posts) if (!seen.has(p.id)) { seen.add(p.id); out.push(p); }
+    return out;
+  }, [data]);
   const labelsOf = (p: FeedPost) => changed[p.id] ?? p.labels;
   const picked = /^\d+$/.test(label) ? allLabels.find((l) => l.id === Number(label)) ?? null : null;
 
-  // Load the next page when the end of the list comes into view.
+  // Load the next page when the end of the list comes near.
   const end = useRef<HTMLDivElement | null>(null);
-  const canMore = posts.length < (data?.total ?? 0) && FEED_PAGE * pages < 200;
-useEffect(() => {
+  const canMore = Boolean(hasNextPage);
+  useEffect(() => {
     if (!canMore || isFetching) return;
     // The admin page scrolls inside its own panel, so listen for any scroll (capture) and ask
     // where the marker is. An observer misses a fast fling that jumps straight past the marker.
     const check = () => {
       const el = end.current;
-      if (el && el.getBoundingClientRect().top < window.innerHeight + 800) setPages((v) => v + 1);
+      if (el && el.getBoundingClientRect().top < window.innerHeight + 1200) fetchNextPage();
     };
     check();
     window.addEventListener("scroll", check, { capture: true, passive: true });
     return () => window.removeEventListener("scroll", check, { capture: true } as EventListenerOptions);
-  }, [canMore, isFetching, posts.length]);
+  }, [canMore, isFetching, posts.length, fetchNextPage]);
 
   // Rambo's unchecked suggestions for the chosen label, among the posts on screen.
   const waiting = picked ? posts.filter((p) => labelsOf(p).some((l) => l.labelId === picked.id && l.status === "suggested")).map((p) => p.id) : [];
@@ -296,11 +386,47 @@ useEffect(() => {
     onSuccess: () => { setChanged({}); refreshSocial(); },
   });
 
+  // Grid: pick many, label them in one go.
+  const toggle = (id: number, shift: boolean) => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      const a = shift && lastTapped != null ? posts.findIndex((p) => p.id === lastTapped) : -1;
+      const b = posts.findIndex((p) => p.id === id);
+      if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) next.add(posts[i].id);
+      else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setLastTapped(id);
+  };
+  const bulk = useMutation({
+    mutationFn: async (a: { labelId?: number; remove?: boolean; create?: { kind: LabelKind; name: string } }) => {
+      let labelId = a.labelId;
+      if (a.create) {
+        const made = await (await apiRequest("POST", "/api/admin/social/labels", a.create)).json();
+        labelId = made.id;
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/social/labels"] });
+      }
+      const res = await apiRequest("POST", "/api/admin/social/posts/bulk-labels", { postIds: Array.from(selected), labelId, remove: a.remove === true });
+      return (await res.json()).labels as Record<number, PostLabel[]>;
+    },
+    onSuccess: (next) => { setBulkError(null); setChanged((c) => ({ ...c, ...next })); setSelected(new Set()); setLastTapped(null); },
+    onError: async (e) => setBulkError(await readError(e)),
+  });
+  const onSelected = useMemo(() => {
+    const m = new Map<number, PostLabel>();
+    for (const p of posts) if (selected.has(p.id)) for (const l of changed[p.id] ?? p.labels) m.set(l.labelId, l);
+    return Array.from(m.values());
+  }, [posts, selected, changed]);
+  const openPost = openId != null ? posts.find((p) => p.id === openId) ?? null : null;
+  const thisYear = new Date().getFullYear();
+  const years = Array.from({ length: Math.max(1, thisYear - firstYear + 1) }, (_, i) => String(thisYear - i));
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={label} onValueChange={(v) => onFilter({ label: v, status: "" })}>
-          <SelectTrigger className="h-11 md:h-9 w-full sm:w-[280px]" aria-label="Show" data-testid="feed-filter"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-11 md:h-9 w-full sm:w-[260px]" aria-label="Show" data-testid="feed-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Every post</SelectItem>
             <SelectItem value="none">Not labelled yet</SelectItem>
@@ -310,13 +436,44 @@ useEffect(() => {
             )))}
           </SelectContent>
         </Select>
+        <Select value={year ?? "all"} onValueChange={(v) => onFilter({ year: v === "all" ? null : v, month: null })}>
+          <SelectTrigger className="h-11 md:h-9 w-[calc(50%-4px)] sm:w-[130px]" aria-label="Year" data-testid="feed-year"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All time</SelectItem>
+            {years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+          </SelectContent>
+        </Select>
         {year && (
-          <button type="button" onClick={() => onFilter({ year: null, month: null })} className="inline-flex items-center gap-1 rounded-full border border-border px-3 h-9 text-[13px] text-foreground hover:bg-muted">
-            {month ? `${MONTHS[Number(month) - 1]} ${year}` : year}
-            <X className="w-3.5 h-3.5" aria-hidden />
-          </button>
+          <Select value={month ?? "all"} onValueChange={(v) => onFilter({ month: v === "all" ? null : v })}>
+            <SelectTrigger className="h-11 md:h-9 w-[calc(50%-4px)] sm:w-[150px]" aria-label="Month"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Whole year</SelectItem>
+              {MONTHS.map((m, i) => <SelectItem key={m} value={String(i + 1).padStart(2, "0")}>{m}</SelectItem>)}
+            </SelectContent>
+          </Select>
         )}
-        {data && <span className="text-xs text-muted-foreground sm:ml-auto" data-testid="feed-total">{data.total.toLocaleString("en-NZ")} posts</span>}
+        <div className="inline-flex rounded-lg border border-border p-0.5 bg-card" role="group" aria-label="Posts in a row" data-testid="feed-cols">
+          {FEED_COLS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={cols === n}
+              aria-label={n === 1 ? "One post at a time" : `${n} posts in a row`}
+              title={n === 1 ? "One post at a time" : `${n} in a row`}
+              data-testid={`feed-cols-${n}`}
+              onClick={() => { try { window.localStorage.setItem(COLS_KEY, String(n)); } catch {} onFilter({ cols: n }); }}
+              className={cn("h-10 md:h-8 min-w-[40px] px-2 rounded-md inline-flex items-center justify-center gap-1.5 text-[13px]", cols === n ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted", n > 3 && "hidden sm:inline-flex")}
+            >
+              <ColsIcon n={n} />
+              {n > 1 && <span className="tabular-nums">{n}</span>}
+            </button>
+          ))}
+        </div>
+        {data && (
+          <span className="text-xs text-muted-foreground sm:ml-auto" data-testid="feed-total">
+            {posts.length < total ? `${posts.length.toLocaleString("en-NZ")} of ` : ""}{total.toLocaleString("en-NZ")} posts
+          </span>
+        )}
       </div>
 
       {picked && waiting.length > 0 && (
@@ -331,34 +488,88 @@ useEffect(() => {
         </div>
       )}
 
+      {grid && posts.length > 0 && (
+        <p className="text-[13px] text-muted-foreground">
+          Click posts to select them, then add a label to all of them at once. Hold Shift and click to select everything in between.{" "}
+          <button type="button" className="underline underline-offset-2 text-foreground" onClick={() => setSelected(new Set(posts.map((p) => p.id)))} data-testid="feed-select-all">
+            Select all {posts.length.toLocaleString("en-NZ")} shown
+          </button>
+        </p>
+      )}
+
       {isLoading || labelsQuery.isLoading ? (
         <Loading rows={4} />
       ) : isError ? (
         <LoadError error={error} onRetry={refetch} />
       ) : posts.length === 0 ? (
         <p className="text-sm text-muted-foreground rounded-xl border border-border bg-card p-6 text-center">
-          {label === "check" ? "Nothing waiting to be checked." : label === "none" ? "Every post in this period has a label." : "No posts match. Try a longer period."}
+          {label === "check" ? "Nothing waiting to be checked." : label === "none" ? "Every post here has a label." : "No posts match. Try another year or account."}
         </p>
       ) : (
-        <div className="mx-auto w-full max-w-[560px] space-y-4" data-testid="feed-list">
-          {posts.map((p, i) => (
-            <div key={p.id} className="space-y-4">
-              {/* The marker sits a few posts before the end, so the next page is on its way before the last post is reached. */}
-              {i === Math.max(0, posts.length - 4) && <div ref={end} aria-hidden />}
-              <FeedCard post={p} labels={labelsOf(p)} allLabels={allLabels} onChange={(next) => setChanged((c) => ({ ...c, [p.id]: next }))} />
+        <div className={cn("w-full", !grid && "mx-auto max-w-[560px]")} data-testid="feed-list">
+          {grid ? (
+            <div className="grid gap-2 grid-cols-3 sm:[grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr))]" style={{ ["--feed-cols" as any]: cols }} data-testid="feed-grid">
+              {posts.map((p) => (
+                <FeedTile key={p.id} post={p} labels={labelsOf(p)} selected={selected.has(p.id)} onToggle={(shift) => toggle(p.id, shift)} onOpen={() => setOpenId(p.id)} />
+              ))}
             </div>
-          ))}
+          ) : (
+            <div className="space-y-4">
+              {posts.map((p) => (
+                <FeedCard key={p.id} post={p} labels={labelsOf(p)} allLabels={allLabels} onChange={(next) => setChanged((c) => ({ ...c, [p.id]: next }))} />
+              ))}
+            </div>
+          )}
+          {/* The marker: the next page is asked for well before the last post is reached. */}
+          <div ref={end} aria-hidden />
           {canMore ? (
-            <div className="flex justify-center">
-              <Button variant="outline" className="h-11 md:h-9" disabled={isFetching} onClick={() => setPages((v) => v + 1)}>
+            <div className="flex justify-center pt-4">
+              <Button variant="outline" className="h-11 md:h-9" disabled={isFetching} onClick={() => fetchNextPage()}>
                 {isFetching ? "Loading…" : "Show more"}
               </Button>
             </div>
-          ) : posts.length < (data?.total ?? 0) ? (
-            <p className="text-center text-sm text-muted-foreground">Showing the newest {posts.length}. Narrow the period or pick a label to see older posts.</p>
-          ) : null}
+          ) : (
+            <p className="text-center text-sm text-muted-foreground pt-4" data-testid="feed-end">That is every post: {total.toLocaleString("en-NZ")}.</p>
+          )}
         </div>
       )}
+
+      {grid && selected.size > 0 && (
+        <div className="sticky bottom-3 z-20 mx-auto w-full max-w-3xl rounded-xl border border-border bg-card shadow-lg p-2.5 flex flex-wrap items-center gap-2" data-testid="feed-bulk-bar">
+          <span className="text-sm font-medium text-foreground px-1.5 tabular-nums">{selected.size.toLocaleString("en-NZ")} selected</span>
+          <LabelPicker labels={allLabels} taken={new Set()} triggerLabel="Add a label to all" onPick={(id) => bulk.mutate({ labelId: id })} onCreate={(kind, name) => bulk.mutate({ create: { kind, name } })} />
+          {onSelected.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-3 h-10 md:h-8 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted" data-testid="feed-bulk-remove">
+                  <X className="w-3.5 h-3.5" aria-hidden />
+                  Take a label off
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-[260px] p-1.5 max-h-[300px] overflow-y-auto">
+                {onSelected.map((l) => (
+                  <button key={l.labelId} type="button" onClick={() => bulk.mutate({ labelId: l.labelId, remove: true })} className="w-full text-left px-2 min-h-[40px] rounded-md text-sm text-foreground hover:bg-muted">
+                    {l.name}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
+          {bulk.isPending && <span className="text-[13px] text-muted-foreground">Saving…</span>}
+          {bulkError && <span className="text-[13px] text-red-600" role="alert">{bulkError}</span>}
+          <Button variant="ghost" className="h-10 md:h-8 ml-auto" onClick={() => { setSelected(new Set()); setLastTapped(null); }} data-testid="feed-bulk-clear">Clear</Button>
+        </div>
+      )}
+
+      <Dialog open={openPost != null} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
+        <DialogContent className="max-w-[600px] max-h-[92vh] overflow-y-auto p-3">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Post</DialogTitle>
+            <DialogDescription>The post with its numbers and labels.</DialogDescription>
+          </DialogHeader>
+          {openPost && <FeedCard post={openPost} labels={labelsOf(openPost)} allLabels={allLabels} onChange={(next) => setChanged((c) => ({ ...c, [openPost.id]: next }))} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

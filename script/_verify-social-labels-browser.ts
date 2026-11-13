@@ -79,6 +79,17 @@ async function main() {
   for (const p of [p1, p2]) await api(`/api/admin/social/posts/${p.id}/labels/${probe.id}`, { method: "DELETE" });
   const gone = await pool.query(`SELECT count(*)::int AS n FROM social_post_labels WHERE label_id = $1 AND rejected_at IS NULL`, [probe.id]);
   ok("taking off a person's label removes it", gone.rows[0].n === 0);
+  // Bulk: one label on several posts, then off again.
+  const all = await (await api("/api/admin/social/feed?brand=cufc&limit=3")).json();
+  ok("with no year the feed is every post, not the last 30 days", all.total > feed.total, `${all.total} all time vs ${feed.total} in 12 months`);
+  const page2 = await (await api("/api/admin/social/feed?brand=cufc&limit=3&offset=3")).json();
+  ok("the next page is different posts", page2.posts.length === 3 && !page2.posts.some((p: any) => all.posts.some((a: any) => a.id === p.id)));
+  const ids = all.posts.map((p: any) => p.id);
+  const bulkOn = await (await api("/api/admin/social/posts/bulk-labels", { method: "POST", body: JSON.stringify({ postIds: ids, labelId: probe.id }) })).json();
+  ok("a label goes on several posts at once", ids.every((id: number) => bulkOn.labels[id]?.some((l: any) => l.labelId === probe.id && l.status === "confirmed")));
+  const bulkOff = await (await api("/api/admin/social/posts/bulk-labels", { method: "POST", body: JSON.stringify({ postIds: ids, labelId: probe.id, remove: true }) })).json();
+  ok("and comes off them at once", ids.every((id: number) => !bulkOff.labels[id]?.some((l: any) => l.labelId === probe.id)));
+  ok("bulk with no posts is refused", (await api("/api/admin/social/posts/bulk-labels", { method: "POST", body: JSON.stringify({ postIds: [], labelId: probe.id }) })).status === 400);
   const find = await (await api("/api/admin/social/labels/find?brand=cufc&year=2026")).json();
   ok("the Rambo search reports where it is up to", typeof find.unchecked === "number" && typeof find.estimateCents === "number", `${find.unchecked} not looked at`);
 
@@ -96,7 +107,7 @@ async function main() {
     };
 
     // ── Feed ──
-    await page.goto(`${BASE}/admin/social-media?brand=cufc&period=12m&view=feed`, { waitUntil: "networkidle2", timeout: 90_000 });
+    await page.goto(`${BASE}/admin/social-media?brand=cufc&view=feed&cols=1&ly=2026`, { waitUntil: "networkidle2", timeout: 90_000 });
     await page.waitForSelector('[data-testid="feed-post"]', { timeout: 40_000 });
     const count = (await page.$$('[data-testid="feed-post"]')).length;
     ok("the feed shows posts", count >= 5, `${count} posts`);
@@ -154,6 +165,58 @@ async function main() {
     await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="feed-post"]')).pop()?.scrollIntoView({ block: "end" }));
     await page.waitForFunction((n) => document.querySelectorAll('[data-testid="feed-post"]').length > n, { timeout: 30_000 }, count).catch(() => {});
     ok("scrolling down loads more posts", (await page.$$('[data-testid="feed-post"]')).length > count, `${(await page.$$('[data-testid="feed-post"]')).length}`);
+
+    // ── Feed as a grid ──
+    const wide = w < 640 ? 3 : 6;
+    const firstTwo = (n: string) => page.evaluate((name) => Array.from(document.querySelectorAll('[data-testid="feed-tile"]')).slice(0, 2).map((t) => Boolean(t.querySelector('[data-testid="feed-tile-labels"]')?.textContent?.includes(name))), n);
+    const clickTwo = () => page.evaluate(() => { const t = document.querySelectorAll('[data-testid="feed-tile"] > button'); (t[0] as HTMLElement).click(); (t[1] as HTMLElement).click(); });
+    await page.goto(`${BASE}/admin/social-media?brand=cufc&view=feed&cols=${wide}`, { waitUntil: "networkidle2", timeout: 90_000 });
+    await page.waitForSelector('[data-testid="feed-tile"]', { timeout: 40_000 });
+    const perRow = await page.evaluate(() => {
+      const tiles = Array.from(document.querySelectorAll('[data-testid="feed-tile"]')) as HTMLElement[];
+      const top = tiles[0].getBoundingClientRect().top;
+      return tiles.filter((t) => Math.abs(t.getBoundingClientRect().top - top) < 2).length;
+    });
+    ok(`the grid is ${wide} posts wide`, perRow === wide, `${perRow}`);
+    ok("the grid has no sideways scroll", (await overflow()) <= 0, `${await overflow()}px`);
+    const totalText = await page.evaluate(() => (document.querySelector('[data-testid="feed-total"]') as HTMLElement).innerText);
+    ok("the feed is all time by default", Number(totalText.split(" of ")[1]?.replace(/[^0-9]/g, "")) > 500, totalText);
+    const tiles0 = (await page.$$('[data-testid="feed-tile"]')).length;
+    await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="feed-tile"]')).pop()?.scrollIntoView({ block: "end" }));
+    await page.waitForFunction((n) => document.querySelectorAll('[data-testid="feed-tile"]').length > n, { timeout: 30_000 }, tiles0).catch(() => {});
+    const tiles1 = (await page.$$('[data-testid="feed-tile"]')).length;
+    ok("scrolling the grid loads more", tiles1 > tiles0, `${tiles0} to ${tiles1}`);
+    await page.evaluate(() => document.querySelector('[data-testid="feed-tile"]')?.scrollIntoView({ block: "center" }));
+    // Select two, label both at once.
+    await clickTwo();
+    await page.waitForSelector('[data-testid="feed-bulk-bar"]', { timeout: 10_000 });
+    ok("clicking two posts selects two", (await page.evaluate(() => (document.querySelector('[data-testid="feed-bulk-bar"]') as HTMLElement).innerText)).includes("2 selected"));
+    ok("the bulk bar is on screen", await page.evaluate(() => { const r = document.querySelector('[data-testid="feed-bulk-bar"]')!.getBoundingClientRect(); return r.bottom <= window.innerHeight + 1 && r.top >= 0 && r.right <= window.innerWidth + 1; }));
+    await shot("grid");
+    await page.click('[data-testid="feed-bulk-bar"] [data-testid="feed-add-label"]');
+    await page.waitForSelector('[data-testid="feed-label-search"]', { timeout: 10_000 });
+    await page.type('[data-testid="feed-label-search"]', probeName);
+    await page.waitForSelector('[data-testid="feed-label-option"]', { timeout: 10_000 });
+    await page.click('[data-testid="feed-label-option"]');
+    for (let i = 0; i < 30 && !(await firstTwo(probeName)).every(Boolean); i++) await new Promise((r) => setTimeout(r, 500));
+    ok("the label shows on both posts", (await firstTwo(probeName)).every(Boolean));
+    ok("the selection clears after labelling", !(await page.$('[data-testid="feed-bulk-bar"]')));
+    await clickTwo();
+    await page.waitForSelector('[data-testid="feed-bulk-remove"]', { timeout: 10_000 });
+    await page.click('[data-testid="feed-bulk-remove"]');
+    await page.waitForFunction((n) => Array.from(document.querySelectorAll('[role="dialog"] button')).some((b) => b.textContent?.includes(n)), { timeout: 10_000 }, probeName);
+    await page.evaluate((n) => (Array.from(document.querySelectorAll('[role="dialog"] button')).find((b) => b.textContent?.includes(n)) as HTMLElement).click(), probeName);
+    for (let i = 0; i < 30 && (await firstTwo(probeName)).some(Boolean); i++) await new Promise((r) => setTimeout(r, 500));
+    ok("and comes off both again", !(await firstTwo(probeName)).some(Boolean));
+    await page.click('[data-testid="feed-tile-open"]');
+    const opened = await page.waitForSelector('[role="dialog"] [data-testid="feed-post"]', { timeout: 10_000 }).then(() => true).catch(() => false);
+    ok("a tile opens the whole post", opened);
+    await page.keyboard.press("Escape");
+    if (w >= 640) {
+      await page.click('[data-testid="feed-cols-4"]');
+      await page.waitForFunction(() => location.search.includes("cols=4"), { timeout: 10_000 }).catch(() => {});
+      ok("the row size is in the URL", page.url().includes("cols=4"), page.url());
+    }
 
     // ── Labels ──
     await page.goto(`${BASE}/admin/social-media?brand=cufc&view=labels&ly=2026`, { waitUntil: "networkidle2", timeout: 90_000 });

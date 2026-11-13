@@ -212,7 +212,7 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
     const offset = Math.max(0, Number(req.query.offset) || 0);
     // A year (and month) wins over the page's period: a label's own report links here by year.
     const explicit = req.query.year ? windowOf(req).window : null;
-    const from = explicit ? explicit.from : s.from;
+    const from = explicit ? explicit.from : req.query.period ? s.from : null;
     const to = explicit ? explicit.to : null;
     const labelClause =
       labelId != null
@@ -280,6 +280,42 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
     );
     await q(`DELETE FROM social_post_labels WHERE post_id = $1 AND label_id = $2 AND source = 'person'`, [postId, labelId]);
     res.json({ labels: (await labelsFor([postId])).get(postId) ?? [] });
+  }));
+
+  /** Put one label on many posts at once, or take it off them (the grid's bulk bar). */
+  app.post(`${BASE}/posts/bulk-labels`, ...gate, handle(async (req, res) => {
+    const labelId = intParam(req.body?.labelId);
+    const remove = req.body?.remove === true;
+    const ids: number[] = Array.isArray(req.body?.postIds)
+      ? Array.from(new Set<number>(req.body.postIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0))).slice(0, 1000)
+      : [];
+    if (!ids.length) throw new InputError("No posts chosen.");
+    const me = req.session.userId ?? null;
+    if (remove) {
+      // Same rule as one post: Rambo's row is kept as rejected, a person's row goes.
+      await q(
+        `UPDATE social_post_labels SET rejected_at = now(), rejected_by = $3, confirmed_at = NULL, confirmed_by = NULL
+         WHERE post_id = ANY($1::bigint[]) AND label_id = $2 AND source = 'rambo'`,
+        [ids, labelId, me],
+      );
+      await q(`DELETE FROM social_post_labels WHERE post_id = ANY($1::bigint[]) AND label_id = $2 AND source = 'person'`, [ids, labelId]);
+    } else {
+      const [label] = await q(`SELECT id FROM social_labels WHERE id = $1 AND archived_at IS NULL`, [labelId]);
+      if (!label) return res.status(404).json({ message: "Not found" });
+      await q(
+        `INSERT INTO social_post_labels (post_id, label_id, source, confirmed_at, confirmed_by, created_by)
+         SELECT p.id, $2, 'person', now(), $3, $3 FROM social_posts p WHERE p.id = ANY($1::bigint[])
+         ON CONFLICT (post_id, label_id) DO UPDATE
+           SET confirmed_at = COALESCE(social_post_labels.confirmed_at, now()),
+               confirmed_by = COALESCE(social_post_labels.confirmed_by, $3),
+               rejected_at = NULL, rejected_by = NULL`,
+        [ids, labelId, me],
+      );
+    }
+    const map = await labelsFor(ids);
+    const labels: Record<number, PostLabel[]> = {};
+    for (const id of ids) labels[id] = map.get(id) ?? [];
+    res.json({ labels });
   }));
 
   /** Confirm Rambo's suggestions for one label on the posts a person has just looked through. */
