@@ -159,6 +159,8 @@ const CANARIES: Canary[] = [
   // leaves a sidebar link to a page that cannot load an account.
   { feature: "social media",         path: "/api/admin/social/accounts",                expect: [401] },
   { feature: "social media labels",  path: "/api/admin/social/labels",                  expect: [401] },
+  { feature: "siu performance",      path: "/api/admin/performance/catalogue",          expect: [401] },
+  { feature: "siu athlete check-in", path: "/api/public/athlete/me",                    expect: [401] },
   { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
   { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },
   { feature: "campaigns",            path: "/api/admin/campaigns",                      expect: [401] },
