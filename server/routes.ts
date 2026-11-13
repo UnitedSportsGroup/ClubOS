@@ -56,7 +56,7 @@ import {
   CUGC_TERMS, resolveTermForSale, termStatus, isSellable, defaultTerm,
   termByName, termWindowLabel, type CugcTerm,
 } from "@shared/cugc-terms";
-import { allClasses, classById, classesForRegistration, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
+import { allClasses, classById, classesForRegistration, onClassRoll, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
 import * as splitPay from "./split-pay";
 import { markInvoicePaidByPaymentIntent } from "./invoice-routes";
 import * as rewards from "./rewards";
@@ -184,6 +184,7 @@ import { registerCampaignRoutes } from "./campaigns/routes";
 import { registerOfflineMarketingRoutes } from "./offline-marketing-routes";
 import { registerMarketingMoreRoutes } from "./marketing-hub/more-reports";
 import { registerMarketingIdeasRoutes } from "./marketing-ideas-routes";
+import { registerPerformanceRoutes } from "./performance-routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -26732,18 +26733,19 @@ export async function registerRoutes(
       // Who is on each class, and who could not be placed on any.
       const onClass = new Map<string, number>();
       const unplaced: { id: number; name: string; programName: string; optionLabel: string; reason: string }[] = [];
+      // Every paid child is on every class of their programme (onClassRoll).
+      // Only a programme with no timetable in ClubOS leaves someone off.
+      const termClasses = allClasses(term.id);
       for (const r of paid) {
-        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id);
-        if (!placement.placed) {
+        const ids = termClasses.filter((c) => onClassRoll(r.programSlug, c.id, term.id)).map((c) => c.id);
+        if (ids.length === 0) {
           unplaced.push({
             id: r.id, name: r.gymnastName, programName: r.programName, optionLabel: r.optionLabel,
-            reason: placement.reason === "not-recorded"
-              ? "No class was recorded at sign-up"
-              : "This programme has no timetable in ClubOS",
+            reason: "This programme has no timetable in ClubOS",
           });
           continue;
         }
-        for (const id of placement.classIds) onClass.set(id, (onClass.get(id) ?? 0) + 1);
+        for (const id of ids) onClass.set(id, (onClass.get(id) ?? 0) + 1);
       }
 
       const marks = await db.select({ classId: cugcAttendance.classId, sessionDate: cugcAttendance.sessionDate })
@@ -26805,7 +26807,7 @@ export async function registerRoutes(
         .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
       const expected = regos
         .filter((r) => CUGC_ON_ROLL.includes(r.status))
-        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id));
+        .filter((r) => onClassRoll(r.programSlug, klass.id, term.id));
 
       const marks = expected.length
         ? await db.select().from(cugcAttendance).where(and(
@@ -26841,6 +26843,8 @@ export async function registerRoutes(
               dob: r.gymnastDob,
               programName: r.programName,
               optionLabel: r.optionLabel,
+              // The class they picked at sign-up — a hint, never a filter.
+              booked: classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id),
               parentName: r.parentName,
               phone: r.phone,
               medical: r.medical,
@@ -26882,8 +26886,8 @@ export async function registerRoutes(
       if (!rego) return res.status(404).json({ message: "No such enrolment." });
       if (rego.term !== term.name) return res.status(400).json({ message: "That enrolment is for a different term." });
       if (!CUGC_ON_ROLL.includes(rego.status)) return res.status(400).json({ message: "That enrolment isn't paid." });
-      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime, term.id).classIds.includes(klass.id)) {
-        return res.status(400).json({ message: "That child isn't in this class." });
+      if (!onClassRoll(rego.programSlug, klass.id, term.id)) {
+        return res.status(400).json({ message: "That child isn't in this programme." });
       }
 
       const where = and(
@@ -28145,6 +28149,8 @@ export async function registerRoutes(
   registerOfflineMarketingRoutes(app);
   registerMarketingMoreRoutes(app);
   registerMarketingIdeasRoutes(app);
+  // SIU Performance Hub (2026-11-14): staff API + the player's phone check-in.
+  registerPerformanceRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 

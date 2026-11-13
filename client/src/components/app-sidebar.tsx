@@ -116,6 +116,13 @@ import {
   TicketPercent,
   Gem,
   Lightbulb,
+  HeartPulse as PerfHeartPulse,
+  Stethoscope as PerfStethoscope,
+  Gauge as PerfGauge,
+  Database as PerfDatabase,
+  Upload as PerfUpload,
+  Timer as PerfTimer,
+  FlaskConical as PerfFlask,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -221,6 +228,18 @@ const STORE_CHILDREN = [
   { tab: "store", title: "Settings", url: "/admin/store/settings", icon: Tag },
 ];
 
+// SIU Performance Hub (2026-11-14) — one tab slug, each area its own URL.
+const PERFORMANCE_CHILDREN = [
+  { tab: "performance", title: "Players", url: "/admin/performance/players", icon: Users },
+  { tab: "performance", title: "Wellness", url: "/admin/performance/wellness", icon: PerfHeartPulse },
+  { tab: "performance", title: "Load & GPS", url: "/admin/performance/load", icon: PerfGauge },
+  { tab: "performance", title: "Availability", url: "/admin/performance/availability", icon: PerfStethoscope },
+  { tab: "performance", title: "Testing", url: "/admin/performance/testing", icon: PerfFlask },
+  { tab: "performance", title: "Video", url: "/admin/performance/video", icon: Video },
+  { tab: "performance", title: "Import data", url: "/admin/performance/import", icon: PerfUpload },
+  { tab: "performance", title: "Data sources", url: "/admin/performance/sources", icon: PerfDatabase },
+];
+
 const campsNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
@@ -298,6 +317,7 @@ const siuNav = [
   { tab: "declarations", title: "Declarations", url: "/admin/declarations", icon: FileSignature },
   { tab: "events", title: "Community Events", url: "/admin/events", icon: Calendar },
   { tab: "membership", title: "Membership", url: "/admin/membership", icon: Crown },
+  { tab: "performance", title: "Performance", url: "/admin/performance", icon: Activity, children: PERFORMANCE_CHILDREN },
 ];
 
 const venueNav = [

@@ -457,6 +457,9 @@ const siuExtraTabs: TabDef[] = [
   // engine after MFL, CIC and CUFC. campsTabs itself carries no "store" slug
   // (see cufcExtraTabs above for CUFC's own copy of this same tab).
   { slug: "store", title: "Store", url: "/admin/store" },
+  // Performance Hub (2026-11-14): wellness, load, GPS, availability, testing,
+  // video — every source in one store. LOCKED below: it holds player health data.
+  { slug: "performance", title: "Performance", url: "/admin/performance" },
 ];
 
 // CUFC's native retail shop (2026-09) — the third brand on the shop_* engine
@@ -498,6 +501,10 @@ export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
  * system (workspace role + tabs whitelist) takes over.
  */
 export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
+  // SIU Performance — player wellness, load and injury data. Opened per person
+  // via unlocked_tabs (Ryan, Adria). Clinical notes need a SECOND grant,
+  // "performance-medical", with no super-admin bypass (shared/performance.ts).
+  "performance",
   // Daniel + Isaac's MFL project board — "me and isaac's". A workspace admin
   // (Ryan, Natalia) would otherwise get it by role; Isaac holds it by name
   // (grant-unlocked-tab.ts). Justified by Daniel's own scope for it, 2026-09-25.

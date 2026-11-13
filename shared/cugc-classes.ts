@@ -275,3 +275,20 @@ export function classDatesInTerm(weekday: number, startIso: string, endIso: stri
   }
   return out;
 }
+
+/**
+ * Is this child on this class's roll? (Daniel, 2026-11-14, of a Saturday
+ * GymPlay roll showing 7 children: "add all of the kids for that program as
+ * they come when they want — if registered for term add them to roll and they
+ * will just select here or away.")
+ *
+ * 🔴 A paid enrolment puts the child on EVERY class of their programme that
+ * runs in the term — families come on whichever day suits that week. The class
+ * picked at sign-up only marks them as "booked" on that class; it no longer
+ * decides who appears, so a child who comes on a different day is never
+ * missing from the roll. The caller has already checked paid + term.
+ */
+export function onClassRoll(programSlug: string, classId: string, termId: string): boolean {
+  const klass = (CUGC_CLASSES[programSlug] ?? []).find((c) => c.id === classId);
+  return !!klass && classRunsInTerm(klass, termId);
+}

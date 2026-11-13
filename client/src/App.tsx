@@ -81,6 +81,9 @@ const GroupInvoices = lazy(() => import("@/pages/invoices"));
 const GroupXeroInvoices = lazy(() => import("@/pages/xero-invoices"));
 const GroupPayouts = lazy(() => import("@/pages/payouts"));
 const AdminLicensing = lazy(() => import("@/pages/admin-licensing"));
+const AdminPerformance = lazy(() => import("@/pages/performance"));
+const AthleteCheckIn = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteCheckIn })));
+const AthleteSetPassword = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteSetPassword })));
 const AdminEvents = lazy(() => import("@/pages/admin-events"));
 const AdminMembership = lazy(() => import("@/pages/admin-membership"));
 const AdminDeclarations = lazy(() => import("@/pages/admin-declarations"));
@@ -820,6 +823,8 @@ function AdminRouter() {
       <Route path="/admin/attribution" component={AttributionPage} />
       <Route path="/admin/behavior" component={BehaviorPage} />
       <Route path="/admin/licensing" component={AdminLicensing} />
+      <Route path="/admin/performance/players/:contactId" component={AdminPerformance} />
+      <Route path="/admin/performance/:section?" component={AdminPerformance} />
       <Route path="/admin/declarations" component={AdminDeclarations} />
       <Route path="/admin/events" component={AdminEvents} />
       <Route path="/admin/membership" component={AdminMembership} />
@@ -1068,6 +1073,10 @@ function App() {
             <Route path="/team/:token" component={TeampayDashboard} />
             {/* 🔴 The specific captain routes MUST precede /captain, or wouter
                 matches the bare path first and the set-password link 404s. */}
+            {/* SIU Performance Hub — the player's phone check-in (join.southislandunited.com/athlete).
+                🔴 /athlete/set-password MUST precede /athlete. */}
+            <Route path="/athlete/set-password" component={AthleteSetPassword} />
+            <Route path="/athlete" component={AthleteCheckIn} />
             <Route path="/captain/set-password" component={CaptainSetPasswordPage} />
             <Route path="/captain/teams/:id" component={CaptainTeamPage} />
             {/* An MFL league team, through the same session. */}
