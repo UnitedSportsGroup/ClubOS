@@ -24,6 +24,7 @@ import { POST_KIND_LABEL, socialBrand, socialPlatform, type SocialPost } from "@
 import {
   LABEL_KINDS,
   adEquivalentCents,
+  averageReach,
   cpmCents,
   sponsorMessage,
   type FeedPost,
@@ -707,6 +708,113 @@ function FindCard({ brand, year, onCheck }: { brand: string; year: string; onChe
 
 // ── The Labels report ───────────────────────────────────────────────────────
 
+const LABEL_PLATFORMS: { key: string | null; label: string }[] = [
+  { key: null, label: "All platforms" },
+  { key: "instagram", label: "Instagram" },
+  { key: "facebook", label: "Facebook" },
+];
+
+/** A total shared over the posts that carry the figure; null when none do. */
+function perPost(total: number | null, posts: number): number | null {
+  return total == null || posts <= 0 ? null : Math.round(total / posts);
+}
+
+type PostSort = "day" | "views" | "reach" | "likes" | "comments" | "shares" | "saves" | "interactions";
+const POST_SORTS: { key: PostSort; label: string }[] = [
+  { key: "day", label: "Date" },
+  { key: "views", label: "Views" },
+  { key: "reach", label: "Reached" },
+  { key: "likes", label: "Likes" },
+  { key: "comments", label: "Comments" },
+  { key: "shares", label: "Shares" },
+  { key: "saves", label: "Saves" },
+  { key: "interactions", label: "Engagements" },
+];
+
+/** Every post behind a label's numbers, sortable by any of them. A blank sorts last both ways. */
+function LabelPosts({ posts, onOpen }: { posts: SocialPost[]; onOpen: (p: SocialPost) => void }) {
+  const [sort, setSort] = useState<{ key: PostSort; up: boolean }>({ key: "views", up: false });
+  const [all, setAll] = useState(false);
+  const sorted = useMemo(() => {
+    const val = (p: SocialPost): number | string | null => (sort.key === "day" ? p.postedAt : (p[sort.key] as number | null));
+    return [...posts].sort((a, b) => {
+      const x = val(a), y = val(b);
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      const d = x < y ? -1 : x > y ? 1 : 0;
+      return sort.up ? d : -d;
+    });
+  }, [posts, sort]);
+  const shown = all ? sorted : sorted.slice(0, 25);
+  const pick = (key: PostSort) => setSort((s) => (s.key === key ? { key, up: !s.up } : { key, up: false }));
+  const thumb = (p: SocialPost) =>
+    p.thumb ? <img src={p.thumb} alt="" loading="lazy" className="w-10 h-12 rounded object-cover bg-muted shrink-0" /> : <span className="w-10 h-12 rounded bg-muted shrink-0 inline-flex items-center justify-center"><ImageOff className="w-4 h-4 text-muted-foreground" aria-hidden /></span>;
+  return (
+    <Card data-testid="label-posts">
+      <CardHeader className="pb-2 flex flex-row flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-foreground">Every post: {posts.length.toLocaleString("en-NZ")}</p>
+          <p className="text-xs text-muted-foreground">Press a column to sort by it. Press a post to open it.</p>
+        </div>
+        <Select value={sort.key} onValueChange={(v) => setSort({ key: v as PostSort, up: false })}>
+          <SelectTrigger className="h-11 w-[170px] md:hidden" aria-label="Sort by"><SelectValue /></SelectTrigger>
+          <SelectContent>{POST_SORTS.map((s) => <SelectItem key={s.key} value={s.key}>Most {s.key === "day" ? "recent" : s.label.toLowerCase()}</SelectItem>)}</SelectContent>
+        </Select>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="md:hidden divide-y divide-border">
+          {shown.map((p) => (
+            <button key={p.id} type="button" onClick={() => onOpen(p)} className="w-full text-left p-3 flex items-center gap-3 hover:bg-muted" data-testid="label-post-row">
+              {thumb(p)}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-sm text-foreground"><PlatformIcon platform={p.platform} />{longDay(p.day)}</span>
+                <span className="block text-xs text-muted-foreground tabular-nums">{count(p.views)} views · {count(p.likes)} likes · {count(p.comments)} comments · {count(p.shares)} shares</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Post</TableHead>
+                {POST_SORTS.map((s) => (
+                  <TableHead key={s.key} className={s.key === "day" ? "" : "text-right"}>
+                    <button type="button" onClick={() => pick(s.key)} className={cn("inline-flex items-center gap-1 hover:text-foreground", sort.key === s.key && "text-foreground font-semibold")} data-testid={`label-posts-sort-${s.key}`}>
+                      {s.label}{sort.key === s.key ? (sort.up ? " ↑" : " ↓") : ""}
+                    </button>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((p) => (
+                <TableRow key={p.id} className="cursor-pointer" onClick={() => onOpen(p)} data-testid="label-post-row">
+                  <TableCell><span className="inline-flex items-center gap-2">{thumb(p)}<PlatformIcon platform={p.platform} /></span></TableCell>
+                  <TableCell className="whitespace-nowrap">{longDay(p.day)}</TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">{count(p.views)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.reach)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.likes)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.comments)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.shares)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.saves)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.interactions.toLocaleString("en-NZ")}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {sorted.length > shown.length && (
+          <div className="p-3 border-t border-border">
+            <Button variant="outline" className="h-11 md:h-9 w-full sm:w-auto" onClick={() => setAll(true)} data-testid="label-posts-all">Show all {sorted.length.toLocaleString("en-NZ")}</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function change(now: number | null, before: number | null | undefined): string | null {
   if (now == null || before == null || before === 0) return null;
   const pct = Math.round(((now - before) / before) * 100);
@@ -729,6 +837,7 @@ export function LabelsView({
   month,
   kind,
   open,
+  platform,
   today,
   onChange,
   onFeed,
@@ -739,15 +848,16 @@ export function LabelsView({
   month: string | null;
   kind: LabelKind;
   open: number | null;
+  platform: string | null;
   today: string | null;
-  onChange: (next: { year?: string; month?: string | null; kind?: LabelKind; open?: number | null }) => void;
+  onChange: (next: { year?: string; month?: string | null; kind?: LabelKind; open?: number | null; platform?: string | null }) => void;
   onFeed: (next: { label: string; status?: string; year?: string | null; month?: string | null }) => void;
   onOpenPost: (p: SocialPost) => void;
 }) {
   const [dialog, setDialog] = useState<{ editing: SocialLabel | null } | null>(null);
   const thisYear = Number((today ?? "2026").slice(0, 4));
   const years = useMemo(() => Array.from({ length: thisYear - 2017 }, (_, i) => String(thisYear - i)), [thisYear]);
-  const scope = `brand=${encodeURIComponent(brand)}&year=${year}${year !== "all" && month ? `&month=${month}` : ""}`;
+  const scope = `brand=${encodeURIComponent(brand)}&year=${year}${year !== "all" && month ? `&month=${month}` : ""}${platform ? `&platform=${platform}` : ""}`;
   const summary = useQuery<LabelSummaryResponse>({
     queryKey: [`/api/admin/social/labels/summary?${scope}&kind=${kind}`],
     staleTime: 30_000,
@@ -757,6 +867,13 @@ export function LabelsView({
 
   const controls = (
     <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 w-full sm:w-auto" role="group" aria-label="Platform" data-testid="labels-platform">
+        {LABEL_PLATFORMS.map((p) => (
+          <button key={p.key ?? "all"} type="button" onClick={() => onChange({ platform: p.key })} aria-pressed={platform === p.key} data-testid={`labels-platform-${p.key ?? "all"}`} className={cn("flex-1 sm:flex-none px-3 h-11 md:h-9 rounded-md text-[13px] font-medium whitespace-nowrap", platform === p.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted")}>
+            {p.label}
+          </button>
+        ))}
+      </div>
       <Select value={year} onValueChange={(v) => onChange({ year: v, month: v === "all" ? null : month })}>
         <SelectTrigger className="h-11 md:h-9 w-[calc(50%-4px)] sm:w-[140px]" aria-label="Year" data-testid="labels-year"><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -777,7 +894,7 @@ export function LabelsView({
   if (open != null) {
     return (
       <div className="space-y-4">
-        <LabelReport id={open} scope={scope} brand={brand} controls={controls} onBack={() => onChange({ open: null })} onFeed={onFeed} year={year} month={month} onOpenPost={onOpenPost} onEdit={(l) => setDialog({ editing: l })} />
+        <LabelReport id={open} scope={scope} brand={brand} platform={platform} onPlatform={(p) => onChange({ platform: p })} controls={controls} onBack={() => onChange({ open: null })} onFeed={onFeed} year={year} month={month} onOpenPost={onOpenPost} onEdit={(l) => setDialog({ editing: l })} />
         <LabelDialog open={!!dialog} editing={dialog?.editing ?? null} defaultKind={kind} onClose={() => { setDialog(null); }} />
       </div>
     );
@@ -825,7 +942,7 @@ export function LabelsView({
               {rows.map((r) => (
                 <button key={r.label.id} type="button" onClick={() => onChange({ open: r.label.id })} className="w-full text-left p-4 space-y-1 hover:bg-muted" data-testid="label-row">
                   <p className="text-sm font-medium text-foreground">{r.label.name}</p>
-                  <p className="text-sm text-muted-foreground">{r.posts.toLocaleString("en-NZ")} posts · {count(r.views)} views</p>
+                  <p className="text-sm text-muted-foreground">{r.posts.toLocaleString("en-NZ")} posts · {count(r.views)} views · {r.interactions.toLocaleString("en-NZ")} engagements</p>
                   {r.toCheck > 0 && <p className="text-xs text-amber-700">{r.toCheck} from Rambo to check</p>}
                 </button>
               ))}
@@ -836,10 +953,14 @@ export function LabelsView({
                   <TableRow>
                     <TableHead>Label</TableHead>
                     <TableHead className="text-right">Posts</TableHead>
-                    <TableHead className="text-right">Instagram views</TableHead>
-                    <TableHead className="text-right">Facebook views</TableHead>
-                    <TableHead className="text-right">All views</TableHead>
-                    <TableHead className="text-right">Year before</TableHead>
+                    {!platform && <TableHead className="text-right">Instagram views</TableHead>}
+                    {!platform && <TableHead className="text-right">Facebook views</TableHead>}
+                    <TableHead className="text-right">{platform ? "Views" : "All views"}</TableHead>
+                    <TableHead className="text-right">Views a post</TableHead>
+                    <TableHead className="text-right">Likes</TableHead>
+                    <TableHead className="text-right">Comments</TableHead>
+                    <TableHead className="text-right">Shares</TableHead>
+                    <TableHead className="text-right">Engagements</TableHead>
                     <TableHead className="text-right">Same views as ads</TableHead>
                     <TableHead className="text-right">To check</TableHead>
                   </TableRow>
@@ -853,10 +974,14 @@ export function LabelsView({
                       <TableRow key={r.label.id} className="cursor-pointer" onClick={() => onChange({ open: r.label.id })} data-testid="label-row">
                         <TableCell className="font-medium text-foreground">{r.label.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.posts.toLocaleString("en-NZ")}</TableCell>
-                        <TableCell className="text-right tabular-nums">{count(ig?.views ?? null)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{count(fb?.views ?? null)}</TableCell>
+                        {!platform && <TableCell className="text-right tabular-nums">{count(ig?.views ?? null)}</TableCell>}
+                        {!platform && <TableCell className="text-right tabular-nums">{count(fb?.views ?? null)}</TableCell>}
                         <TableCell className="text-right tabular-nums font-medium">{count(r.views)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{r.previous ? count(r.previous.views) : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{count(perPost(r.views, r.posts - r.postsWithoutViews))}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.posts ? r.likes.toLocaleString("en-NZ") : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.posts ? r.comments.toLocaleString("en-NZ") : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.posts ? r.shares.toLocaleString("en-NZ") : "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.posts ? r.interactions.toLocaleString("en-NZ") : "—"}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{ads != null ? nzd(ads) : "—"}</TableCell>
                         <TableCell className="text-right">
                           {r.toCheck > 0 ? (
@@ -885,6 +1010,8 @@ function LabelReport({
   id,
   scope,
   brand,
+  platform,
+  onPlatform,
   controls,
   year,
   month,
@@ -896,6 +1023,8 @@ function LabelReport({
   id: number;
   scope: string;
   brand: string;
+  platform: string | null;
+  onPlatform: (p: string | null) => void;
   controls: ReactNode;
   year: string;
   month: string | null;
@@ -942,7 +1071,7 @@ function LabelReport({
         </Button>
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">{r.label.kind === "sponsor" ? "Sponsor" : "Content type"} · {brandName ?? "All brands"} · {data.window.label}</p>
+        <p className="text-xs text-muted-foreground">{r.label.kind === "sponsor" ? "Sponsor" : "Content type"} · {brandName ?? "All brands"} · {platform ? socialPlatform(platform as any).label + " only" : "All platforms"} · {data.window.label}</p>
         <h2 className="text-xl font-semibold text-foreground" data-testid="label-report-name">{r.label.name}</h2>
       </div>
 
@@ -953,35 +1082,79 @@ function LabelReport({
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3" data-testid="label-tiles">
         <Tile label="Posts" value={r.posts.toLocaleString("en-NZ")} note={r.previous ? `${r.previous.posts.toLocaleString("en-NZ")} the year before` : null} testid="label-tile-posts" />
         <Tile label="Views" value={r.views == null ? "—" : compactCount(r.views)} note={r.posts === 0 ? "No confirmed posts in this period yet" : change(r.views, r.previous?.views) ?? (r.views != null ? `${r.views.toLocaleString("en-NZ")} exactly` : "The platforms gave no view counts")} testid="label-tile-views" />
-        <Tile label="Likes, comments, shares, saves" value={r.interactions.toLocaleString("en-NZ")} />
+        <Tile label="Views a post" value={count(perPost(r.views, r.posts - r.postsWithoutViews))} note="On average" testid="label-tile-avg" />
+        <Tile label="Engagements" value={r.interactions.toLocaleString("en-NZ")} note={r.views ? `${((r.interactions / r.views) * 100).toFixed(1)}% of views · likes, comments, shares and saves` : "Likes, comments, shares and saves"} testid="label-tile-engagements" />
+        <Tile label="Likes" value={r.likes.toLocaleString("en-NZ")} testid="label-tile-likes" />
+        <Tile label="Comments" value={r.comments.toLocaleString("en-NZ")} />
+        <Tile label="Shares" value={r.shares.toLocaleString("en-NZ")} />
+        <Tile label="Saves" value={r.saves.toLocaleString("en-NZ")} note="Instagram only" />
+        <Tile label="People reached a post" value={count(averageReach(r))} note="On average. Reach is never added up, because one person can see several posts." />
         <Tile label="Same views bought as ads" value={ads != null ? nzd(ads) : "—"} note={cpm != null ? `At ${nzdExact(cpm)} per 1,000 views, what our own Meta ads cost` : "No ad spend on record to compare with"} />
       </div>
       {r.postsWithoutViews > 0 && (
         <p className="text-xs text-muted-foreground">{r.postsWithoutViews} of these posts had no view count from the platform (usually older posts), so the real total is higher.</p>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2"><p className="text-sm font-medium text-foreground">By platform</p></CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader><TableRow><TableHead>Platform</TableHead><TableHead className="text-right">Posts</TableHead><TableHead className="text-right">Views</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {r.byPlatform.length === 0 && <TableRow><TableCell colSpan={3} className="text-muted-foreground">No confirmed posts in this period.</TableCell></TableRow>}
-                {r.byPlatform.map((p) => (
-                  <TableRow key={p.platform}>
-                    <TableCell><span className="inline-flex items-center gap-2"><PlatformIcon platform={p.platform} />{socialPlatform(p.platform).label}</span></TableCell>
-                    <TableCell className="text-right tabular-nums">{p.posts.toLocaleString("en-NZ")}</TableCell>
-                    <TableCell className="text-right tabular-nums">{count(p.views)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      <Card data-testid="label-by-platform">
+        <CardHeader className="pb-2">
+          <p className="text-sm font-medium text-foreground">By platform</p>
+          <p className="text-xs text-muted-foreground">{platform ? "Showing one platform. Press All platforms above to compare." : "Press a platform to see only its posts."}</p>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Platform</TableHead>
+                <TableHead className="text-right">Posts</TableHead>
+                <TableHead className="text-right">Views</TableHead>
+                <TableHead className="text-right">Views a post</TableHead>
+                <TableHead className="text-right">Reached a post</TableHead>
+                <TableHead className="text-right">Likes</TableHead>
+                <TableHead className="text-right">Comments</TableHead>
+                <TableHead className="text-right">Shares</TableHead>
+                <TableHead className="text-right">Saves</TableHead>
+                <TableHead className="text-right">Engagements</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {r.byPlatform.length === 0 && <TableRow><TableCell colSpan={10} className="text-muted-foreground">No confirmed posts in this period.</TableCell></TableRow>}
+              {r.byPlatform.map((p) => (
+                <TableRow key={p.platform} className={platform ? "" : "cursor-pointer"} onClick={() => !platform && (p.platform === "instagram" || p.platform === "facebook") && onPlatform(p.platform)} data-testid="label-platform-row">
+                  <TableCell><span className="inline-flex items-center gap-2 whitespace-nowrap"><PlatformIcon platform={p.platform} />{socialPlatform(p.platform).label}</span></TableCell>
+                  <TableCell className="text-right tabular-nums">{p.posts.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">{count(p.views)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(perPost(p.views, p.posts - p.postsWithoutViews))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(averageReach(p))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.likes.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.comments.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.shares.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.saves.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{p.interactions.toLocaleString("en-NZ")}</TableCell>
+                </TableRow>
+              ))}
+              {r.byPlatform.length > 1 && (
+                <TableRow className="font-semibold bg-muted/40">
+                  <TableCell>All platforms</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.posts.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(r.views)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(perPost(r.views, r.posts - r.postsWithoutViews))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(averageReach(r))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.likes.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.comments.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.shares.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.saves.toLocaleString("en-NZ")}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.interactions.toLocaleString("en-NZ")}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4">
         <Card>
           <CardHeader className="pb-2"><p className="text-sm font-medium text-foreground">Views by month</p></CardHeader>
           <CardContent className="space-y-1.5">
@@ -1013,6 +1186,8 @@ function LabelReport({
           <pre className="text-sm text-foreground whitespace-pre-wrap break-words font-sans rounded-lg bg-muted p-3" data-testid="label-message">{message}</pre>
         </CardContent>
       </Card>
+
+      {data.posts.length > 0 && <LabelPosts posts={data.posts} onOpen={onOpenPost} />}
 
       {data.topPosts.length > 0 && (
         <div className="space-y-2">

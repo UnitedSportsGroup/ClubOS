@@ -108,6 +108,13 @@ export type LabelPlatformRow = {
   views: number | null;
   postsWithoutViews: number;
   interactions: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  /** People reached, added over the posts that carry a figure. Only ever shown as an average a post. */
+  reachSum: number;
+  reachPosts: number;
 };
 
 export type LabelSummaryRow = {
@@ -116,6 +123,12 @@ export type LabelSummaryRow = {
   views: number | null;
   postsWithoutViews: number;
   interactions: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  reachSum: number;
+  reachPosts: number;
   byPlatform: LabelPlatformRow[];
   /** Same window a year earlier; null when the window is "all time". */
   previous: { posts: number; views: number | null } | null;
@@ -140,8 +153,15 @@ export type LabelReportResponse = {
   byMonth: { month: string; posts: number; views: number }[];
   byAccount: { accountId: number; platform: SocialPlatformKey; handle: string; brand: string | null; posts: number; views: number | null }[];
   topPosts: SocialPost[];
+  /** Every confirmed post in the window, most viewed first (at most 1,000). */
+  posts: SocialPost[];
   adCost: AdCost;
 };
+
+/** Average people reached a post, or null when no post carried a figure. Reach is never added up. */
+export function averageReach(r: { reachSum: number; reachPosts: number }): number | null {
+  return r.reachPosts > 0 ? Math.round(r.reachSum / r.reachPosts) : null;
+}
 
 /** Cents to buy `views` at the club's own ad rate; null when there is no rate. */
 export function adEquivalentCents(views: number | null, cost: AdCost): number | null {

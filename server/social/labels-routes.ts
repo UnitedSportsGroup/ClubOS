@@ -66,12 +66,18 @@ const num = (v: unknown): number | null => (v == null ? null : Number(v));
 
 /** Confirmed totals per label and platform inside one window. */
 async function totals(s: Scope, w: LabelWindow, labelId: number | null) {
-  return q<{ label_id: number; platform: string; posts: number; views: string | null; no_views: number; interactions: string; to_check: number }>(
+  return q<{ label_id: number; platform: string; posts: number; views: string | null; no_views: number; interactions: string; to_check: number; likes: string; comments: string; shares: string; saves: string; reach_sum: string; reach_posts: number }>(
     `SELECT pl.label_id, a.platform,
             count(*) FILTER (WHERE pl.confirmed_at IS NOT NULL)::int AS posts,
             sum(p.views) FILTER (WHERE pl.confirmed_at IS NOT NULL) AS views,
             count(*) FILTER (WHERE pl.confirmed_at IS NOT NULL AND p.views IS NULL)::int AS no_views,
             COALESCE(sum(${INTERACTIONS}) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS interactions,
+            COALESCE(sum(p.likes) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS likes,
+            COALESCE(sum(p.comments) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS comments,
+            COALESCE(sum(p.shares) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS shares,
+            COALESCE(sum(p.saves) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS saves,
+            COALESCE(sum(p.reach) FILTER (WHERE pl.confirmed_at IS NOT NULL), 0) AS reach_sum,
+            count(p.reach) FILTER (WHERE pl.confirmed_at IS NOT NULL)::int AS reach_posts,
             count(*) FILTER (WHERE pl.confirmed_at IS NULL)::int AS to_check
      FROM social_post_labels pl
      JOIN social_posts p ON p.id = pl.post_id
@@ -99,6 +105,12 @@ async function summaryRows(s: Scope, w: LabelWindow, prev: LabelWindow | null, l
         views: num(r.views),
         postsWithoutViews: r.no_views,
         interactions: Number(r.interactions),
+        likes: Number(r.likes),
+        comments: Number(r.comments),
+        shares: Number(r.shares),
+        saves: Number(r.saves),
+        reachSum: Number(r.reach_sum),
+        reachPosts: r.reach_posts,
       }))
       .sort((a, b) => (b.views ?? -1) - (a.views ?? -1));
     const anyViews = byPlatform.some((p) => p.views != null);
@@ -110,6 +122,12 @@ async function summaryRows(s: Scope, w: LabelWindow, prev: LabelWindow | null, l
       views: anyViews ? byPlatform.reduce((t, p) => t + (p.views ?? 0), 0) : null,
       postsWithoutViews: byPlatform.reduce((t, p) => t + p.postsWithoutViews, 0),
       interactions: byPlatform.reduce((t, p) => t + p.interactions, 0),
+      likes: byPlatform.reduce((t, p) => t + p.likes, 0),
+      comments: byPlatform.reduce((t, p) => t + p.comments, 0),
+      shares: byPlatform.reduce((t, p) => t + p.shares, 0),
+      saves: byPlatform.reduce((t, p) => t + p.saves, 0),
+      reachSum: byPlatform.reduce((t, p) => t + p.reachSum, 0),
+      reachPosts: byPlatform.reduce((t, p) => t + p.reachPosts, 0),
       byPlatform,
       previous: prev
         ? { posts: old.reduce((t, r) => t + r.posts, 0), views: oldAnyViews ? old.reduce((t, r) => t + Number(r.views ?? 0), 0) : null }
@@ -373,7 +391,7 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
          GROUP BY a.id, a.platform, a.handle, a.brand ORDER BY sum(p.views) DESC NULLS LAST`,
         params,
       ),
-      q(`SELECT ${POST_COLUMNS} ${scoped} ORDER BY p.views DESC NULLS LAST, p.posted_at DESC LIMIT 12`, params),
+      q(`SELECT ${POST_COLUMNS} ${scoped} ORDER BY p.views DESC NULLS LAST, p.posted_at DESC LIMIT 1000`, params),
       adCost(),
     ]);
     const body: LabelReportResponse = {
@@ -382,7 +400,8 @@ export function registerSocialLabelRoutes(app: Express, gate: readonly RequestHa
       row,
       byMonth: byMonth.map((m) => ({ month: m.month, posts: m.posts, views: Number(m.views) })),
       byAccount: byAccount.map((a: any) => ({ accountId: a.account_id, platform: a.platform, handle: a.handle, brand: a.brand, posts: a.posts, views: num(a.views) })),
-      topPosts: top.map(toPost),
+      topPosts: top.slice(0, 12).map(toPost),
+      posts: top.map(toPost),
       adCost: cost,
     };
     res.json(body);

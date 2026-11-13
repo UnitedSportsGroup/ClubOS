@@ -90,6 +90,8 @@ type Filters = {
   /** Labels: which list, and the label whose report is open. */
   lk: LabelKind;
   open: number | null;
+  /** Labels: one platform only ("instagram", "facebook"), or null for all of them. */
+  lp: string | null;
   /** Feed: posts in a row. 1 = one at a time, 3–6 = a grid. null = whatever this person used last. */
   cols: number | null;
 };
@@ -120,6 +122,7 @@ export default function SocialMedia() {
       lm: p.get("lm") && /^(0[1-9]|1[0-2])$/.test(p.get("lm")!) ? p.get("lm") : null,
       lk: isLabelKind(p.get("lk")) ? (p.get("lk") as LabelKind) : "asset",
       open: p.get("open") && Number.isInteger(Number(p.get("open"))) ? Number(p.get("open")) : null,
+      lp: p.get("lp") === "instagram" || p.get("lp") === "facebook" ? p.get("lp") : null,
       cols: (FEED_COLS as readonly number[]).includes(Number(p.get("cols"))) ? Number(p.get("cols")) : null,
     };
   }, [search]);
@@ -142,6 +145,7 @@ export default function SocialMedia() {
       if ((m.view === "feed" || m.view === "labels") && m.ly && m.ly !== "all" && m.lm) p.set("lm", m.lm);
       if (m.view === "labels" && m.lk !== "asset") p.set("lk", m.lk);
       if (m.view === "labels" && m.open != null) p.set("open", String(m.open));
+      if (m.view === "labels" && m.lp) p.set("lp", m.lp);
       const qs = p.toString();
       navigate(`/admin/social-media${qs ? `?${qs}` : ""}`, { replace: true });
     },
@@ -332,8 +336,9 @@ export default function SocialMedia() {
           month={f.lm}
           kind={f.lk}
           open={f.open}
+          platform={f.lp}
           today={accountsQuery.data?.today ?? null}
-          onChange={(next) => write({ ly: next.year ?? f.ly, lm: next.month === undefined ? f.lm : next.month, lk: next.kind ?? f.lk, open: next.open === undefined ? f.open : next.open })}
+          onChange={(next) => write({ ly: next.year ?? f.ly, lm: next.month === undefined ? f.lm : next.month, lk: next.kind ?? f.lk, open: next.open === undefined ? f.open : next.open, lp: next.platform === undefined ? f.lp : next.platform })}
           onFeed={(next) => write({ view: "feed", label: next.label, lstatus: next.status ?? "", ly: next.year ?? null, lm: next.month ?? null, period: "all" })}
           onOpenPost={setOpenPost}
         />
