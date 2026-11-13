@@ -273,15 +273,15 @@ function FeedTile({ post, labels, selected, onToggle, onOpen }: { post: FeedPost
           <span className={cn("absolute top-1.5 left-1.5 w-6 h-6 rounded-full border-2 inline-flex items-center justify-center", selected ? "bg-blue-600 border-blue-600 text-white" : "bg-white/80 border-white text-transparent")}>
             <Check className="w-3.5 h-3.5" aria-hidden />
           </span>
-          <span className="absolute bottom-0 inset-x-0 flex items-center justify-between gap-1 px-1.5 py-1 bg-black/60 text-white text-[11px] tabular-nums">
-            <span className="inline-flex items-center gap-1 min-w-0"><PlatformIcon platform={post.platform} className="w-3 h-3" /><span className="truncate">{shortDay(post.day)}</span></span>
-            <span className="inline-flex items-center gap-1 shrink-0"><Eye className="w-3 h-3" aria-hidden />{post.views == null ? "—" : compactCount(post.views)}</span>
-          </span>
         </div>
       </button>
       <button type="button" onClick={onOpen} aria-label="Open this post" data-testid="feed-tile-open" className="absolute top-1.5 right-1.5 w-8 h-8 rounded-md bg-white/85 text-slate-900 inline-flex items-center justify-center hover:bg-white">
         <Maximize2 className="w-4 h-4" aria-hidden />
       </button>
+      <div className="px-1.5 pt-1 flex items-center justify-between gap-1 text-[11px] text-muted-foreground tabular-nums">
+        <span className="inline-flex items-center gap-1 min-w-0"><PlatformIcon platform={post.platform} className="w-3 h-3" /><span className="truncate">{shortDay(post.day)}</span></span>
+        <span className="inline-flex items-center gap-1 shrink-0 text-foreground font-medium" title="Views"><Eye className="w-3 h-3 text-muted-foreground" aria-hidden />{post.views == null ? "—" : compactCount(post.views)}</span>
+      </div>
       <div className="px-1.5 py-1 min-h-[28px] flex flex-wrap gap-1" data-testid="feed-tile-labels">
         {labels.length === 0 ? (
           <span className="text-[11px] text-muted-foreground">No label</span>
@@ -535,7 +535,7 @@ export function FeedView({
       )}
 
       {grid && selected.size > 0 && (
-        <div className="sticky bottom-3 z-20 mx-auto w-full max-w-3xl rounded-xl border border-border bg-card shadow-lg p-2.5 flex flex-wrap items-center gap-2" data-testid="feed-bulk-bar">
+        <div className="sticky bottom-16 md:bottom-3 z-20 mx-auto w-full max-w-3xl rounded-xl border border-border bg-card shadow-lg p-2.5 flex flex-wrap items-center gap-2" data-testid="feed-bulk-bar">
           <span className="text-sm font-medium text-foreground px-1.5 tabular-nums">{selected.size.toLocaleString("en-NZ")} selected</span>
           <LabelPicker labels={allLabels} taken={new Set()} triggerLabel="Add a label to all" onPick={(id) => bulk.mutate({ labelId: id })} onCreate={(kind, name) => bulk.mutate({ create: { kind, name } })} />
           {onSelected.length > 0 && (

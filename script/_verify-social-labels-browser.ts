@@ -169,7 +169,7 @@ async function main() {
     // ── Feed as a grid ──
     const wide = w < 640 ? 3 : 6;
     const firstTwo = (n: string) => page.evaluate((name) => Array.from(document.querySelectorAll('[data-testid="feed-tile"]')).slice(0, 2).map((t) => Boolean(t.querySelector('[data-testid="feed-tile-labels"]')?.textContent?.includes(name))), n);
-    const clickTwo = () => page.evaluate(() => { const t = document.querySelectorAll('[data-testid="feed-tile"] > button'); (t[0] as HTMLElement).click(); (t[1] as HTMLElement).click(); });
+    const clickTwo = () => page.evaluate(() => { const t = document.querySelectorAll('[data-testid="feed-tile"] > button[aria-pressed]'); (t[0] as HTMLElement).click(); (t[1] as HTMLElement).click(); });
     await page.goto(`${BASE}/admin/social-media?brand=cufc&view=feed&cols=${wide}`, { waitUntil: "networkidle2", timeout: 90_000 });
     await page.waitForSelector('[data-testid="feed-tile"]', { timeout: 40_000 });
     const perRow = await page.evaluate(() => {
@@ -212,6 +212,7 @@ async function main() {
     const opened = await page.waitForSelector('[role="dialog"] [data-testid="feed-post"]', { timeout: 10_000 }).then(() => true).catch(() => false);
     ok("a tile opens the whole post", opened);
     await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), { timeout: 10_000 }).catch(() => {});
     if (w >= 640) {
       await page.click('[data-testid="feed-cols-4"]');
       await page.waitForFunction(() => location.search.includes("cols=4"), { timeout: 10_000 }).catch(() => {});
