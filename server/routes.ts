@@ -183,6 +183,7 @@ import { registerCampaignRoutes } from "./campaigns/routes";
 import { registerOfflineMarketingRoutes } from "./offline-marketing-routes";
 import { registerMarketingMoreRoutes } from "./marketing-hub/more-reports";
 import { registerMarketingIdeasRoutes } from "./marketing-ideas-routes";
+import { registerPerformanceRoutes } from "./performance-routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -28064,6 +28065,8 @@ export async function registerRoutes(
   registerOfflineMarketingRoutes(app);
   registerMarketingMoreRoutes(app);
   registerMarketingIdeasRoutes(app);
+  // SIU Performance Hub (2026-11-14): staff API + the player's phone check-in.
+  registerPerformanceRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 
