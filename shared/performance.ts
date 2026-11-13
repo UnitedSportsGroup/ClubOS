@@ -62,7 +62,7 @@ export const DATA_SOURCES: DataSource[] = [
   {
     key: "catapult_one", name: "Catapult One GPS", category: "gps", state: "import", priority: "now",
     what: "Distance, high-speed running, sprint distance, top speed, accelerations, decelerations, player load.",
-    how: "Export the session CSV from Catapult One and drop it in Performance → Import. Catapult One has no public API; a live feed means Catapult's API, which came up in the Vector upgrade talks (10–11 Nov).",
+    how: "Export the session CSV from Catapult One and drop it in Performance → Import. Catapult One has no API. Catapult's 11 Nov quote: Vector Core + Focus video, $9,000 a year on a 3-year term, includes API access, so sessions would flow in automatically (off-season rate, valid to the end of November).",
     advice: "Already paid for (21 units to Jan 2029). Wear vests at every session and upload every day — 10 sessions so far is not a baseline.",
   },
   {
@@ -466,6 +466,10 @@ export function readiness(p: {
     if (p.load.band === "danger") { set("red"); reasons.push(`Load spike (ACWR ${p.load.acwr})`); }
     else if (p.load.band === "high") { set("amber"); reasons.push(`Load rising (ACWR ${p.load.acwr})`); }
   } else missing.push("3 weeks of load");
+
+  // 🔴 Availability alone says "not injured", never "ready". Green needs a check-in
+  // or a load reading behind it; with neither, the light is OFF ("No data").
+  if (level === "green" && !p.wellness && p.load?.acwr == null) level = null;
 
   return { level, used, missing, reasons };
 }

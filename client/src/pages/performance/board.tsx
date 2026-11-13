@@ -25,7 +25,7 @@ export default function Board() {
       <PageHead
         title="Performance"
         blurb="Who is ready to train today: availability, check-in, effort and load in one place."
-        right={<div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Looking at</span><DateField value={date || d?.today || ""} onChange={setDate} className="w-40" testId="perf-date" /></div>}
+        right={<div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Looking at</span><DateField value={date || d?.today || ""} onChange={setDate} className="w-48" testId="perf-date" /></div>}
       />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}

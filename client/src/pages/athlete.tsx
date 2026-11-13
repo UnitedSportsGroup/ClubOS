@@ -37,7 +37,7 @@ function dayBefore(iso: string) { const { y, m, d } = parts(iso); return new Dat
 
 const AVAIL: Record<string, string> = { available: "Available", modified: "Modified training", limited: "Modified training", injured: "Injured", unavailable: "Not available", ill: "Unwell", rehab: "Rehab" };
 
-const CR10: Record<number, string> = { 0: "Rest", 1: "Very easy", 2: "Easy", 3: "Moderate", 4: "Somewhat hard", 5: "Hard", 6: "Hard", 7: "Very hard", 8: "Very hard", 9: "Very very hard", 10: "Maximal" };
+const CR10: Record<number, string> = { 0: "Rest", 1: "Very easy", 2: "Easy", 3: "Moderate", 4: "Somewhat hard", 5: "Hard", 6: "", 7: "Very hard", 8: "", 9: "Very very hard", 10: "Maximal" };
 const KINDS = [["training", "Training"], ["match", "Match"], ["gym", "Gym"], ["other", "Other"]] as const;
 const SCALE_TINT = ["#C0504D", "#C98A4B", "#C59949", "#8FA85A", "#4F9A66"];
 
