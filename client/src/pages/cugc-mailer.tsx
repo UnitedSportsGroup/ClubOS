@@ -14,6 +14,8 @@ type Campaign = {
   deliveredCount: number; openedCount: number;
 };
 type Program = { slug: string; name: string; count: number };
+type TermOpt = { id: string; name: string; status: "upcoming" | "active" | "ended" };
+type Group = "confirmed" | "trial";
 type Recipient = { id: number; email: string; status: string; sentAt: string; firstOpenedAt: string | null; openCount: number };
 type Audience = "newsletter" | "all" | "program" | "custom";
 type View = "compose" | "contacts";
@@ -167,7 +169,11 @@ function ContactsView() {
 // ── Compose ───────────────────────────────────────────────────────────────────
 function ComposeView({ toast }: { toast: ReturnType<typeof useToast>["toast"] }) {
   const [audience, setAudience] = useState<Audience>("all");
+  // By programme = ONE group, in one programme ("" = all of them), in one term
+  // ("" = any term). Who and when are decided on the server — this only asks.
   const [programSlug, setProgramSlug] = useState("");
+  const [group, setGroup] = useState<Group>("confirmed");
+  const [termChoice, setTermChoice] = useState<string | null>(null); // null = not picked yet → the default term
   const [subject, setSubject] = useState("");
   const [testEmail, setTestEmail] = useState("");
   const [customText, setCustomText] = useState("");
@@ -177,17 +183,25 @@ function ComposeView({ toast }: { toast: ReturnType<typeof useToast>["toast"] })
 
   const custom = useMemo(() => parseEmails(customText), [customText]);
 
-  const { data: programsData } = useQuery<{ programs: Program[] }>({
+  // The default term comes from the server's clock; ask once without a term to learn it.
+  const { data: termsData } = useQuery<{ terms: TermOpt[]; defaultTermId: string }>({
     queryKey: ["/api/admin/cugc/mailer/programs"],
+  });
+  const terms = termsData?.terms ?? [];
+  const termId = termChoice ?? termsData?.defaultTermId ?? "";
+  const { data: programsData } = useQuery<{ programs: Program[]; allCount: number }>({
+    queryKey: ["/api/admin/cugc/mailer/programs", group, termId],
+    queryFn: () => apiRequest("GET", `/api/admin/cugc/mailer/programs?group=${group}&term=${encodeURIComponent(termId)}`).then((r) => r.json()),
+    enabled: !!termsData,
   });
   const programs = programsData?.programs ?? [];
 
   const { data: preview } = useQuery<{ count: number }>({
-    queryKey: ["/api/admin/cugc/mailer/preview", audience, programSlug, custom.valid.join(",")],
+    queryKey: ["/api/admin/cugc/mailer/preview", audience, programSlug, group, termId, custom.valid.join(",")],
     queryFn: () => apiRequest("POST", "/api/admin/cugc/mailer/preview", {
-      audience, programSlug, customEmails: custom.valid,
+      audience, programSlug, group, termId, customEmails: custom.valid,
     }).then((r) => r.json()),
-    enabled: audience !== "program" || !!programSlug,
+    enabled: audience !== "program" || !!termsData,
   });
   const recipientCount = preview?.count;
 
@@ -209,7 +223,7 @@ function ComposeView({ toast }: { toast: ReturnType<typeof useToast>["toast"] })
 
   const send = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/cugc/mailer/send", {
-      subject, body: body(), audience, programSlug, customEmails: custom.valid,
+      subject, body: body(), audience, programSlug, group, termId, customEmails: custom.valid,
     }).then((r) => r.json()),
     onSuccess: (r: { queued: boolean; recipientCount: number }) => {
       setConfirmOpen(false);
@@ -222,13 +236,12 @@ function ComposeView({ toast }: { toast: ReturnType<typeof useToast>["toast"] })
 
   const canSend = subject.trim().length > 0
     && body().replace(/<[^>]*>/g, "").trim().length > 0
-    && (audience !== "program" || !!programSlug)
     && !!recipientCount;
 
   const audienceLabel =
     audience === "custom" ? "just the addresses you typed"
     : audience === "newsletter" ? "your newsletter subscribers"
-    : audience === "program" ? `${programs.find((p) => p.slug === programSlug)?.name || "that programme"} families`
+    : audience === "program" ? `${group === "trial" ? "free trialists" : "confirmed families"} in ${programSlug ? programs.find((p) => p.slug === programSlug)?.name || "that programme" : "every programme"}, ${termId ? terms.find((t) => t.id === termId)?.name || "that term" : "any term"}`
     : "everyone on your list";
   const extrasLabel = audience !== "custom" && custom.valid.length > 0
     ? ` plus ${custom.valid.length} address${custom.valid.length === 1 ? "" : "es"} you added`
@@ -258,15 +271,35 @@ function ComposeView({ toast }: { toast: ReturnType<typeof useToast>["toast"] })
           </div>
 
           {audience === "program" && (
-            <div className="flex flex-wrap gap-1.5">
-              {programs.length === 0 ? (
-                <p className="text-[11px] text-white/40">No programmes with sign-ups yet.</p>
-              ) : programs.map((p) => (
-                <button key={p.slug} onClick={() => setProgramSlug(p.slug)} data-testid={`cugc-mailer-program-${p.slug}`}
-                  className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${programSlug === p.slug ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/[0.02] text-white/50 hover:text-white/80"}`}>
-                  {p.name} <span className="text-white/30">· {p.count}</span>
-                </button>
-              ))}
+            <div className="space-y-2.5" data-testid="cugc-mailer-program-filters">
+              <ChipRow label="Who">
+                {([["confirmed", "Confirmed families"], ["trial", "Free trialists"]] as const).map(([v, label]) => (
+                  <Chip key={v} active={group === v} onClick={() => setGroup(v)} testId={`cugc-mailer-group-${v}`}>{label}</Chip>
+                ))}
+              </ChipRow>
+              <ChipRow label="Term">
+                {terms.map((t) => (
+                  <Chip key={t.id} active={termId === t.id} onClick={() => setTermChoice(t.id)} testId={`cugc-mailer-term-${t.id}`}>
+                    {t.name}{t.status === "active" ? <span className="text-white/30"> · now</span> : t.status === "upcoming" ? <span className="text-white/30"> · next</span> : null}
+                  </Chip>
+                ))}
+                <Chip active={termId === ""} onClick={() => setTermChoice("")} testId="cugc-mailer-term-any">Any term</Chip>
+              </ChipRow>
+              <ChipRow label="Programme">
+                <Chip active={programSlug === ""} onClick={() => setProgramSlug("")} testId="cugc-mailer-program-all">
+                  All programmes <span className="text-white/30">· {programsData?.allCount ?? "…"}</span>
+                </Chip>
+                {programs.map((p) => (
+                  <Chip key={p.slug} active={programSlug === p.slug} onClick={() => setProgramSlug(p.slug)} testId={`cugc-mailer-program-${p.slug}`}>
+                    {p.name} <span className="text-white/30">· {p.count}</span>
+                  </Chip>
+                ))}
+              </ChipRow>
+              <p className="text-[11px] text-white/40">
+                {group === "confirmed"
+                  ? "Confirmed = paid enrolments for that term. Unfinished checkouts are left out."
+                  : "Free trialists = anyone who booked a free session with a class date in that term (cancelled bookings left out)."}
+              </p>
             </div>
           )}
 
@@ -474,5 +507,23 @@ function CampaignDetail({ id, onClose }: { id: number; onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+function ChipRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-20 shrink-0 pt-1.5 text-[11px] uppercase tracking-wider text-white/30 font-semibold">{label}</div>
+      <div className="flex flex-wrap gap-1.5 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, testId, children }: { active: boolean; onClick: () => void; testId: string; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} data-testid={testId}
+      className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${active ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/[0.02] text-white/50 hover:text-white/80"}`}>
+      {children}
+    </button>
   );
 }

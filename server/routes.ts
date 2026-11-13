@@ -26951,11 +26951,19 @@ export async function registerRoutes(
 
   // The programmes a send can be aimed at — derived from what families have
   // actually signed up to, so the picker can never offer an empty programme.
-  app.get("/api/admin/cugc/mailer/programs", requireAuth, requireTab("cugc-mailer"), async (_req, res) => {
+  app.get("/api/admin/cugc/mailer/programs", requireAuth, requireTab("cugc-mailer"), async (req, res) => {
     try {
       const orgId = await cugcOrgId();
       const unsub = await getUnsubscribedEmails(orgId);
+      const group: CugcGroup = CUGC_GROUPS.includes(req.query.group as any) ? (req.query.group as CugcGroup) : "confirmed";
+      const termId = String(req.query.term || "");
+      cugcTermById(termId); // refuse an unknown term
+      const count = async (programSlug: string | null) =>
+        (await resolveCugcAudience(orgId, { audience: "program", programSlug, group, termId }))
+          .filter((r) => !unsub.has(r.email)).length;
+      // Every programme on the website, plus any older one that still has sign-ups.
       const seen = new Map<string, { slug: string; name: string; count: number }>();
+      for (const p of CUGC_PROGRAMS) seen.set(p.slug, { slug: p.slug, name: p.title, count: 0 });
       const regs = await db.select({ slug: cugcRegistrations.programSlug, name: cugcRegistrations.programName })
         .from(cugcRegistrations).where(eq(cugcRegistrations.organizationId, orgId));
       const trials = await db.select({ slug: cugcFreeSessions.programSlug, name: cugcFreeSessions.programName })
@@ -26964,11 +26972,15 @@ export async function registerRoutes(
         if (!r.slug) continue;
         if (!seen.has(r.slug)) seen.set(r.slug, { slug: r.slug, name: r.name || r.slug, count: 0 });
       }
-      for (const p of Array.from(seen.values())) {
-        const people = await resolveCugcAudience(orgId, { audience: "program", programSlug: p.slug });
-        p.count = people.filter((r) => !unsub.has(r.email)).length;
-      }
-      res.json({ programs: Array.from(seen.values()).sort((a, b) => b.count - a.count) });
+      for (const p of Array.from(seen.values())) p.count = await count(p.slug);
+      const today = nzTodayIso();
+      res.json({
+        programs: Array.from(seen.values()),
+        allCount: await count(null),
+        // Newest first; the default is the term running now (or the one being sold).
+        terms: [...CUGC_TERMS].reverse().map((t) => ({ id: t.id, name: t.name, status: termStatus(t, today) })),
+        defaultTermId: (defaultTerm(today) ?? CUGC_TERMS[CUGC_TERMS.length - 1]).id,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -27063,7 +27075,7 @@ export async function registerRoutes(
         fromEmail: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>",
         replyTo: replyTo || "info@cugc.co.nz",
         segmentType: `cugc_${aud}`,
-        segmentConfig: JSON.stringify({ orgId, audience: aud, programSlug: programSlug || null, emails: recipients }),
+        segmentConfig: JSON.stringify({ orgId, audience: aud, programSlug: programSlug || null, group: req.body?.group || null, termId: req.body?.termId || null, emails: recipients }),
         recipientCount: recipients.length, status: "sending",
       }).returning();
 
@@ -29674,15 +29686,66 @@ function cugcUnsubUrl(orgId: number, email: string): string {
 
 type CugcContact = { name: string; email: string; phone: string; role: string; program: string };
 export type CugcAudience = "newsletter" | "all" | "program" | "custom";
+/** Who inside a programme a send is for (Daniel, 2026-11-14: "all confirmed in
+ *  that program for current term or previous term … and a separate one for free
+ *  trialists per program and per term"). Two lists, never mixed:
+ *    confirmed — PAID enrolments only (if you ain't paid you ain't registered),
+ *                in the term STAMPED on the row (cugc_registrations.term)
+ *    trial     — free-session bookings (not cancelled) whose class DATE falls in
+ *                the term — a trial carries no term column, its date decides */
+export type CugcGroup = "confirmed" | "trial";
+const CUGC_GROUPS: CugcGroup[] = ["confirmed", "trial"];
+/** termId "" / null = any term. An unknown id is refused, never widened to all. */
+function cugcTermById(termId: string | null | undefined) {
+  if (!termId) return null;
+  const t = CUGC_TERMS.find((x) => x.id === termId);
+  if (!t) throw new Error("Unknown term");
+  return t;
+}
 
 // Every CUGC contact, tagged with where they came from. Callers filter this
 // down; the suppression list is applied by the caller (getUnsubscribedEmails).
 async function resolveCugcAudience(
   orgId: number,
-  opts?: { audience?: CugcAudience; programSlug?: string | null },
+  opts?: { audience?: CugcAudience; programSlug?: string | null; group?: CugcGroup; termId?: string | null },
 ): Promise<CugcContact[]> {
   const audience = opts?.audience || "all";
   const programSlug = opts?.programSlug || null;
+  // A "By programme" send is ONE group in ONE programme (or every programme)
+  // in ONE term (or any term). Never newsletter signups or enquiries — they
+  // carry no programme — and never both groups at once.
+  if (audience === "program") {
+    const group: CugcGroup = opts?.group === "trial" ? "trial" : "confirmed";
+    const term = cugcTermById(opts?.termId);
+    const out = new Map<string, CugcContact>();
+    const put = (c: CugcContact) => {
+      const email = (c.email || "").trim().toLowerCase();
+      if (!email || !email.includes("@") || out.has(email)) return;
+      out.set(email, { ...c, email });
+    };
+    if (group === "confirmed") {
+      const regs = await db.select().from(cugcRegistrations)
+        .where(eq(cugcRegistrations.organizationId, orgId))
+        .orderBy(desc(cugcRegistrations.createdAt));
+      for (const r of regs) {
+        if (r.status !== "paid") continue;
+        if (programSlug && r.programSlug !== programSlug) continue;
+        if (term && r.term !== term.name) continue;
+        put({ name: r.parentName || "", email: r.email || "", phone: r.phone || "", role: "Enrolled", program: r.programName || "" });
+      }
+    } else {
+      const trials = await db.select().from(cugcFreeSessions)
+        .where(eq(cugcFreeSessions.organizationId, orgId))
+        .orderBy(desc(cugcFreeSessions.createdAt));
+      for (const t of trials) {
+        if (t.status === "cancelled") continue;
+        if (programSlug && t.programSlug !== programSlug) continue;
+        if (term && !(t.sessionDate >= term.start && t.sessionDate <= term.end)) continue;
+        put({ name: t.parentName || "", email: t.email || "", phone: t.phone || "", role: "Free session", program: t.programName || "" });
+      }
+    }
+    return Array.from(out.values());
+  }
   const byEmail = new Map<string, CugcContact>();
   const add = (c: CugcContact) => {
     const email = (c.email || "").trim().toLowerCase();
@@ -29755,9 +29818,12 @@ async function resolveCugcSendList(
 
   const out = new Set<string>();
   if (audience !== "custom") {
-    const programSlug = audience === "program" ? String(body?.programSlug || "").trim() : null;
-    if (audience === "program" && !programSlug) throw new Error("Pick a programme first");
-    const people = await resolveCugcAudience(orgId, { audience, programSlug });
+    // "" programme = every programme; the group and term narrow it.
+    const programSlug = audience === "program" ? String(body?.programSlug || "").trim() || null : null;
+    const group: CugcGroup = CUGC_GROUPS.includes(body?.group) ? body.group : "confirmed";
+    const people = await resolveCugcAudience(orgId, {
+      audience, programSlug, group, termId: audience === "program" ? String(body?.termId || "") : null,
+    });
     for (const p of people) out.add(p.email);
   }
   for (const e of extras) out.add(e.trim().toLowerCase());
