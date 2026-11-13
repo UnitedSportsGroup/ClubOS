@@ -25,7 +25,7 @@ export default function Board() {
       <PageHead
         title="Performance"
         blurb="Who is ready to train today: availability, check-in, effort and load in one place."
-        right={<div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Looking at</span><DateField value={date || d?.today || ""} onChange={setDate} className="w-40" testId="perf-date" /></div>}
+        right={<div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Looking at</span><DateField value={date || d?.today || ""} onChange={setDate} className="w-48" testId="perf-date" /></div>}
       />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
@@ -100,7 +100,7 @@ export default function Board() {
                   <div key={u.id} className="flex flex-col md:flex-row md:items-center gap-2 rounded-md border border-border p-2">
                     <div className="min-w-0 md:w-72">
                       <span className="font-medium">{u.source_name || u.source_athlete_key}</span>
-                      <span className="text-xs text-muted-foreground"> from {u.source} · {u.readings} reading{u.readings === 1 ? "" : "s"}</span>
+                      <span className="text-xs text-muted-foreground"> from {u.source}{Array.isArray((u as any).source_squads) && (u as any).source_squads.length ? ` (${(u as any).source_squads.join(", ")})` : ""} · {u.readings} reading{u.readings === 1 ? "" : "s"}</span>
                     </div>
                     <Pick className="md:w-64" placeholder="Which player is this?" value={picks[u.id]} onChange={(v) => setPicks({ ...picks, [u.id]: v })}
                       options={d.players.map((p) => ({ value: String(p.contactId), label: p.name }))} />

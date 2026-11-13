@@ -1,4 +1,74 @@
-import { Pill, Empty, Loading, LoadError, PageHead, Panel, niceDay, useCatalogue, type SourceRow } from "./ui";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Pill, Empty, Loading, LoadError, PageHead, Panel, niceDay, useCatalogue, usePerfQuery, send, refresh, type SourceRow } from "./ui";
+
+type SyncStatus = {
+  configured: boolean; scheduled: boolean; everyMinutes: number;
+  lastSuccessAt: string | null; failing: boolean; lastError: string | null; unlinkedAthletes: number;
+  runs: Array<{ started_at: string; ok: boolean | null; trigger: string; sessions_seen: number | null; sessions_written: number | null; stats_written: number | null; error: string | null }>;
+};
+
+const ago = (iso: string | null) => {
+  if (!iso) return null;
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+};
+
+/** Catapult One live sync — status, last result, and a Sync now button. */
+function CatapultSyncPanel() {
+  const q = usePerfQuery<SyncStatus>("catapult-sync", "/sync/catapult");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const s = q.data;
+  const syncNow = async () => {
+    setBusy(true); setNote(null);
+    try {
+      const r: any = await send("POST", "/sync/catapult");
+      setNote(r.ok ? `Synced: ${r.sessionsWritten} session${r.sessionsWritten === 1 ? "" : "s"} updated, ${r.valuesWritten} readings.` : (r.error || r.skipped || "Sync failed."));
+    } catch (e: any) { setNote(e?.message ?? "Sync failed."); }
+    finally { setBusy(false); refresh(); }
+  };
+  const tone = !s ? "grey" : !s.configured ? "grey" : s.failing ? "red" : s.scheduled ? "green" : "amber";
+  const word = !s ? "…" : !s.configured ? "Not set up" : s.failing ? "Failing" : s.scheduled ? `Live · every ${s.everyMinutes} min` : "Set up, schedule off";
+  return (
+    <Panel title="Catapult One live sync" note="ClubOS signs in to Catapult One with the club's sync login and pulls new sessions on its own. Read-only: nothing in Catapult is changed."
+      right={<Pill tone={tone as any}>{word}</Pill>}>
+      {q.isLoading && <Loading />}
+      {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
+      {s && (
+        <div className="space-y-3 text-sm" data-testid="perf-catapult-sync">
+          {!s.configured ? (
+            <p className="text-muted-foreground">Waiting for the club's Catapult sync login. Until then, use <b>Import data</b> with a CSV from Catapult One.</p>
+          ) : (
+            <>
+              <p>
+                {s.lastSuccessAt ? <>Last synced <b>{ago(s.lastSuccessAt)}</b>.</> : "Not synced yet."}
+                {s.unlinkedAthletes > 0 && <> <b>{s.unlinkedAthletes}</b> Catapult player{s.unlinkedAthletes === 1 ? "" : "s"} still to link to a squad member (Dashboard → Data to fix).</>}
+              </p>
+              {s.failing && s.lastError && (
+                <p className="rounded-md border border-red-200 bg-red-50 text-red-900 px-3 py-2">Last attempt failed: {s.lastError}. CSV import still works while this is fixed.</p>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={syncNow} disabled={busy} className="min-h-[44px]">{busy ? "Syncing…" : "Sync now"}</Button>
+                {note && <span className="text-muted-foreground">{note}</span>}
+              </div>
+              {s.runs.length > 0 && (
+                <ul className="text-xs text-muted-foreground space-y-0.5">
+                  {s.runs.slice(0, 5).map((r, i) => (
+                    <li key={i}>{ago(r.started_at)} · {r.trigger === "manual" ? "by hand" : "scheduled"} · {r.ok ? `${r.sessions_written ?? 0} session(s), ${r.stats_written ?? 0} readings` : r.ok === false ? `failed: ${r.error ?? "unknown"}` : "running"}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 const STATE_WORD = { built: "Built", import: "CSV import", planned: "Not connected" } as const;
 const STATE_TONE = { built: "green", import: "blue", planned: "grey" } as const;
@@ -14,6 +84,7 @@ export default function Sources() {
   return (
     <div className="space-y-5 min-w-0">
       <PageHead title="Data sources" blurb="Everything a professional club plugs into one player-monitoring picture, and where each one stands for South Island United." />
+      <CatapultSyncPanel />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
       {d && (

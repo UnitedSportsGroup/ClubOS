@@ -62,7 +62,9 @@ ok("a future spell loses no days yet", P.daysLost([{ status: "injured", startedO
 
 // readiness
 const r1 = P.readiness({ availability: "available", wellness: null, load: null });
-ok("readiness with nothing but availability says what is missing", r1.level === "green" && r1.missing.length === 2, r1);
+ok("availability alone is NOT ready — the light is off and it says what is missing", r1.level === null && r1.missing.length === 2, r1);
+ok("a good check-in turns it green", P.readiness({ availability: "available", wellness: { level: null, reasons: [] }, load: null }).level === "green");
+ok("injured with no data is still red", P.readiness({ availability: "injured", wellness: null, load: null }).level === "red");
 ok("injured is red whatever else", P.readiness({ availability: "injured", wellness: { level: null, reasons: [] }, load: s28 }).level === "red");
 
 // metrics

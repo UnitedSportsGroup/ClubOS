@@ -62,7 +62,7 @@ export const DATA_SOURCES: DataSource[] = [
   {
     key: "catapult_one", name: "Catapult One GPS", category: "gps", state: "import", priority: "now",
     what: "Distance, high-speed running, sprint distance, top speed, accelerations, decelerations, player load.",
-    how: "Export the session CSV from Catapult One and drop it in Performance → Import. Catapult One has no public API; a live feed means Catapult's API, which came up in the Vector upgrade talks (10–11 Nov).",
+    how: "Export the session CSV from Catapult One and drop it in Performance → Import. Catapult One has no API. Catapult's 11 Nov quote: Vector Core + Focus video, $9,000 a year on a 3-year term, includes API access, so sessions would flow in automatically (off-season rate, valid to the end of November).",
     advice: "Already paid for (21 units to Jan 2029). Wear vests at every session and upload every day — 10 sessions so far is not a baseline.",
   },
   {
@@ -170,6 +170,10 @@ export const METRICS: MetricDef[] = [
   { key: "hr_max", label: "Max heart rate", unit: "bpm", category: "gps", higherIsBetter: null, aliases: ["hr max", "max heart rate", "heart rate max", "max hr"] },
   { key: "hr_load", label: "Heart-rate load", unit: "au", category: "gps", higherIsBetter: null, aliases: ["hr load", "heart rate load", "trimp"] },
   { key: "time_red_zone_min", label: "Time in red zone", unit: "min", category: "gps", higherIsBetter: null, decimals: 1, aliases: ["time in red zone", "red zone", "time in red zone min"] },
+  { key: "max_acceleration", label: "Max acceleration", unit: "m/s²", category: "gps", higherIsBetter: null, decimals: 2, aliases: ["max acceleration", "max accel"] },
+  { key: "max_deceleration", label: "Max deceleration", unit: "m/s²", category: "gps", higherIsBetter: null, decimals: 2, aliases: ["max deceleration", "max decel"] },
+  { key: "power_score", label: "Power score", unit: "W/kg", category: "gps", higherIsBetter: null, decimals: 1, aliases: ["power score"] },
+  { key: "work_ratio", label: "Work ratio", unit: null, category: "gps", higherIsBetter: null, aliases: ["work ratio"] },
   // Wearables
   { key: "recovery_pct", label: "Recovery", unit: "%", category: "wearable", higherIsBetter: true, aliases: ["recovery", "recovery score", "recovery pct"] },
   { key: "hrv_ms", label: "HRV", unit: "ms", category: "wearable", higherIsBetter: true, aliases: ["hrv", "heart rate variability", "rmssd"] },
@@ -466,6 +470,10 @@ export function readiness(p: {
     if (p.load.band === "danger") { set("red"); reasons.push(`Load spike (ACWR ${p.load.acwr})`); }
     else if (p.load.band === "high") { set("amber"); reasons.push(`Load rising (ACWR ${p.load.acwr})`); }
   } else missing.push("3 weeks of load");
+
+  // 🔴 Availability alone says "not injured", never "ready". Green needs a check-in
+  // or a load reading behind it; with neither, the light is OFF ("No data").
+  if (level === "green" && !p.wellness && p.load?.acwr == null) level = null;
 
   return { level, used, missing, reasons };
 }
