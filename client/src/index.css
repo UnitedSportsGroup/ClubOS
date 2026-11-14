@@ -200,7 +200,7 @@
  * Scoped html:not(.dark) so the public dark booking flow is untouched.
  */
 
-/* 141 translucent white utilities → dark ink on light */
+/* 140 translucent white utilities → dark ink on light */
 html:not(.dark) .bg-white\/\[0\.01\] { background-color: rgb(15 23 42 / 0.015) !important; }
 html:not(.dark) .bg-white\/\[0\.015\] { background-color: rgb(15 23 42 / 0.018) !important; }
 html:not(.dark) .bg-white\/\[0\.02\] { background-color: rgb(15 23 42 / 0.02) !important; }
@@ -288,7 +288,6 @@ html:not(.dark) .hover\:bg-white\/\[0\.1\]:hover { background-color: rgb(15 23 4
 html:not(.dark) .hover\:bg-white\/\[0\.12\]:hover { background-color: rgb(15 23 42 / 0.07) !important; }
 html:not(.dark) .hover\:bg-white\/10:hover { background-color: rgb(15 23 42 / 0.06) !important; }
 html:not(.dark) .hover\:bg-white\/15:hover { background-color: rgb(15 23 42 / 0.085) !important; }
-html:not(.dark) .hover\:bg-white\/30:hover { background-color: rgb(15 23 42 / 0.16) !important; }
 html:not(.dark) .hover\:bg-white\/5:hover { background-color: rgb(15 23 42 / 0.035) !important; }
 html:not(.dark) .hover\:bg-white\/8:hover { background-color: rgb(15 23 42 / 0.05) !important; }
 html:not(.dark) .hover\:bg-white\/90:hover { background-color: rgb(255 255 255 / 0.9) !important; }

@@ -3,7 +3,7 @@
 // the address is the whole key; there is no sign-in. Light page, not indexed.
 import { useEffect, useMemo, useState } from "react";
 import { useRoute } from "wouter";
-import { Download, FileText, Film, Loader2, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download, FileText, Loader2, X, ChevronLeft, ChevronRight, Play } from "lucide-react";
 
 interface SharedFile { id: number; name: string; folder: string; kind: "image" | "video" | "file"; sizeBytes: number | null }
 interface Payload { title: string; files: SharedFile[] }
@@ -45,7 +45,8 @@ export default function DriveShare() {
     for (const f of data?.files ?? []) { const k = f.folder || "Files"; if (!m.has(k)) m.set(k, []); m.get(k)!.push(f); }
     return Array.from(m.entries());
   }, [data]);
-  const pictures = useMemo(() => (data?.files ?? []).filter((f) => f.kind === "image"), [data]);
+  // Everything that opens in the viewer: pictures and videos, in page order.
+  const pictures = useMemo(() => (data?.files ?? []).filter((f) => f.kind !== "file"), [data]);
   const total = useMemo(() => (data?.files ?? []).reduce((n, f) => n + (f.sizeBytes ?? 0), 0), [data]);
   const current = open === null ? null : pictures[open] ?? null;
 
@@ -80,7 +81,7 @@ export default function DriveShare() {
             <h1 className="truncate text-2xl font-semibold" data-testid="share-title">{data.title}</h1>
             <p className="mt-0.5 text-sm text-slate-600" data-testid="share-count">{data.files.length} file{data.files.length === 1 ? "" : "s"}{total ? ` · ${size(total)}` : ""}</p>
           </div>
-          <a href={`${base}/zip`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700" data-testid="share-zip-all">
+          <a href={`${base}/zip`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700" style={{ color: "#ffffff" }} data-testid="share-zip-all">
             <Download className="h-4 w-4" /> Download everything
           </a>
         </div>
@@ -89,7 +90,7 @@ export default function DriveShare() {
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {data.files.length === 0 && <p className="py-16 text-center text-slate-600" data-testid="share-empty">Nothing has been added to this folder yet.</p>}
         {groups.map(([folder, files]) => {
-          const imgs = files.filter((f) => f.kind === "image"); const rest = files.filter((f) => f.kind !== "image");
+          const imgs = files.filter((f) => f.kind !== "file"); const rest = files.filter((f) => f.kind === "file");
           return (
             <section key={folder} className="mb-10" data-testid="share-group">
               <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -104,8 +105,19 @@ export default function DriveShare() {
               {imgs.length > 0 && (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   {imgs.map((f) => (
-                    <button key={f.id} onClick={() => setOpen(pictures.findIndex((p) => p.id === f.id))} className="group relative aspect-[4/5] overflow-hidden rounded-lg bg-slate-200" data-testid="share-picture" aria-label={`Open ${f.name}`}>
-                      <img src={`${base}/thumb/${f.id}`} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
+                    <button key={f.id} onClick={() => setOpen(pictures.findIndex((p) => p.id === f.id))} className="group relative aspect-[4/5] overflow-hidden rounded-lg bg-slate-200" data-testid={f.kind === "video" ? "share-video" : "share-picture"} aria-label={`Open ${f.name}`}>
+                      {f.kind === "video" ? (
+                        <>
+                          {/* The first frame stands in as the cover; the video itself plays in the viewer. */}
+                          <video src={`${base}/file/${f.id}#t=0.5`} preload="metadata" muted playsInline className="pointer-events-none h-full w-full object-cover" />
+                          <span className="absolute inset-0 grid place-items-center">
+                            <span className="grid h-14 w-14 place-items-center rounded-full bg-white shadow-lg" style={{ color: "#0f172a" }}><Play className="h-6 w-6 translate-x-[2px]" fill="currentColor" /></span>
+                          </span>
+                          <span className="absolute bottom-2 left-2 rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold" style={{ color: "#0f172a" }}>Video · {size(f.sizeBytes)}</span>
+                        </>
+                      ) : (
+                        <img src={`${base}/thumb/${f.id}`} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -114,7 +126,7 @@ export default function DriveShare() {
                 <ul className="mt-3 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
                   {rest.map((f) => (
                     <li key={f.id} className="flex items-center gap-3 px-3 py-2" data-testid="share-file">
-                      {f.kind === "video" ? <Film className="h-5 w-5 shrink-0 text-slate-500" /> : <FileText className="h-5 w-5 shrink-0 text-slate-500" />}
+                      <FileText className="h-5 w-5 shrink-0 text-slate-500" />
                       <a href={`${base}/file/${f.id}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 hover:underline">{f.name}</a>
                       <span className="hidden shrink-0 text-xs text-slate-500 sm:inline">{size(f.sizeBytes)}</span>
                       <a href={`${base}/file/${f.id}?dl=1`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100" aria-label={`Download ${f.name}`}><Download className="h-4 w-4" /></a>
@@ -131,16 +143,21 @@ export default function DriveShare() {
       </main>
 
       {current && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/90" data-testid="share-viewer" onClick={() => setOpen(null)}>
-          <div className="flex items-center gap-2 p-3 text-white" onClick={(e) => e.stopPropagation()}>
-            <span className="min-w-0 flex-1 truncate text-sm">{current.name}</span>
-            <a href={`${base}/file/${current.id}?dl=1`} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-white px-3 text-sm font-semibold text-slate-900" data-testid="share-viewer-download"><Download className="h-4 w-4" /> Download</a>
-            <button onClick={() => setOpen(null)} className="grid h-11 w-11 place-items-center rounded-lg hover:bg-white/10" aria-label="Close"><X className="h-5 w-5" /></button>
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "rgba(0,0,0,0.92)" }} data-testid="share-viewer" onClick={() => setOpen(null)}>
+          {/* A white bar, so Close and Download are always readable over a dark picture. */}
+          <div className="flex items-center gap-2 bg-white px-3 py-2" style={{ color: "#0f172a" }} onClick={(e) => e.stopPropagation()}>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{current.name}</span>
+            <a href={`${base}/file/${current.id}?dl=1`} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold hover:bg-slate-100" style={{ color: "#0f172a" }} data-testid="share-viewer-download"><Download className="h-4 w-4" /> Download</a>
+            <button onClick={() => setOpen(null)} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-sm font-semibold hover:bg-slate-700" style={{ color: "#ffffff" }} data-testid="share-viewer-close" aria-label="Close"><X className="h-5 w-5" /> Close</button>
           </div>
-          <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
-            <img src={`${base}/file/${current.id}`} alt={current.name} className="max-h-full max-w-full object-contain" />
-            {open! > 0 && <button onClick={() => setOpen(open! - 1)} className="absolute left-2 grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white hover:bg-white/30" aria-label="Previous"><ChevronLeft className="h-6 w-6" /></button>}
-            {open! < pictures.length - 1 && <button onClick={() => setOpen(open! + 1)} className="absolute right-2 grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white hover:bg-white/30" aria-label="Next"><ChevronRight className="h-6 w-6" /></button>}
+          <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 py-3" onClick={() => setOpen(null)}>
+            {current.kind === "video" ? (
+              <video key={current.id} src={`${base}/file/${current.id}`} controls autoPlay playsInline className="max-h-full max-w-full" style={{ background: "#000" }} onClick={(e) => e.stopPropagation()} data-testid="share-viewer-video" />
+            ) : (
+              <img src={`${base}/file/${current.id}`} alt={current.name} className="max-h-full max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
+            )}
+            {open! > 0 && <button onClick={(e) => { e.stopPropagation(); setOpen(open! - 1); }} className="absolute left-2 grid h-11 w-11 place-items-center rounded-full bg-white shadow-lg hover:bg-slate-100" style={{ color: "#0f172a" }} aria-label="Previous"><ChevronLeft className="h-6 w-6" /></button>}
+            {open! < pictures.length - 1 && <button onClick={(e) => { e.stopPropagation(); setOpen(open! + 1); }} className="absolute right-2 grid h-11 w-11 place-items-center rounded-full bg-white shadow-lg hover:bg-slate-100" style={{ color: "#0f172a" }} aria-label="Next"><ChevronRight className="h-6 w-6" /></button>}
           </div>
         </div>
       )}
