@@ -216,7 +216,14 @@ function verifyPassword(candidate: string, stored: string | null): boolean {
   if (scheme !== "s1" || !salt || !hex || stored == null) return false;
   return got.length === expected.length && crypto.timingSafeEqual(got, expected);
 }
+/**
+ * The player's session token: the web's __Host- cookie, or — from the SIU
+ * Performance app, which has no cookie jar — the SAME token as a bearer header.
+ * One session table, two transports; revoking one revokes it everywhere.
+ */
 function cookieFrom(req: Request): string | null {
+  const auth = String(req.headers.authorization || "");
+  if (auth.startsWith("Bearer ")) return auth.slice(7).trim() || null;
   for (const part of String(req.headers.cookie || "").split(";")) {
     const i = part.indexOf("=");
     if (i > 0 && part.slice(0, i).trim() === COOKIE) return decodeURIComponent(part.slice(i + 1).trim());
@@ -825,7 +832,8 @@ export function registerPerformanceRoutes(app: Express) {
       await pool.query(`update perf_athlete_accounts set last_sign_in_at = now() where id = $1`, [a.id]);
       setCookie(res, token);
       await audit(req, { email, accountId: a.id, action: "sign_in", ok: true });
-      res.json({ ok: true });
+      // 🔴 Only the app (X-Client: native) is handed the token in the body; a browser keeps it in the httpOnly cookie.
+      res.json(req.headers["x-client"] === "native" ? { ok: true, token } : { ok: true });
     } catch (e) { console.error("[athlete] sign-in", e); res.status(500).json({ message: "Could not sign in. Try again." }); }
   });
 

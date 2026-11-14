@@ -19,6 +19,7 @@ import {
 } from "@shared/perf-forms";
 import { addDays, isIsoDate, nzToday, sessionLoad } from "@shared/performance";
 import { pool } from "./db";
+import { isExpoPushToken, sendExpoPushBatch } from "./push";
 
 type Row = Record<string, any>;
 const q = async <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => (await pool.query(text, params)).rows as T[];
@@ -36,7 +37,7 @@ export interface FormDeps {
   roster: (org: number) => Promise<{ contactId: number; name: string; firstName: string | null; position: string | null; squadNumber: number | null }[]>;
   onRoster: (org: number, contactId: number) => Promise<boolean>;
   requireAthlete: any;
-  athleteOf: (req: Request) => { contactId: number; org: number; firstName: string | null; lastName: string | null };
+  athleteOf: (req: Request) => { accountId: number; contactId: number; org: number; firstName: string | null; lastName: string | null };
   siuOrg: () => Promise<number>;
   handle: (fn: (req: Request, res: Response) => Promise<unknown>) => any;
 }
@@ -338,6 +339,31 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
     } catch (e) { console.error("[athlete] checkin", e); res.status(500).json({ message: "Could not save. Try again." }); }
   });
 
+  // ── the SIU Performance app: push tokens ──────────────────────────────────
+  app.post(`${PUB}/push`, requireAthlete, async (req, res) => {
+    try {
+      const a = athleteOf(req);
+      const token = req.body?.token;
+      if (!isExpoPushToken(token)) return res.status(400).json({ message: "That isn't a push token." });
+      const platform = ["ios", "android"].includes(req.body?.platform) ? req.body.platform : null;
+      // A phone handed to another player moves its token to them.
+      await pool.query(`
+        insert into perf_athlete_push_tokens (account_id, token, platform) values ($1,$2,$3)
+        on conflict (token) do update set account_id = excluded.account_id, platform = excluded.platform, last_seen_at = now(), disabled_at = null`,
+        [a.accountId, token, platform]);
+      res.json({ ok: true });
+    } catch (e) { console.error("[athlete] push", e); res.status(500).json({ message: "Could not turn on reminders." }); }
+  });
+  app.post(`${PUB}/push/remove`, requireAthlete, async (req, res) => {
+    try {
+      const a = athleteOf(req);
+      await pool.query(`update perf_athlete_push_tokens set disabled_at = now() where account_id = $1 and token = $2`, [a.accountId, String(req.body?.token ?? "")]);
+      res.json({ ok: true });
+    } catch (e) { console.error("[athlete] push remove", e); res.status(500).json({ message: "Could not turn off reminders." }); }
+  });
+
+  startMorningReminder(d.siuOrg);
+
   /**
    * The no-login DEMO (join.southislandunited.com/athlete?demo=1): the form's
    * wording only — no player, no answers, nothing saved. Question wording is
@@ -350,4 +376,59 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
       res.json({ today: nzToday(), form: form ? { id: form.id, version: form.version, definition: form.definition } : null });
     } catch (e) { console.error("[athlete] demo", e); res.status(500).json({ message: "Could not load the demo." }); }
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The morning reminder — one push to each player who hasn't checked in yet.
+//  🔴 Once per NZ day, claimed by ONE machine (insert into perf_reminder_runs).
+//  🔴 Only players with the app, notifications allowed, and no answer today.
+//  Off switch: PERF_REMINDERS=0. Time: PERF_REMINDER_HOUR (NZ, default 8).
+// ─────────────────────────────────────────────────────────────────────────────
+let reminderTimer: NodeJS.Timeout | null = null;
+function nzHour(now = new Date()): number {
+  return Number(new Intl.DateTimeFormat("en-NZ", { timeZone: "Pacific/Auckland", hour: "numeric", hourCycle: "h23" }).format(now));
+}
+export async function sendMorningReminders(org: number, opts: { force?: boolean } = {}): Promise<{ sent: number; skipped: number; claimed: boolean }> {
+  const today = nzToday();
+  if (!opts.force) {
+    const claim = await pool.query(`insert into perf_reminder_runs (run_date) values ($1) on conflict do nothing returning run_date`, [today]);
+    if (!claim.rowCount) return { sent: 0, skipped: 0, claimed: false };
+  }
+  const form = await dailyForm(org);
+  if (!form) return { sent: 0, skipped: 0, claimed: true };
+  const rows = await q(`
+    select t.id, t.token, c.first_name from perf_athlete_push_tokens t
+    join perf_athlete_accounts a on a.id = t.account_id and a.disabled_at is null and a.organization_id = $1
+    join contacts c on c.id = a.contact_id
+    where t.disabled_at is null
+      and exists (select 1 from club_squads s join club_squad_members m on m.squad_id = s.id
+                  where s.organization_id = $1 and s.is_active and m.left_at is null and m.contact_id = a.contact_id)
+      and not exists (select 1 from perf_form_responses r where r.form_id = $2 and r.contact_id = a.contact_id and r.entry_date = $3 and not r.is_test)`,
+    [org, form.id, today]);
+  let sent = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const batch = rows.slice(i, i + 100);
+    const tickets = await sendExpoPushBatch(batch.map((r) => ({
+      to: r.token, title: "Morning check-in", body: `Kia ora${r.first_name ? ` ${r.first_name}` : ""}, how ready are you today? Takes a minute.`,
+      data: { screen: "checkin" }, sound: "default" as const,
+    })));
+    tickets.forEach((t, j) => {
+      if (t.status === "ok") sent++;
+      else if (t.details?.error === "DeviceNotRegistered") void pool.query(`update perf_athlete_push_tokens set disabled_at = now() where id = $1`, [batch[j].id]);
+    });
+  }
+  if (!opts.force) await pool.query(`update perf_reminder_runs set sent = $2, skipped = 0, finished_at = now() where run_date = $1`, [today, sent]);
+  return { sent, skipped: rows.length - sent, claimed: true };
+}
+function startMorningReminder(siuOrg: () => Promise<number>) {
+  if (reminderTimer || process.env.PERF_REMINDERS === "0") return;
+  const hour = Number(process.env.PERF_REMINDER_HOUR || 8);
+  reminderTimer = setInterval(async () => {
+    try {
+      const h = nzHour();
+      if (h < hour || h >= hour + 2) return;       // a two-hour window, so a restart at 8:01 still sends
+      const r = await sendMorningReminders(await siuOrg());
+      if (r.claimed) console.log(`[Performance] morning reminder: ${r.sent} sent`);
+    } catch (e: any) { console.error("[Performance] morning reminder failed:", e?.message ?? e); }
+  }, 5 * 60_000);
 }
