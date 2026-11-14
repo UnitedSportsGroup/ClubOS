@@ -987,7 +987,7 @@ export default function AdminMailer() {
                   className="premium-input h-11 w-full rounded-md border border-white/10 px-3"
                   data-testid="select-reply-to"
                 >
-                  <option value="same">Same as From{fromAddress ? ` (${fromAddress})` : ""}</option>
+                  <option value="same">Same as From{(fromSender ? senderReplyTo(fromSender) : fromAddress) ? ` (${fromSender ? senderReplyTo(fromSender) : fromAddress})` : ""}</option>
                   {SENDERS.map((s) => <option key={s.id} value={s.id}>{senderReplyTo(s)}</option>)}
                   <option value="custom">Custom…</option>
                 </SelectInput>

@@ -30030,6 +30030,13 @@ async function mailerGroupCatalogue(ws: MailerWs): Promise<GroupCatalogue> {
   if (ws.kind === "league") {
     const comps = (await storage.getLeagueCompetitions(ws.orgId))
       .sort((a: any, b: any) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")));
+    // Open on the term RUNNING today (else the latest one that has started),
+    // never the newest — next term has no teams yet and would read 0 people.
+    const todayIso = nzTodayIso();
+    const day = (v: any) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : "");
+    const liveComp = comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso && (!day(c.endDate) || day(c.endDate) >= todayIso))
+      ?? comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso)
+      ?? comps[0];
     const divisionOptions: GroupOption[] = [{ value: "", label: "Every league" }];
     for (const c of comps) {
       for (const d of await storage.getLeagueDivisions(c.id)) {
@@ -30044,7 +30051,7 @@ async function mailerGroupCatalogue(ws: MailerWs): Promise<GroupCatalogue> {
           { value: "all", label: "Captains + squad players" },
           { value: "schools", label: "Schools list" },
         ] },
-        { key: "term", label: "Term", initial: comps[0] ? String(comps[0].id) : "", showWhen: { key: "who", values: ["captains", "all"] }, options: [
+        { key: "term", label: "Term", initial: liveComp ? String(liveComp.id) : "", showWhen: { key: "who", values: ["captains", "all"] }, options: [
           ...comps.map((c: any) => ({ value: String(c.id), label: c.name })),
           { value: "", label: "Every term" },
         ] },
