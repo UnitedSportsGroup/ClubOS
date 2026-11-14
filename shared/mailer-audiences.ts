@@ -148,3 +148,76 @@ export function audienceLabel(cat: AudienceCatalogue | undefined, groups: Audien
   }
   return parts.join(" + ") + when;
 }
+
+// ── Workspaces whose people are not `programs` registrations ─────────────────
+// (2026-11-14, Daniel: "make mailer same for all workspaces same as cufc").
+// United Gymnastics, Mini Football Leagues and the CIC keep their people in
+// their own tables, so "By Programme" there is a few rows of choices the SERVER
+// describes — Who · Term · Programme for the gym, Who · Term · League for MFL,
+// Event · Who · Age group · Edition for the CIC. The page draws whatever rows
+// it is given; the server alone decides who each choice reaches.
+
+export type MailerKind = "programmes" | "groups";
+
+export type GroupOption = {
+  value: string;
+  label: string;
+  /** Shown faintly after the label ("now", "next"). */
+  hint?: string;
+  /** Only offered while the row named by the row's `parentRow` holds this value. */
+  parent?: string;
+};
+
+export type GroupRow = {
+  key: string;
+  label: string;
+  options: GroupOption[];
+  /** The value picked when the page opens. */
+  initial: string;
+  /** Hide this row unless another row holds one of these values. */
+  showWhen?: { key: string; values: string[] };
+  /** Narrow this row's options to those whose `parent` equals that row's value
+   *  (an option with no parent is always offered). */
+  parentRow?: string;
+};
+
+export type GroupCatalogue = {
+  kind: "groups";
+  rows: GroupRow[];
+  /** One sentence per value of the first row: what that group means. */
+  notes?: Record<string, string>;
+};
+
+export type GroupChoice = Record<string, string>;
+
+/** The choice a page should send: each row's value, dropping a hidden row and
+ *  resetting an option its parent no longer offers. */
+export function settleGroupChoice(cat: GroupCatalogue, choice: GroupChoice): GroupChoice {
+  const out: GroupChoice = {};
+  for (const row of cat.rows) {
+    if (row.showWhen && !row.showWhen.values.includes(out[row.showWhen.key] ?? "")) continue;
+    const offered = groupRowOptions(row, out);
+    const want = choice[row.key];
+    out[row.key] = offered.some((o) => o.value === want) ? want : offered.some((o) => o.value === row.initial) ? row.initial : (offered[0]?.value ?? "");
+  }
+  return out;
+}
+
+export function groupRowOptions(row: GroupRow, settled: GroupChoice): GroupOption[] {
+  if (!row.parentRow) return row.options;
+  const p = settled[row.parentRow] ?? "";
+  return row.options.filter((o) => o.parent == null || o.parent === p);
+}
+
+/** "Confirmed families · Term 4 2026 · GymPlay" — for the review step and history. */
+export function groupChoiceLabel(cat: GroupCatalogue | undefined, choice: GroupChoice): string {
+  if (!cat) return "By programme";
+  const settled = settleGroupChoice(cat, choice);
+  const parts: string[] = [];
+  for (const row of cat.rows) {
+    if (!(row.key in settled)) continue;
+    const o = row.options.find((x) => x.value === settled[row.key]);
+    if (o) parts.push(o.label);
+  }
+  return parts.join(" · ");
+}

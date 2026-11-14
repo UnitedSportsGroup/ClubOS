@@ -36,7 +36,7 @@ import {
 } from "@shared/mailer-tests";
 import { instrumentUrl } from "@shared/email-attribution";
 import { renderForRecipient, applyMergeTagsText, type RecipientContext } from "./mailer-render";
-import { lookupMailerRecipient, resolveMailerAudience } from "./mailer-audience";
+import { lookupMailerRecipient, type MailerAudience } from "./mailer-audience";
 import { sendEmail } from "./email";
 import { emailClickToken } from "./email-token";
 import { readMailerAttachments } from "./mailer-attachments";
@@ -186,11 +186,21 @@ type BroadcastQueue = (
   opts?: { pixelHost?: string; finalStatus?: string },
 ) => Promise<void>;
 
+/** The workspace a campaign was sent from (one Mailer for every workspace,
+ *  2026-11-14): its unsubscribe list and link, and who its segment reaches. */
+export interface MailerCampaignWs {
+  orgId: number;
+  unsubOrg: number;
+  unsubUrl: (email: string) => string;
+  listName: string;
+}
 export interface MailerTestDeps {
   runBroadcastQueue: BroadcastQueue;
-  cufcUnsubUrl: (orgId: number, email: string) => string;
-  predictorOrgId: () => Promise<number>;
   getUnsubscribedEmails: (orgId: number) => Promise<Set<string>>;
+  forCampaign: (c: { organizationId?: number | null }) => Promise<MailerCampaignWs & {
+    audience: (segmentType: string, cfg: any, manual?: string[]) => Promise<MailerAudience>;
+  }>;
+  forRequest: (req: Request) => Promise<MailerCampaignWs>;
 }
 
 /** Stamp the verdict: by the numbers so far, or by hand. A test already
@@ -250,8 +260,8 @@ export async function decideCampaignTest(
     .where(and(eq(emailCampaignRecipients.campaignId, campaignId), eq(emailCampaignRecipients.status, "queued")));
   await db.update(emailCampaigns).set({ status: "sending" }).where(eq(emailCampaigns.id, campaignId));
 
-  const orgId = await deps.predictorOrgId();
-  const unsubscribed = await deps.getUnsubscribedEmails(orgId);
+  const cws = await deps.forCampaign(campaign as any);
+  const unsubscribed = await deps.getUnsubscribedEmails(cws.unsubOrg);
   const emails = waiting.map((w) => String(w.email).toLowerCase()).filter((e) => !unsubscribed.has(e));
   const skipped = waiting.length - emails.length;
   if (skipped > 0) {
@@ -262,7 +272,7 @@ export async function decideCampaignTest(
   const idByEmail = new Map(waiting.map((w) => [String(w.email).toLowerCase(), w.id]));
   let cfg: any = {};
   try { cfg = JSON.parse(campaign.segmentConfig || "{}"); } catch { cfg = {}; }
-  const audience = await resolveMailerAudience(campaign.segmentType, cfg, Array.isArray(cfg?.emails) ? cfg.emails : undefined);
+  const audience = await cws.audience(campaign.segmentType, cfg, Array.isArray(cfg?.emails) ? cfg.emails : undefined);
   const links = await db.select().from(emailCampaignLinks).where(eq(emailCampaignLinks.campaignId, campaignId));
   const linkList: EmailLink[] = links.map((l) => ({ idx: l.idx, href: l.url, text: l.label, kind: l.kind as EmailLink["kind"], count: 1 }));
   const plan = { kind: t.kind as MailerTestPlan["kind"], variantA: t.variantA, variantB: t.variantB };
@@ -274,7 +284,7 @@ export async function decideCampaignTest(
     const who = audience.byEmail.get(email);
     const ctx: RecipientContext = {
       email, firstName: who?.firstName ?? null, lastName: who?.lastName ?? null, players: who?.players ?? [],
-      unsubscribeUrl: deps.cufcUnsubUrl(orgId, email), pixelUrl,
+      unsubscribeUrl: cws.unsubUrl(email), listName: cws.listName, pixelUrl,
     };
     const recipientId = idByEmail.get(email);
     const html = recipientId
@@ -393,7 +403,8 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
       // utm + ci every broadcast link would have carried before tracking).
       let dest = link.url;
       try {
-        const ci = emailClickToken(await deps.predictorOrgId(), campaignId, rcpt.email);
+        const [camp] = await db.select({ organizationId: emailCampaigns.organizationId }).from(emailCampaigns).where(eq(emailCampaigns.id, campaignId));
+        const ci = emailClickToken((await deps.forCampaign(camp ?? {})).orgId, campaignId, rcpt.email);
         dest = instrumentUrl(link.url, { medium: "broadcast", campaign: `mailer-${campaignId}`, ci });
       } catch { dest = link.url; }
       return res.redirect(302, dest);
@@ -417,8 +428,8 @@ export function registerMailerTestRoutes(app: Express, deps: MailerTestDeps) {
         : null;
       if (!email.includes("@")) return res.status(400).json({ message: "Pick a person to preview as." });
       const who = await lookupMailerRecipient(email);
-      const orgId = await deps.predictorOrgId();
-      const ctx: RecipientContext = { email, firstName: who.firstName, lastName: who.lastName, players: who.players, unsubscribeUrl: deps.cufcUnsubUrl(orgId, email) };
+      const rws = await deps.forRequest(req);
+      const ctx: RecipientContext = { email, firstName: who.firstName, lastName: who.lastName, players: who.players, unsubscribeUrl: rws.unsubUrl(email), listName: rws.listName };
       res.json({
         email,
         name: [who.firstName, who.lastName].filter(Boolean).join(" ") || null,

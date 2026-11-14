@@ -36,6 +36,7 @@ import {
   refreshSocial,
 } from "@/components/social/parts";
 import { FEED_COLS, FeedView, LabelsView, rememberedFeedCols } from "@/components/social/labels";
+import { SponsorContentGrid } from "@/components/sponsorship/sponsor-content";
 import { isLabelKind, type LabelKind } from "@shared/social-labels";
 import {
   POST_KIND_LABEL,
@@ -329,6 +330,7 @@ export default function SocialMedia() {
           onFilter={(next) => write({ label: next.label ?? f.label, lstatus: next.status ?? f.lstatus, ly: next.year === undefined ? f.ly : next.year, lm: next.month === undefined ? f.lm : next.month, cols: next.cols ?? f.cols })}
         />
       )}
+      {f.view === "labels" && f.lk === "sponsor" && f.open == null && <SponsorContentGrid heading="Sponsor content folders" />}
       {f.view === "labels" && (
         <LabelsView
           brand={f.brand}

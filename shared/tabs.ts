@@ -197,7 +197,7 @@ const tournamentTabs: TabDef[] = [
   { slug: "volunteers", title: "Volunteers", url: "/admin/volunteers" },
   { slug: "cic-registrations", title: "Registrations", url: "/admin/cic-registrations" },
   { slug: "cic-livechat", title: "Live Chat", url: "/admin/cic-livechat" },
-  { slug: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer" },
+  { slug: "mailer", title: "Mailer", url: "/admin/mailer" }, // ONE Mailer, every workspace (2026-11-14) — was cic-mailer
   { slug: "cic-push", title: "Notifications", url: "/admin/cic-push" },
   { slug: "cic-logo-consents", title: "Logo Consents", url: "/admin/cic-logo-consents" },
   { slug: "cic-watch", title: "Watch", url: "/admin/cic-watch" },
@@ -241,7 +241,7 @@ const gymnasticsTabs: TabDef[] = [
   { slug: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics" },
   { slug: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox" },
   { slug: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat" },
-  { slug: "cugc-mailer", title: "Mailer", url: "/admin/cugc-mailer" },
+  { slug: "mailer", title: "Mailer", url: "/admin/mailer" }, // ONE Mailer, every workspace (2026-11-14) — was cugc-mailer
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "studio", title: "Studio", url: "/admin/studio", secondary: true },
   { slug: "esign", title: "E-Sign", url: "/admin/esign", secondary: true },

@@ -78,6 +78,7 @@ const CANARIES: Canary[] = [
   // file survive a bad deploy untouched; what disappears is the route, and a
   // missing route is indistinguishable from one that never existed.
   { feature: "club drive",          path: "/api/admin/drive/bootstrap",             expect: [401] },
+  { feature: "drive share links",   path: "/api/admin/drive/share/1",               expect: [401] },
   // Equipment Register (2026-08-18). Both halves are canaried, because they can
   // be lost independently: the staff tab is an admin route, while the holders'
   // own page is a PUBLIC one, and a coach standing in a shed with a dead link
@@ -230,6 +231,7 @@ const CANARIES: Canary[] = [
 const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/dashboard/revenue":        { file: "server/dashboard-routes.ts",    needle: "/api/admin/dashboard/revenue" },
   "/api/admin/drive/bootstrap":           { file: "server/drive-routes.ts",        needle: "/api/admin/drive/bootstrap" },
+  "/api/admin/drive/share/1":             { file: "server/drive-share.ts",         needle: "/api/admin/drive/share/:nodeId" },
   "/api/admin/equipment/overview":        { file: "server/equipment-routes.ts",    needle: "/api/admin/equipment/overview" },
   "/api/public/equipment/me":             { file: "server/equipment-routes.ts",    needle: "/api/public/equipment/me" },
   "/api/public/parent/prefill":           { file: "server/parent-routes.ts",       needle: "/prefill" },

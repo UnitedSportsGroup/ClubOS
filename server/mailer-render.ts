@@ -30,6 +30,10 @@
 export interface RecipientContext {
   email: string;
   unsubscribeUrl: string;
+  /** Whose list this is, for the footer ("…on United Gymnastics' contact
+   *  list"). One Mailer serves every workspace (2026-11-14); missing reads as
+   *  Christchurch United Football Club, which every send before then was. */
+  listName?: string;
   /** The parent's name — the person whose inbox this is. */
   firstName?: string | null;
   lastName?: string | null;
@@ -127,11 +131,11 @@ export function usesPlayerTag(text: string): boolean {
 /** The footer added when a design carries no unsubscribe link. Deliberately
  *  plain and table-based: it has to render in Outlook, and it is a legal
  *  notice, not a design element. */
-function unsubscribeFooter(unsubscribeUrl: string): string {
+function unsubscribeFooter(unsubscribeUrl: string, listName = "Christchurch United Football Club"): string {
   return `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
   <tr><td align="center" style="padding:24px 16px 32px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:#8a8a8a;">
-    You are receiving this because you are on Christchurch United Football Club's contact list.<br>
+    You are receiving this because you are on ${listName.replace(/[<>&"]/g, "")}${listName.endsWith("s") ? "'" : "'s"} contact list.<br>
     <a href="${unsubscribeUrl}" style="color:#8a8a8a;text-decoration:underline;">Unsubscribe</a>
   </td></tr>
 </table>`.trim();
@@ -162,7 +166,7 @@ export function renderForRecipient(html: string, ctx: RecipientContext): string 
   const merged = applyMergeTags(html, ctx);
   const withFooter = hasUnsubscribeLink(merged, ctx.unsubscribeUrl)
     ? merged
-    : appendToBody(merged, unsubscribeFooter(ctx.unsubscribeUrl));
+    : appendToBody(merged, unsubscribeFooter(ctx.unsubscribeUrl, ctx.listName));
   // Last, and inside </body> — a tracking image after the closing tag is at the
   // mercy of the client's parser, and the whole point is that it loads.
   return ctx.pixelUrl ? appendToBody(withFooter, openPixel(ctx.pixelUrl)) : withFooter;

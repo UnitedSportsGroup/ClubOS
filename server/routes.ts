@@ -56,7 +56,7 @@ import {
   CUGC_TERMS, resolveTermForSale, termStatus, isSellable, defaultTerm,
   termByName, termWindowLabel, type CugcTerm,
 } from "@shared/cugc-terms";
-import { allClasses, classById, classesForRegistration, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
+import { allClasses, classById, classesForRegistration, onClassRoll, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
 import * as splitPay from "./split-pay";
 import { markInvoicePaidByPaymentIntent } from "./invoice-routes";
 import * as rewards from "./rewards";
@@ -125,7 +125,8 @@ import {
 } from "@shared/nzf-identity";
 import { isOfficePaymentMethod } from "@shared/payments";
 import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
-import { resolveMailerAudience, lookupMailerRecipient, mailerAudienceCatalogue } from "./mailer-audience";
+import { resolveMailerAudience, lookupMailerRecipient, mailerAudienceCatalogue, cleanMailerEmail, type MailerAudience, type MailerRecipient } from "./mailer-audience";
+import type { GroupCatalogue, GroupOption, GroupChoice } from "@shared/mailer-audiences";
 import { checkEmailDeliverability, checkManyDeliverability } from "./mailer-deliverability";
 import { bounceMap, bounceLabel, isDeadMailbox } from "./email-bounces";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
@@ -6623,10 +6624,36 @@ export async function registerRoutes(
     }
   });
 
+  // ONE Mailer, every workspace (2026-11-14). Every /api/admin/mailer route
+  // that reads people or sends reads the workspace here: a missing header is
+  // an error (never a guess — the CUFC default is how a gym email could have
+  // gone to football parents), and a member of another workspace gets 404.
+  async function mailerWsReq(req: any, res: any): Promise<MailerWs | null> {
+    const org = await workspaceOrg(req);
+    if (!org) { res.status(400).json({ message: "No workspace on this request — reload the page and try again." }); return null; }
+    const uid = req.session?.userId;
+    const user = uid ? await storage.getUser(uid) : undefined;
+    if (!user) { res.status(401).json({ message: "Sign in again." }); return null; }
+    if (user.role !== "super_admin" && !(await checkUserOrg(uid, org.id))) { res.status(404).json({ message: "Not found" }); return null; }
+    return mailerWsFor(org);
+  }
+
+  // What this workspace's Mailer is: where its people live, and its senders.
+  app.get("/api/admin/mailer/workspace", requireAuth, async (req, res) => {
+    try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json({ slug: ws.slug, kind: ws.kind === "programmes" ? "programmes" : "groups", defaultFrom: ws.defaultFrom, defaultReplyTo: ws.defaultReplyTo });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
   // Send history — searchable + paged. `q` matches subject OR email content.
   // Returns summaries without the body; open one for the content it sent.
+  // One workspace's sends only.
   app.get("/api/admin/mailer/campaigns", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const q = typeof req.query.q === "string" ? req.query.q : "";
       const limit = parseInt(String(req.query.limit ?? ""));
       const offset = parseInt(String(req.query.offset ?? ""));
@@ -6634,6 +6661,7 @@ export async function registerRoutes(
         q,
         limit: Number.isFinite(limit) ? limit : undefined,
         offset: Number.isFinite(offset) ? offset : undefined,
+        scope: mailerCampaignOrgSql(ws),
       });
       res.json({ campaigns: rows, total });
     } catch (error: any) {
@@ -6644,10 +6672,12 @@ export async function registerRoutes(
   // One past send, in full — including the exact HTML that went out.
   app.get("/api/admin/mailer/campaigns/:id", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       res.json(campaign);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6665,10 +6695,12 @@ export async function registerRoutes(
   // cannot see would be worse than admitting the gap.
   app.get("/api/admin/mailer/campaigns/:id/recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       const people = await storage.getCampaignRecipients(id);
       // The A/B test (if one ran), each version's numbers, every link's clicks.
       const results = await campaignResults(id).catch(() => null);
@@ -6773,8 +6805,9 @@ export async function registerRoutes(
   // Mailer is the club's).
   app.get("/api/admin/mailer/audiences", requireAuth, async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
-      res.json(await mailerAudienceCatalogue(org?.id ?? 1));
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json(ws.kind === "programmes" ? await mailerAudienceCatalogue(ws.orgId) : await mailerGroupCatalogue(ws));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6782,8 +6815,10 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/preview-recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { segmentType, segmentConfig } = req.body;
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) {
         return res.status(400).json({ message: "Invalid segment type" });
       }
@@ -6793,9 +6828,8 @@ export async function registerRoutes(
       // filter as the send, so what is shown is what goes out — each address
       // with the parent's name and the children it stands for, and a flag
       // where the domain cannot take mail.
-      const audience = await resolveMailerAudience(segmentType, segmentConfig);
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const audience = await resolveWorkspaceMailerAudience(ws, segmentType, segmentConfig);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const LIMIT = 500;
       const shown = audience.emails.slice(0, LIMIT);
       const checks = await checkManyDeliverability(shown);
@@ -6849,6 +6883,8 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/test-send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
       if (!RESEND_API_KEY) return res.status(500).json({ message: "RESEND_API_KEY not configured" });
 
@@ -6861,13 +6897,12 @@ export async function registerRoutes(
       const { to, from: fromAddr, fromEmail: fromChosen, subject, body, replyTo } = req.body;
       // The page posts `fromEmail`; this read only `from`, so every test came
       // from "CUFC Camps" whatever sender was chosen.
-      const senderEmail = fromChosen || fromAddr || "CUFC Camps <noreply@cufc.co.nz>";
+      const senderEmail = fromChosen || fromAddr || ws.defaultFrom;
       const att = readMailerAttachments(req.body.attachments);
       if (!att.ok) return res.status(400).json({ message: att.message });
       const dest = String(to || "").trim();
       if (!dest.includes("@")) return res.status(400).json({ message: "A test address is required" });
 
-      const orgId = await predictorOrgId();
       const hasCampaign = typeof body === "string" && body.trim().length > 0;
       // The test address is resolved the way a real recipient is — so a staff
       // member who is also a parent sees their own children's names where a
@@ -6875,7 +6910,8 @@ export async function registerRoutes(
       const who = await lookupMailerRecipient(dest);
       const testCtx = {
         email: dest,
-        unsubscribeUrl: cufcUnsubUrl(orgId, dest),
+        unsubscribeUrl: ws.unsubUrl(dest),
+        listName: ws.listName,
         firstName: who.firstName,
         lastName: who.lastName,
         players: who.players,
@@ -6911,13 +6947,15 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { subject, body, bodyDoc, fromEmail, replyTo, segmentType, segmentConfig, manualEmails } = req.body;
       if (!subject || typeof subject !== 'string' || subject.length > 500) return res.status(400).json({ message: "Valid subject required (max 500 chars)" });
       if (!body || typeof body !== 'string') return res.status(400).json({ message: "Email body is required" });
       // A document can be structurally valid and say nothing — a stray spacer,
       // or a design cleared but not retyped. Refuse before it reaches a list.
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
       // 🔴 The same email twice is refused (28 Oct 2026: "United Together" went
       // out as #91 and, seven seconds later, #92 — 2,297 families got it
@@ -6953,7 +6991,8 @@ export async function registerRoutes(
       // {{player_first_name}} (Zach, 2026-10-05 — an academy invitation is
       // addressed to the player and lands in the parent's inbox). The preview
       // count reads the same function, so the number shown is the number sent.
-      const audience = await resolveMailerAudience(
+      const audience = await resolveWorkspaceMailerAudience(
+        ws,
         segmentType,
         segmentConfig,
         Array.isArray(manualEmails) ? manualEmails : undefined,
@@ -6962,8 +7001,7 @@ export async function registerRoutes(
 
       // 🔴 Honour the opt-out list. Every other mailer in ClubOS does; this one
       // never has, so anyone who unsubscribed kept receiving camp campaigns.
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const requested = emails.length;
       emails = emails.filter((e) => !unsubscribed.has(e.trim().toLowerCase()));
       const suppressed = requested - emails.length;
@@ -6987,8 +7025,8 @@ export async function registerRoutes(
 
       if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
 
-      const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
-      const replyAddress = replyTo || "info@cufc.co.nz";
+      const senderEmail = fromEmail || ws.defaultFrom;
+      const replyAddress = replyTo || ws.defaultReplyTo;
 
       const campaign = await storage.createEmailCampaign({
         subject,
@@ -7000,6 +7038,7 @@ export async function registerRoutes(
         replyTo: replyAddress,
         segmentType,
         segmentConfig: JSON.stringify(segmentConfig || {}),
+        organizationId: ws.orgId,
         recipientCount: emails.length,
         sentCount: 0,
         failedCount: 0,
@@ -7085,7 +7124,8 @@ export async function registerRoutes(
             firstName: who?.firstName ?? null,
             lastName: who?.lastName ?? null,
             players: who?.players ?? [],
-            unsubscribeUrl: cufcUnsubUrl(orgId, email),
+            unsubscribeUrl: ws.unsubUrl(email),
+            listName: ws.listName,
             pixelUrl,
           };
           const variant = variantOf.get(email) ?? null;
@@ -26693,18 +26733,19 @@ export async function registerRoutes(
       // Who is on each class, and who could not be placed on any.
       const onClass = new Map<string, number>();
       const unplaced: { id: number; name: string; programName: string; optionLabel: string; reason: string }[] = [];
+      // Every paid child is on every class of their programme (onClassRoll).
+      // Only a programme with no timetable in ClubOS leaves someone off.
+      const termClasses = allClasses(term.id);
       for (const r of paid) {
-        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id);
-        if (!placement.placed) {
+        const ids = termClasses.filter((c) => onClassRoll(r.programSlug, c.id, term.id)).map((c) => c.id);
+        if (ids.length === 0) {
           unplaced.push({
             id: r.id, name: r.gymnastName, programName: r.programName, optionLabel: r.optionLabel,
-            reason: placement.reason === "not-recorded"
-              ? "No class was recorded at sign-up"
-              : "This programme has no timetable in ClubOS",
+            reason: "This programme has no timetable in ClubOS",
           });
           continue;
         }
-        for (const id of placement.classIds) onClass.set(id, (onClass.get(id) ?? 0) + 1);
+        for (const id of ids) onClass.set(id, (onClass.get(id) ?? 0) + 1);
       }
 
       const marks = await db.select({ classId: cugcAttendance.classId, sessionDate: cugcAttendance.sessionDate })
@@ -26766,7 +26807,7 @@ export async function registerRoutes(
         .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
       const expected = regos
         .filter((r) => CUGC_ON_ROLL.includes(r.status))
-        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id));
+        .filter((r) => onClassRoll(r.programSlug, klass.id, term.id));
 
       const marks = expected.length
         ? await db.select().from(cugcAttendance).where(and(
@@ -26802,6 +26843,8 @@ export async function registerRoutes(
               dob: r.gymnastDob,
               programName: r.programName,
               optionLabel: r.optionLabel,
+              // The class they picked at sign-up — a hint, never a filter.
+              booked: classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id),
               parentName: r.parentName,
               phone: r.phone,
               medical: r.medical,
@@ -26843,8 +26886,8 @@ export async function registerRoutes(
       if (!rego) return res.status(404).json({ message: "No such enrolment." });
       if (rego.term !== term.name) return res.status(400).json({ message: "That enrolment is for a different term." });
       if (!CUGC_ON_ROLL.includes(rego.status)) return res.status(400).json({ message: "That enrolment isn't paid." });
-      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime, term.id).classIds.includes(klass.id)) {
-        return res.status(400).json({ message: "That child isn't in this class." });
+      if (!onClassRoll(rego.programSlug, klass.id, term.id)) {
+        return res.status(400).json({ message: "That child isn't in this programme." });
       }
 
       const where = and(
@@ -28022,7 +28065,29 @@ export async function registerRoutes(
   registerMailerAiRoutes(app);
   registerMailerImageRoutes(app);
   // A/B tests, click tracking and "preview as a person" (2026-10-27).
-  const mailerTestDeps = { runBroadcastQueue, cufcUnsubUrl, predictorOrgId, getUnsubscribedEmails };
+  // A campaign's later steps (an A/B winner, a click) run in the workspace that
+  // SENT it — its unsubscribe list, link and audience — never CUFC's by default.
+  const mailerWsForCampaign = async (c: { organizationId?: number | null }): Promise<MailerWs> => {
+    const [org] = c.organizationId != null
+      ? await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations).where(eq(organizations.id, c.organizationId))
+      : [];
+    return mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+  };
+  const mailerTestDeps = {
+    runBroadcastQueue, getUnsubscribedEmails,
+    forCampaign: async (c: { organizationId?: number | null }) => {
+      const ws = await mailerWsForCampaign(c);
+      return {
+        orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName,
+        audience: (segmentType: string, cfg: any, manual?: string[]) => resolveWorkspaceMailerAudience(ws, segmentType, cfg, manual),
+      };
+    },
+    forRequest: async (req: any) => {
+      const org = await workspaceOrg(req);
+      const ws = mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+      return { orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName };
+    },
+  };
   registerMailerTestRoutes(app, mailerTestDeps);
   startMailerTests(mailerTestDeps);
   // Content Studio (2026-10-27): graphics, landing pages on the brand hosts
@@ -28037,7 +28102,14 @@ export async function registerRoutes(
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {
-    const automationDeps = { unsubUrl: cufcUnsubUrl, unsubscribed: getUnsubscribedEmails };
+    // Each workspace's own unsubscribe link and list (One Mailer, 2026-11-14).
+    const orgSlugById = new Map((await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations)).map((o) => [o.id, o.slug]));
+    const wsById = (orgId: number) => mailerWsFor({ id: orgId, slug: orgSlugById.get(orgId) ?? "" });
+    const automationDeps = {
+      unsubUrl: (orgId: number, email: string) => wsById(orgId).unsubUrl(email),
+      unsubscribed: (orgId: number) => getUnsubscribedEmails(wsById(orgId).unsubOrg),
+      listName: (orgId: number) => wsById(orgId).listName,
+    };
     registerMailerAutomationRoutes(app, automationDeps);
     startMailerAutomations(automationDeps);
   }
@@ -29829,6 +29901,252 @@ async function resolveCugcSendList(
   for (const e of extras) out.add(e.trim().toLowerCase());
 
   return Array.from(out).filter((e) => !unsub.has(e));
+}
+
+// ── One Mailer, every workspace (2026-11-14) ─────────────────────────────────
+// Daniel: "make mailer same for all workspaces same as cufc so the software is
+// uniform across the board and when we update one the updates can go across
+// all workspaces." Four mailers (CUFC, MFL, CIC, Gymnastics) became ONE page
+// and ONE set of /api/admin/mailer routes. This is the one decider for what a
+// workspace's Mailer means: which unsubscribe list it honours, the link that
+// writes to it, where its people live, and who "Everyone" is.
+//
+// 🔴 The unsubscribe list follows the BRAND the family unsubscribed from, and
+// is the same list each old mailer used — CUGC families who opted out under
+// org 6 stay opted out. SIU shares CUFC's list (org 1) because every SIU send
+// before today went out with CUFC's link.
+type MailerWs = {
+  orgId: number;
+  slug: string;
+  kind: "programmes" | "cugc" | "league" | "cic";
+  /** The org whose suppression list applies, and that the link writes to. */
+  unsubOrg: number;
+  unsubUrl: (email: string) => string;
+  defaultFrom: string;
+  defaultReplyTo: string;
+  /** Whose contact list the footer names. */
+  listName: string;
+  /** Guardians with no ClubOS registration at all (Friendly Manager history)
+   *  count as this workspace's families — CUFC only. */
+  includeUntied: boolean;
+};
+
+function mailerWsFor(org: { id: number; slug: string }): MailerWs {
+  switch (org.slug) {
+    case "united-gymnastics":
+      return { orgId: org.id, slug: org.slug, kind: "cugc", unsubOrg: org.id, unsubUrl: (e) => cugcUnsubUrl(org.id, e),
+        defaultFrom: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>", defaultReplyTo: "info@cugc.co.nz", listName: "Christchurch United Gymnastics Club", includeUntied: false };
+    case "mini-football-leagues":
+      return { orgId: org.id, slug: org.slug, kind: "league", unsubOrg: org.id, unsubUrl: (e) => mflUnsubUrl(org.id, e),
+        defaultFrom: "Mini Football Leagues <noreply@minifootball.co.nz>", defaultReplyTo: "minifootball@cufc.co.nz", listName: "Mini Football Leagues", includeUntied: false };
+    case "christchurch-international-cup":
+      return { orgId: org.id, slug: org.slug, kind: "cic", unsubOrg: org.id, unsubUrl: (e) => cicUnsubUrl(org.id, e),
+        defaultFrom: "Christchurch International Cup <noreply@cicyouth.com>", defaultReplyTo: "info@cicyouth.com", listName: "the Christchurch International Cup", includeUntied: false };
+    case "south-island-united":
+      return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
+        defaultFrom: "South Island United <noreply@southislandunited.com>", defaultReplyTo: "info@southislandunited.com", listName: "South Island United", includeUntied: false };
+    default:
+      // Christchurch United, and any workspace that had the Mailer through the
+      // shared camps switch before today: exactly what it did yesterday.
+      return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
+        defaultFrom: "CUFC Camps <noreply@cufc.co.nz>", defaultReplyTo: "info@cufc.co.nz", listName: "Christchurch United Football Club", includeUntied: org.slug === "christchurch-united" };
+  }
+}
+
+/** Which campaigns belong to a workspace's history. Old rows carry no org, so
+ *  the segment prefix the old mailers wrote decides; everything else is CUFC's. */
+function mailerCampaignOrgSql(ws: MailerWs) {
+  const legacy = ws.kind === "cugc" ? sql`segment_type LIKE 'cugc%'`
+    : ws.kind === "league" ? sql`segment_type LIKE 'league%'`
+    : ws.kind === "cic" ? sql`segment_type LIKE 'cic%'`
+    : ws.slug === "christchurch-united" ? sql`segment_type NOT LIKE 'cugc%' AND segment_type NOT LIKE 'league%' AND segment_type NOT LIKE 'cic%'`
+    : sql`false`;
+  return sql`(organization_id = ${ws.orgId} OR (organization_id IS NULL AND ${legacy}))`;
+}
+
+/** The same rule as mailerCampaignOrgSql, for one campaign already loaded. */
+function campaignInMailerWs(ws: MailerWs, c: { organizationId?: number | null; segmentType?: string | null }): boolean {
+  if (c.organizationId != null) return c.organizationId === ws.orgId;
+  const st = String(c.segmentType || "");
+  const tagged = st.startsWith("cugc") ? "cugc" : st.startsWith("league") ? "league" : st.startsWith("cic") ? "cic" : null;
+  if (ws.kind === "cugc" || ws.kind === "league" || ws.kind === "cic") return tagged === ws.kind;
+  return tagged === null && ws.slug === "christchurch-united";
+}
+
+const splitName = (full: string): { firstName: string | null; lastName: string | null } => {
+  const t = String(full || "").trim().replace(/\s+/g, " ");
+  if (!t) return { firstName: null, lastName: null };
+  const i = t.indexOf(" ");
+  return i < 0 ? { firstName: t, lastName: null } : { firstName: t.slice(0, i), lastName: t.slice(i + 1) };
+};
+
+function toMailerAudience(people: { name: string; email: string }[], typed: string[] = []): MailerAudience {
+  const byEmail = new Map<string, MailerRecipient>();
+  const emails: string[] = [];
+  const put = (email: string, name: string) => {
+    const e = cleanMailerEmail(email);
+    if (!e || byEmail.has(e)) return;
+    byEmail.set(e, { email: e, ...splitName(name), players: [], registered: "none" });
+    emails.push(e);
+  };
+  for (const p of people) put(p.email, p.name);
+  for (const e of typed) put(e, "");
+  return { emails, byEmail };
+}
+
+/** What "By Programme" offers in a workspace whose people are not `programs`
+ *  registrations. Rows only — the counts come from the preview. */
+async function mailerGroupCatalogue(ws: MailerWs): Promise<GroupCatalogue> {
+  if (ws.kind === "cugc") {
+    const today = nzTodayIso();
+    const def = (defaultTerm(today) ?? CUGC_TERMS[CUGC_TERMS.length - 1]).id;
+    return {
+      kind: "groups",
+      rows: [
+        { key: "who", label: "Who", initial: "confirmed", options: [
+          { value: "confirmed", label: "Confirmed families" },
+          { value: "trial", label: "Free trialists" },
+          { value: "newsletter", label: "Newsletter signups" },
+        ] },
+        { key: "term", label: "Term", initial: def, showWhen: { key: "who", values: ["confirmed", "trial"] }, options: [
+          ...[...CUGC_TERMS].reverse().map((t) => {
+            const st = termStatus(t, today);
+            return { value: t.id, label: t.name, hint: st === "active" ? "now" : st === "upcoming" ? "next" : undefined };
+          }),
+          { value: "", label: "Any term" },
+        ] },
+        { key: "program", label: "Programme", initial: "", showWhen: { key: "who", values: ["confirmed", "trial"] }, options: [
+          { value: "", label: "All programmes" },
+          ...CUGC_PROGRAMS.map((p) => ({ value: p.slug, label: p.title })),
+        ] },
+      ],
+      notes: {
+        confirmed: "Confirmed = paid enrolments for that term. Unfinished checkouts are left out.",
+        trial: "Free trialists = anyone who booked a free session with a class date in that term (cancelled bookings left out).",
+        newsletter: "Everyone who signed up to the newsletter on cugc.co.nz.",
+      },
+    };
+  }
+  if (ws.kind === "league") {
+    const comps = (await storage.getLeagueCompetitions(ws.orgId))
+      .sort((a: any, b: any) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")));
+    // Open on the term RUNNING today (else the latest one that has started),
+    // never the newest — next term has no teams yet and would read 0 people.
+    const todayIso = nzTodayIso();
+    const day = (v: any) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : "");
+    const liveComp = comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso && (!day(c.endDate) || day(c.endDate) >= todayIso))
+      ?? comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso)
+      ?? comps[0];
+    const divisionOptions: GroupOption[] = [{ value: "", label: "Every league" }];
+    for (const c of comps) {
+      for (const d of await storage.getLeagueDivisions(c.id)) {
+        divisionOptions.push({ value: String(d.id), label: d.name, parent: String(c.id) });
+      }
+    }
+    return {
+      kind: "groups",
+      rows: [
+        { key: "who", label: "Who", initial: "captains", options: [
+          { value: "captains", label: "Team captains" },
+          { value: "all", label: "Captains + squad players" },
+          { value: "schools", label: "Schools list" },
+        ] },
+        { key: "term", label: "Term", initial: liveComp ? String(liveComp.id) : "", showWhen: { key: "who", values: ["captains", "all"] }, options: [
+          ...comps.map((c: any) => ({ value: String(c.id), label: c.name })),
+          { value: "", label: "Every term" },
+        ] },
+        { key: "division", label: "League", initial: "", parentRow: "term", showWhen: { key: "who", values: ["captains", "all"] }, options: divisionOptions },
+      ],
+      notes: {
+        captains: "The captain of every team entered in that term.",
+        all: "Captains, plus every squad player who paid their own share through Player Pay.",
+        schools: "The Football in Schools primary-school office list.",
+      },
+    };
+  }
+  // CIC — Youth tournament or Summer 7's.
+  const tourns = (await storage.getTournaments(ws.orgId)).filter((t: any) => !t.archived);
+  const editions = (await db.selectDistinct({ y: cic7sRegistrations.editionYear }).from(cic7sRegistrations)
+    .where(eq(cic7sRegistrations.organizationId, ws.orgId)))
+    .map((r) => r.y).filter((y): y is number => y != null).sort((a, b) => b - a);
+  return {
+    kind: "groups",
+    rows: [
+      { key: "event", label: "Event", initial: "youth", options: [
+        { value: "youth", label: "CIC Youth" },
+        { value: "7s", label: "CIC 7's" },
+      ] },
+      { key: "who", label: "Who", initial: "all", showWhen: { key: "event", values: ["youth"] }, options: [
+        { value: "all", label: "Team + club contacts and staff" },
+        { value: "contacts", label: "Team + club contacts" },
+        { value: "staff", label: "Coaches and managers" },
+      ] },
+      { key: "tournament", label: "Age group", initial: "", showWhen: { key: "event", values: ["youth"] }, options: [
+        { value: "", label: "Every age group" },
+        ...tourns.map((t: any) => ({ value: String(t.id), label: t.name })),
+      ] },
+      { key: "edition", label: "Edition", initial: editions[0] ? String(editions[0]) : "", showWhen: { key: "event", values: ["7s"] }, options: [
+        ...editions.map((y) => ({ value: String(y), label: `Summer 7's ${y}` })),
+        { value: "", label: "Every edition" },
+      ] },
+    ],
+    notes: {
+      youth: "Every team's contact, every participating club's contact, and team staff with an email.",
+      "7s": "Everyone who registered interest in the Summer 7's.",
+    },
+  };
+}
+
+/** Who a non-programmes workspace's segment reaches. segmentType "all" is the
+ *  workspace's whole list; "group" is one choice from mailerGroupCatalogue;
+ *  "custom" is the typed list. Typed extras ride on top of the others. */
+async function resolveWorkspaceGroupAudience(
+  ws: MailerWs, segmentType: string, cfg: any, typedIn: string[],
+): Promise<MailerAudience> {
+  const typed = Array.from(new Set(typedIn.map(cleanMailerEmail).filter((e): e is string => !!e)));
+  if (segmentType === "custom") return toMailerAudience([], typed);
+  const c: GroupChoice = cfg?.choice && typeof cfg.choice === "object" ? cfg.choice : {};
+  const str = (k: string) => String(c[k] ?? "");
+  const num = (k: string) => { const n = parseInt(str(k)); return Number.isFinite(n) && n > 0 ? n : null; };
+  let people: { name: string; email: string }[] = [];
+  if (ws.kind === "cugc") {
+    if (segmentType === "all") people = await resolveCugcAudience(ws.orgId, { audience: "all" });
+    else if (str("who") === "newsletter") people = await resolveCugcAudience(ws.orgId, { audience: "newsletter" });
+    else people = await resolveCugcAudience(ws.orgId, {
+      audience: "program", programSlug: str("program") || null,
+      group: str("who") === "trial" ? "trial" : "confirmed", termId: str("term") || null,
+    });
+  } else if (ws.kind === "league") {
+    if (segmentType === "all") people = await resolveMflAudience(ws.orgId, { competitionId: null, audience: "all" });
+    else {
+      const who = parseMflAudience(str("who"));
+      people = await resolveMflAudience(ws.orgId, { competitionId: who === "schools" ? null : num("term"), audience: who, divisionId: who === "schools" ? null : num("division") });
+    }
+  } else if (ws.kind === "cic") {
+    if (segmentType === "all") {
+      const youth = await resolveCicAudience(ws.orgId, { source: "youth", tournamentId: null, audience: "all" });
+      const sevens = await resolveCicAudience(ws.orgId, { source: "7s", tournamentId: null, audience: "all" });
+      people = [...youth, ...sevens];
+    } else if (str("event") === "7s") {
+      people = await resolveCicAudience(ws.orgId, { source: "7s", tournamentId: null, audience: "all", edition: num("edition") });
+    } else {
+      const who = str("who") === "contacts" ? "contacts" as const : str("who") === "staff" ? "staff" as const : "all" as const;
+      people = await resolveCicAudience(ws.orgId, { source: "youth", tournamentId: num("tournament"), audience: who });
+    }
+  }
+  return toMailerAudience(people, typed);
+}
+
+/** THE audience for any workspace's Mailer — preview, send and test all call it. */
+async function resolveWorkspaceMailerAudience(
+  ws: MailerWs, segmentType: string, segmentConfig: any, manualEmails?: string[] | null,
+): Promise<MailerAudience> {
+  const cfg = segmentConfig ? (typeof segmentConfig === "string" ? JSON.parse(segmentConfig) : segmentConfig) : {};
+  if (ws.kind === "programmes") {
+    return resolveMailerAudience(segmentType, cfg, manualEmails ?? undefined, { orgId: ws.orgId, includeUntied: ws.includeUntied });
+  }
+  const typed = [...(Array.isArray(cfg?.emails) ? cfg.emails : []), ...(Array.isArray(manualEmails) ? manualEmails : [])];
+  return resolveWorkspaceGroupAudience(ws, segmentType, cfg, typed);
 }
 
 function cugcUnsubPage(message: string): string {

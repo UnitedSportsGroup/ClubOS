@@ -58,7 +58,7 @@ async function gatesFor(nodeIds: number[]): Promise<Map<number, string[]>> {
 }
 
 /** Load one node and prove the viewer may read it. Returns null when they may not. */
-async function readableNode(viewer: Viewer, id: number): Promise<any | null> {
+export async function readableNode(viewer: Viewer, id: number): Promise<any | null> {
   const [node] = await db.select().from(driveNodes).where(eq(driveNodes.id, id)).limit(1);
   if (!node) return null;
   const gates = (await gatesFor([id])).get(id) ?? [];

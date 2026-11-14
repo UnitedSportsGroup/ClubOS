@@ -372,7 +372,14 @@ const leagueNav = [
   { tab: "academy", title: "Ballers Youth League", url: "/admin/academy", icon: GraduationCap },
   { tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { tab: "discounts", title: "Discounts", url: "/admin/discounts", icon: Tag },
-  { tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "inbox", title: "Inbox", url: "/admin/inbox", icon: Inbox },
   { tab: "mfl-livechat", title: "Live Chat", url: "/admin/mfl-livechat", icon: MessageCircle },
   { tab: "rewards", title: "Rewards", url: "/admin/rewards", icon: Award },
@@ -420,7 +427,14 @@ const tournamentNav = [
   { tab: "cic-registrations", title: "Registrations", url: "/admin/cic-registrations", icon: Inbox },
   { tab: "cic-packages", title: "Packages", url: "/admin/cic-packages", icon: Package },
   { tab: "cic-livechat", title: "Live Chat", url: "/admin/cic-livechat", icon: MessageCircle },
-  { tab: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "cic-push", title: "Notifications", url: "/admin/cic-push", icon: BellRing },
   { tab: "cic-logo-consents", title: "Logo Consents", url: "/admin/cic-logo-consents", icon: ClipboardCheck },
   { tab: "cic-watch", title: "Watch", url: "/admin/cic-watch", icon: Radio },
@@ -451,7 +465,14 @@ const tournament7sNav = [
   // 7's teams sit on the same page as the Ethnic Cup's. Without this line the
   // 7's view had no way to reach them (2026-09-08).
   { tab: "team-entries", title: "Team Entries", url: "/admin/team-entries", icon: Users },
-  { tab: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
 ];
 
 // Christchurch Ethnic Cup — Nov 14-15 2026, run under the CIC organisation.
@@ -479,7 +500,14 @@ const gymnasticsNav = [
   { tab: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics", icon: BarChart3 },
   { tab: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox", icon: Inbox },
   { tab: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat", icon: MessageCircle },
-  { tab: "cugc-mailer", title: "Mailer", url: "/admin/cugc-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 

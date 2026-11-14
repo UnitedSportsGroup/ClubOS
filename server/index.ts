@@ -126,6 +126,8 @@ app.use(attributionCookieMiddleware);
   // See migrations/2026-08-15_club_drive.sql + shared/drive.ts.
   const { registerDriveRoutes } = await import("./drive-routes");
   registerDriveRoutes(app);
+  const { registerDriveShareRoutes } = await import("./drive-share");
+  registerDriveShareRoutes(app);
 
   // United Prints workspace — Warehouse Management System. Dark-launched
   // (requireTab("warehouse") — super_admin only until T17 wires "warehouse"

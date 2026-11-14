@@ -130,6 +130,7 @@ const GroupVideos = lazy(() => import("@/pages/group-videos"));
 const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
 const GroupVideoDetail = lazy(() => import("@/pages/group-video-detail"));
 const VideoShare = lazy(() => import("@/pages/video-share"));
+const DriveShare = lazy(() => import("@/pages/drive-share"));
 const GroupBudget = lazy(() => import("@/pages/group-budget"));
 const GroupBudgetXero = lazy(() => import("@/pages/group-budget-xero"));
 const GroupBudgetCostCentre = lazy(() => import("@/pages/group-budget-cost-centre"));
@@ -161,7 +162,6 @@ const LeagueCompetitionDetail = lazy(() => import("@/pages/league-competition-de
 const LeagueDetail = lazy(() => import("@/pages/league-competition-detail").then((m) => ({ default: m.LeagueDetail })));
 const LeagueTeams = lazy(() => import("@/pages/league-teams"));
 const LeaguePayments = lazy(() => import("@/pages/league-payments"));
-const LeagueMailer = lazy(() => import("@/pages/league-mailer"));
 const LeagueRewards = lazy(() => import("@/pages/league-rewards"));
 const LeagueLoyalty = lazy(() => import("@/pages/league-loyalty"));
 const FmHistory = lazy(() => import("@/pages/fm-history"));
@@ -188,7 +188,6 @@ const PrintsFaqs = lazy(() => import("@/pages/prints-faqs"));
 const PrintsExpenses = lazy(() => import("@/pages/prints-expenses"));
 const CicLogoConsents = lazy(() => import("@/pages/cic-logo-consents"));
 const MediaLibrary = lazy(() => import("@/pages/media-library"));
-const CicMailer = lazy(() => import("@/pages/cic-mailer"));
 const CicPush = lazy(() => import("@/pages/cic-push"));
 const CicWatch = lazy(() => import("@/pages/cic-watch"));
 const ContentMarketplace = lazy(() => import("@/pages/content-marketplace"));
@@ -209,7 +208,6 @@ const CugcRegistrations = lazy(() => import("@/pages/cugc-registrations"));
 const CugcFreeSessions = lazy(() => import("@/pages/cugc-free-sessions"));
 const CugcRoll = lazy(() => import("@/pages/cugc-roll"));
 const CugcAnalytics = lazy(() => import("@/pages/cugc-analytics"));
-const CugcMailer = lazy(() => import("@/pages/cugc-mailer"));
 const LeagueBuilderPage = lazy(() => import("@/pages/league-builder-page"));
 const LeagueSettings = lazy(() => import("@/pages/league-settings"));
 const CugcPrograms = lazy(() => import("@/pages/cugc-programs"));
@@ -561,7 +559,12 @@ function AdminRouter() {
         <Route path="/admin/cugc-free-sessions" component={CugcFreeSessions} />
         <Route path="/admin/cugc-analytics" component={CugcAnalytics} />
         <Route path="/admin/cugc-inbox" component={CugcInbox} />
-        <Route path="/admin/cugc-mailer" component={CugcMailer} />
+        {/* ONE Mailer, every workspace (2026-11-14). The old URL still lands. */}
+        <Route path="/admin/cugc-mailer"><Redirect to="/admin/mailer" /></Route>
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/terms" component={GymnasticsTerms} />
         {/* Reuse the camps detail + landing-page editor — they take a
             program id and don't care what type the program is. Gymnastics
@@ -617,7 +620,11 @@ function AdminRouter() {
         <Route path="/admin/mfl-livechat" component={MflLiveChat} />
         <Route path="/admin/cugc-livechat" component={CugcLiveChat} />
         <Route path="/admin/print-livechat" component={PrintLiveChat} />
-        <Route path="/admin/cic-mailer" component={CicMailer} />
+        <Route path="/admin/cic-mailer"><Redirect to="/admin/mailer" /></Route>
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/cic-push" component={CicPush} />
         <Route path="/admin/cic-logo-consents" component={CicLogoConsents} />
         <Route path="/admin/cic-watch" component={CicWatch} />
@@ -669,7 +676,10 @@ function AdminRouter() {
         <Route path="/admin/mfl-score/:id" component={MflScoreGame} />
         <Route path="/admin/mfl-media" component={MflMedia} />
         <Route path="/admin/payments" component={LeaguePayments} />
-        <Route path="/admin/mailer" component={LeagueMailer} />
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/rewards" component={LeagueRewards} />
         <Route path="/admin/loyalty" component={LeagueLoyalty} />
         <Route path="/admin/analytics" component={LeagueAnalytics} />
@@ -927,6 +937,14 @@ function App() {
             <Route path="/receipt/:token" component={PosReceipt} />
             {/* The counter screen — our app on the Stripe S710 shows this page. */}
             <Route path="/counter" component={PosCounter} />
+            {/* media.<club domain> = sponsor content pages only: <sponsor>/<code>.
+                Checked by hostname so the two-part address cannot collide with any other route. */}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && <Route path="/:slug/:code" component={DriveShare} />}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && (
+              <Route path="/">
+                <div className="grid min-h-screen place-items-center bg-white px-6 text-center"><p className="text-sm text-slate-600">South Island United partner content. Open the link you were sent.</p></div>
+              </Route>
+            )}
             <Route path="/">
               {(() => {
                 // Hostname-based routing for the public root:
@@ -976,6 +994,7 @@ function App() {
             {/* Staff Videos — the in-house Loom's public share pages. Random
                 non-enumerable tokens; visibility enforced by the public API. */}
             <Route path="/v/:token" component={VideoShare} />
+            <Route path="/share/:token" component={DriveShare} />
             {/* The equipment holder's own page. A signed link, never a login —
                 see server/equipment-routes.ts for why. */}
             <Route path="/equipment/:token" component={EquipmentHolder} />
