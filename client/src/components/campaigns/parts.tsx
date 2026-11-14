@@ -141,7 +141,7 @@ export function MultiPick({ items, value, onChange, placeholder, empty }: { item
   );
 }
 
-function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
+export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
   return (
     <div className={cn("space-y-1.5 min-w-0", className)}>
       <Label>{label}</Label>
@@ -151,14 +151,14 @@ function Field({ label, hint, children, className }: { label: string; hint?: str
   );
 }
 
-const control = "h-11 md:h-9";
+export const control = "h-11 md:h-9";
 const NONE = "__none";
 
-function DateField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function DateField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return <DatePickerInput value={value} onChange={(e) => onChange(e.target.value)} className={control} />;
 }
 
-function FormShell({
+export function FormShell({
   open,
   onClose,
   title,
@@ -228,7 +228,7 @@ function FormShell({
   );
 }
 
-function useSave(run: () => Promise<unknown>, done: (result: any) => void) {
+export function useSave(run: () => Promise<unknown>, done: (result: any) => void) {
   const [error, setError] = useState<string | null>(null);
   const m = useMutation({
     mutationFn: run,

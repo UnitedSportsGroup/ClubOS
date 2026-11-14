@@ -83,6 +83,7 @@ import {
   Bell,
   Link2,
   Target,
+  Filter,
   Activity,
   Images,
   Warehouse,
@@ -525,6 +526,8 @@ const groupNav = [
     children: [
       { tab: "marketing-ideas", title: "Ideas", url: "/admin/marketing-ideas", icon: Lightbulb },
       { tab: "campaign-planner", title: "Campaigns", url: "/admin/campaigns", icon: Target },
+      // Funnels live inside campaigns; this page shows every funnel at once. Same permission.
+      { tab: "campaign-planner", title: "Funnels", url: "/admin/funnels", icon: Filter },
       { tab: "social-media", title: "Social Media", url: "/admin/social-media", icon: AtSign },
       { tab: "web-analytics", title: "Websites", url: "/admin/web-analytics", icon: MousePointerClick },
       { tab: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads", icon: Megaphone },

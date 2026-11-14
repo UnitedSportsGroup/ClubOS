@@ -105,6 +105,7 @@ const MarketingHub = lazy(() => import("@/pages/marketing-hub"));
 const SocialMedia = lazy(() => import("@/pages/social-media"));
 const WebAnalytics = lazy(() => import("@/pages/web-analytics"));
 const CampaignsPage = lazy(() => import("@/pages/campaigns"));
+const FunnelsPage = lazy(() => import("@/pages/funnels"));
 const CampaignDetailPage = lazy(() => import("@/pages/campaign-detail"));
 const PaidAdsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.PaidAdsPage })));
 const EmailStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.EmailStatsPage })));
@@ -504,6 +505,7 @@ function AdminRouter() {
         <Route path="/admin/web-analytics" component={WebAnalytics} />
         <Route path="/admin/campaigns" component={CampaignsPage} />
         <Route path="/admin/campaigns/:id" component={CampaignDetailPage} />
+        <Route path="/admin/funnels" component={FunnelsPage} />
         <Route path="/admin/paid-ads" component={PaidAdsPage} />
         <Route path="/admin/email-stats" component={EmailStatsPage} />
         <Route path="/admin/sms-stats" component={SmsStatsPage} />
