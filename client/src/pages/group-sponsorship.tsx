@@ -364,7 +364,7 @@ export default function GroupSponsorship() {
         {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
         {view === "breweries" && <BreweriesView />}
         {view === "partners" && <PartnersView />}
-        {view === "content" && <SponsorContentGrid />}
+        {view === "content" && <div className="p-4 sm:p-6"><SponsorContentGrid /></div>}
         {view === "pipeline" && (dealsLoading ? (
           <div className="flex gap-3 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}
