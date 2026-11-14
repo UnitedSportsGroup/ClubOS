@@ -7,7 +7,7 @@ import { Download, FileText, Loader2, X, ChevronLeft, ChevronRight, Play } from 
 import { ShareReport } from "./drive-share-report";
 
 interface SharedFile { id: number; name: string; folder: string; kind: "image" | "video" | "file"; sizeBytes: number | null }
-interface Payload { title: string; files: SharedFile[] }
+interface Payload { title: string; url?: string | null; files: SharedFile[] }
 
 const size = (n: number | null) => {
   if (n === null) return "";
@@ -16,8 +16,11 @@ const size = (n: number | null) => {
 };
 
 export default function DriveShare() {
+  // Two addresses reach this page: /share/<long token> on the app's own host, and
+  // <sponsor>/<short code> on the club's media host. Either key works with the API.
   const [, params] = useRoute("/share/:token");
-  const token = params?.token ?? "";
+  const [, pretty] = useRoute("/:slug/:code");
+  const token = params?.token ?? pretty?.code ?? "";
   const base = `/api/public/drive-share/${token}`;
   // Opened from inside ClubOS: `?from=` is where the staff member came from, so
   // the page offers the way back there and the look is not counted as the sponsor's.
@@ -90,7 +93,7 @@ export default function DriveShare() {
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2 sm:px-6">
             <a href={from} className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-slate-800 hover:underline" data-testid="share-back"><ChevronLeft className="h-4 w-4" /> Back to ClubOS</a>
             <span className="text-xs text-slate-600">You are seeing what the sponsor sees.</span>
-            <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/share/${token}`)} className="ml-auto inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50" data-testid="share-copy">Copy the sponsor's link</button>
+            <button onClick={() => navigator.clipboard.writeText(data?.url || `${window.location.origin}/share/${token}`)} className="ml-auto inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50" data-testid="share-copy">Copy the sponsor's link</button>
           </div>
         </div>
       )}

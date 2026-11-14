@@ -31,8 +31,13 @@ const CONTENT_TAB = "sponsorship";
 const CONTENT_WORKSPACE = "united-sports-group";
 
 const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : r?.rows ?? []);
-const publicBase = () => process.env.PUBLIC_APP_URL || "https://app.usg.co.nz";
-export const shareUrl = (token: string) => `${publicBase()}/share/${token}`;
+// The address a sponsor is given: the club's own domain, the sponsor's name and
+// a short code. `media.southislandunited.com` is this same app on another host.
+const shareBase = () => process.env.SPONSOR_SHARE_BASE || "https://media.southislandunited.com";
+const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "content";
+export const shareUrl = (name: string, code: string) => `${shareBase()}/${slugOf(name)}/${code}`;
+const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no look-alikes (0 O 1 l I o)
+const newShortCode = () => Array.from(randomBytes(12)).map((b) => ALPHABET[b % ALPHABET.length]).join("");
 
 /** The root every shareable folder lives under. Staff-side it is gated like the
  *  contracts folder (Sponsorship tab, United Sports Group). */
@@ -81,8 +86,12 @@ async function filesUnder(rootId: number): Promise<any[]> {
 }
 
 async function liveLink(token: string): Promise<{ id: number; nodeId: number; label: string | null; folder: { id: number; name: string } } | null> {
-  if (!/^[A-Za-z0-9_-]{32,80}$/.test(token)) return null;
-  const r = rowsOf(await db.execute(sql`SELECT id, node_id, label FROM drive_share_links WHERE token = ${token} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) LIMIT 1`));
+  // Either the long token (links sent before the clean address existed) or the short code.
+  const long = /^[A-Za-z0-9_-]{32,80}$/.test(token); const short = /^[A-Za-z0-9]{12,20}$/.test(token);
+  if (!long && !short) return null;
+  const r = rowsOf(await db.execute(long
+    ? sql`SELECT id, node_id, label FROM drive_share_links WHERE token = ${token} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) LIMIT 1`
+    : sql`SELECT id, node_id, label FROM drive_share_links WHERE short_code = ${token} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) LIMIT 1`));
   if (!r[0]) return null;
   const folder = await shareableFolder(Number(r[0].node_id));
   if (!folder) return null;
@@ -113,8 +122,10 @@ export function registerDriveShareRoutes(app: Express) {
       // A staff member looking from inside ClubOS is not the sponsor opening it.
       if (req.query.preview !== "1") await db.execute(sql`UPDATE drive_share_links SET view_count = view_count + 1, last_viewed_at = now() WHERE id = ${link.id}`);
       res.setHeader("Cache-Control", "no-store");
+      const sc = rowsOf(await db.execute(sql`SELECT short_code FROM drive_share_links WHERE id = ${link.id}`))[0]?.short_code;
       res.json({
         title: link.label || link.folder.name,
+        url: sc ? shareUrl(link.folder.name, sc) : null,
         files: files.map((f) => ({ id: Number(f.id), name: f.name, folder: f.folder || "", kind: kindOf(f.mime_type, f.name), sizeBytes: f.size_bytes === null ? null : Number(f.size_bytes) })),
       });
     } catch (e: any) { console.error("[drive-share] list failed:", e); res.status(500).json({ message: "Something went wrong" }); }
@@ -286,14 +297,14 @@ export function registerDriveShareRoutes(app: Express) {
       const sponsors: any[] = [];
       for (const f of folders) {
         const files = await filesUnder(Number(f.id));
-        const l = rowsOf(await db.execute(sql`SELECT token, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${Number(f.id)} AND revoked_at IS NULL LIMIT 1`))[0];
+        const l = rowsOf(await db.execute(sql`SELECT token, short_code, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${Number(f.id)} AND revoked_at IS NULL LIMIT 1`))[0];
         const covers = files.filter((x) => kindOf(x.mime_type, x.name) === "image").slice(0, 3).map((x) => Number(x.id));
         sponsors.push({
           nodeId: Number(f.id), name: f.name, files: files.length,
           pictures: files.filter((x) => kindOf(x.mime_type, x.name) === "image").length,
           videos: files.filter((x) => kindOf(x.mime_type, x.name) === "video").length,
           sizeBytes: files.reduce((n, x) => n + Number(x.size_bytes ?? 0), 0),
-          link: l ? { token: l.token, url: shareUrl(l.token), views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
+          link: l ? { token: l.token, url: shareUrl(f.name, l.short_code), views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
           covers,
         });
       }
@@ -306,8 +317,8 @@ export function registerDriveShareRoutes(app: Express) {
       const s = await staffFolder(req, Number(req.params.nodeId));
       if (!s) return res.status(404).json({ message: "Not found" });
       if (!s.folder) return res.json({ shareable: false, link: null });
-      const r = rowsOf(await db.execute(sql`SELECT token, created_at, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${s.folder.id} AND revoked_at IS NULL LIMIT 1`));
-      res.json({ shareable: true, link: r[0] ? { url: shareUrl(r[0].token), createdAt: r[0].created_at, views: Number(r[0].view_count), downloads: Number(r[0].download_count), lastViewedAt: r[0].last_viewed_at } : null });
+      const r = rowsOf(await db.execute(sql`SELECT short_code, created_at, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${s.folder.id} AND revoked_at IS NULL LIMIT 1`));
+      res.json({ shareable: true, link: r[0] ? { url: shareUrl(s.folder.name, r[0].short_code), createdAt: r[0].created_at, views: Number(r[0].view_count), downloads: Number(r[0].download_count), lastViewedAt: r[0].last_viewed_at } : null });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -317,7 +328,7 @@ export function registerDriveShareRoutes(app: Express) {
       if (!s) return res.status(404).json({ message: "Not found" });
       if (!s.folder) return res.status(400).json({ message: "Only a folder inside Sponsor Content can be shared by link" });
       const link = await createShareLink(s.folder.id, s.viewer.userId);
-      res.json({ shareable: true, link: { url: shareUrl(link.token), views: 0, downloads: 0 } });
+      res.json({ shareable: true, link: { url: link.url, views: 0, downloads: 0 } });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -332,12 +343,12 @@ export function registerDriveShareRoutes(app: Express) {
 }
 
 /** The folder's one live link (made if there is none). */
-export async function createShareLink(nodeId: number, userId: number | null): Promise<{ token: string }> {
+export async function createShareLink(nodeId: number, userId: number | null): Promise<{ token: string; shortCode: string; url: string }> {
   const folder = await shareableFolder(nodeId);
   if (!folder) throw new Error("Only a folder inside Sponsor Content can be shared by link");
-  const ex = rowsOf(await db.execute(sql`SELECT token FROM drive_share_links WHERE node_id = ${nodeId} AND revoked_at IS NULL LIMIT 1`));
-  if (ex[0]) return { token: ex[0].token };
-  const token = randomBytes(32).toString("base64url");
-  await db.execute(sql`INSERT INTO drive_share_links (token, node_id, label, created_by) VALUES (${token}, ${nodeId}, ${folder.name}, ${userId})`);
-  return { token };
+  const ex = rowsOf(await db.execute(sql`SELECT token, short_code FROM drive_share_links WHERE node_id = ${nodeId} AND revoked_at IS NULL LIMIT 1`));
+  if (ex[0]) return { token: ex[0].token, shortCode: ex[0].short_code, url: shareUrl(folder.name, ex[0].short_code) };
+  const token = randomBytes(32).toString("base64url"); const shortCode = newShortCode();
+  await db.execute(sql`INSERT INTO drive_share_links (token, short_code, node_id, label, created_by) VALUES (${token}, ${shortCode}, ${nodeId}, ${folder.name}, ${userId})`);
+  return { token, shortCode, url: shareUrl(folder.name, shortCode) };
 }

@@ -11,7 +11,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, pool } from "../server/db";
 import { driveNodes } from "@shared/schema";
 import { driveStorage } from "../server/drive-storage";
-import { ensureSponsorContentRoot, createShareLink, shareUrl } from "../server/drive-share";
+import { ensureSponsorContentRoot, createShareLink } from "../server/drive-share";
 
 const [dir, collection] = process.argv.slice(2); const COMMIT = process.argv.includes("--commit"); const USER = 1;
 const MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", mp4: "video/mp4", mov: "video/quicktime", csv: "text/csv", txt: "text/plain", pdf: "application/pdf" };
@@ -50,7 +50,7 @@ const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true })
       const r = await file(pid, f); if (r === "added") { added++; bytes += fs.statSync(f).size; } else there++;
     }
     let url = "(link made on --commit)";
-    if (COMMIT) url = shareUrl((await createShareLink(sId, USER)).token);
+    if (COMMIT) url = (await createShareLink(sId, USER)).url;
     console.log(`${sponsor}\t${added} added (${(bytes / 1e6).toFixed(1)} MB), ${there} already there\t${url}`);
   }
   console.log(COMMIT ? "DONE" : "rehearsal only: nothing uploaded");

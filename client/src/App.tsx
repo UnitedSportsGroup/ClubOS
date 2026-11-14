@@ -937,6 +937,14 @@ function App() {
             <Route path="/receipt/:token" component={PosReceipt} />
             {/* The counter screen — our app on the Stripe S710 shows this page. */}
             <Route path="/counter" component={PosCounter} />
+            {/* media.<club domain> = sponsor content pages only: <sponsor>/<code>.
+                Checked by hostname so the two-part address cannot collide with any other route. */}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && <Route path="/:slug/:code" component={DriveShare} />}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && (
+              <Route path="/">
+                <div className="grid min-h-screen place-items-center bg-white px-6 text-center"><p className="text-sm text-slate-600">South Island United partner content. Open the link you were sent.</p></div>
+              </Route>
+            )}
             <Route path="/">
               {(() => {
                 // Hostname-based routing for the public root:
