@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { Check, Minus, Plus, Share, X, Loader2 } from "lucide-react";
-import { WELLNESS_ITEMS, SORE_AREAS } from "@shared/performance";
+import { Check, Share, X, Loader2 } from "lucide-react";
+import { answerText, liveQuestions, type Answers, type FormDef } from "@shared/perf-forms";
+import { AnswerList, CheckInForm } from "@/components/performance/checkin-form";
 
 // SIU Performance Hub, the player's phone. Public routes, cookie session.
 // Plain fetch with credentials: these are NOT admin routes, no workspace header.
@@ -33,13 +34,9 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 function parts(iso: string) { const [y, m, d] = iso.split("-").map(Number); return { y, m, d }; }
 function longDate(iso: string) { const { y, m, d } = parts(iso); return `${DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ${MONTHS[m - 1]}`; }
 function shortDate(iso: string) { const { m, d } = parts(iso); return `${d} ${MONTHS[m - 1].slice(0, 3)}`; }
-function dayBefore(iso: string) { const { y, m, d } = parts(iso); return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10); }
 
 const AVAIL: Record<string, string> = { available: "Available", modified: "Modified training", limited: "Modified training", injured: "Injured", unavailable: "Not available", ill: "Unwell", rehab: "Rehab" };
 
-const CR10: Record<number, string> = { 0: "Rest", 1: "Very easy", 2: "Easy", 3: "Moderate", 4: "Somewhat hard", 5: "Hard", 6: "", 7: "Very hard", 8: "", 9: "Very very hard", 10: "Maximal" };
-const KINDS = [["training", "Training"], ["match", "Match"], ["gym", "Gym"], ["other", "Other"]] as const;
-const SCALE_TINT = ["#C0504D", "#C98A4B", "#C59949", "#8FA85A", "#4F9A66"];
 
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -76,23 +73,6 @@ const Msg = ({ kind, children }: { kind: "ok" | "err"; children: ReactNode }) =>
 const inputStyle = { background: "#0B0B0B", border: `1px solid ${C.line}`, color: C.ink, minHeight: 48 } as const;
 const inputCls = "w-full rounded-xl px-3 text-base outline-none focus:ring-2 focus:ring-[#C59949]";
 
-function Stepper({ value, onChange, min, max, step, label, unit }: { value: number; onChange: (n: number) => void; min: number; max: number; step: number; label: string; unit?: string }) {
-  const set = (n: number) => onChange(Math.min(max, Math.max(min, Math.round(n * 10) / 10)));
-  const b = "flex h-12 w-12 items-center justify-center rounded-xl";
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <button type="button" aria-label={`Less ${label}`} className={b} style={{ border: `1px solid ${C.line}`, background: "#0B0B0B" }} onClick={() => set(value - step)}><Minus size={20} /></button>
-      <div className="text-center text-2xl font-semibold tabular-nums">{value}<span className="ml-1 text-sm font-normal" style={{ color: C.mute }}>{unit}</span></div>
-      <button type="button" aria-label={`More ${label}`} className={b} style={{ border: `1px solid ${C.line}`, background: "#0B0B0B" }} onClick={() => set(value + step)}><Plus size={20} /></button>
-    </div>
-  );
-}
-function Chip({ on, children, onClick }: { on: boolean; children: ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick} className="min-h-[44px] rounded-full px-4 text-sm font-medium"
-      style={on ? { background: C.gold, color: "#0B0B0B", border: `1px solid ${C.gold}` } : { background: "#0B0B0B", color: C.ink, border: `1px solid ${C.line}` }}>{children}</button>
-  );
-}
 
 // ─── Sign in ────────────────────────────────────────────────────────────────
 function SignIn({ onDone }: { onDone: () => void }) {
@@ -127,163 +107,8 @@ function SignIn({ onDone }: { onDone: () => void }) {
       </form>
       <button type="button" onClick={link} disabled={busy} className="mt-4 min-h-[44px] w-full text-center text-sm underline" style={{ color: C.gold }}>
         Forgot password or first time? Email me a link</button>
+      <a href="/athlete?demo=1" className="mt-2 flex min-h-[44px] w-full items-center justify-center text-center text-sm underline" style={{ color: C.mute }}>See a demo (no sign-in, nothing saved)</a>
     </Shell>
-  );
-}
-
-// ─── Morning check-in form ──────────────────────────────────────────────────
-type Answers = Record<string, number | null>;
-function WellnessCard({ me, onSaved }: { me: Me; onSaved: () => Promise<void> }) {
-  const done = me.todayCheckIn;
-  const [editing, setEditing] = useState(false);
-  const [ans, setAns] = useState<Answers>({});
-  const [hours, setHours] = useState(8);
-  const [hoursSet, setHoursSet] = useState(false);
-  const [sore, setSore] = useState<string[]>([]);
-  const [flag, setFlag] = useState(false);
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState(false);
-
-  const startEdit = () => {
-    if (done) {
-      setAns({ sleep: done.sleep, fatigue: done.fatigue, soreness: done.soreness, stress: done.stress, mood: done.mood });
-      setHours(done.sleepHours ?? 8); setHoursSet(done.sleepHours != null); setSore(done.soreAreas ?? []); setFlag(!!done.medicalFlag); setNote(done.note ?? "");
-    }
-    setOk(false); setEditing(true);
-  };
-  const submit = async () => {
-    setBusy(true); setErr(null);
-    const body: Record<string, unknown> = { soreAreas: sore, medicalFlag: flag, note: note.trim() || undefined };
-    for (const i of WELLNESS_ITEMS) if (ans[i.key] != null) body[i.key] = ans[i.key];
-    if (hoursSet) body.sleepHours = hours;
-    try {
-      const r = await call("/wellness", "POST", body);
-      if (r.status === 200) { setEditing(false); setOk(true); await onSaved(); } else setErr(r.data?.message ?? "Could not save. Try again.");
-    } catch { setErr("No connection. Try again."); }
-    setBusy(false);
-  };
-
-  if (done && !editing) {
-    return (
-      <Card title="Morning check-in">
-        <p className="flex items-center gap-2 font-medium" style={{ color: "#8FC99B" }}><Check size={18} /> Done. Thanks.</p>
-        {ok && <Msg kind="ok">Saved.</Msg>}
-        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-          {WELLNESS_ITEMS.map((i) => (<div key={i.key} className="flex justify-between"><dt style={{ color: C.mute }}>{i.label}</dt><dd className="font-semibold tabular-nums">{done[i.key] ?? "–"}</dd></div>))}
-          <div className="flex justify-between"><dt style={{ color: C.mute }}>Sleep</dt><dd className="font-semibold">{done.sleepHours != null ? `${done.sleepHours} h` : "–"}</dd></div>
-        </dl>
-        {done.soreAreas?.length > 0 && <p className="mt-2 text-sm" style={{ color: C.mute }}>Sore: {done.soreAreas.join(", ")}</p>}
-        <div className="mt-4"><Btn kind="ghost" onClick={startEdit}>Edit</Btn></div>
-      </Card>
-    );
-  }
-  return (
-    <Card title="Morning check-in">
-      <p className="mb-3 text-sm" style={{ color: C.mute }}>Tap one number for each. 5 is best. You can skip any.</p>
-      {WELLNESS_ITEMS.map((i) => (
-        <div key={i.key} className="mb-4">
-          <p className="mb-1.5 text-sm font-medium">{i.label}</p>
-          <div className="grid grid-cols-5 gap-2" role="group" aria-label={i.label}>
-            {[1, 2, 3, 4, 5].map((n) => {
-              const on = ans[i.key] === n;
-              return (
-                <button key={n} type="button" aria-pressed={on} onClick={() => setAns((a) => ({ ...a, [i.key]: on ? null : n }))}
-                  className="min-h-[52px] rounded-xl text-lg font-semibold tabular-nums"
-                  style={on ? { background: SCALE_TINT[n - 1], color: "#0B0B0B", border: `2px solid ${C.ink}` } : { background: "#0B0B0B", color: C.ink, border: `1px solid ${C.line}`, borderBottom: `3px solid ${SCALE_TINT[n - 1]}` }}>{n}</button>
-              );
-            })}
-          </div>
-          <div className="mt-1 flex justify-between text-xs" style={{ color: C.mute }}><span>1 {i.low}</span><span>5 {i.high}</span></div>
-        </div>
-      ))}
-      <p className="mb-1.5 text-sm font-medium">Hours of sleep</p>
-      <div onClick={() => setHoursSet(true)}><Stepper value={hours} onChange={(n) => { setHours(n); setHoursSet(true); }} min={0} max={16} step={0.5} label="sleep" unit="h" /></div>
-      {!hoursSet && <p className="mt-1 text-xs" style={{ color: C.mute }}>Tap + or − to add your sleep hours.</p>}
-      <p className="mb-1.5 mt-5 text-sm font-medium">Anything sore?</p>
-      <div className="flex flex-wrap gap-2">{SORE_AREAS.map((a) => <Chip key={a} on={sore.includes(a)} onClick={() => setSore((s) => s.includes(a) ? s.filter((x) => x !== a) : [...s, a])}>{a}</Chip>)}</div>
-      <button type="button" role="switch" aria-checked={flag} onClick={() => setFlag((f) => !f)} className="mt-5 flex min-h-[52px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm"
-        style={{ background: "#0B0B0B", border: `1px solid ${flag ? C.gold : C.line}` }}>
-        <span>I have pain or an injury the physio should know about</span>
-        <span className="flex h-7 w-12 shrink-0 items-center rounded-full px-0.5" style={{ background: flag ? C.gold : "rgba(255,255,255,0.15)" }}>
-          <span className="h-6 w-6 rounded-full bg-white transition-transform" style={{ transform: flag ? "translateX(20px)" : "none" }} /></span>
-      </button>
-      <label className="mt-4 block text-sm" style={{ color: C.mute }}>Note for the physio (only medical staff see this)
-        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={3} className={`${inputCls} mt-1 py-2`} style={{ ...inputStyle, minHeight: 80 }} /></label>
-      {err && <Msg kind="err">{err}</Msg>}
-      <div className="mt-4 space-y-2"><Btn onClick={submit} disabled={busy}>{busy ? <Loader2 className="animate-spin" size={18} /> : null}{done ? "Save changes" : "Submit check-in"}</Btn>
-        {done && <Btn kind="ghost" onClick={() => setEditing(false)}>Cancel</Btn>}</div>
-    </Card>
-  );
-}
-
-// ─── After training ─────────────────────────────────────────────────────────
-function RpeCard({ me, onSaved, innerRef }: { me: Me; onSaved: () => Promise<void>; innerRef?: React.Ref<HTMLElement> }) {
-  const [rpe, setRpe] = useState<number | null>(null);
-  const [kind, setKind] = useState<string>("training");
-  const [minutes, setMinutes] = useState(75);
-  const [yesterday, setYesterday] = useState(false);
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState(false);
-  const pick = (k: string) => { setKind(k); setMinutes(k === "match" ? 90 : 75); };
-  const todays = me.rpe.filter((r) => r.date === me.today);
-  const submit = async () => {
-    if (rpe == null) { setErr("Pick how hard it was."); return; }
-    setBusy(true); setErr(null); setOk(false);
-    try {
-      const r = await call("/rpe", "POST", { rpe, kind, minutes, ...(yesterday ? { date: dayBefore(me.today) } : {}) });
-      if (r.status === 200) { setOk(true); setRpe(null); setYesterday(false); await onSaved(); } else setErr(r.data?.message ?? "Could not save. Try again.");
-    } catch { setErr("No connection. Try again."); }
-    setBusy(false);
-  };
-  return (
-    <Card title="After training" innerRef={innerRef}>
-      {todays.length > 0 && <div className="mb-3 text-sm" style={{ color: C.mute }}>Today so far: {todays.map((r, i) => <span key={i} className="mr-2">{r.kind} {r.rpe}/10{r.minutes ? `, ${r.minutes} min` : ""}</span>)}</div>}
-      <p className="mb-1.5 text-sm font-medium">How hard was today?</p>
-      <div className="grid grid-cols-4 gap-2">
-        {Array.from({ length: 11 }, (_, n) => {
-          const on = rpe === n;
-          return (
-            <button key={n} type="button" aria-pressed={on} onClick={() => setRpe(n)} className="min-h-[56px] rounded-xl px-1 py-1.5"
-              style={on ? { background: C.gold, color: "#0B0B0B", border: `2px solid ${C.ink}` } : { background: "#0B0B0B", color: C.ink, border: `1px solid ${C.line}` }}>
-              <span className="block text-lg font-semibold leading-tight tabular-nums">{n}</span>
-              <span className="block text-[10px] leading-tight" style={{ opacity: 0.8 }}>{CR10[n]}</span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="mb-1.5 mt-4 text-sm font-medium">What was it?</p>
-      <div className="flex flex-wrap gap-2">{KINDS.map(([k, l]) => <Chip key={k} on={kind === k} onClick={() => pick(k)}>{l}</Chip>)}</div>
-      <p className="mb-1.5 mt-4 text-sm font-medium">How many minutes?</p>
-      <Stepper value={minutes} onChange={setMinutes} min={1} max={300} step={5} label="minutes" unit="min" />
-      <button type="button" role="switch" aria-checked={yesterday} onClick={() => setYesterday((y) => !y)} className="mt-4 flex min-h-[48px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm"
-        style={{ background: "#0B0B0B", border: `1px solid ${yesterday ? C.gold : C.line}` }}>
-        <span>This was yesterday ({shortDate(dayBefore(me.today))})</span>
-        <span className="flex h-7 w-12 shrink-0 items-center rounded-full px-0.5" style={{ background: yesterday ? C.gold : "rgba(255,255,255,0.15)" }}>
-          <span className="h-6 w-6 rounded-full bg-white transition-transform" style={{ transform: yesterday ? "translateX(20px)" : "none" }} /></span>
-      </button>
-      {err && <Msg kind="err">{err}</Msg>}{ok && <Msg kind="ok">Saved. Thanks.</Msg>}
-      <div className="mt-4"><Btn onClick={submit} disabled={busy}>{busy ? <Loader2 className="animate-spin" size={18} /> : null}Submit effort</Btn></div>
-    </Card>
-  );
-}
-
-function HistoryCard({ me }: { me: Me }) {
-  const rows = me.history.slice(0, 28);
-  return (
-    <Card title="My last 4 weeks">
-      {rows.length === 0 ? <p className="text-sm" style={{ color: C.mute }}>No check-ins yet.</p> : (
-        <ul className="divide-y" style={{ borderColor: C.line }}>
-          {rows.map((h) => (
-            <li key={h.date} className="flex items-center gap-3 py-2 text-sm" style={{ borderColor: C.line }}>
-              <span className="w-16 shrink-0" style={{ color: C.mute }}>{shortDate(h.date)}</span>
-              <span className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
-                <span className="block h-full rounded-full" style={{ width: `${Math.min(100, ((h.score ?? 0) / 25) * 100)}%`, background: C.gold }} /></span>
-              <span className="w-12 shrink-0 text-right font-semibold tabular-nums">{h.score != null ? `${h.score}/25` : "–"}</span>
-              <span className="w-12 shrink-0 text-right tabular-nums" style={{ color: C.mute }}>{h.sleepHours != null ? `${h.sleepHours} h` : ""}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
   );
 }
 
@@ -308,11 +133,134 @@ function HomeHint() {
   );
 }
 
+// ─── The daily check-in form (Rowan's Smartabase form, editable by staff) ────
+interface FormPayload { today: string; form: { id: number; version: number; definition: FormDef } | null; todays: Answers | null; history: { date: string; answers: Answers }[] }
+
+function DailyCheckIn({ onSaved }: { onSaved?: () => void }) {
+  const [data, setData] = useState<FormPayload | null>(null);
+  const [err, setErr] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const load = useCallback(async () => {
+    try { const r = await call("/form", "GET"); if (r.status === 200) { setData(r.data); setErr(false); } else setErr(true); }
+    catch { setErr(true); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (err) return <Card title="Check-in"><p className="text-sm">Could not load today's check-in.</p><div className="mt-3"><Btn kind="ghost" onClick={load}>Try again</Btn></div></Card>;
+  if (!data) return <Card title="Check-in"><div className="flex justify-center py-6"><Loader2 className="animate-spin" /></div></Card>;
+  if (!data.form) return <Card title="Check-in"><p className="text-sm" style={{ color: C.mute }}>There's no check-in set up yet.</p></Card>;
+  const def = data.form.definition;
+  if (data.todays && !editing) {
+    return (
+      <>
+        <Card title={def.title}>
+          <p className="flex items-center gap-2 font-medium" style={{ color: "#8FC99B" }}><Check size={18} /> Done for today. Thanks.</p>
+          {justSaved && <Msg kind="ok">Saved.</Msg>}
+          <div className="mt-3"><AnswerList def={def} answers={data.todays} /></div>
+          <div className="mt-4"><Btn kind="ghost" onClick={() => { setJustSaved(false); setEditing(true); }}>Edit today's answers</Btn></div>
+        </Card>
+        <CheckInHistory def={def} history={data.history} />
+      </>
+    );
+  }
+  return (
+    <>
+      <h2 className="mt-5 text-lg font-semibold">{def.title}</h2>
+      {def.intro && <p className="mt-1 text-sm" style={{ color: C.mute }}>{def.intro}</p>}
+      <CheckInForm
+        key={editing ? "edit" : "new"}
+        def={def} initial={data.todays}
+        submitLabel={data.todays ? "Save changes" : "Submit check-in"}
+        onCancel={data.todays ? () => setEditing(false) : undefined}
+        onSubmit={async (answers) => {
+          const r = await call("/checkin", "POST", { answers });
+          if (r.status !== 200) return { ok: false, message: r.data?.message, questionId: r.data?.questionId };
+          setEditing(false); setJustSaved(true); await load(); onSaved?.(); window.scrollTo({ top: 0, behavior: "smooth" });
+          return { ok: true };
+        }} />
+      <CheckInHistory def={def} history={data.history} />
+    </>
+  );
+}
+
+/** The player's own last four weeks: the first 0–10 scale on the form (Rowan's "How ready am I"). */
+function CheckInHistory({ def, history }: { def: FormDef; history: { date: string; answers: Answers }[] }) {
+  const scale = liveQuestions(def).find((q) => q.type === "scale");
+  const sleep = liveQuestions(def).find((q) => q.type === "choice" && /sleep/i.test(q.label));
+  return (
+    <Card title="My last 4 weeks">
+      {history.length === 0 ? <p className="text-sm" style={{ color: C.mute }}>No check-ins yet.</p> : (
+        <ul>
+          {history.slice(0, 28).map((h) => {
+            const v = scale ? h.answers[scale.id] : undefined;
+            const max = scale?.max ?? 10;
+            return (
+              <li key={h.date} className="flex items-center gap-3 border-b py-2 text-sm last:border-0" style={{ borderColor: C.line }}>
+                <span className="w-16 shrink-0" style={{ color: C.mute }}>{shortDate(h.date)}</span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <span className="block h-full rounded-full" style={{ width: `${typeof v === "number" ? Math.min(100, (v / max) * 100) : 0}%`, background: C.gold }} /></span>
+                <span className="w-10 shrink-0 text-right font-semibold tabular-nums">{typeof v === "number" ? `${v}/${max}` : "–"}</span>
+                <span className="w-24 shrink-0 truncate text-right text-xs" style={{ color: C.mute }}>{sleep ? answerText(sleep, h.answers[sleep.id]) : ""}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {scale && <p className="mt-2 text-xs" style={{ color: C.mute }}>{scale.label}{sleep ? ` · ${sleep.label}` : ""}</p>}
+    </Card>
+  );
+}
+
+/** join.southislandunited.com/athlete?demo=1 — the real form, nothing saved, no sign-in. */
+function AthleteDemo() {
+  const [data, setData] = useState<{ today: string; form: { definition: FormDef } | null } | null>(null);
+  const [err, setErr] = useState(false);
+  const [sent, setSent] = useState<Answers | null>(null);
+  const [round, setRound] = useState(0);
+  useEffect(() => { call("/demo-form", "GET").then((r) => (r.status === 200 ? setData(r.data) : setErr(true))).catch(() => setErr(true)); }, []);
+  const banner = (
+    <div className="mt-4 rounded-2xl p-3 text-sm" style={{ background: C.pine, border: `1px solid ${C.gold}` }} data-testid="demo-banner">
+      <strong>Demo.</strong> This is exactly what a player sees. Nothing you enter here is saved and no one is signed in.
+    </div>
+  );
+  return (
+    <Shell>
+      <header className="flex items-center gap-3">
+        <Crest size={44} />
+        <div className="min-w-0"><h1 className="truncate text-xl font-semibold">Kia ora</h1>
+          <p className="text-sm" style={{ color: C.mute }}>{data ? longDate(data.today) : "Player check-in"}</p></div>
+      </header>
+      {banner}
+      {err && <Msg kind="err">Could not load the demo. Check your connection.</Msg>}
+      {!data && !err && <div className="flex justify-center pt-16"><Loader2 className="animate-spin" /></div>}
+      {data && !data.form && <Msg kind="err">There's no check-in form set up yet.</Msg>}
+      {data?.form && (sent ? (
+        <Card title="Done for today. Thanks.">
+          <p className="mb-3 text-sm" style={{ color: C.mute }}>This is the screen a player sees after submitting. In the demo, nothing was saved.</p>
+          <AnswerList def={data.form.definition} answers={sent} />
+          <div className="mt-4"><Btn kind="ghost" onClick={() => { setSent(null); setRound((n) => n + 1); window.scrollTo({ top: 0 }); }}>Try it again</Btn></div>
+        </Card>
+      ) : (
+        <>
+          <h2 className="mt-5 text-lg font-semibold">{data.form.definition.title}</h2>
+          {data.form.definition.intro && <p className="mt-1 text-sm" style={{ color: C.mute }}>{data.form.definition.intro}</p>}
+          <CheckInForm key={round} def={data.form.definition} submitLabel="Submit check-in (demo, not saved)"
+            onSubmit={async (answers) => { setSent(answers); window.scrollTo({ top: 0, behavior: "smooth" }); return { ok: true }; }} />
+        </>
+      ))}
+    </Shell>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 export function AthleteCheckIn() {
+  const demo = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
+  return demo ? <AthleteDemo /> : <AthleteCheckInSignedIn />;
+}
+
+function AthleteCheckInSignedIn() {
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<"loading" | "out" | "in" | "error">("loading");
-  const rpeRef = useRef<HTMLElement | null>(null);
   const load = useCallback(async () => {
     try {
       const r = await call("/me", "GET");
@@ -323,8 +271,6 @@ export function AthleteCheckIn() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const afterWellness = async () => { await load(); setTimeout(() => rpeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
-  const afterRpe = async () => { await load(); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const signOut = async () => { try { await call("/sign-out", "POST"); } catch { /* ignore */ } setMe(null); setState("out"); };
 
   if (state === "loading") return <Shell><div className="flex justify-center pt-32"><Loader2 className="animate-spin" /></div></Shell>;
@@ -347,9 +293,7 @@ export function AthleteCheckIn() {
       </div>
       <p className="mt-3 text-xs" style={{ color: C.mute }}>Takes 30 seconds. Only SIU performance staff see your answers.</p>
       <HomeHint />
-      <WellnessCard me={me} onSaved={afterWellness} />
-      <RpeCard me={me} onSaved={afterRpe} innerRef={rpeRef} />
-      <HistoryCard me={me} />
+      <DailyCheckIn onSaved={load} />
       <button type="button" onClick={signOut} className="mt-6 min-h-[44px] w-full text-center text-sm underline" style={{ color: C.mute }}>Sign out</button>
     </Shell>
   );

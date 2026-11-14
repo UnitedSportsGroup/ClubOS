@@ -40,6 +40,8 @@ import { pool } from "./db";
 import { sendEmail, SIU_FROM } from "./email";
 import { storage } from "./storage";
 import { registerCatapultSyncRoutes } from "./catapult-sync";
+import { registerPerformanceFormRoutes, todaysCheckIns } from "./performance-forms";
+import { answerText, liveQuestions, type FormDef } from "@shared/perf-forms";
 
 const BASE = "/api/admin/performance";
 const PUB = "/api/public/athlete";
@@ -177,6 +179,18 @@ const spellOut = (r: Row, medical: boolean) => ({
   hasNotes: !!r.notes,
   recordedBy: [r.rf, r.rl].filter(Boolean).join(" ") || null,
 });
+
+/** Two "what to look at" flags into one: the worse level, both sets of reasons. Null when neither exists. */
+function mergeFlags(a: { level: "red" | "amber" | null; reasons: string[] } | null, b: { level: "red" | "amber" | null; reasons: string[] } | null) {
+  if (!a && !b) return null;
+  const levels = [a?.level, b?.level];
+  return { level: levels.includes("red") ? "red" as const : levels.includes("amber") ? "amber" as const : null, reasons: [...(a?.reasons ?? []), ...(b?.reasons ?? [])] };
+}
+/** A few answers in words for the board ("Ready 7 · Sleep Normal · Areas: Right Pelvis"). */
+function checkInSummary(def: FormDef, answers: Record<string, any>): { label: string; text: string }[] {
+  return liveQuestions(def).filter((x) => x.type !== "text" && answers[x.id] != null).slice(0, 8)
+    .map((x) => ({ label: x.short ?? x.label, text: answerText(x, answers[x.id]) }));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Athlete-account crypto (Team Pay captain scheme)
@@ -316,6 +330,8 @@ export function registerPerformanceRoutes(app: Express) {
   const gate = [requireAuth, requirePerformance] as const;
   // Catapult One live sync: status + "Sync now" (server/catapult-sync.ts).
   registerCatapultSyncRoutes(app, gate);
+  // Check-in forms, the report, staff entry, the player's daily form and the demo.
+  registerPerformanceFormRoutes(app, { gate, viewer, roster, onRoster, requireAthlete, athleteOf, siuOrg, handle });
 
   // ── catalogue ──────────────────────────────────────────────────────────────
   app.get(`${BASE}/catalogue`, ...gate, handle(async (req, res) => {
@@ -362,12 +378,16 @@ export function registerPerformanceRoutes(app: Express) {
       q(`select a.id, a.source, a.source_athlete_key, a.source_name, a.source_squads, (select count(*)::int from perf_metric_values m where m.athlete_id = a.id) readings
          from perf_athletes a where a.organization_id = $1 and a.contact_id is null order by a.last_seen_at desc`, [v.org]),
     ]);
+    const ci = await todaysCheckIns(v.org, ids, today);
     const rpeToday = ids.length ? await q(`select contact_id, kind, rpe, minutes, date from perf_rpe where organization_id = $1 and contact_id = any($2::int[]) and date between $3 and $4`, [v.org, ids, addDays(today, -1), today]) : [];
 
     const out = players.map((p) => {
       const mine = wellRows.filter((w) => w.contact_id === p.contactId).map(toWellness);
       const todayW = mine.find((w) => w.date === today) ?? null;
-      const flag = todayW ? wellnessFlag(todayW, mine) : null;
+      const wFlag = todayW ? wellnessFlag(todayW, mine) : null;
+      // The daily check-in form's answers (Rowan's form) — its flag joins the old 1–5 wellness flag.
+      const ciRow = ci.byContact.get(p.contactId) ?? null;
+      const flag = mergeFlags(wFlag, ciRow ? { level: ciRow.flag_level ?? null, reasons: ciRow.flag_reasons ?? [] } : null);
       const sp = spells.filter((s) => s.contact_id === p.contactId);
       const av = availabilityOn(sp.map((s) => ({ status: s.status, startedOn: isoOf(s.started_on)!, endedOn: isoOf(s.ended_on) })), today);
       const openSpell = sp.find((s) => isoOf(s.started_on)! <= today && (s.ended_on == null || isoOf(s.ended_on)! >= today));
@@ -386,6 +406,10 @@ export function registerPerformanceRoutes(app: Express) {
           // 🔴 medical only
           medicalFlag: v.medical ? todayW.medicalFlag : undefined, note: v.medical ? todayW.note : undefined,
         } : null,
+        checkIn: ciRow && ci.form ? {
+          id: ciRow.id, flag: ciRow.flag_level ?? null, reasons: ciRow.flag_reasons ?? [], byAthlete: !!ciRow.entered_by_athlete,
+          summary: checkInSummary(ci.form.definition, ciRow.answers),
+        } : null,
         rpe: rpeToday.filter((r) => r.contact_id === p.contactId).map((r) => ({ date: isoOf(r.date), kind: r.kind, rpe: r.rpe, minutes: r.minutes })),
         load: ls,
         readiness: readiness({ availability: av.state, wellness: flag, load: ls }),
@@ -401,8 +425,8 @@ export function registerPerformanceRoutes(app: Express) {
         available: out.filter((p) => p.availability.state === "available").length,
         modified: out.filter((p) => p.availability.state === "modified").length,
         out: out.filter((p) => ["injured", "ill", "unavailable"].includes(p.availability.state)).length,
-        checkedIn: out.filter((p) => p.wellness).length,
-        flagged: out.filter((p) => p.wellness?.flag).length,
+        checkedIn: out.filter((p) => p.wellness || p.checkIn).length,
+        flagged: out.filter((p) => p.wellness?.flag || p.checkIn?.flag).length,
         accounts: out.filter((p) => p.account === "active").length,
       },
       unlinked,
@@ -434,7 +458,9 @@ export function registerPerformanceRoutes(app: Express) {
     const spellList = spells.map((s) => spellOut(s, v.medical));
     const av = availabilityOn(spellList as AvailabilitySpell[], today);
     const todayW = wRows.find((w) => w.date === today) ?? null;
-    const flag = todayW ? wellnessFlag(todayW, wRows) : null;
+    const ciOne = await todaysCheckIns(v.org, [id], today);
+    const ciR = ciOne.byContact.get(id);
+    const flag = mergeFlags(todayW ? wellnessFlag(todayW, wRows) : null, ciR ? { level: ciR.flag_level ?? null, reasons: ciR.flag_reasons ?? [] } : null);
     const ls = loadSummary(series, l.first, today);
     // Every metric's history, grouped — the one dashboard every source feeds.
     const metrics: Record<string, { date: string; value: number; source: string }[]> = {};

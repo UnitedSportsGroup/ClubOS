@@ -66,6 +66,7 @@ export interface BoardPlayer {
   contactId: number; name: string; position: string | null; squadNumber: number | null; squad: string; email: string | null;
   availability: { state: string; since: string | null; expectedReturn: string | null; bodyArea: string | null };
   wellness: null | { score: number | null; flag: "red" | "amber" | null; reasons: string[]; items: Record<string, number | null>; sleepHours: number | null; soreAreas: string[]; byAthlete: boolean; medicalFlag?: boolean | null; note?: string | null };
+  checkIn: null | { id: number; flag: "red" | "amber" | null; reasons: string[]; byAthlete: boolean; summary: { label: string; text: string }[] };
   rpe: { date: string; kind: string; rpe: number; minutes: number | null }[];
   load: LoadSummary; readiness: Readiness; gps: Record<string, GpsValue>;
   account: "none" | "invited" | "active" | "disabled"; lastSignIn: string | null;

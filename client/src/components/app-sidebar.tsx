@@ -121,6 +121,9 @@ import {
   Stethoscope as PerfStethoscope,
   Gauge as PerfGauge,
   Database as PerfDatabase,
+  ClipboardCheck as PerfClipboard,
+  ListChecks as PerfForm,
+  Smartphone as PerfPhone,
   Upload as PerfUpload,
   Timer as PerfTimer,
   FlaskConical as PerfFlask,
@@ -231,6 +234,7 @@ const STORE_CHILDREN = [
 
 // SIU Performance Hub (2026-11-14) — one tab slug, each area its own URL.
 const PERFORMANCE_CHILDREN = [
+  { tab: "performance", title: "Check-ins", url: "/admin/performance/checkins", icon: PerfClipboard },
   { tab: "performance", title: "Players", url: "/admin/performance/players", icon: Users },
   { tab: "performance", title: "Wellness", url: "/admin/performance/wellness", icon: PerfHeartPulse },
   { tab: "performance", title: "Load & GPS", url: "/admin/performance/load", icon: PerfGauge },
@@ -239,6 +243,8 @@ const PERFORMANCE_CHILDREN = [
   { tab: "performance", title: "Video", url: "/admin/performance/video", icon: Video },
   { tab: "performance", title: "Import data", url: "/admin/performance/import", icon: PerfUpload },
   { tab: "performance", title: "Data sources", url: "/admin/performance/sources", icon: PerfDatabase },
+  { tab: "performance", title: "Forms", url: "/admin/performance/forms", icon: PerfForm },
+  { tab: "performance", title: "Try player app", url: "/admin/performance/try", icon: PerfPhone },
 ];
 
 const campsNav = [

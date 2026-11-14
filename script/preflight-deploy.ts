@@ -162,6 +162,8 @@ const CANARIES: Canary[] = [
   { feature: "social media labels",  path: "/api/admin/social/labels",                  expect: [401] },
   { feature: "siu performance",      path: "/api/admin/performance/catalogue",          expect: [401] },
   { feature: "siu athlete check-in", path: "/api/public/athlete/me",                    expect: [401] },
+  { feature: "siu check-in forms",   path: "/api/admin/performance/checkins",           expect: [401] },
+  { feature: "siu check-in form (player)", path: "/api/public/athlete/form",           expect: [401] },
   { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
   { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },
   { feature: "campaigns",            path: "/api/admin/campaigns",                      expect: [401] },

@@ -11,6 +11,9 @@ import Testing from "./testing";
 import Video from "./video";
 import ImportData from "./import";
 import Sources from "./sources";
+import CheckIns from "./checkins";
+import Forms from "./forms";
+import TryPlayerApp from "./try";
 
 export default function PerformancePage() {
   const params = useParams<{ section?: string; contactId?: string }>();
@@ -26,6 +29,9 @@ export default function PerformancePage() {
     case "video": body = <Video />; break;
     case "import": body = <ImportData />; break;
     case "sources": body = <Sources />; break;
+    case "checkins": body = <CheckIns />; break;
+    case "forms": body = <Forms />; break;
+    case "try": body = <TryPlayerApp />; break;
     default: body = <Board />;
   }
   return <div className="p-4 md:p-6 max-w-7xl mx-auto min-w-0" data-testid="performance-page">{body}</div>;
