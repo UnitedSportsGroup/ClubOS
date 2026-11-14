@@ -243,7 +243,7 @@ const PERFORMANCE_CHILDREN = [
   { tab: "performance", title: "Import data", url: "/admin/performance/import", icon: PerfUpload },
   { tab: "performance", title: "Data sources", url: "/admin/performance/sources", icon: PerfDatabase },
   { tab: "performance", title: "Forms", url: "/admin/performance/forms", icon: PerfForm },
-  { tab: "performance", title: "Try the player app", url: "/admin/performance/try", icon: PerfPhone },
+  { tab: "performance", title: "Try player app", url: "/admin/performance/try", icon: PerfPhone },
 ];
 
 const campsNav = [
