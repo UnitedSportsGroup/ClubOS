@@ -168,6 +168,15 @@ export default function AdminMailer() {
   const [audTerm, setAudTerm] = useState<AudienceTerm>(null);
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<AudienceCatalogue>({
     queryKey: ["/api/admin/mailer/audiences", wsSlug],
+    // 🔴 An explicit queryFn, never the default one: the default fetcher JOINS
+    // the key into the URL, so adding wsSlug to the key (14 Nov) made this ask
+    // /api/admin/mailer/audiences/christchurch-united → 404, and By Programme
+    // read "Programmes could not be loaded" on CUFC for a day (Travis, Paul).
+    queryFn: async () => {
+      const r = await workspaceFetch("/api/admin/mailer/audiences");
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    },
     enabled: segmentType === "programme" && !!wsSlug,
     staleTime: 60_000,
   });
