@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { formatMetric, metricByKey } from "@shared/performance";
 import {
-  AvailBadge, BandPill, DateField, Empty, LevelDot, Loading, LoadError, PageHead, Panel, Pick, ScoreFlag, Stat,
+  AvailBadge, BandPill, DateField, Pill, Empty, LevelDot, Loading, LoadError, PageHead, Panel, Pick, ScoreFlag, Stat,
   TableWrap, td, th, niceDay, send, refresh, useOverview, useSaver, FormError, type BoardPlayer,
 } from "./ui";
 
@@ -69,7 +69,12 @@ export default function Board() {
                           {p.availability.bodyArea && <div className="text-xs text-muted-foreground">{p.availability.bodyArea}</div>}
                         </td>
                         <td className={td}>
-                          {p.wellness ? (
+                          {p.checkIn ? (
+                            <div className="space-y-0.5 max-w-[16rem]">
+                              {p.checkIn.flag ? <Pill tone={p.checkIn.flag}>{p.checkIn.flag === "red" ? "Concern" : "Take care"}</Pill> : <Pill tone="green">Checked in</Pill>}
+                              <div className="text-xs text-muted-foreground">{p.checkIn.summary.slice(0, 4).map((x) => `${x.label} ${x.text}`).join(" · ")}</div>
+                            </div>
+                          ) : p.wellness ? (
                             <>
                               <ScoreFlag score={p.wellness.score} flag={p.wellness.flag} />
                               {p.wellness.reasons.length > 0 && <div className="text-xs text-muted-foreground max-w-[14rem]">{p.wellness.reasons.join(", ")}</div>}
