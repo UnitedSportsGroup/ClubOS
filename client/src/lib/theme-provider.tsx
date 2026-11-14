@@ -79,6 +79,8 @@ function isPublicDarkSurface(): boolean {
     startsWithAny("/athlete") ||
     // e-Sign: the signing page and the payables declaration.
     startsWithAny("/sign", "/declaration", "/agree") ||
+    // A sponsor's proposal page: the club's own dark brand, every colour inline.
+    startsWithAny("/proposal") ||
     // The members' booking page and the membership purchase page.
     path === "/members" ||
     path === "/membership" ||

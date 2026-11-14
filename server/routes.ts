@@ -161,6 +161,7 @@ import { registerCicLeadRoutes } from "./cic-leads-routes";
 import { registerFisLeadRoutes } from "./fis-leads-routes";
 import { registerBreweryOfferRoutes } from "./brewery-offers";
 import { registerSponsorshipPartnerRoutes } from "./sponsorship-partners";
+import { registerSponsorProposalRoutes, sponsorProposalOnSigned } from "./sponsor-proposals";
 import { registerMarketingRoutes } from "./marketing/routes";
 import { registerFamilyRoutes, resolveFamily } from "./family-routes";
 import { registerMailerPeopleSearch } from "./mailer-people-search";
@@ -18439,6 +18440,8 @@ export async function registerRoutes(
     await db.update(esignDocuments).set({ status: "completed", completedAt: new Date(), signedPdf: signedB64 }).where(eq(esignDocuments.id, docId));
     await esignLog(docId, null, "completed", { meta: { signers: signers.length } });
     await esignSyncVendorStatus(docId, "signed");
+    // A signed Sponsorship Agreement becomes a Partner and its contract row (never throws).
+    await sponsorProposalOnSigned(docId);
     // email all parties + sender the completed PDF
     const [org] = await db.select().from(organizations).where(eq(organizations.id, doc.organizationId));
     const fromName = org?.name || "Christchurch United";
@@ -18775,7 +18778,7 @@ export async function registerRoutes(
         }
         if (v.type === "select" && raw && Array.isArray(v.options) && !v.options.includes(raw) && v.allowCustom !== true)
           return res.status(400).json({ message: `${v.label || v.key} must be one of the listed options` });
-        templateData[v.key] = raw.slice(0, 200);
+        templateData[v.key] = raw.slice(0, 1500); // long enough for a schedule of benefits
       }
 
       const title = `${tpl.name} — ${signerName}`;
@@ -25044,6 +25047,7 @@ export async function registerRoutes(
   registerBreweryOfferRoutes(app);
   // Sponsorship Partners — the sponsors we have already signed (server/sponsorship-partners.ts).
   registerSponsorshipPartnerRoutes(app);
+  registerSponsorProposalRoutes(app);
 
   // ── CIC "Become a Volunteer" → CIC Volunteers tab + email info@cicyouth.com ──
   // Posted cross-origin from cicyouth.com/volunteer. Lands as a 'new' volunteer

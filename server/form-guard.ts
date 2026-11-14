@@ -23,7 +23,7 @@ import { contentSignals, GUARD_THRESHOLD } from "@shared/form-guard";
  * it keeps this change out of three separate tables and three admin screens.
  */
 
-export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register" | "football_fest_expo" | "studio_enquiry";
+export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register" | "football_fest_expo" | "studio_enquiry" | "sponsor_proposal_accept";
 
 /* 🔴 Per-form policy, because the same rule is right on one form and wrong on
  * another.
@@ -58,6 +58,10 @@ const FORM_POLICY: Record<FormName, { expectsToken: boolean; allowLinks: boolean
   /* Content Studio pages: the server renders each page with a fresh token, so
    * it is always present. A business pasting its website is normal. */
   studio_enquiry: { expectsToken: true, allowLinks: true },
+  /* A sponsor accepting a proposal page. The page is handed a fresh token with
+   * the proposal itself, so one is always present. It has no free-text field,
+   * so apart from the honeypot it can only ever be flagged, never refused. */
+  sponsor_proposal_accept: { expectsToken: true, allowLinks: false },
 };
 
 export interface GuardVerdict {

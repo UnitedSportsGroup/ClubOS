@@ -44,6 +44,7 @@ const SRC = join(ROOT, "client/src");
  */
 const DECLARED_DARK = {
   "pages/agree.tsx": "e-Sign open link — wears the template's own dark brand (renders <ForceDarkSurface />).",
+  "pages/sponsor-proposal.tsx": "a sponsor's proposal page — /proposal/:token, matched by isPublicDarkSurface(); every colour inline, in the club's own dark brand",
   "components/studio/dark-chip.tsx": "a dark tile to judge a partner logo on; holds only an image, never text",
   "pages/venue-book.tsx": "USC venue booking — /book, matched by isPublicDarkSurface()",
   "pages/venue-book-success.tsx": "USC venue booking — /book/success",

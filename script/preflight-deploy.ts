@@ -176,6 +176,10 @@ const CANARIES: Canary[] = [
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
+  // Sponsor proposals & contracts (2026-11-14): the proposal builder and the
+  // page a sponsor opens. A deploy without it 404s every proposal link already
+  // sent to a sponsor, and their Accept button with it.
+  { feature: "sponsor proposals",     path: "/api/admin/sponsorship/proposals",          expect: [401] },
   // Mailer Automations (2026-10-25): emails that send themselves. A deploy
   // without it stops every flow (and the unfinished-registration reminders).
   { feature: "mailer automations",    path: "/api/admin/mailer/automations",            expect: [401] },

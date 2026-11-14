@@ -225,6 +225,7 @@ const Volunteers = lazy(() => import("@/pages/volunteers"));
 const ESign = lazy(() => import("@/pages/esign"));
 const SignPage = lazy(() => import("@/pages/sign"));
 const AgreePage = lazy(() => import("@/pages/agree"));
+const SponsorProposalPage = lazy(() => import("@/pages/sponsor-proposal"));
 const SignDeclaration = lazy(() => import("@/pages/sign-declaration"));
 const StudioPublicPage = lazy(() => import("@/pages/studio-public"));
 const StudioPreviewPage = lazy(() => import("@/pages/studio-preview"));
@@ -987,6 +988,7 @@ function App() {
             <Route path="/sign/:token" component={SignPage} />
             {/* e-Sign template open link — one link, each person signs their own (2026-11-04). */}
             <Route path="/agree/:token" component={AgreePage} />
+            <Route path="/proposal/:token" component={SponsorProposalPage} />
             <Route path="/declaration/:token" component={SignDeclaration} />
             {/* USG Studio — public proposal pages (unlisted, no auth). Must
                 precede the 2-segment /:slug/* and 1-segment /:slug routes. */}

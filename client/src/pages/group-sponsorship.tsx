@@ -16,6 +16,7 @@ import {
   Target, ExternalLink, ArrowUpRight, Search, Star, Mail, Phone, Beer, BadgeCheck,
 } from "lucide-react";
 import { BreweriesView } from "@/components/sponsorship/breweries-view";
+import { ProposalsView } from "@/components/sponsorship/proposals-view";
 import { PartnersView } from "@/components/sponsorship/partners-view";
 import { SponsorContentGrid } from "@/components/sponsorship/sponsor-content";
 import { TickButton, DoneStamp, StatusMenu, ProofControls, isDone, type ProofView } from "@/components/sponsorship/deliverable-controls";
@@ -90,11 +91,11 @@ interface PipelineSummary {
 }
 interface TeamMember { id: number; first_name: string; last_name: string; email: string; }
 
-type ViewKey = "partners" | "deliverables" | "onboarding" | "content" | "pipeline" | "prospects" | "billboards" | "breweries";
+type ViewKey = "partners" | "deliverables" | "onboarding" | "content" | "pipeline" | "prospects" | "billboards" | "breweries" | "proposals";
 const PARTNER_VIEWS: ViewKey[] = ["partners", "deliverables", "onboarding", "content"];
 const HASH_FOR: Record<ViewKey, string> = {
   partners: "#partners", deliverables: "#partners-deliverables", onboarding: "#partners-onboarding", content: "#partners-content",
-  pipeline: "#prospects", prospects: "#prospects-leads", billboards: "#prospects-billboards", breweries: "#breweries-overview",
+  pipeline: "#prospects", prospects: "#prospects-leads", billboards: "#prospects-billboards", breweries: "#breweries-overview", proposals: "#prospects-proposals",
 };
 function viewFromHash(h: string): ViewKey {
   if (h.startsWith("#breweries")) return "breweries";
@@ -103,6 +104,7 @@ function viewFromHash(h: string): ViewKey {
   if (h.startsWith("#partners-content")) return "content";
   if (h.startsWith("#prospects-leads")) return "prospects";
   if (h.startsWith("#prospects-billboards")) return "billboards";
+  if (h.startsWith("#prospects-proposals")) return "proposals";
   if (h.startsWith("#prospects")) return "pipeline";
   return "partners";
 }
@@ -120,6 +122,7 @@ const SUBMENU: Record<"partners" | "prospects", { key: ViewKey; label: string; t
   ],
   prospects: [
     { key: "pipeline", label: "Pipeline", testid: "submenu-pipeline" },
+    { key: "proposals", label: "Proposals & contracts", testid: "submenu-proposals" },
     { key: "prospects", label: "Lead database", testid: "submenu-leads" },
     { key: "billboards", label: "Billboards", testid: "submenu-billboards" },
     { key: "breweries", label: "Breweries", testid: "submenu-breweries" },
@@ -159,7 +162,7 @@ export default function GroupSponsorship() {
 
   const goView = (v: ViewKey) => {
     // Breweries keeps its own sub-view in the hash; keep it if we are already inside it.
-    const keep = v === "breweries" && window.location.hash.startsWith("#breweries");
+    const keep = (v === "breweries" && window.location.hash.startsWith("#breweries")) || (v === "proposals" && window.location.hash.startsWith("#prospects-proposals/"));
     if (!keep) { try { window.history.replaceState(null, "", HASH_FOR[v]); } catch { /* ignore */ } }
     setView(v);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -363,6 +366,7 @@ export default function GroupSponsorship() {
         {view === "onboarding" && orgId && <OnboardingMatrixView source="partners" orgId={orgId} team={team} deals={deals} />}
         {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
         {view === "breweries" && <BreweriesView />}
+        {view === "proposals" && <ProposalsView />}
         {view === "partners" && <PartnersView />}
         {view === "content" && <div className="p-4 sm:p-6"><SponsorContentGrid /></div>}
         {view === "pipeline" && (dealsLoading ? (
