@@ -42,6 +42,20 @@ const ok = (n: string, c: boolean, x = "") => { console.log(`${c ? "✓" : "✗"
     ok("a link on a folder outside Sponsor Content is refused", (await fetch(`${BASE}/api/public/drive-share/${probeTok}`)).status === 404);
     ok("the staff route needs a sign-in", (await fetch(`${BASE}/api/admin/drive/share/1`)).status === 401);
     const page = await fetch(`${BASE}/share/${tok}`); ok("the share page itself loads", page.status === 200);
+    // The sponsor's report
+    const rr = await fetch(`${api}/report?period=all`); const rep: any = await rr.json();
+    const direct = (await c.query(`select count(*)::int n, sum(p.views)::bigint v from social_post_labels pl join social_labels l on l.id=pl.label_id join social_posts p on p.id=pl.post_id where l.kind='sponsor' and l.name='SMC Design Studio' and pl.confirmed_at is not null`)).rows[0];
+    ok("the report loads for the sponsor", rr.status === 200 && rep.available === true && rep.sponsor === "SMC Design Studio");
+    ok("its posts and views are the confirmed labelled posts, added up", rep.totals.posts === direct.n && rep.totals.views === Number(direct.v), `${rep.totals.posts} posts, ${rep.totals.views} views`);
+    ok("the platforms add up to the total", rep.byPlatform.reduce((t: number, x: any) => t + x.posts, 0) === rep.totals.posts);
+    ok("the months add up to the total", rep.byMonth.reduce((t: number, x: any) => t + x.posts, 0) === rep.totals.posts);
+    const ytd: any = await (await fetch(`${api}/report?period=nonsense`)).json();
+    ok("an unknown time frame falls back to this year so far", ytd.period === "ytd" && ytd.totals.posts <= rep.totals.posts);
+    const tp = rep.topPosts[0]; const pic = await fetch(`${api}/post/${tp.id}/picture`); const pb = Buffer.from(await pic.arrayBuffer());
+    ok("a top post's picture is served", pic.status === 200 && pb.slice(8, 12).toString() === "WEBP", `${pb.length} bytes`);
+    const notTheirs = (await c.query(`select p.id from social_posts p where p.id not in (select post_id from social_post_labels pl join social_labels l on l.id=pl.label_id where l.name='SMC Design Studio') order by p.id desc limit 1`)).rows[0].id;
+    ok("a post that is not theirs has no picture through this link", (await fetch(`${api}/post/${notTheirs}/picture`)).status === 404);
+    ok("the report of a made-up link is refused", (await fetch(`${BASE}/api/public/drive-share/${"z".repeat(43)}/report`)).status === 404);
   } finally {
     await c.query(`delete from drive_share_links where token=$1`, [probeTok]);
     if (probeFolder) await c.query(`delete from drive_nodes where id=$1`, [probeFolder]);

@@ -6,7 +6,7 @@ import { workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Copy, ExternalLink, FolderOpen, Images } from "lucide-react";
+import { BarChart3, Copy, ExternalLink, FolderOpen, Images } from "lucide-react";
 
 interface SponsorContent {
   nodeId: number; name: string; files: number; pictures: number; videos: number; sizeBytes: number; covers: number[];
@@ -74,6 +74,9 @@ export function SponsorContentGrid({ heading }: { heading?: string }) {
                   <>
                     <Button className="h-11 md:h-9" asChild>
                       <a href={`/share/${s.link.token}?from=${encodeURIComponent(here())}`} data-testid="sponsor-content-open"><ExternalLink className="mr-1.5 h-4 w-4" aria-hidden />Open</a>
+                    </Button>
+                    <Button variant="outline" className="h-11 md:h-9" asChild>
+                      <a href={`/share/${s.link.token}?tab=report&period=ytd&from=${encodeURIComponent(here())}`} data-testid="sponsor-content-report"><BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />Report</a>
                     </Button>
                     <Button variant="outline" className="h-11 md:h-9" data-testid="sponsor-content-copy"
                       onClick={() => { navigator.clipboard.writeText(s.link!.url); toast({ title: `Link for ${s.name} copied` }); }}>

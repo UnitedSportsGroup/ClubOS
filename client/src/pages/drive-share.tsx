@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import { Download, FileText, Loader2, X, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { ShareReport } from "./drive-share-report";
 
 interface SharedFile { id: number; name: string; folder: string; kind: "image" | "video" | "file"; sizeBytes: number | null }
 interface Payload { title: string; files: SharedFile[] }
@@ -24,6 +25,14 @@ export default function DriveShare() {
   const [data, setData] = useState<Payload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "gone" | "error">("loading");
   const [open, setOpen] = useState<number | null>(null);
+  // Which half of the page is showing, and the report's time frame, live in the address.
+  const read = () => { const q = new URLSearchParams(window.location.search); return { tab: q.get("tab") === "report" ? "report" : "content", period: q.get("period") || "ytd" }; };
+  const [nav, setNav] = useState(read);
+  const go = (next: Partial<{ tab: string; period: string }>) => {
+    const n = { ...nav, ...next }; const q = new URLSearchParams(window.location.search);
+    if (n.tab === "report") { q.set("tab", "report"); q.set("period", n.period); } else { q.delete("tab"); q.delete("period"); }
+    window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? "?" + q.toString() : ""}`); setNav(n as any);
+  };
 
   useEffect(() => {
     const m = document.createElement("meta"); m.name = "robots"; m.content = "noindex, nofollow"; document.head.appendChild(m);
@@ -77,7 +86,7 @@ export default function DriveShare() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" data-testid="share-page">
       {from && (
-        <div className="border-b border-slate-200 bg-slate-100" data-testid="share-staff-bar">
+        <div className="border-b border-slate-200 bg-slate-100" data-testid="share-staff-bar" data-noprint>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2 sm:px-6">
             <a href={from} className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-slate-800 hover:underline" data-testid="share-back"><ChevronLeft className="h-4 w-4" /> Back to ClubOS</a>
             <span className="text-xs text-slate-600">You are seeing what the sponsor sees.</span>
@@ -85,7 +94,7 @@ export default function DriveShare() {
           </div>
         </div>
       )}
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-slate-200 bg-white" data-noprint>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-5 sm:px-6">
           <img src="/logos/south-island-united.png" alt="" className="h-12 w-12 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
           <div className="min-w-0 flex-1">
@@ -93,13 +102,26 @@ export default function DriveShare() {
             <h1 className="truncate text-2xl font-semibold" data-testid="share-title">{data.title}</h1>
             <p className="mt-0.5 text-sm text-slate-600" data-testid="share-count">{data.files.length} file{data.files.length === 1 ? "" : "s"}{total ? ` · ${size(total)}` : ""}</p>
           </div>
-          <a href={`${base}/zip`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700" style={{ color: "#ffffff" }} data-testid="share-zip-all">
-            <Download className="h-4 w-4" /> Download everything
-          </a>
+          {nav.tab === "content" && (
+            <a href={`${base}/zip`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90" style={{ color: "#ffffff", background: "#0f172a" }} data-testid="share-zip-all">
+              <Download className="h-4 w-4" /> Download everything
+            </a>
+          )}
+        </div>
+        <div className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6" data-noprint>
+          {([["content", "Your content"], ["report", "Your report"]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => go({ tab: k })} data-testid={`share-tab-${k}`}
+              className="min-h-[44px] border-b-2 px-3 text-sm font-semibold" style={{ borderColor: nav.tab === k ? "#0f172a" : "transparent", color: nav.tab === k ? "#0f172a" : "#64748b" }}>{label}</button>
+          ))}
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      {nav.tab === "report" && (
+        <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+          <ShareReport token={token} period={nav.period} onPeriod={(p) => go({ period: p })} />
+        </main>
+      )}
+      <main className={`mx-auto max-w-6xl px-4 py-6 sm:px-6 ${nav.tab === "report" ? "hidden" : ""}`}>
         {data.files.length === 0 && <p className="py-16 text-center text-slate-600" data-testid="share-empty">Nothing has been added to this folder yet.</p>}
         {groups.map(([folder, files]) => {
           const imgs = files.filter((f) => f.kind !== "file"); const rest = files.filter((f) => f.kind === "file");
@@ -160,7 +182,7 @@ export default function DriveShare() {
           <div className="flex items-center gap-2 bg-white px-3 py-2" style={{ color: "#0f172a" }} onClick={(e) => e.stopPropagation()}>
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{current.name}</span>
             <a href={`${base}/file/${current.id}?dl=1`} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold hover:bg-slate-100" style={{ color: "#0f172a" }} data-testid="share-viewer-download"><Download className="h-4 w-4" /> Download</a>
-            <button onClick={() => setOpen(null)} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-sm font-semibold hover:bg-slate-700" style={{ color: "#ffffff" }} data-testid="share-viewer-close" aria-label="Close"><X className="h-5 w-5" /> Close</button>
+            <button onClick={() => setOpen(null)} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold hover:opacity-90" style={{ color: "#ffffff", background: "#0f172a" }} data-testid="share-viewer-close" aria-label="Close"><X className="h-5 w-5" /> Close</button>
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 py-3" onClick={() => setOpen(null)}>
             {current.kind === "video" ? (

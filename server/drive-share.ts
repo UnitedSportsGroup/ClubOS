@@ -202,6 +202,78 @@ export function registerDriveShareRoutes(app: Express) {
     return folder ? { viewer, folder } : { viewer, folder: null };
   };
 
+  // ── Public: the sponsor's one-page report ─────────────────────────────────
+  // Numbers for the sponsor whose folder this link opens: the club's own posts
+  // that carry the sponsor's label (same name as the folder), CONFIRMED labels
+  // only. Nothing is stored; it is added up from the posts each time, so the
+  // page is always current. A number a platform did not give is left out of a
+  // sum and a total with nothing in it is null (drawn "—"), never 0.
+  const PERIODS: Record<string, { label: string; where: string }> = {
+    "this-month": { label: "This month", where: "date_trunc('month', d) = date_trunc('month', t)" },
+    "last-month": { label: "Last month", where: "date_trunc('month', d) = date_trunc('month', t) - interval '1 month'" },
+    "last-90": { label: "Last 90 days", where: "d > t - 90" },
+    "ytd": { label: "This year so far", where: "date_trunc('year', d) = date_trunc('year', t)" },
+    "all": { label: "All time", where: "true" },
+  };
+  const reportLabel = async (folderName: string) => rowsOf(await db.execute(sql`
+    SELECT l.id, l.name, p.logo_url, p.logo_ground FROM social_labels l LEFT JOIN sponsorship_partners p ON p.id = l.partner_id
+    WHERE l.kind = 'sponsor' AND l.archived_at IS NULL AND lower(l.name) = lower(${folderName}) LIMIT 1`))[0] ?? null;
+
+  app.get("/api/public/drive-share/:token/report", async (req, res) => {
+    try {
+      noIndex(res);
+      const link = await liveLink(String(req.params.token));
+      if (!link) return notFound(res);
+      const key = typeof req.query.period === "string" && PERIODS[req.query.period] ? req.query.period : "ytd";
+      const label = await reportLabel(link.folder.name);
+      res.setHeader("Cache-Control", "no-store");
+      if (!label) return res.json({ sponsor: link.folder.name, available: false, period: key, periods: Object.entries(PERIODS).map(([k, v]) => ({ key: k, label: v.label })) });
+      const base = sql`
+        WITH x AS (
+          SELECT p.id, a.platform, a.brand, p.views, p.likes, p.comments, p.shares, p.saves, p.permalink, p.kind,
+                 (p.posted_at AT TIME ZONE 'Pacific/Auckland')::date AS d, (now() AT TIME ZONE 'Pacific/Auckland')::date AS t,
+                 cardinality(coalesce(p.collab_with, '{}')) > 0 AS collab
+          FROM social_post_labels pl JOIN social_posts p ON p.id = pl.post_id JOIN social_accounts a ON a.id = p.account_id
+          WHERE pl.label_id = ${Number(label.id)} AND pl.confirmed_at IS NOT NULL
+        ), w AS (SELECT * FROM x WHERE ${sql.raw(PERIODS[key].where)})`;
+      const tot = rowsOf(await db.execute(sql`${base}
+        SELECT count(*)::int AS posts, sum(views)::bigint AS views, sum(likes)::bigint AS likes, sum(comments)::bigint AS comments, sum(shares)::bigint AS shares, sum(saves)::bigint AS saves,
+               count(*) FILTER (WHERE collab)::int AS collab_posts, sum(views) FILTER (WHERE collab)::bigint AS collab_views,
+               to_char(min(d), 'YYYY-MM-DD') AS first_day, to_char(max(t), 'YYYY-MM-DD') AS today FROM w`))[0];
+      const plat = rowsOf(await db.execute(sql`${base} SELECT platform, count(*)::int AS posts, sum(views)::bigint AS views FROM w GROUP BY 1 ORDER BY 3 DESC NULLS LAST`));
+      const months = rowsOf(await db.execute(sql`${base} SELECT to_char(date_trunc('month', d), 'YYYY-MM') AS month, count(*)::int AS posts, sum(views)::bigint AS views FROM w GROUP BY 1 ORDER BY 1`));
+      const top = rowsOf(await db.execute(sql`${base} SELECT id, platform, kind, views, permalink, to_char(d, 'YYYY-MM-DD') AS day FROM w WHERE views IS NOT NULL ORDER BY views DESC LIMIT 6`));
+      const today = rowsOf(await db.execute(sql`SELECT to_char((now() AT TIME ZONE 'Pacific/Auckland')::date, 'YYYY-MM-DD') AS d`))[0].d;
+      const n = (v: any) => (v === null || v === undefined ? null : Number(v));
+      const parts = [n(tot.likes), n(tot.comments), n(tot.shares), n(tot.saves)].filter((v) => v !== null) as number[];
+      res.json({
+        sponsor: label.name, available: true, logoUrl: label.logo_url ?? null, logoGround: label.logo_ground ?? null,
+        period: key, periodLabel: PERIODS[key].label, periods: Object.entries(PERIODS).map(([k, v]) => ({ key: k, label: v.label })), today,
+        totals: { posts: Number(tot.posts), views: n(tot.views), likes: n(tot.likes), comments: n(tot.comments), shares: n(tot.shares), saves: n(tot.saves),
+          engagements: parts.length ? parts.reduce((a, b) => a + b, 0) : null, collabPosts: Number(tot.collab_posts), collabViews: n(tot.collab_views) },
+        byPlatform: plat.map((r) => ({ platform: r.platform, posts: Number(r.posts), views: n(r.views) })),
+        byMonth: months.map((r) => ({ month: r.month, posts: Number(r.posts), views: n(r.views) })),
+        topPosts: top.map((r) => ({ id: Number(r.id), platform: r.platform, kind: r.kind, views: n(r.views), day: r.day, permalink: r.permalink })),
+      });
+    } catch (e: any) { console.error("[drive-share] report failed:", e); res.status(500).json({ message: "Something went wrong" }); }
+  });
+
+  // The picture of one of the sponsor's own labelled posts (for the report).
+  app.get("/api/public/drive-share/:token/post/:postId/picture", async (req, res) => {
+    try {
+      noIndex(res);
+      const link = await liveLink(String(req.params.token)); const postId = Number(req.params.postId);
+      if (!link || !Number.isFinite(postId)) return notFound(res);
+      const label = await reportLabel(link.folder.name);
+      const okRow = label ? rowsOf(await db.execute(sql`SELECT 1 FROM social_post_labels WHERE post_id = ${postId} AND label_id = ${Number(label.id)} AND confirmed_at IS NOT NULL LIMIT 1`))[0] : null;
+      if (!okRow) return notFound(res);
+      const { smallThumb } = await import("./social/routes");
+      const buf = await smallThumb(postId, "large");
+      if (!buf) return res.status(404).end();
+      res.setHeader("Content-Type", "image/webp"); res.setHeader("Cache-Control", "private, max-age=86400"); res.end(buf);
+    } catch (e: any) { console.error("[drive-share] post picture failed:", e); res.status(500).end(); }
+  });
+
   // ── Staff: every sponsor's content folder in one list ─────────────────────
   // Used by Sponsorship → Content and Marketing → Social media → Labels.
   // Whoever cannot read the Sponsor Content root in the Drive gets an empty list.
