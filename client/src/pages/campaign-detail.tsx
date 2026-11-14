@@ -34,6 +34,7 @@ import {
   num,
   refreshCampaigns,
 } from "@/components/campaigns/parts";
+import { CampaignFunnels, useCampaignFunnels } from "@/components/campaigns/funnels";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
@@ -58,6 +59,7 @@ const TABS = [
   { key: "overview", label: "Overview" },
   { key: "timeline", label: "Timeline" },
   { key: "channels", label: "Channels" },
+  { key: "funnels", label: "Funnels" },
   { key: "tests", label: "Split tests" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -113,6 +115,7 @@ export default function CampaignDetailPage() {
   };
 
   const url = `/api/admin/campaigns/${params.id}`;
+  const funnels = useCampaignFunnels(params.id);
   const { data, isLoading, isError, error, refetch } = useQuery<CampaignDetail>({ queryKey: [url], staleTime: 30_000 });
 
   const toggleTask = useMutation({
@@ -139,7 +142,7 @@ export default function CampaignDetailPage() {
     },
   });
 
-  const backLabel = from.startsWith("/admin/campaigns") ? "Campaigns" : from.startsWith("/admin/marketing-hub") ? "Marketing" : "Back";
+  const backLabel = from.startsWith("/admin/campaigns") ? "Campaigns" : from.startsWith("/admin/funnels") ? "Funnels" : from.startsWith("/admin/marketing-hub") ? "Marketing" : "Back";
 
   if (isLoading) return <div className="p-4 md:p-6 max-w-7xl mx-auto"><Loading rows={5} /></div>;
   if (isError || !data) {
@@ -199,7 +202,7 @@ export default function CampaignDetailPage() {
       <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
         <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 whitespace-nowrap">
           {TABS.map((t) => {
-            const count = t.key === "timeline" ? openTasks.length : t.key === "channels" ? data.channels.length : t.key === "tests" ? data.tests.length : null;
+            const count = t.key === "timeline" ? openTasks.length : t.key === "channels" ? data.channels.length : t.key === "tests" ? data.tests.length : t.key === "funnels" ? funnels.data?.funnels.length ?? null : null;
             return (
               <button
                 key={t.key}
@@ -352,6 +355,9 @@ export default function CampaignDetailPage() {
           )}
         </div>
       )}
+
+      {tab === "funnels" && <CampaignFunnels campaign={c} channels={data.channels} />}
+
 
       {tab === "tests" && (
         <div className="space-y-4">

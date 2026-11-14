@@ -44,23 +44,23 @@ import { requireHubWorkspace } from "../marketing-hub/common";
 
 const BASE = "/api/admin/campaigns";
 
-async function q<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
+export async function q<T = any>(text: string, params: unknown[] = []): Promise<T[]> {
   const r = await pool.query(text, params as any[]);
   return r.rows as T[];
 }
 
-class InputError extends Error {}
-class NotFound extends Error {}
+export class InputError extends Error {}
+export class NotFound extends Error {}
 
 // ── Reading input ───────────────────────────────────────────────────────────
 
-const has = (b: any, k: string) => b != null && Object.prototype.hasOwnProperty.call(b, k);
-const text = (v: unknown, max = 2000): string | null => {
+export const has = (b: any, k: string) => b != null && Object.prototype.hasOwnProperty.call(b, k);
+export const text = (v: unknown, max = 2000): string | null => {
   if (v == null) return null;
   const s = String(v).trim();
   return s ? s.slice(0, max) : null;
 };
-function day(v: unknown, label: string): string | null {
+export function day(v: unknown, label: string): string | null {
   if (v == null || v === "") return null;
   if (!isIsoDay(v)) throw new InputError(`${label} must be a date.`);
   return v;
@@ -82,7 +82,7 @@ function oneOf<T extends string>(v: unknown, list: readonly T[], label: string):
   if (typeof v !== "string" || !(list as readonly string[]).includes(v)) throw new InputError(`Unknown ${label}.`);
   return v as T;
 }
-function intList(v: unknown, label: string): number[] {
+export function intList(v: unknown, label: string): number[] {
   if (v == null) return [];
   if (!Array.isArray(v) || v.some((x) => !Number.isInteger(Number(x)) || Number(x) <= 0)) throw new InputError(`${label} is not a valid list.`);
   return Array.from(new Set(v.map(Number))).slice(0, 200);
@@ -92,17 +92,17 @@ function textList(v: unknown, label: string): string[] {
   if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !/^[A-Za-z0-9_.:-]{1,80}$/.test(x))) throw new InputError(`${label} is not a valid list.`);
   return Array.from(new Set(v as string[])).slice(0, 100);
 }
-const id = (v: unknown): number => {
+export const id = (v: unknown): number => {
   const n = Number(v);
   if (!Number.isInteger(n) || n <= 0) throw new NotFound();
   return n;
 };
-function ordered(a: string | null, b: string | null, label: string) {
+export function ordered(a: string | null, b: string | null, label: string) {
   if (a && b && b < a) throw new InputError(`${label} cannot end before it starts.`);
 }
 
 /** Build "col = $n" pairs for the keys present in the body. */
-function patch(body: any, fields: Record<string, (v: unknown) => unknown>) {
+export function patch(body: any, fields: Record<string, (v: unknown) => unknown>) {
   const sets: string[] = [];
   const params: unknown[] = [];
   for (const [key, read] of Object.entries(fields)) {
@@ -115,9 +115,9 @@ function patch(body: any, fields: Record<string, (v: unknown) => unknown>) {
 
 // ── Results, read live ──────────────────────────────────────────────────────
 
-const NZ_DAY = `(COALESCE(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AT TIME ZONE 'Pacific/Auckland')::date`;
-const NET = `(COALESCE(r.total_cents, 0) - COALESCE(r.refunded_amount_cents, 0))`;
-const REAL = `r.status IN ${REAL_REGISTRATION_STATUS_SQL}`;
+export const NZ_DAY = `(COALESCE(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AT TIME ZONE 'Pacific/Auckland')::date`;
+export const NET = `(COALESCE(r.total_cents, 0) - COALESCE(r.refunded_amount_cents, 0))`;
+export const REAL = `r.status IN ${REAL_REGISTRATION_STATUS_SQL}`;
 /** A sale that came from a paid click. */
 const PAID_META = `(r.meta_campaign_id IS NOT NULL OR r.fbclid IS NOT NULL)`;
 const PAID_GOOGLE = `(r.gclid IS NOT NULL)`;
@@ -199,7 +199,7 @@ async function resultFor(c: CampaignRow): Promise<CampaignResult> {
 }
 
 /** Meta spend for a set of ad campaigns, inside the selling window when there is one. */
-async function metaStats(ids: string[], from: string | null, to: string | null) {
+export async function metaStats(ids: string[], from: string | null, to: string | null) {
   if (!ids.length) return null;
   const rows = await q<{ metric: string; value: string }>(
     `SELECT d.metric, sum(d.value)::bigint AS value
@@ -420,7 +420,7 @@ async function testsFor(c: CampaignRow): Promise<TestRow[]> {
   return out;
 }
 
-async function loadCampaign(campaignId: number): Promise<CampaignRow> {
+export async function loadCampaign(campaignId: number): Promise<CampaignRow> {
   const [row] = await q<Raw>(`SELECT ${CAMPAIGN_COLUMNS} FROM cmp_campaigns c WHERE c.id = $1`, [campaignId]);
   if (!row) throw new NotFound();
   return toCampaign(row);
@@ -495,7 +495,7 @@ async function detail(campaignId: number): Promise<CampaignDetail> {
 
 // ── Writing ─────────────────────────────────────────────────────────────────
 
-async function checkProgrammes(ids: number[]) {
+export async function checkProgrammes(ids: number[]) {
   if (!ids.length) return;
   const rows = await q<{ id: number }>(`SELECT id FROM programs WHERE id = ANY($1::int[])`, [ids]);
   if (rows.length !== ids.length) throw new InputError("One of those programmes does not exist.");
@@ -603,7 +603,7 @@ function variantFields(body: any) {
   });
 }
 
-async function insertRow(table: string, p: { sets: string[]; params: unknown[] }, extra: Record<string, unknown>): Promise<number> {
+export async function insertRow(table: string, p: { sets: string[]; params: unknown[] }, extra: Record<string, unknown>): Promise<number> {
   const cols = p.sets.map((s) => s.split(" = ")[0]).concat(Object.keys(extra));
   const params = [...p.params, ...Object.values(extra)];
   const [row] = await q<{ id: number }>(
@@ -613,7 +613,7 @@ async function insertRow(table: string, p: { sets: string[]; params: unknown[] }
   return row.id;
 }
 
-async function updateRow(table: string, p: { sets: string[]; params: unknown[] }, where: string, whereParams: unknown[], touch = false) {
+export async function updateRow(table: string, p: { sets: string[]; params: unknown[] }, where: string, whereParams: unknown[], touch = false) {
   if (!p.sets.length) throw new InputError("Nothing to change.");
   const sets = touch ? [...p.sets, "updated_at = now()"] : p.sets;
   const shifted = where.replace(/\$(\d+)/g, (_, i) => `$${Number(i) + p.params.length}`);
@@ -622,12 +622,12 @@ async function updateRow(table: string, p: { sets: string[]; params: unknown[] }
 }
 
 /** A child row must belong to the campaign in the URL. */
-async function ownedBy(table: string, rowId: number, campaignId: number) {
+export async function ownedBy(table: string, rowId: number, campaignId: number) {
   const rows = await q(`SELECT 1 FROM ${table} WHERE id = $1 AND campaign_id = $2`, [rowId, campaignId]);
   if (!rows.length) throw new NotFound();
 }
 
-function handle(fn: (req: Request, res: Response) => Promise<unknown>) {
+export function handle(fn: (req: Request, res: Response) => Promise<unknown>) {
   return async (req: Request, res: Response) => {
     try {
       await fn(req, res);

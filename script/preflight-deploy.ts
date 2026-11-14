@@ -167,6 +167,9 @@ const CANARIES: Canary[] = [
   { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
   { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },
   { feature: "campaigns",            path: "/api/admin/campaigns",                      expect: [401] },
+  // Funnels inside a campaign (2026-11-14). The path sits under a campaign id on
+  // purpose: "/campaigns/funnels" would be answered 401 by the campaign route too.
+  { feature: "campaign funnels",     path: "/api/admin/campaigns/1/funnels",            expect: [401] },
   // Signage · Billboards · Traditional Media · Branding (2026-11-11). A deploy
   // without them empties four tabs in the United Sports Group workspace.
   { feature: "offline marketing",    path: "/api/admin/offline-marketing/signage",      expect: [401] },

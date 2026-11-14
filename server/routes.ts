@@ -181,6 +181,7 @@ import { registerSocialRoutes } from "./social/routes";
 import { registerWebAnalyticsRoutes } from "./marketing-hub/web-analytics";
 import { registerMarketingChannelRoutes } from "./marketing-hub/channels";
 import { registerCampaignRoutes } from "./campaigns/routes";
+import { registerFunnelRoutes } from "./campaigns/funnels";
 import { registerOfflineMarketingRoutes } from "./offline-marketing-routes";
 import { registerMarketingMoreRoutes } from "./marketing-hub/more-reports";
 import { registerMarketingIdeasRoutes } from "./marketing-ideas-routes";
@@ -28145,6 +28146,8 @@ export async function registerRoutes(
   // Email · SMS · Paid ads · WhatsApp — one report tab each under Marketing.
   registerMarketingChannelRoutes(app);
   // Campaigns — plan a campaign, set its goal, watch it move from real sales.
+  // Funnels first: "/funnels" must be matched ahead of the campaign "/:id".
+  registerFunnelRoutes(app);
   registerCampaignRoutes(app);
   registerOfflineMarketingRoutes(app);
   registerMarketingMoreRoutes(app);
