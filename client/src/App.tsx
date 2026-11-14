@@ -130,6 +130,7 @@ const GroupVideos = lazy(() => import("@/pages/group-videos"));
 const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
 const GroupVideoDetail = lazy(() => import("@/pages/group-video-detail"));
 const VideoShare = lazy(() => import("@/pages/video-share"));
+const DriveShare = lazy(() => import("@/pages/drive-share"));
 const GroupBudget = lazy(() => import("@/pages/group-budget"));
 const GroupBudgetXero = lazy(() => import("@/pages/group-budget-xero"));
 const GroupBudgetCostCentre = lazy(() => import("@/pages/group-budget-cost-centre"));
@@ -985,6 +986,7 @@ function App() {
             {/* Staff Videos — the in-house Loom's public share pages. Random
                 non-enumerable tokens; visibility enforced by the public API. */}
             <Route path="/v/:token" component={VideoShare} />
+            <Route path="/share/:token" component={DriveShare} />
             {/* The equipment holder's own page. A signed link, never a login —
                 see server/equipment-routes.ts for why. */}
             <Route path="/equipment/:token" component={EquipmentHolder} />
