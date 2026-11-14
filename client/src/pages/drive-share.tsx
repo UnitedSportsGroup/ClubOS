@@ -18,6 +18,9 @@ export default function DriveShare() {
   const [, params] = useRoute("/share/:token");
   const token = params?.token ?? "";
   const base = `/api/public/drive-share/${token}`;
+  // Opened from inside ClubOS: `?from=` is where the staff member came from, so
+  // the page offers the way back there and the look is not counted as the sponsor's.
+  const from = useMemo(() => { const f = new URLSearchParams(window.location.search).get("from") || ""; return /^\/admin[\/?#]/.test(f) || f === "/admin" ? f : null; }, []);
   const [data, setData] = useState<Payload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "gone" | "error">("loading");
   const [open, setOpen] = useState<number | null>(null);
@@ -30,7 +33,7 @@ export default function DriveShare() {
   useEffect(() => {
     let alive = true;
     setState("loading");
-    fetch(base).then(async (r) => {
+    fetch(from ? `${base}?preview=1` : base).then(async (r) => {
       if (!alive) return;
       if (r.status === 404) return setState("gone");
       if (!r.ok) return setState("error");
@@ -73,6 +76,15 @@ export default function DriveShare() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" data-testid="share-page">
+      {from && (
+        <div className="border-b border-slate-200 bg-slate-100" data-testid="share-staff-bar">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2 sm:px-6">
+            <a href={from} className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-slate-800 hover:underline" data-testid="share-back"><ChevronLeft className="h-4 w-4" /> Back to ClubOS</a>
+            <span className="text-xs text-slate-600">You are seeing what the sponsor sees.</span>
+            <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/share/${token}`)} className="ml-auto inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50" data-testid="share-copy">Copy the sponsor's link</button>
+          </div>
+        </div>
+      )}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-5 sm:px-6">
           <img src="/logos/south-island-united.png" alt="" className="h-12 w-12 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />

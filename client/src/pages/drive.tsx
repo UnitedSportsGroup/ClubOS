@@ -72,7 +72,8 @@ function when(iso: string): string {
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Drive() {
   const { toast } = useToast();
-  const [folderId, setFolderId] = useState<number | null>(null);
+  // `?folder=<id>` opens straight into a folder (used by the sponsor content lists).
+  const [folderId, setFolderId] = useState<number | null>(() => { const f = Number(new URLSearchParams(window.location.search).get("folder")); return Number.isFinite(f) && f > 0 ? f : null; });
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [showTrash, setShowTrash] = useState(false);

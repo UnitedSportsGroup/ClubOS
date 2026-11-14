@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { BreweriesView } from "@/components/sponsorship/breweries-view";
 import { PartnersView } from "@/components/sponsorship/partners-view";
+import { SponsorContentGrid } from "@/components/sponsorship/sponsor-content";
 import { TickButton, DoneStamp, StatusMenu, ProofControls, isDone, type ProofView } from "@/components/sponsorship/deliverable-controls";
 import { fmtDateNz } from "@shared/sponsorship-partners";
 
@@ -89,16 +90,17 @@ interface PipelineSummary {
 }
 interface TeamMember { id: number; first_name: string; last_name: string; email: string; }
 
-type ViewKey = "partners" | "deliverables" | "onboarding" | "pipeline" | "prospects" | "billboards" | "breweries";
-const PARTNER_VIEWS: ViewKey[] = ["partners", "deliverables", "onboarding"];
+type ViewKey = "partners" | "deliverables" | "onboarding" | "content" | "pipeline" | "prospects" | "billboards" | "breweries";
+const PARTNER_VIEWS: ViewKey[] = ["partners", "deliverables", "onboarding", "content"];
 const HASH_FOR: Record<ViewKey, string> = {
-  partners: "#partners", deliverables: "#partners-deliverables", onboarding: "#partners-onboarding",
+  partners: "#partners", deliverables: "#partners-deliverables", onboarding: "#partners-onboarding", content: "#partners-content",
   pipeline: "#prospects", prospects: "#prospects-leads", billboards: "#prospects-billboards", breweries: "#breweries-overview",
 };
 function viewFromHash(h: string): ViewKey {
   if (h.startsWith("#breweries")) return "breweries";
   if (h.startsWith("#partners-deliverables")) return "deliverables";
   if (h.startsWith("#partners-onboarding")) return "onboarding";
+  if (h.startsWith("#partners-content")) return "content";
   if (h.startsWith("#prospects-leads")) return "prospects";
   if (h.startsWith("#prospects-billboards")) return "billboards";
   if (h.startsWith("#prospects")) return "pipeline";
@@ -114,6 +116,7 @@ const SUBMENU: Record<"partners" | "prospects", { key: ViewKey; label: string; t
     { key: "partners", label: "Partners", testid: "submenu-partners" },
     { key: "deliverables", label: "Deliverables", testid: "submenu-deliverables" },
     { key: "onboarding", label: "Onboarding", testid: "submenu-onboarding" },
+    { key: "content", label: "Content", testid: "submenu-content" },
   ],
   prospects: [
     { key: "pipeline", label: "Pipeline", testid: "submenu-pipeline" },
@@ -361,6 +364,7 @@ export default function GroupSponsorship() {
         {view === "billboards" && orgId && <BillboardsView orgId={orgId} team={team} currentUserId={me?.id} />}
         {view === "breweries" && <BreweriesView />}
         {view === "partners" && <PartnersView />}
+        {view === "content" && <SponsorContentGrid />}
         {view === "pipeline" && (dealsLoading ? (
           <div className="flex gap-3 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-72 h-96 rounded-xl flex-shrink-0" />)}

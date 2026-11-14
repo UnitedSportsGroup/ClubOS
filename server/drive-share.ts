@@ -110,7 +110,8 @@ export function registerDriveShareRoutes(app: Express) {
       const link = await liveLink(String(req.params.token));
       if (!link) return notFound(res);
       const files = await filesUnder(link.nodeId);
-      await db.execute(sql`UPDATE drive_share_links SET view_count = view_count + 1, last_viewed_at = now() WHERE id = ${link.id}`);
+      // A staff member looking from inside ClubOS is not the sponsor opening it.
+      if (req.query.preview !== "1") await db.execute(sql`UPDATE drive_share_links SET view_count = view_count + 1, last_viewed_at = now() WHERE id = ${link.id}`);
       res.setHeader("Cache-Control", "no-store");
       res.json({
         title: link.label || link.folder.name,
@@ -200,6 +201,33 @@ export function registerDriveShareRoutes(app: Express) {
     const folder = await shareableFolder(nodeId);
     return folder ? { viewer, folder } : { viewer, folder: null };
   };
+
+  // ── Staff: every sponsor's content folder in one list ─────────────────────
+  // Used by Sponsorship → Content and Marketing → Social media → Labels.
+  // Whoever cannot read the Sponsor Content root in the Drive gets an empty list.
+  app.get("/api/admin/sponsor-content", requireAuth, async (req: any, res) => {
+    try {
+      const viewer = await buildViewer(req.session.userId!);
+      const root = rowsOf(await db.execute(sql`SELECT id FROM drive_nodes WHERE parent_id IS NULL AND kind = 'folder' AND lower(name) = lower(${SPONSOR_CONTENT_FOLDER}) AND trashed_at IS NULL LIMIT 1`))[0];
+      if (!viewer || !root || !(await readableNode(viewer, Number(root.id)))) return res.json({ rootId: null, sponsors: [] });
+      const folders = rowsOf(await db.execute(sql`SELECT id, name FROM drive_nodes WHERE parent_id = ${Number(root.id)} AND kind = 'folder' AND trashed_at IS NULL ORDER BY lower(name)`));
+      const sponsors: any[] = [];
+      for (const f of folders) {
+        const files = await filesUnder(Number(f.id));
+        const l = rowsOf(await db.execute(sql`SELECT token, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${Number(f.id)} AND revoked_at IS NULL LIMIT 1`))[0];
+        const covers = files.filter((x) => kindOf(x.mime_type, x.name) === "image").slice(0, 3).map((x) => Number(x.id));
+        sponsors.push({
+          nodeId: Number(f.id), name: f.name, files: files.length,
+          pictures: files.filter((x) => kindOf(x.mime_type, x.name) === "image").length,
+          videos: files.filter((x) => kindOf(x.mime_type, x.name) === "video").length,
+          sizeBytes: files.reduce((n, x) => n + Number(x.size_bytes ?? 0), 0),
+          link: l ? { token: l.token, url: shareUrl(l.token), views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
+          covers,
+        });
+      }
+      res.json({ rootId: Number(root.id), sponsors });
+    } catch (e: any) { console.error("[sponsor-content] list failed:", e); res.status(500).json({ message: e.message }); }
+  });
 
   app.get("/api/admin/drive/share/:nodeId", requireAuth, async (req: any, res) => {
     try {
