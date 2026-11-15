@@ -611,41 +611,41 @@ function ShareDialog({ target, onClose }: { target: { id: number; name: string; 
   return createPortal(
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-3" onClick={onClose} data-testid="share-dialog">
       <div role="dialog" aria-label={`Share ${target.name}`} onClick={(e) => e.stopPropagation()}
-        className="max-h-[92vh] w-full max-w-[520px] overflow-y-auto rounded-2xl border border-white/10 bg-[#111827] p-5 text-white shadow-2xl">
+        className="max-h-[92vh] w-full max-w-[520px] overflow-y-auto rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl">
         <div className="flex items-start gap-3">
           <h2 className="min-w-0 flex-1 text-[18px] font-semibold leading-snug">Share “<span className="break-words">{target.name}</span>”</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1.5 text-white/50 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} aria-label="Close" className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-5 w-5" /></button>
         </div>
 
         {st.isLoading ? (
-          <div className="flex justify-center py-10 text-white/40"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : st.error ? (
-          <p className="mt-4 text-[14px] text-white/70" data-testid="share-error">{(st.error as any).message}</p>
+          <p className="mt-4 text-[14px] text-foreground" data-testid="share-error">{(st.error as any).message}</p>
         ) : d && (
           <>
             {/* Add people */}
             <div className="relative mt-4">
               {picked ? (
-                <div className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 p-2">
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2">
                   <Avatar p={picked} />
-                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{picked.name}</p><p className="truncate text-[12px] text-white/45">{picked.email}</p></div>
-                  <button onClick={() => setPicked(null)} aria-label="Remove" className="rounded p-1 text-white/50 hover:bg-white/10"><X className="h-4 w-4" /></button>
+                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{picked.name}</p><p className="truncate text-[12px] text-muted-foreground">{picked.email}</p></div>
+                  <button onClick={() => setPicked(null)} aria-label="Remove" className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
                 </div>
               ) : (
                 <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Add people by name or email"
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-[14px] text-white placeholder:text-white/35 focus:border-blue-400 focus:outline-none"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none"
                   data-testid="share-people-input" />
               )}
               {!picked && q.trim() && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#1f2937] shadow-xl" data-testid="share-people-results">
-                  {people.isLoading ? <p className="p-3 text-[13px] text-white/45">Searching…</p>
-                    : (people.data?.people ?? []).length === 0 ? <p className="p-3 text-[13px] text-white/45">No one with a ClubOS login matches “{q.trim()}”.</p>
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover text-popover-foreground shadow-xl" data-testid="share-people-results">
+                  {people.isLoading ? <p className="p-3 text-[13px] text-muted-foreground">Searching…</p>
+                    : (people.data?.people ?? []).length === 0 ? <p className="p-3 text-[13px] text-muted-foreground">No one with a ClubOS login matches “{q.trim()}”.</p>
                     : people.data!.people.map((p) => (
                       <button key={p.userId} disabled={already.has(p.userId)} onClick={() => setPicked(p)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5 disabled:opacity-50" data-testid={`share-person-${p.userId}`}>
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:opacity-50" data-testid={`share-person-${p.userId}`}>
                         <Avatar p={p} />
-                        <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-white/45">{p.email}</p></div>
-                        {already.has(p.userId) && <span className="text-[11.5px] text-white/45">Has access</span>}
+                        <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-muted-foreground">{p.email}</p></div>
+                        {already.has(p.userId) && <span className="text-[11.5px] text-muted-foreground">Has access</span>}
                       </button>
                     ))}
                 </div>
@@ -654,7 +654,7 @@ function ShareDialog({ target, onClose }: { target: { id: number; name: string; 
             {picked && (
               <div className="mt-2">
                 <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="Message (optional)"
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[14px] text-white placeholder:text-white/35 focus:border-blue-400 focus:outline-none" />
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-[14px] text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none" />
                 <div className="mt-2 flex justify-end">
                   <button onClick={add} disabled={call.isPending} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-blue-600 px-5 text-[14px] font-semibold text-white hover:bg-blue-500 disabled:opacity-60" data-testid="share-send">
                     {call.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Share
@@ -664,23 +664,23 @@ function ShareDialog({ target, onClose }: { target: { id: number; name: string; 
             )}
 
             {/* People with access */}
-            <p className="mt-5 text-[13px] font-semibold text-white/80">People with access</p>
-            <p className="mt-0.5 text-[12px] text-white/45">{d.everyone}{d.people.length ? ", plus:" : "."}</p>
+            <p className="mt-5 text-[13px] font-semibold text-foreground">People with access</p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{d.everyone}{d.people.length ? ", plus:" : "."}</p>
             <div className="mt-1" data-testid="share-people-list">
               {d.people.map((p) => (
                 <div key={p.userId} className="flex items-center gap-2 py-2">
                   <Avatar p={p} />
-                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-white/45">{p.email}{p.grantedBy ? ` · added by ${p.grantedBy}` : ""}</p></div>
+                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-muted-foreground">{p.email}{p.grantedBy ? ` · added by ${p.grantedBy}` : ""}</p></div>
                   <button onClick={() => call.mutate({ path: `/api/admin/drive/share/${target.id}/people/${p.userId}`, method: "DELETE" })}
-                    className="rounded px-2 py-1 text-[12.5px] text-white/55 hover:bg-white/10 hover:text-red-300" data-testid={`share-remove-${p.userId}`}>Remove</button>
+                    className="rounded px-2 py-1 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-red-600" data-testid={`share-remove-${p.userId}`}>Remove</button>
                 </div>
               ))}
             </div>
 
             {/* General access */}
-            <p className="mt-5 text-[13px] font-semibold text-white/80">General access</p>
-            <div className="mt-2 flex items-start gap-3 rounded-lg bg-white/[0.04] p-3">
-              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${d.link ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10 text-white/60"}`}>
+            <p className="mt-5 text-[13px] font-semibold text-foreground">General access</p>
+            <div className="mt-2 flex items-start gap-3 rounded-lg bg-muted/50 p-3">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${d.link ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
                 {d.link ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
               </span>
               <div className="min-w-0 flex-1">
@@ -688,24 +688,24 @@ function ShareDialog({ target, onClose }: { target: { id: number; name: string; 
                   value={d.link ? "anyone" : "restricted"}
                   disabled={!d.publicAllowed || call.isPending}
                   onValueChange={(v) => call.mutate({ path: `/api/admin/drive/share/${target.id}`, method: v === "anyone" ? "POST" : "DELETE" })}>
-                  <SelectTrigger className="h-9 w-full border-white/15 bg-[#1f2937] text-[14px] text-white" data-testid="share-general-access"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-full border-input bg-background text-[14px] text-foreground" data-testid="share-general-access"><SelectValue /></SelectTrigger>
                   <SelectContent className="z-[60]">
                     <SelectItem value="restricted" data-testid="share-opt-restricted">Restricted</SelectItem>
                     <SelectItem value="anyone" data-testid="share-opt-anyone">Anyone with the link</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="mt-1 text-[12px] text-white/50" data-testid="share-general-note">
+                <p className="mt-1 text-[12px] text-muted-foreground" data-testid="share-general-note">
                   {!d.publicAllowed ? d.publicRefusedReason
                     : d.link ? `Anyone on the internet with the link can view and download ${d.node.kind === "folder" ? "the files in this folder" : "this file"}. They see only this — nothing else in ClubOS.`
                     : "Only the people above can open it."}
                 </p>
-                {d.link && <p className="mt-1 text-[11.5px] text-white/35">Opened {d.link.views} time{d.link.views === 1 ? "" : "s"} · {d.link.downloads} download{d.link.downloads === 1 ? "" : "s"}</p>}
+                {d.link && <p className="mt-1 text-[11.5px] text-muted-foreground">Opened {d.link.views} time{d.link.views === 1 ? "" : "s"} · {d.link.downloads} download{d.link.downloads === 1 ? "" : "s"}</p>}
               </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center gap-2">
               {d.link && (
-                <button onClick={() => copy(d.link!.url)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-blue-400/60 px-4 text-[14px] font-semibold text-blue-300 hover:bg-blue-500/10" data-testid="share-copy-link">
+                <button onClick={() => copy(d.link!.url)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-blue-600/50 px-4 text-[14px] font-semibold text-blue-700 hover:bg-blue-600/10" data-testid="share-copy-link">
                   <Link2 className="h-4 w-4" /> Copy link
                 </button>
               )}
