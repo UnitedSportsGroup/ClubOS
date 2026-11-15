@@ -420,7 +420,7 @@ export default function PosRegister() {
 
             {tab === "programmes" && (
               <div className="mt-3 space-y-2" data-testid="pos-programmes">
-                <div className="bg-white rounded-xl border border-neutral-200 p-3 text-[13px] text-neutral-600">A programme is registered on the office form, priced by the same engine as the website, and paid here as part of this sale. Pre-Academy and Academy can be sold here even while invite-only. A gymnastics class banks with United Gymnastics' own account — register it below and it goes on a gymnastics sale.</div>
+                <div className="bg-white rounded-xl border border-neutral-200 p-3 text-[13px] text-neutral-600">A programme is registered on the office form, priced by the same engine as the website, and paid here as part of this sale. Pre-Academy and Academy can be sold here even while invite-only. A gymnastics class banks with United Gymnastics' own account — register it below (pick the United Gymnastics brand, or All brands) and it goes on a gymnastics sale.</div>
                 <button className={`${btnPrimary} w-full`} disabled={openingForPlayer} onClick={startPlayerRegistration} data-testid="pos-register-player">{openingForPlayer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Register a player for this sale</button>
                 {programmes.map((p) => (
                   <div key={p.id} className="bg-white rounded-xl border border-neutral-200 p-3 flex items-center gap-3">

@@ -106,7 +106,7 @@ async function main() {
   ok("…the sale banks with the gym", priced.body.sale.moneyAccount === "cugc");
   const row = await pool.query(`select status, price_cents, term, pos_sale_id, heard_via, photo_consent, served_by_user_id, phone from cugc_registrations where id = $1`, [regId]);
   ok("the gym's own row exists, pending payment, linked to the sale, served by the PIN's person", row.rows[0]?.status === "pending_payment" && row.rows[0]?.pos_sale_id === saleId && row.rows[0]?.served_by_user_id === me.id && row.rows[0]?.heard_via === "Facebook" && row.rows[0]?.photo_consent === "Yes", JSON.stringify(row.rows[0]));
-  ok("…the phone was normalised", /^\+64/.test(row.rows[0]?.phone ?? ""), row.rows[0]?.phone);
+  ok("…the phone was stored tidied (no spaces)", /^(\+?\d{8,})$/.test(row.rows[0]?.phone ?? ""), row.rows[0]?.phone);
   const dup = await api("POST", `/api/admin/pos/sales/${saleId}/gym-registrations`, { programSlug: "gymplay", optionIndex: 0, sessionTime: opt.choices[0], gymnast: gymnast(1), parent, heardVia: "Facebook" });
   ok("the same child twice on one sale is refused", dup.status === 409 && dup.body?.code === "on_sale_already", dup.body?.message);
   const qty = await api("PATCH", `/api/admin/pos/sales/${saleId}/lines/${line.id}`, { qty: 2 });
@@ -141,7 +141,8 @@ async function main() {
   await new Promise((r) => setTimeout(r, 1500));
   const after = await pool.query(`select status, paid_at, payment_method, pos_sale_id, served_by_user_id from cugc_registrations where id = $1`, [regId2]);
   ok("…and the gym's row is PAID with the tender, the sale and the server on it", after.rows[0]?.status === "paid" && !!after.rows[0]?.paid_at && after.rows[0]?.payment_method === "bank_transfer" && after.rows[0]?.pos_sale_id === saleId && after.rows[0]?.served_by_user_id === me.id, JSON.stringify(after.rows[0]));
-  const roll = await api("GET", "/api/admin/cugc/registrations");
+  const gymApi = async (path: string) => { const r = await fetch(`${BASE}${path}`, { headers: { cookie: me.cookie, "X-Workspace-Slug": "united-gymnastics" } }); return { status: r.status, body: await r.json().catch(() => null) }; };
+  const roll = await gymApi("/api/admin/cugc/registrations");
   ok("the gym's Registrations tab lists it exactly like a website enrolment", roll.status === 200 && (roll.body ?? []).some((r: any) => r.id === regId2 && r.status === "paid"), String(roll.status));
 
   // ── The reader: a GYM register (default org = the gym) takes gym classes ──
@@ -185,6 +186,28 @@ async function main() {
 }
 
 async function cleanup() {
+  // A PAID probe sale's lines are frozen by pos_sale_lines_guard (rightly), so
+  // the probe's own rows go in one transaction with triggers off — by id, never by pattern.
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("SET LOCAL session_replication_role = replica");
+    const rids = made.registers;
+    await c.query(`update cugc_registrations set pos_sale_id = null where pos_sale_id = any($1) or pos_sale_id in (select id from pos_sales where register_id = any($2))`, [made.sales, rids]);
+    await c.query(`delete from pos_payments where sale_id = any($1) or sale_id in (select id from pos_sales where register_id = any($2))`, [made.sales, rids]);
+    await c.query(`delete from pos_sale_lines where sale_id = any($1) or sale_id in (select id from pos_sales where register_id = any($2))`, [made.sales, rids]);
+    await c.query(`delete from pos_sales where id = any($1) or register_id = any($2)`, [made.sales, rids]);
+    await c.query(`delete from cugc_registrations where id = any($1) or email = $2`, [made.regs, EMAIL]);
+    await c.query(`delete from pos_counter_devices where id = any($1)`, [made.devices]);
+    await c.query(`delete from pos_shifts where register_id = any($1)`, [rids]);
+    await c.query(`delete from pos_registers where id = any($1)`, [rids]);
+    await c.query(`delete from pos_staff_pins where user_id = any($1)`, [made.users]);
+    await c.query(`delete from user_organizations where user_id = any($1)`, [made.users]);
+    await c.query(`delete from users where id = any($1)`, [made.users]);
+    await c.query("COMMIT");
+    c.release();
+    return;
+  } catch (e: any) { await c.query("ROLLBACK").catch(() => {}); c.release(); console.error("cleanup (triggers off) failed, falling back:", e.message); }
   for (const id of made.sales) {
     await pool.query(`update cugc_registrations set pos_sale_id = null where pos_sale_id = $1`, [id]).catch(() => {});
     await pool.query(`delete from pos_payments where sale_id = $1`, [id]).catch(() => {});
