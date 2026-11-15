@@ -14,6 +14,7 @@ import { Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-context";
 import { CommandPalette } from "@/components/command-palette";
+import { SectionIdeasButton } from "@/components/marketing-ideas";
 import { ViewAsBar } from "@/components/view-as-bar";
 import { AccountMenu } from "@/components/account-menu";
 
@@ -39,6 +40,7 @@ const AdminMailerHistory = lazy(() => import("@/pages/admin-mailer-history"));
 const AdminMailerAutomations = lazy(() => import("@/pages/admin-mailer-automations"));
 const AdminMailerAutomationDetail = lazy(() => import("@/pages/admin-mailer-automations").then((m) => ({ default: m.AdminMailerAutomationDetail })));
 const AdminXeroPayments = lazy(() => import("@/pages/admin-xero-payments"));
+const AdminPaymentsDue = lazy(() => import("@/pages/admin-payments-due"));
 const Predictor = lazy(() => import("@/pages/predictor"));
 const FootballInstitute = lazy(() => import("@/pages/football-institute"));
 const AdminSettings = lazy(() => import("@/pages/admin-settings"));
@@ -79,12 +81,17 @@ const GroupInvoices = lazy(() => import("@/pages/invoices"));
 const GroupXeroInvoices = lazy(() => import("@/pages/xero-invoices"));
 const GroupPayouts = lazy(() => import("@/pages/payouts"));
 const AdminLicensing = lazy(() => import("@/pages/admin-licensing"));
+const AdminPerformance = lazy(() => import("@/pages/performance"));
+const AthleteCheckIn = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteCheckIn })));
+const AthleteSetPassword = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteSetPassword })));
 const AdminEvents = lazy(() => import("@/pages/admin-events"));
 const AdminMembership = lazy(() => import("@/pages/admin-membership"));
 const AdminDeclarations = lazy(() => import("@/pages/admin-declarations"));
 const GroupProjects = lazy(() => import("@/pages/group-projects"));
 const GroupContent = lazy(() => import("@/pages/group-content"));
 const GroupHiring = lazy(() => import("@/pages/group-hiring"));
+// Website (2026-11-01): the club sites' news, edited by staff with per-site grants.
+const AdminSites = lazy(() => import("@/pages/sites"));
 const GroupVehicles = lazy(() => import("@/pages/group-vehicles"));
 const GroupEquipment = lazy(() => import("@/pages/group-equipment"));
 const GroupFines = lazy(() => import("@/pages/group-fines"));
@@ -95,11 +102,36 @@ const CodingBudget = lazy(() => import("@/pages/coding-budget"));
 const EquipmentHolder = lazy(() => import("@/pages/equipment-holder"));
 const GroupSponsors = lazy(() => import("@/pages/group-sponsors"));
 const MarketingHub = lazy(() => import("@/pages/marketing-hub"));
+const SocialMedia = lazy(() => import("@/pages/social-media"));
+const WebAnalytics = lazy(() => import("@/pages/web-analytics"));
+const CampaignsPage = lazy(() => import("@/pages/campaigns"));
+const FunnelsPage = lazy(() => import("@/pages/funnels"));
+const CampaignDetailPage = lazy(() => import("@/pages/campaign-detail"));
+const PaidAdsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.PaidAdsPage })));
+const EmailStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.EmailStatsPage })));
+const SmsStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.SmsStatsPage })));
+const WhatsAppStatsPage = lazy(() => import("@/pages/marketing-channels").then((m) => ({ default: m.WhatsAppStatsPage })));
+const SignagePage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.SignagePage })));
+const BillboardsPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.BillboardsPage })));
+const TraditionalMediaPage = lazy(() => import("@/pages/offline-marketing").then((m) => ({ default: m.TraditionalMediaPage })));
+const FlyersPrintPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.FlyersPrintPage })));
+const EventsActivationsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.EventsActivationsPage })));
+const SearchReviewsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.SearchReviewsPage })));
+const ListingsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ListingsPage })));
+const MobileAppsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.MobileAppsPage })));
+const PartnersAmbassadorsPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.PartnersAmbassadorsPage })));
+const MarketingIdeasPage = lazy(() => import("@/pages/marketing-ideas"));
+const WordOfMouthPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.WordOfMouthPage })));
+const OffersCodesPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.OffersCodesPage })));
+const ProductQualityPage = lazy(() => import("@/pages/marketing-more").then((m) => ({ default: m.ProductQualityPage })));
+const BrandingPage = lazy(() => import("@/pages/branding"));
 const FinanceInsight = lazy(() => import("@/pages/finance-insight"));
+const CanterburySport = lazy(() => import("@/pages/canterbury-sport"));
 const GroupVideos = lazy(() => import("@/pages/group-videos"));
 const GroupVideoRecord = lazy(() => import("@/pages/group-video-record"));
 const GroupVideoDetail = lazy(() => import("@/pages/group-video-detail"));
 const VideoShare = lazy(() => import("@/pages/video-share"));
+const DriveShare = lazy(() => import("@/pages/drive-share"));
 const GroupBudget = lazy(() => import("@/pages/group-budget"));
 const GroupBudgetXero = lazy(() => import("@/pages/group-budget-xero"));
 const GroupBudgetCostCentre = lazy(() => import("@/pages/group-budget-cost-centre"));
@@ -131,7 +163,6 @@ const LeagueCompetitionDetail = lazy(() => import("@/pages/league-competition-de
 const LeagueDetail = lazy(() => import("@/pages/league-competition-detail").then((m) => ({ default: m.LeagueDetail })));
 const LeagueTeams = lazy(() => import("@/pages/league-teams"));
 const LeaguePayments = lazy(() => import("@/pages/league-payments"));
-const LeagueMailer = lazy(() => import("@/pages/league-mailer"));
 const LeagueRewards = lazy(() => import("@/pages/league-rewards"));
 const LeagueLoyalty = lazy(() => import("@/pages/league-loyalty"));
 const FmHistory = lazy(() => import("@/pages/fm-history"));
@@ -153,11 +184,11 @@ const TaskBoard = lazy(() => import("@/pages/task-board"));
 const CugcLiveChat = lazy(() => import("@/pages/cugc-livechat"));
 const PrintLiveChat = lazy(() => import("@/pages/print-livechat"));
 const PrintsRequests = lazy(() => import("@/pages/prints-requests"));
+const ShopOrdersHub = lazy(() => import("@/pages/shop-orders"));
 const PrintsFaqs = lazy(() => import("@/pages/prints-faqs"));
 const PrintsExpenses = lazy(() => import("@/pages/prints-expenses"));
 const CicLogoConsents = lazy(() => import("@/pages/cic-logo-consents"));
 const MediaLibrary = lazy(() => import("@/pages/media-library"));
-const CicMailer = lazy(() => import("@/pages/cic-mailer"));
 const CicPush = lazy(() => import("@/pages/cic-push"));
 const CicWatch = lazy(() => import("@/pages/cic-watch"));
 const ContentMarketplace = lazy(() => import("@/pages/content-marketplace"));
@@ -178,7 +209,6 @@ const CugcRegistrations = lazy(() => import("@/pages/cugc-registrations"));
 const CugcFreeSessions = lazy(() => import("@/pages/cugc-free-sessions"));
 const CugcRoll = lazy(() => import("@/pages/cugc-roll"));
 const CugcAnalytics = lazy(() => import("@/pages/cugc-analytics"));
-const CugcMailer = lazy(() => import("@/pages/cugc-mailer"));
 const LeagueBuilderPage = lazy(() => import("@/pages/league-builder-page"));
 const LeagueSettings = lazy(() => import("@/pages/league-settings"));
 const CugcPrograms = lazy(() => import("@/pages/cugc-programs"));
@@ -195,6 +225,7 @@ const TournamentVendors = lazy(() => import("@/pages/tournament-vendors"));
 const Volunteers = lazy(() => import("@/pages/volunteers"));
 const ESign = lazy(() => import("@/pages/esign"));
 const SignPage = lazy(() => import("@/pages/sign"));
+const AgreePage = lazy(() => import("@/pages/agree"));
 const SignDeclaration = lazy(() => import("@/pages/sign-declaration"));
 const StudioPublicPage = lazy(() => import("@/pages/studio-public"));
 const StudioPreviewPage = lazy(() => import("@/pages/studio-preview"));
@@ -206,6 +237,10 @@ const Cic7sRegistrations = lazy(() => import("@/pages/cic7s-registrations"));
 const EthnicCupRegistrations = lazy(() => import("@/pages/ethnic-cup-registrations"));
 const FootballFest = lazy(() => import("@/pages/football-fest"));
 const TeamEntries = lazy(() => import("@/pages/team-entries"));
+const CicPackagesAdmin = lazy(() => import("@/pages/cic-packages-admin"));
+const CicPackageTeamPage = lazy(() => import("@/pages/cic-packages/team"));
+const CicPackageJoinPage = lazy(() => import("@/pages/cic-packages/join"));
+const CicPackagePlayerPage = lazy(() => import("@/pages/cic-packages/player"));
 const TeampayEnterPage = lazy(() => import("@/pages/teampay/enter"));
 const TeampayDashboard = lazy(() => import("@/pages/teampay/dashboard"));
 const TeampayPlayerPage = lazy(() => import("@/pages/teampay/player"));
@@ -231,8 +266,9 @@ const PrintsQuotes = lazy(() => import("@/pages/prints-quotes"));
 const PrintsOrderDetail = lazy(() => import("@/pages/prints-order-detail"));
 const PrintsMaterials = lazy(() => import("@/pages/prints-materials"));
 const PrintsIntegrations = lazy(() => import("@/pages/prints-integrations"));
-const WarehouseDashboard = lazy(() => import("@/pages/warehouse-dashboard"));
 const WarehouseItems = lazy(() => import("@/pages/warehouse-items"));
+const WarehouseTransfers = lazy(() => import("@/pages/warehouse-transfers"));
+const WarehouseProduct = lazy(() => import("@/pages/warehouse-product"));
 const WarehouseLocations = lazy(() => import("@/pages/warehouse-locations"));
 const WarehousePOs = lazy(() => import("@/pages/warehouse-pos"));
 const WarehouseRequisitions = lazy(() => import("@/pages/warehouse-requisitions"));
@@ -352,7 +388,8 @@ function AdminRouter() {
   if (isSandbox) {
     return (
       <Switch>
-        <Route path="/admin"><Redirect to="/admin/club-dossier" /></Route>
+        <Route path="/admin"><Redirect to="/admin/canterbury-sport" /></Route>
+        <Route path="/admin/canterbury-sport" component={CanterburySport} />
         <Route path="/admin/club-dossier" component={ClubDossier} />
         <Route path="/admin/market-research" component={MarketResearch} />
         <Route path="/admin/team" component={AdminTeam} />
@@ -389,8 +426,14 @@ function AdminRouter() {
         <Route path="/admin/print-landing" component={PrintsLanding} />
         <Route path="/admin/print-email" component={PrintsEmail} />
         <Route path="/admin/integrations" component={PrintsIntegrations} />
-        <Route path="/admin/warehouse" component={WarehouseDashboard} />
+        <Route path="/admin/shop-orders" component={ShopOrdersHub} />
+        <Route path="/admin/warehouse" component={WarehouseItems} />
         <Route path="/admin/warehouse/items" component={WarehouseItems} />
+        <Route path="/admin/warehouse/products" component={WarehouseItems} />
+        <Route path="/admin/warehouse/products/:id" component={WarehouseProduct} />
+        <Route path="/admin/warehouse/products/:id/variants/:vid" component={WarehouseProduct} />
+        <Route path="/admin/warehouse/transfers" component={WarehouseTransfers} />
+        <Route path="/admin/warehouse/transfers/:id" component={WarehouseTransfers} />
         <Route path="/admin/warehouse/locations" component={WarehouseLocations} />
         <Route path="/admin/warehouse/assets" component={WarehouseAssets} />
         <Route path="/admin/warehouse/fields" component={WarehouseFieldTemplates} />
@@ -433,6 +476,7 @@ function AdminRouter() {
         <Route path="/admin/projects" component={GroupProjects} />
         <Route path="/admin/content" component={GroupContent} />
         <Route path="/admin/hiring" component={GroupHiring} />
+        <Route path="/admin/sites" component={AdminSites} />
         <Route path="/admin/sponsorship" component={GroupSponsorship} />
         <Route path="/admin/proposals" component={GroupProposals} />
         <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
@@ -457,6 +501,29 @@ function AdminRouter() {
         <Route path="/admin/energy" component={EnergyPage} />
         <Route path="/admin/housing" component={VenueHousing} />
         <Route path="/admin/marketing-hub" component={MarketingHub} />
+        <Route path="/admin/social-media" component={SocialMedia} />
+        <Route path="/admin/web-analytics" component={WebAnalytics} />
+        <Route path="/admin/campaigns" component={CampaignsPage} />
+        <Route path="/admin/campaigns/:id" component={CampaignDetailPage} />
+        <Route path="/admin/funnels" component={FunnelsPage} />
+        <Route path="/admin/paid-ads" component={PaidAdsPage} />
+        <Route path="/admin/email-stats" component={EmailStatsPage} />
+        <Route path="/admin/sms-stats" component={SmsStatsPage} />
+        <Route path="/admin/whatsapp-stats" component={WhatsAppStatsPage} />
+        <Route path="/admin/signage" component={SignagePage} />
+        <Route path="/admin/billboards" component={BillboardsPage} />
+        <Route path="/admin/traditional-media" component={TraditionalMediaPage} />
+        <Route path="/admin/flyers-print" component={FlyersPrintPage} />
+        <Route path="/admin/events-activations" component={EventsActivationsPage} />
+        <Route path="/admin/search-reviews" component={SearchReviewsPage} />
+        <Route path="/admin/listings" component={ListingsPage} />
+        <Route path="/admin/mobile-apps" component={MobileAppsPage} />
+        <Route path="/admin/partners-ambassadors" component={PartnersAmbassadorsPage} />
+        <Route path="/admin/marketing-ideas" component={MarketingIdeasPage} />
+        <Route path="/admin/word-of-mouth" component={WordOfMouthPage} />
+        <Route path="/admin/offers-codes" component={OffersCodesPage} />
+        <Route path="/admin/product-quality" component={ProductQualityPage} />
+        <Route path="/admin/branding" component={BrandingPage} />
         <Route path="/admin/finance-insight" component={FinanceInsight} />
         <Route path="/admin/sponsor-traffic" component={GroupSponsors} />
         <Route path="/admin/videos/record" component={GroupVideoRecord} />
@@ -494,7 +561,12 @@ function AdminRouter() {
         <Route path="/admin/cugc-free-sessions" component={CugcFreeSessions} />
         <Route path="/admin/cugc-analytics" component={CugcAnalytics} />
         <Route path="/admin/cugc-inbox" component={CugcInbox} />
-        <Route path="/admin/cugc-mailer" component={CugcMailer} />
+        {/* ONE Mailer, every workspace (2026-11-14). The old URL still lands. */}
+        <Route path="/admin/cugc-mailer"><Redirect to="/admin/mailer" /></Route>
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/terms" component={GymnasticsTerms} />
         {/* Reuse the camps detail + landing-page editor — they take a
             program id and don't care what type the program is. Gymnastics
@@ -544,12 +616,17 @@ function AdminRouter() {
         <Route path="/admin/ethnic-cup-registrations" component={EthnicCupRegistrations} />
         <Route path="/admin/football-fest" component={FootballFest} />
         <Route path="/admin/team-entries" component={TeamEntries} />
+        <Route path="/admin/cic-packages" component={CicPackagesAdmin} />
         <Route path="/admin/cic-registrations" component={CicInbox} />
         <Route path="/admin/cic-livechat" component={CicLiveChat} />
         <Route path="/admin/mfl-livechat" component={MflLiveChat} />
         <Route path="/admin/cugc-livechat" component={CugcLiveChat} />
         <Route path="/admin/print-livechat" component={PrintLiveChat} />
-        <Route path="/admin/cic-mailer" component={CicMailer} />
+        <Route path="/admin/cic-mailer"><Redirect to="/admin/mailer" /></Route>
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/cic-push" component={CicPush} />
         <Route path="/admin/cic-logo-consents" component={CicLogoConsents} />
         <Route path="/admin/cic-watch" component={CicWatch} />
@@ -601,7 +678,10 @@ function AdminRouter() {
         <Route path="/admin/mfl-score/:id" component={MflScoreGame} />
         <Route path="/admin/mfl-media" component={MflMedia} />
         <Route path="/admin/payments" component={LeaguePayments} />
-        <Route path="/admin/mailer" component={LeagueMailer} />
+        <Route path="/admin/mailer/history" component={AdminMailerHistory} />
+        <Route path="/admin/mailer/automations/:id" component={AdminMailerAutomationDetail} />
+        <Route path="/admin/mailer/automations" component={AdminMailerAutomations} />
+        <Route path="/admin/mailer" component={AdminMailer} />
         <Route path="/admin/rewards" component={LeagueRewards} />
         <Route path="/admin/loyalty" component={LeagueLoyalty} />
         <Route path="/admin/analytics" component={LeagueAnalytics} />
@@ -684,9 +764,14 @@ function AdminRouter() {
       <Route path="/admin/academy/:id/session/:dateId/:sessionType" component={AdminSessionRoll} />
       <Route path="/admin/academy/:id" component={AdminCampDetail} />
       <Route path="/admin/squads" component={AdminSquads} />
+      {/* e-Sign was in CUFC/SIU's tab list and account menu but never in THIS
+          route list, so it 404'd in both (found 2026-11-04 by the template-builder check). */}
+      <Route path="/admin/esign" component={ESign} />
       <Route path="/admin/football-in-schools" component={AdminFisPipeline} />
+      <Route path="/admin/sites" component={AdminSites} />
       <Route path="/admin/terms" component={GymnasticsTerms} />
       <Route path="/admin/xero-payments" component={AdminXeroPayments} />
+      <Route path="/admin/payments-due" component={AdminPaymentsDue} />
       <Route path="/admin/registrations" component={AdminRegistrations} />
       <Route path="/admin/contacts" component={AdminContacts} />
       {/* One person page for both people tables, keyed `contact-{id}` /
@@ -741,6 +826,8 @@ function AdminRouter() {
       <Route path="/admin/attribution" component={AttributionPage} />
       <Route path="/admin/behavior" component={BehaviorPage} />
       <Route path="/admin/licensing" component={AdminLicensing} />
+      <Route path="/admin/performance/players/:contactId" component={AdminPerformance} />
+      <Route path="/admin/performance/:section?" component={AdminPerformance} />
       <Route path="/admin/declarations" component={AdminDeclarations} />
       <Route path="/admin/events" component={AdminEvents} />
       <Route path="/admin/membership" component={AdminMembership} />
@@ -814,6 +901,8 @@ function AdminLayout() {
             </main>
           </div>
         </div>
+        {/* The "Ideas" button on every Marketing page (draws nothing elsewhere). */}
+        <SectionIdeasButton />
         <CommandPalette />
       </SidebarProvider>
     </AuthGuard>
@@ -850,6 +939,14 @@ function App() {
             <Route path="/receipt/:token" component={PosReceipt} />
             {/* The counter screen — our app on the Stripe S710 shows this page. */}
             <Route path="/counter" component={PosCounter} />
+            {/* media.<club domain> = sponsor content pages only: <sponsor>/<code>.
+                Checked by hostname so the two-part address cannot collide with any other route. */}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && <Route path="/:slug/:code" component={DriveShare} />}
+            {typeof window !== "undefined" && window.location.hostname.startsWith("media.") && (
+              <Route path="/">
+                <div className="grid min-h-screen place-items-center bg-white px-6 text-center"><p className="text-sm text-slate-600">South Island United partner content. Open the link you were sent.</p></div>
+              </Route>
+            )}
             <Route path="/">
               {(() => {
                 // Hostname-based routing for the public root:
@@ -890,6 +987,8 @@ function App() {
             <Route path="/reset-password" component={ResetPassword} />
             <Route path="/calendar/rsvp/:token" component={RsvpPage} />
             <Route path="/sign/:token" component={SignPage} />
+            {/* e-Sign template open link — one link, each person signs their own (2026-11-04). */}
+            <Route path="/agree/:token" component={AgreePage} />
             <Route path="/declaration/:token" component={SignDeclaration} />
             {/* USG Studio — public proposal pages (unlisted, no auth). Must
                 precede the 2-segment /:slug/* and 1-segment /:slug routes. */}
@@ -897,6 +996,7 @@ function App() {
             {/* Staff Videos — the in-house Loom's public share pages. Random
                 non-enumerable tokens; visibility enforced by the public API. */}
             <Route path="/v/:token" component={VideoShare} />
+            <Route path="/share/:token" component={DriveShare} />
             {/* The equipment holder's own page. A signed link, never a login —
                 see server/equipment-routes.ts for why. */}
             <Route path="/equipment/:token" component={EquipmentHolder} />
@@ -985,6 +1085,10 @@ function App() {
             <Route path="/team/:token" component={TeampayDashboard} />
             {/* 🔴 The specific captain routes MUST precede /captain, or wouter
                 matches the bare path first and the set-password link 404s. */}
+            {/* SIU Performance Hub — the player's phone check-in (join.southislandunited.com/athlete).
+                🔴 /athlete/set-password MUST precede /athlete. */}
+            <Route path="/athlete/set-password" component={AthleteSetPassword} />
+            <Route path="/athlete" component={AthleteCheckIn} />
             <Route path="/captain/set-password" component={CaptainSetPasswordPage} />
             <Route path="/captain/teams/:id" component={CaptainTeamPage} />
             {/* An MFL league team, through the same session. */}
@@ -992,6 +1096,10 @@ function App() {
             <Route path="/captain/teams" component={CaptainTeamsPage} />
             <Route path="/captain" component={CaptainSignInPage} />
             <Route path="/pay/:token" component={TeampayPlayerPage} />
+            {/* CIC 2027 packages (join.cicyouth.com) — token-addressed, no login. */}
+            <Route path="/cic-package/:token" component={CicPackageTeamPage} />
+            <Route path="/cic-join/:token" component={CicPackageJoinPage} />
+            <Route path="/cic-player/:token" component={CicPackagePlayerPage} />
             <Route path="/fill-in/reply/:token" component={TeampayHoldPage} />
             <Route path="/fill-in/:slug" component={TeampayFillinPage} />
             {/* CIC Skills Challenge registration (join.cicyouth.com) */}

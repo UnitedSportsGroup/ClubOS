@@ -26,8 +26,8 @@
 
 import { WORKSPACE_DOMAINS } from "./org-domains";
 
-export type StudioKind = "graphic" | "page" | "video";
-export const STUDIO_KINDS: readonly StudioKind[] = ["graphic", "page", "video"];
+export type StudioKind = "graphic" | "page" | "video" | "carousel";
+export const STUDIO_KINDS: readonly StudioKind[] = ["graphic", "page", "video", "carousel"];
 
 export const STUDIO_DEFAULT_MODEL = "claude-opus-5-5";
 export const STUDIO_DEFAULT_EDIT_MODEL = "claude-sonnet-5-5";
@@ -110,8 +110,35 @@ export const GRAPHIC_SIZES: readonly GraphicSize[] = [
   { key: "landscape", label: "Landscape", width: 1920, height: 1080, use: "Facebook, a screen, an email header" },
 ];
 export const GRAPHIC_SIZE_DEFAULT = "square";
+/** A size key: one of the named sizes, or any "WIDTHxHEIGHT" in pixels (a
+ *  billboard placement's own spec). Unknown → square. */
+export const CUSTOM_SIZE_RE = /^([1-9][0-9]{2,3})x([1-9][0-9]{2,3})$/;
 export function graphicSize(key: string | null | undefined): GraphicSize {
-  return GRAPHIC_SIZES.find((s) => s.key === key) ?? GRAPHIC_SIZES[0];
+  const named = GRAPHIC_SIZES.find((s) => s.key === key);
+  if (named) return named;
+  const m = String(key ?? "").match(CUSTOM_SIZE_RE);
+  if (m && Number(m[1]) >= 100 && Number(m[2]) >= 100 && Number(m[1]) <= 4000 && Number(m[2]) <= 4000) {
+    const width = Number(m[1]), height = Number(m[2]);
+    const r = width / height;
+    const shape = r > 2.2 ? "wide banner" : r > 1.2 ? "landscape" : r < 0.6 ? "tall portrait" : r < 0.85 ? "portrait" : "near-square";
+    return { key: `${width}x${height}`, label: `${width}×${height}`, width, height, use: `a ${shape} placement (e.g. a billboard or screen)` };
+  }
+  return GRAPHIC_SIZES[0];
+}
+/** The size the artboard is DRAWN at, inside the render service's limits
+ *  (320–2400 wide, 320–4000 tall), and the scale that gets back to the real
+ *  pixels. A 3840×1080 board is drawn at 1920×540 and rendered at 2×; a
+ *  1440×240 strip is drawn at 1920×320 and shrunk afterwards. */
+export function artboardFor(size: GraphicSize): { width: number; height: number; scale: 1 | 2; outWidth: number; outHeight: number } {
+  const { width: w, height: h } = size;
+  if (w <= 2400 && h <= 4000 && w >= 320 && h >= 320) return { width: w, height: h, scale: 1, outWidth: w, outHeight: h };
+  if (w > 2400 || h > 4000) {
+    const f = Math.max(w / 2400, h / 4000, 1);
+    const half = f <= 2 ? 2 : f;
+    return { width: Math.round(w / half), height: Math.round(h / half), scale: 2, outWidth: w, outHeight: h };
+  }
+  const up = Math.max(320 / w, 320 / h);
+  return { width: Math.round(w * up), height: Math.round(h * up), scale: 1, outWidth: w, outHeight: h };
 }
 
 export type GraphicLayout = "announcement" | "photo" | "stat" | "list" | "chart" | "event" | "quote";
@@ -166,6 +193,9 @@ export interface PageDoc {
   blocks: PageBlock[];
 }
 
+import type { Edl, VideoClip } from "./studio-video";
+import { checkClips, checkEdl, FOOTAGE_HOST_RE } from "./studio-video-check";
+
 // ── Video requests ──────────────────────────────────────────────────────────
 
 export type VideoStatus = "requested" | "in_progress" | "delivered";
@@ -178,6 +208,14 @@ export interface VideoDoc {
   status: VideoStatus;
   deliveredUrl?: string | null;
   notes?: string | null;
+  /** The video editor (2026-11-01): clips uploaded to the club's private store,
+   *  the edit the worker planned (words editable), and what it made. */
+  clips?: VideoClip[];
+  edl?: Edl | null;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
+  seconds?: number | null;
+  editNote?: string | null;
 }
 
 // ── Pictures ────────────────────────────────────────────────────────────────
@@ -361,7 +399,10 @@ export function checkVideoDoc(raw: unknown): Checked<VideoDoc> {
   const status: VideoStatus = r.status === "in_progress" || r.status === "delivered" ? r.status : "requested";
   const deliveredUrl = clean(r.deliveredUrl, 500) ?? null;
   if (deliveredUrl && !isAllowedHref(deliveredUrl)) problems.push("the delivered link must be a full https:// address");
-  return { ok: problems.length === 0, doc: { brief, footage, format, lengthSeconds, status, deliveredUrl, notes: clean(r.notes, 2000) ?? null }, problems };
+  const clips = checkClips(r.clips);
+  const edl = r.edl ? checkEdl(r.edl, clips.length) : null;
+  const media = (v: unknown) => { const u = clean(v, 600); return u && FOOTAGE_HOST_RE.test(u) ? u : null; };
+  return { ok: problems.length === 0, doc: { brief, footage, format, lengthSeconds, status, deliveredUrl, notes: clean(r.notes, 2000) ?? null, clips, edl, videoUrl: media(r.videoUrl), posterUrl: media(r.posterUrl), seconds: Number.isFinite(Number(r.seconds)) && r.seconds != null ? Number(r.seconds) : null, editNote: clean(r.editNote, 2000) ?? null }, problems };
 }
 
 // ── The words, as fields a person edits in place ────────────────────────────
@@ -563,5 +604,5 @@ export const PAGE_SCHEMA: Record<string, unknown> = {
 // ── Words ───────────────────────────────────────────────────────────────────
 
 export function studioKindLabel(kind: StudioKind): string {
-  return kind === "graphic" ? "Graphic" : kind === "page" ? "Landing page" : "Video";
+  return kind === "graphic" ? "Graphic" : kind === "page" ? "Landing page" : kind === "carousel" ? "Carousel" : "Video";
 }

@@ -23,6 +23,15 @@ export function serveStatic(app: Express) {
     express.static(path.join(distPath, "assets"), { immutable: true, maxAge: "1y", index: false }),
     (_req, res) => res.status(404).end(),
   );
+  /* The brands' own typefaces for Content Studio pages and graphics. A
+     published page lives on another host (join.southislandunited.com) and the
+     preview runs in a sandboxed (opaque-origin) frame, so a font needs CORS. */
+  app.use(
+    "/studio-fonts",
+    (_req, res, next) => { res.setHeader("Access-Control-Allow-Origin", "*"); next(); },
+    express.static(path.join(distPath, "studio-fonts"), { maxAge: "30d", index: false }),
+    (_req, res) => res.status(404).end(),
+  );
   app.use(express.static(distPath, { index: false }));
 
   // fall through to index.html if the file doesn't exist. The shell is

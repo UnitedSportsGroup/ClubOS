@@ -126,6 +126,8 @@ app.use(attributionCookieMiddleware);
   // See migrations/2026-08-15_club_drive.sql + shared/drive.ts.
   const { registerDriveRoutes } = await import("./drive-routes");
   registerDriveRoutes(app);
+  const { registerDriveShareRoutes } = await import("./drive-share");
+  registerDriveShareRoutes(app);
 
   // United Prints workspace — Warehouse Management System. Dark-launched
   // (requireTab("warehouse") — super_admin only until T17 wires "warehouse"
@@ -141,6 +143,11 @@ app.use(attributionCookieMiddleware);
   // requires an admin, since it changes the SHAPE of everyone's data.
   const { registerWarehouseV2Routes } = await import("./warehouse-v2-routes");
   registerWarehouseV2Routes(app);
+
+  // Warehouse → Products: one product's page + Add product, Shopify-style
+  // (2026-11-04). Edits the SAME shop product the storefront sells.
+  const { registerWarehouseProductRoutes } = await import("./warehouse-product-routes");
+  registerWarehouseProductRoutes(app);
 
   // Warehouse models (D32–D35): the model layer above the barcoded variants,
   // the autocomplete the counting cockpit runs on, and the catalogue CSV in
@@ -261,6 +268,9 @@ app.use(attributionCookieMiddleware);
   registerFootballFestRoutes(app);
   const { registerFinanceInsightRoutes } = await import("./finance-insight-routes");
   registerFinanceInsightRoutes(app);
+  // Canterbury Sport — the land company's costs, loans, break-even and cash (Daniel only).
+  const { registerCanterburySportRoutes } = await import("./canterbury-sport-routes");
+  registerCanterburySportRoutes(app);
   const { registerXeroInvoiceRoutes } = await import("./xero-invoices-routes");
   registerXeroInvoiceRoutes(app);
 
@@ -269,6 +279,8 @@ app.use(attributionCookieMiddleware);
   // the URL and no login; the staff board is gated by requireTab("team-entries").
   const { registerTeampayRoutes } = await import("./teampay-routes");
   registerTeampayRoutes(app);
+  const { registerCicPackagesRoutes } = await import("./cic-packages-routes");
+  registerCicPackagesRoutes(app);
 
   // The captain's own account — a second door to the same dashboard, never a
   // replacement for the organiser-token links, which keep working untouched.
@@ -307,6 +319,10 @@ app.use(attributionCookieMiddleware);
   // Xero payments → registrations: the review queue + "check Xero now".
   const { registerXeroRegistrationRoutes } = await import("./xero-registration-routes");
   registerXeroRegistrationRoutes(app);
+
+  // Payments due — every fee a CUFC family still owes (Xero, live), by programme/age/family/term.
+  const { registerPaymentsDueRoutes } = await import("./payments-due-routes");
+  registerPaymentsDueRoutes(app);
 
   // Fines — both directions (the club owes / owed to the club), with the notice
   // and the payment confirmation stored through the Club Drive storage adapter
@@ -480,6 +496,10 @@ app.use(attributionCookieMiddleware);
   setInterval(sweepAbandonedFacilityBookings, 5 * 60 * 1000);
   setTimeout(sweepAbandonedFacilityBookings, 30 * 1000);
 
+  // NZ Post eShip: push paid delivery orders, read tracking back. Off with no keys.
+  const { startEshipCron } = await import("./eship");
+  startEshipCron();
+
   // United Prints: 24h upload-reminder cron.
   const { startPrintCron } = await import("./print-cron");
   startPrintCron();
@@ -495,6 +515,9 @@ app.use(attributionCookieMiddleware);
 
   // Term programmes: make next term's sessions (and so its roll) exist on
   // their own, from each programme's saved weekly pattern. Insert-only.
+  // Catapult One → Performance Hub, every few minutes. OFF unless CATAPULT_SYNC=1.
+  const { startCatapultSyncCron } = await import("./catapult-sync");
+  startCatapultSyncCron();
   const { startTermSessionsCron } = await import("./term-sessions-cron");
   startTermSessionsCron();
 
@@ -538,6 +561,15 @@ app.use(attributionCookieMiddleware);
   // marketing_daily every 6h (no-op unless MARKETING_HUB_SYNC=1).
   const { startMarketingHubCron } = await import("./marketing-hub/cron");
   startMarketingHubCron();
+  // Social media: every brand's accounts and posts, every 6h (same switch).
+  const { startSocialCron } = await import("./social/sync");
+  startSocialCron();
+  // Websites: keep the narrow copy of the tracker's visits up to date, and the
+  // default view of every Marketing report pre-loaded.
+  const { startWebSlimCron } = await import("./marketing-hub/web-slim");
+  startWebSlimCron();
+  const { startHubWarmers } = await import("./marketing-hub/common");
+  startHubWarmers();
   // Marketing Suite ("MarketingOS", Phase B) — durable send worker (graphile-worker).
   // Self-guards on DATABASE_URL / MARKETING_WORKER_DISABLED and never crashes boot.
   const { startMarketingWorker } = await import("./marketing/worker");

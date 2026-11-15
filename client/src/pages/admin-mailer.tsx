@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect, Fragment, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { RecipientSearch } from "@/components/mailer/recipient-search";
+import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
+import { RecipientSearch, type PersonHit } from "@/components/mailer/recipient-search";
 import { ProgrammePicker } from "@/components/mailer/programme-picker";
 import { audienceLabel, termIdsFor, type AudienceCatalogue, type AudienceGroup, type AudienceTerm } from "@shared/mailer-audiences";
 import { useToast } from "@/hooks/use-toast";
@@ -20,7 +20,9 @@ import {
 
 import { useWorkspace } from "@/lib/workspace-context";
 import { SelectInput } from "@/components/ui/select-input";
-import { CUFC_MAILER_SENDERS, defaultSenderFor, senderFrom } from "@shared/mailer-senders";
+import { mailerSendersFor, defaultSenderFor, senderFrom, senderReplyTo } from "@shared/mailer-senders";
+import { GroupPicker } from "@/components/mailer/group-picker";
+import { settleGroupChoice, groupChoiceLabel, type GroupCatalogue, type GroupChoice } from "@shared/mailer-audiences";
 import { SimpleCompose } from "@/components/mailer/simple-compose";
 import { compileSimpleEmail, isSimpleDoc, signatureFor, simpleTextOf, simpleToMjml, stripSignOff, type SimpleDoc } from "@/components/mailer/simple-email";
 import { LETTERHEADS } from "@/components/marketing/grapes/letterheads";
@@ -121,7 +123,7 @@ function segmentLabel(segmentType: string) {
  *  own label ("Pre-Academy: U9 · Term 4 2026") when it carries one, else the
  *  segment type prettied. */
 function campaignAudience(c: { segmentType: string; segmentConfig?: unknown }): string {
-  if (c.segmentType === "programme") {
+  if (c.segmentType === "programme" || c.segmentType === "group") {
     try {
       const cfg: any = typeof c.segmentConfig === "string" ? JSON.parse(c.segmentConfig) : c.segmentConfig;
       if (cfg?.label) return String(cfg.label);
@@ -143,6 +145,20 @@ export default function AdminMailer() {
   // Custom List is the default: an email meant for a few must never go to
   // everyone because nobody changed the first card (Zach, Oct 2026).
   const [segmentType, setSegmentType] = useState("custom");
+  // ONE Mailer, every workspace (2026-11-14). The workspace decides where its
+  // people live: "programmes" (CUFC, SIU — the programme picker) or "groups"
+  // (Gymnastics, MFL, CIC — rows of choices the server describes).
+  const { currentOrg: wsOrg } = useWorkspace();
+  const wsSlug = wsOrg?.slug ?? "";
+  const { data: wsInfo } = useQuery<{ slug: string; kind: "programmes" | "groups"; defaultFrom: string; defaultReplyTo: string }>({
+    queryKey: ["/api/admin/mailer/workspace", wsSlug],
+    queryFn: async () => (await workspaceFetch("/api/admin/mailer/workspace")).json(),
+    enabled: !!wsSlug,
+    staleTime: 5 * 60_000,
+  });
+  const usesGroups = wsInfo?.kind === "groups";
+  const SENDERS = mailerSendersFor(wsSlug);
+  const [groupChoice, setGroupChoice] = useState<GroupChoice>({});
   // Sending to every contact needs a deliberate tick on the Send step.
   const [confirmAll, setConfirmAll] = useState(false);
   // By programme (Zach, 27 Oct 2026: "send to the 4-8s"): any mix of
@@ -151,8 +167,23 @@ export default function AdminMailer() {
   const [audGroups, setAudGroups] = useState<AudienceGroup[]>([]);
   const [audTerm, setAudTerm] = useState<AudienceTerm>(null);
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<AudienceCatalogue>({
-    queryKey: ["/api/admin/mailer/audiences"],
-    enabled: segmentType === "programme",
+    queryKey: ["/api/admin/mailer/audiences", wsSlug],
+    // 🔴 An explicit queryFn, never the default one: the default fetcher JOINS
+    // the key into the URL, so adding wsSlug to the key (14 Nov) made this ask
+    // /api/admin/mailer/audiences/christchurch-united → 404, and By Programme
+    // read "Programmes could not be loaded" on CUFC for a day (Travis, Paul).
+    queryFn: async () => {
+      const r = await workspaceFetch("/api/admin/mailer/audiences");
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    },
+    enabled: segmentType === "programme" && !!wsSlug,
+    staleTime: 60_000,
+  });
+  const { data: groupCatalogue, isLoading: groupCatalogueLoading } = useQuery<GroupCatalogue>({
+    queryKey: ["/api/admin/mailer/audiences", wsSlug, "groups"],
+    queryFn: async () => (await workspaceFetch("/api/admin/mailer/audiences")).json(),
+    enabled: segmentType === "group" && !!wsSlug,
     staleTime: 60_000,
   });
   const [manualEmails, setManualEmails] = useState<string[]>([]);
@@ -162,8 +193,8 @@ export default function AdminMailer() {
   // Daniel while replies land with the office. Pre-selected from the person
   // signed in (Zach → grassroots@, Olga → accounts@); "Custom…" on either
   // opens a typed field.
-  const [senderId, setSenderId] = useState<string>(CUFC_MAILER_SENDERS[0].id);
-  const [customFromName, setCustomFromName] = useState("Christchurch United FC");
+  const [senderId, setSenderId] = useState<string>(SENDERS[0].id);
+  const [customFromName, setCustomFromName] = useState(SENDERS[0].fromName);
   const [customFromEmail, setCustomFromEmail] = useState("");
   // "same" (the From address) | a sender id | "custom"
   const [replyMode, setReplyMode] = useState<string>("same");
@@ -172,15 +203,18 @@ export default function AdminMailer() {
   const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
   useEffect(() => {
     if (senderTouched.current || me?.id == null) return;
-    setSenderId(defaultSenderFor(me.id).id);
-  }, [me?.id]);
-  const fromSender = CUFC_MAILER_SENDERS.find((x) => x.id === senderId) ?? null;
+    setSenderId(defaultSenderFor(me.id, SENDERS).id);
+    setCustomFromName(SENDERS[0].fromName);
+  }, [me?.id, wsSlug]);
+  const fromSender = SENDERS.find((x) => x.id === senderId) ?? null;
   const fromAddress = fromSender ? fromSender.email : customFromEmail.trim().toLowerCase();
   const fromEmail = fromSender
     ? senderFrom(fromSender)
     : (customFromName.trim() ? `${customFromName.trim()} <${fromAddress}>` : fromAddress);
-  const replySender = CUFC_MAILER_SENDERS.find((x) => x.id === replyMode) ?? null;
-  const replyTo = replyMode === "same" ? fromAddress : replySender ? replySender.email : customReplyTo.trim().toLowerCase();
+  const replySender = SENDERS.find((x) => x.id === replyMode) ?? null;
+  // "Same as From" means that sender's own reply inbox — a noreply@ brand
+  // address answers to the brand's real inbox, never to noreply.
+  const replyTo = replyMode === "same" ? (fromSender ? senderReplyTo(fromSender) : fromAddress) : replySender ? senderReplyTo(replySender) : customReplyTo.trim().toLowerCase();
   const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const senderValid = looksLikeEmail(fromAddress) && looksLikeEmail(replyTo);
 
@@ -270,6 +304,53 @@ export default function AdminMailer() {
     return Number.isInteger(n) && n > 0 ? n : null;
   });
 
+  // ?to=<person keys> — the "Email" button on a profile or a Contacts row
+  // (Daniel, 2026-11-03). The keys are resolved by the SERVER into the same
+  // rows the recipient search returns (own address, else each parent's, named),
+  // so a child with no email of their own lands as "Abbas Ahmadi · via Sumaya
+  // Ahmadi". Read once, on mount: a link names people, it does not keep naming
+  // them on every render.
+  const [toKeys] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    const raw = new URLSearchParams(window.location.search).get("to") ?? "";
+    return raw.split(",").map((k) => k.trim()).filter(Boolean);
+  });
+  const { data: seedPeople } = useQuery<{ people: PersonHit[] }>({
+    queryKey: ["/api/admin/mailer/people", toKeys.join(",")],
+    enabled: toKeys.length > 0,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const res = await workspaceFetch(`/api/admin/mailer/people?keys=${encodeURIComponent(toKeys.join(","))}`);
+      if (!res.ok) throw new Error("Couldn't look that person up");
+      return res.json();
+    },
+  });
+  // A link that names people means the Custom List, whatever was chosen last.
+  useEffect(() => {
+    if (toKeys.length) { setSegmentType("custom"); setConfirmAll(false); }
+  }, [toKeys]);
+  const onSeeded = useCallback((added: PersonHit[], unreachable: PersonHit[]) => {
+    // The link has done its job: drop it from the URL so a refresh, or Back,
+    // does not put the same person back after they were taken off the list.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("to");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch { /* nothing to tidy */ }
+    if (unreachable.length) {
+      const names = unreachable.map((p) => p.name || p.key).join(", ");
+      toast({
+        title: unreachable.length === 1 ? `Can't email ${names}` : `Can't email ${unreachable.length} people`,
+        description: unreachable.map((p) => `${p.name || p.key}: ${p.unreachable ?? "no email on file"}`).join(" · "),
+        variant: "destructive",
+      });
+    }
+    if (added.some((p) => p.emailOwner)) {
+      const via = added.filter((p) => p.emailOwner).map((p) => `${p.name} → ${p.emailOwner}`).join(" · ");
+      toast({ title: "Going to the parent", description: via });
+    }
+  }, [toast]);
+
   // Debounced so typing doesn't fire a query per keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -307,8 +388,19 @@ export default function AdminMailer() {
     if (segmentType === "programme") {
       return { groups: audGroups, termIds: termIdsFor(catalogue, audTerm), label: audienceLabel(catalogue, audGroups, audTerm) };
     }
+    if (segmentType === "group") {
+      const choice = groupCatalogue ? settleGroupChoice(groupCatalogue, groupChoice) : groupChoice;
+      return { choice, label: groupChoiceLabel(groupCatalogue, choice) };
+    }
     return {};
-  }, [segmentType, manualEmails, audGroups, audTerm, catalogue]);
+  }, [segmentType, manualEmails, audGroups, audTerm, catalogue, groupCatalogue, groupChoice]);
+  // The live count beside a group choice — the same endpoint, decider and
+  // opt-out filter as the send.
+  const { data: groupCount } = useQuery<{ willSend: number }>({
+    queryKey: ["/api/admin/mailer/preview-recipients", "group-count", wsSlug, JSON.stringify(segmentConfig)],
+    enabled: segmentType === "group" && !!groupCatalogue,
+    queryFn: async () => (await apiRequest("POST", "/api/admin/mailer/preview-recipients", { segmentType, segmentConfig })).json(),
+  });
 
   // Preview = the actual list (Daniel, 2026-10-25: a toast saying "1 recipient
   // found" is not a preview). The server reads the same audience + opt-out
@@ -686,6 +778,7 @@ export default function AdminMailer() {
 
   const canProceedSetup = senderValid && (segmentType === "all" ||
     (segmentType === "programme" && audGroups.length > 0) ||
+    (segmentType === "group" && !!groupCatalogue) ||
     (segmentType === "custom" && manualEmails.length > 0));
 
   // 🔴 Never move on with an older copy of the design: while a change is still
@@ -787,8 +880,10 @@ export default function AdminMailer() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
               {[
                 { key: "custom", label: "Custom List", desc: "Only the people you add" },
-                { key: "programme", label: "By Programme", desc: "A programme, an age group or a camp — e.g. all U4–U8, all Pre-Academy, just U9" },
-                { key: "all", label: "All Contacts", desc: "Every parent email" },
+                usesGroups
+                  ? { key: "group", label: "By Programme", desc: wsSlug === "christchurch-international-cup" ? "An event, who in it, an age group or an edition" : wsSlug === "mini-football-leagues" ? "Captains or players, by term and league — or the schools list" : "Confirmed families or free trialists, by term and programme" }
+                  : { key: "programme", label: "By Programme", desc: "A programme, an age group or a camp — e.g. all U4–U8, all Pre-Academy, just U9" },
+                { key: "all", label: "All Contacts", desc: `Everyone on ${wsOrg?.name ?? "this workspace"}'s list` },
               ].map(seg => (
                 <button
                   key={seg.key}
@@ -813,6 +908,8 @@ export default function AdminMailer() {
                   onAdd={(e) => setManualEmails(prev => prev.includes(e) ? prev : [...prev, e])}
                   onRemove={removeManualEmail}
                   label="Recipients"
+                  seed={seedPeople?.people ?? null}
+                  onSeeded={onSeeded}
                 />
               </div>
             )}
@@ -833,6 +930,16 @@ export default function AdminMailer() {
                   </div>
                 )}
               </div>
+            )}
+
+            {segmentType === "group" && (
+              <GroupPicker
+                data={groupCatalogue}
+                loading={groupCatalogueLoading}
+                choice={groupChoice}
+                onChoice={setGroupChoice}
+                count={groupCount?.willSend}
+              />
             )}
 
             {segmentType !== "custom" && (
@@ -871,7 +978,7 @@ export default function AdminMailer() {
                   className="premium-input h-11 w-full rounded-md border border-white/10 px-3"
                   data-testid="select-sender"
                 >
-                  {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{senderFrom(s)}</option>)}
+                  {SENDERS.map((s) => <option key={s.id} value={s.id}>{senderFrom(s)}</option>)}
                   <option value="custom">Custom…</option>
                 </SelectInput>
                 {!fromSender && (
@@ -889,8 +996,8 @@ export default function AdminMailer() {
                   className="premium-input h-11 w-full rounded-md border border-white/10 px-3"
                   data-testid="select-reply-to"
                 >
-                  <option value="same">Same as From{fromAddress ? ` (${fromAddress})` : ""}</option>
-                  {CUFC_MAILER_SENDERS.map((s) => <option key={s.id} value={s.id}>{s.email}</option>)}
+                  <option value="same">Same as From{(fromSender ? senderReplyTo(fromSender) : fromAddress) ? ` (${fromSender ? senderReplyTo(fromSender) : fromAddress})` : ""}</option>
+                  {SENDERS.map((s) => <option key={s.id} value={s.id}>{senderReplyTo(s)}</option>)}
                   <option value="custom">Custom…</option>
                 </SelectInput>
                 {replyMode === "custom" && (
@@ -1246,7 +1353,7 @@ export default function AdminMailer() {
                 <div className="text-xs text-white/40 mb-1">Segment</div>
                 <div className="text-sm text-white/80 capitalize" data-testid="text-review-segment">
                   {segmentType === "all" ? "All contacts" :
-                   segmentType === "programme" ? audienceLabel(catalogue, audGroups, audTerm) :
+                   segmentType === "programme" ? audienceLabel(catalogue, audGroups, audTerm) : segmentType === "group" ? groupChoiceLabel(groupCatalogue, groupChoice) :
                    `Custom (${manualEmails.length} emails)`}
                 </div>
               </div>

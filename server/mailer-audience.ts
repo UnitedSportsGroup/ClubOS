@@ -148,7 +148,8 @@ export function cleanMailerEmail(raw: unknown): string | null {
 export { joinNames } from "./mailer-render";
 
 type Scope =
-  | { kind: "all" }
+  /** orgId set → only registrations in THAT workspace's programmes. */
+  | { kind: "all"; orgId?: number }
   | { kind: "program"; programId: number }
   | { kind: "items"; programId: number; campDateId: number; productType: string | null }
   /** "programme" (Zach, 27 Oct 2026: "send to the 4-8s", "all pre academy",
@@ -267,6 +268,9 @@ async function foldRegistrations(
 
   const regWhere = and(
     inArray(registrations.status, REAL),
+    // "Everyone" is one workspace's families (Daniel, 2026-11-14), never every
+    // registration in ClubOS — 93 Mini Football families were on CUFC's list.
+    scope.kind === "all" && scope.orgId ? eq(programs.organizationId, scope.orgId) : undefined,
     scope.kind === "program" || scope.kind === "items" ? eq(registrations.programId, scope.programId) : undefined,
     scope.kind === "groups"
       ? inArray(registrations.programId, Array.from(new Set(scope.groups.map((g) => g.programId))))
@@ -643,13 +647,31 @@ export async function resolveMailerAudience(
   segmentType: string,
   segmentConfig?: any,
   manualEmails?: string[] | null,
+  /** The workspace sending (2026-11-14). orgId narrows "Everyone" to that
+   *  workspace's families and refuses another workspace's programmes;
+   *  includeUntied keeps guardians with no ClubOS registration at all — the
+   *  Friendly Manager history, which is CUFC's alone. Omitted = the old
+   *  every-workspace behaviour (kept only for callers that predate this). */
+  ws?: { orgId: number; includeUntied: boolean },
 ): Promise<MailerAudience> {
   const cfg = segmentConfig
     ? typeof segmentConfig === "string"
       ? JSON.parse(segmentConfig)
       : segmentConfig
     : {};
-  const scope = scopeOf(segmentType, cfg);
+  let scope = scopeOf(segmentType, cfg);
+  if (ws && scope.kind === "all") scope = { kind: "all", orgId: ws.orgId };
+  if (ws && scope.kind !== "all" && scope.kind !== "none") {
+    // A programme id from another workspace is refused, not widened.
+    const wanted = scope.kind === "groups" ? scope.groups.map((g) => g.programId) : [scope.programId];
+    const mine = await db.select({ id: programs.id }).from(programs)
+      .where(and(eq(programs.organizationId, ws.orgId), inArray(programs.id, Array.from(new Set(wanted)))));
+    const ok = new Set(mine.map((r) => r.id));
+    if (scope.kind === "groups") {
+      const groups = scope.groups.filter((g) => ok.has(g.programId));
+      scope = groups.length ? { ...scope, groups } : { kind: "none" };
+    } else if (!ok.has(scope.programId)) scope = { kind: "none" };
+  }
 
   const typed: string[] = Array.from(
     new Set(
@@ -678,10 +700,23 @@ export async function resolveMailerAudience(
     // each address gets its record HERE, named from its own guardian row.
     // (The first cut only noted the address and left naming to the pass at
     // the end, which walks records that exist: 3,200 parents read "Hi there".)
+    // A guardian belongs to a workspace through a REAL registration in its
+    // programmes; one with no registration anywhere is Friendly Manager
+    // history and belongs to CUFC alone (ws.includeUntied).
+    const tie = (orgFilter: ReturnType<typeof sql> | null) => sql`EXISTS (
+      SELECT 1 FROM registrations tr JOIN programs tp ON tp.id = tr.program_id
+       WHERE ${contacts.id} IN (tr.contact_id, tr.guardian_id)
+         AND tr.status IN (${sql.join(REAL.map((st) => sql`${st}`), sql`, `)})
+         ${orgFilter ? sql`AND ${orgFilter}` : sql``})`;
+    const wsFilter = ws
+      ? (ws.includeUntied
+          ? sql`(${tie(sql`tp.organization_id = ${ws.orgId}`)} OR NOT ${tie(null)})`
+          : tie(sql`tp.organization_id = ${ws.orgId}`))
+      : undefined;
     const rows = await db
       .select({ email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName })
       .from(contacts)
-      .where(and(eq(contacts.type, "guardian"), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`))
+      .where(and(eq(contacts.type, "guardian"), sql`${contacts.email} IS NOT NULL AND ${contacts.email} != ''`, wsFilter))
       .orderBy(contacts.id);
     for (const r of rows) {
       const email = cleanMailerEmail(r.email);

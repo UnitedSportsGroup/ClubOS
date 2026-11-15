@@ -78,6 +78,7 @@ const CANARIES: Canary[] = [
   // file survive a bad deploy untouched; what disappears is the route, and a
   // missing route is indistinguishable from one that never existed.
   { feature: "club drive",          path: "/api/admin/drive/bootstrap",             expect: [401] },
+  { feature: "drive share links",   path: "/api/admin/drive/share/1",               expect: [401] },
   // Equipment Register (2026-08-18). Both halves are canaried, because they can
   // be lost independently: the staff tab is an admin route, while the holders'
   // own page is a PUBLIC one, and a coach standing in a shed with a dead link
@@ -142,6 +143,10 @@ const CANARIES: Canary[] = [
   { feature: "cic 7s enter bridge",  path: "/api/public/cic7s/register-interest/probe/enter", method: "OPTIONS", expect: [204] },
   { feature: "cic 7s marketplace",   path: "/api/public/teampay/marketplace/cic-summer-7s-2027-open", expect: [200] },
   { feature: "team pay captain login", path: "/api/public/teampay/captain/me", expect: [401] },
+  // CIC 2027 packages (2026-11-06): packages.cicyouth.com books here and takes
+  // the 10% deposit. If a deploy drops it, Book dead-ends for every club.
+  { feature: "cic packages booking", path: "/api/public/cic/packages/booking/00000000000000000000000000000000", expect: [404] },
+  { feature: "cic packages admin",   path: "/api/admin/cic-packages",                                            expect: [401] },
   // The rebuilt dashboard's only endpoint. Silent if it goes: the page falls
   // back to nothing and every workspace's revenue simply stops appearing,
   // which is indistinguishable from a quiet month.
@@ -154,6 +159,28 @@ const CANARIES: Canary[] = [
   // Marketing hub (2026-09-15): Daniel's one-stop marketing dashboard. A deploy
   // without it would leave a sidebar link to a page whose every section 404s.
   { feature: "marketing hub",        path: "/api/admin/marketing-hub/overview",         expect: [401] },
+  // Social media (2026-11-10): Marketing → Social media. A deploy without it
+  // leaves a sidebar link to a page that cannot load an account.
+  { feature: "social media",         path: "/api/admin/social/accounts",                expect: [401] },
+  { feature: "social media labels",  path: "/api/admin/social/labels",                  expect: [401] },
+  { feature: "siu performance",      path: "/api/admin/performance/catalogue",          expect: [401] },
+  { feature: "siu athlete check-in", path: "/api/public/athlete/me",                    expect: [401] },
+  { feature: "siu check-in forms",   path: "/api/admin/performance/checkins",           expect: [401] },
+  { feature: "siu check-in form (player)", path: "/api/public/athlete/form",           expect: [401] },
+  { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
+  { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },
+  { feature: "campaigns",            path: "/api/admin/campaigns",                      expect: [401] },
+  // Funnels inside a campaign (2026-11-14). The path sits under a campaign id on
+  // purpose: "/campaigns/funnels" would be answered 401 by the campaign route too.
+  { feature: "campaign funnels",     path: "/api/admin/campaigns/1/funnels",            expect: [401] },
+  // Signage · Billboards · Traditional Media · Branding (2026-11-11). A deploy
+  // without them empties four tabs in the United Sports Group workspace.
+  { feature: "offline marketing",    path: "/api/admin/offline-marketing/signage",      expect: [401] },
+  { feature: "marketing word of mouth", path: "/api/admin/word-of-mouth/report",        expect: [401] },
+  { feature: "marketing offers",     path: "/api/admin/offers-codes/report",            expect: [401] },
+  { feature: "branding",             path: "/api/admin/branding/boards",                expect: [401] },
+  // Marketing → Ideas (2026-11-12): the ideas backlog and the plan, and the Ideas button on every Marketing page.
+  { feature: "marketing ideas",      path: "/api/admin/marketing-ideas",                expect: [401] },
   // Sponsorship Partners (2026-10-23): the signed sponsors, their contracts and
   // instalments. A deploy without it empties USG → Sponsorship → Partners.
   { feature: "sponsorship partners",  path: "/api/admin/sponsorship/partners",           expect: [401] },
@@ -184,11 +211,27 @@ const CANARIES: Canary[] = [
   { feature: "mailer pictures",      path: "/api/admin/mailer/images",                  expect: [401] },
   { feature: "mailer a/b tests",     path: "/api/admin/mailer/tests",                   expect: [401] },
   { feature: "content studio",       path: "/api/admin/content-studio/usage",                   expect: [401] },
+  { feature: "studio video editor",  path: "/api/worker/studio/videos/next",                    expect: [401] },
+  { feature: "studio logo finder",   path: "/api/admin/content-studio/logo-search",             expect: [401] },
   { feature: "rambo chat",           path: "/api/admin/rambo/threads",                  expect: [401] },
+  // Website tab (2026-11-01): staff publish cufc.co.nz news; the site builds from the public route.
+  { feature: "website tab",          path: "/api/admin/sites",                          expect: [401] },
+  { feature: "website public news",  path: "/api/public/site/cufc/status",              expect: [200] },
+  // Shop Orders (2026-11-02): every shop's paid orders for the warehouse (United Prints).
+  { feature: "shop orders hub",      path: "/api/admin/shop-orders",                    expect: [401] },
   // USC Player Pay (2026-10-22): the Bookings tab's Player Pay view and its
   // cancel & refund. A deploy without it also brings back the sweep that released
   // paid Player Pay bookings — the same tree carries both.
   { feature: "venue player pay",     path: "/api/admin/venue/splits",                   expect: [401] },
+  // Payments due (2026-11-04): every fee a CUFC family still owes, from Xero, by programme/age/family/term.
+  { feature: "payments due",         path: "/api/admin/payments-due",                   expect: [401] },
+  { feature: "payments chase emails", path: "/api/admin/payments-due/chase/preview",    expect: [401] },
+  // NZ Post eShip (2026-11-04): shop delivery orders → eShip, tracking back.
+  { feature: "shop eship",           path: "/api/admin/shop-orders/eship/status",      expect: [401] },
+  // Warehouse Products (Shopify-style product page, Add product, Transfers) — 4 Nov 2026.
+  { feature: "warehouse products",   path: "/api/admin/warehouse/product-meta",         expect: [401] },
+  { feature: "warehouse transfers",  path: "/api/admin/warehouse/transfers",            expect: [401] },
+  { feature: "canterbury sport",     path: "/api/admin/canterbury-sport",               expect: [401] },
 ];
 
 /** Where each canary's route is declared, so we can tell whether THIS tree
@@ -196,6 +239,7 @@ const CANARIES: Canary[] = [
 const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/dashboard/revenue":        { file: "server/dashboard-routes.ts",    needle: "/api/admin/dashboard/revenue" },
   "/api/admin/drive/bootstrap":           { file: "server/drive-routes.ts",        needle: "/api/admin/drive/bootstrap" },
+  "/api/admin/drive/share/1":             { file: "server/drive-share.ts",         needle: "/api/admin/drive/share/:nodeId" },
   "/api/admin/equipment/overview":        { file: "server/equipment-routes.ts",    needle: "/api/admin/equipment/overview" },
   "/api/public/equipment/me":             { file: "server/equipment-routes.ts",    needle: "/api/public/equipment/me" },
   "/api/public/parent/prefill":           { file: "server/parent-routes.ts",       needle: "/prefill" },
@@ -208,6 +252,8 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/content-studio/usage":              { file: "server/studio.ts",              needle: "/api/admin/content-studio/usage" },
   "/api/admin/rambo/threads":             { file: "server/rambo-routes.ts",        needle: "/api/admin/rambo/threads" },
   "/api/admin/venue/splits":              { file: "server/routes.ts",              needle: "/api/admin/venue/splits" },
+  "/api/admin/payments-due":              { file: "server/payments-due-routes.ts", needle: "/api/admin/payments-due" },
+  "/api/admin/payments-due/chase/preview": { file: "server/payments-due-routes.ts", needle: "/api/admin/payments-due/chase/preview" },
   "/api/admin/notifications/preferences": { file: "server/notification-routes.ts", needle: "/api/admin/notifications/preferences" },
   "/api/admin/push/register":             { file: "server/notification-routes.ts", needle: "/api/admin/push/register" },
   "/api/admin/chat/bootstrap":            { file: "server/staff-chat-routes.ts",   needle: "/api/admin/chat/bootstrap" },
@@ -240,8 +286,15 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/public/club-events/club-dinner-2026": { file: "server/club-events-routes.ts", needle: "/api/public/club-events/:slug" },
   "/api/admin/club-events":               { file: "server/club-events-routes.ts",  needle: "/api/admin/club-events" },
   "/api/admin/marketing-hub/overview":    { file: "server/marketing-hub/routes.ts", needle: "/overview" },
+  "/api/admin/social/accounts":           { file: "server/social/routes.ts", needle: "/accounts" },
+  "/api/admin/social/labels":             { file: "server/social/labels-routes.ts", needle: "/labels" },
+  "/api/admin/web-analytics/report":      { file: "server/marketing-hub/web-analytics.ts", needle: "/api/admin/web-analytics/report" },
+  "/api/admin/email-stats/report":        { file: "server/marketing-hub/channels.ts", needle: "/api/admin/email-stats/report" },
+  "/api/admin/campaigns":                 { file: "server/campaigns/routes.ts", needle: "/api/admin/campaigns" },
   "/api/public/teampay/captain/league/mine": { file: "server/league-captain-routes.ts", needle: "/api/public/teampay/captain/league/mine" },
   "/api/public/teampay/marketplace/mfl-term-4": { file: "server/teampay-captain-routes.ts", needle: "/api/public/teampay/marketplace/:slug" },
+  "/api/admin/sites":                     { file: "server/site-routes.ts",         needle: "/api/admin/sites" },
+  "/api/public/site/cufc/status":         { file: "server/site-routes.ts",         needle: "/api/public/site/:siteKey/status" },
 };
 
 import { readFileSync, existsSync } from "fs";

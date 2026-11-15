@@ -23,7 +23,7 @@ import { contentSignals, GUARD_THRESHOLD } from "@shared/form-guard";
  * it keeps this change out of three separate tables and three admin screens.
  */
 
-export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register" | "football_fest_expo";
+export type FormName = "mfl_waitlist" | "cugc_free_session" | "print_quote" | "open_training" | "ethnic_cup_register" | "football_fest_expo" | "studio_enquiry";
 
 /* 🔴 Per-form policy, because the same rule is right on one form and wrong on
  * another.
@@ -55,6 +55,9 @@ const FORM_POLICY: Record<FormName, { expectsToken: boolean; allowLinks: boolean
    * A business is allowed to link to its own website, which is the whole point
    * of the enquiry, so links do not count against it. */
   football_fest_expo: { expectsToken: true, allowLinks: true },
+  /* Content Studio pages: the server renders each page with a fresh token, so
+   * it is always present. A business pasting its website is normal. */
+  studio_enquiry: { expectsToken: true, allowLinks: true },
 };
 
 export interface GuardVerdict {

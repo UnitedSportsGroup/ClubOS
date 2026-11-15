@@ -5,6 +5,7 @@
 import {
   addMonths, comparePartners, contractState, currentContract, daysBetween, fmtDateNz, nextPayment,
   partnerFlags, partnerSince, partnerStatus, paymentState, type ContractLike, type PaymentLike,
+  moneySummary, paidInclCents, leftInclCents, moneySegment,
 } from "../shared/sponsorship-partners";
 
 let n = 0; const bad: string[] = [];
@@ -69,7 +70,7 @@ const uns = c({ id: 23, startDate: "2026-02-20", endDate: "2027-02-19", signatur
 eq("club_only is a red unsigned flag", partnerFlags({ contracts: [uns], payments: [], today: TODAY }).map(f => `${f.kind}:${f.severity}`), ["unsigned:red"]);
 
 const od = partnerFlags({ contracts: [fus], payments: [p({ id: 31, contractId: 21, amountCents: 575_000, dueOn: "2026-09-15" }), p({ id: 32, contractId: 21, amountCents: 575_000, dueOn: "2026-10-15" })], today: TODAY });
-eq("overdue sums both instalments", od.find(f => f.kind === "payment_overdue")?.text, "$11,500 overdue — 2 instalments, oldest 15 Sep 2026");
+eq("overdue sums both instalments", od.find(f => f.kind === "payment_overdue")?.text, "$13,225 incl GST overdue — 2 instalments, oldest 15 Sep 2026");
 
 eq("no contract flag", partnerFlags({ contracts: [], payments: [], today: TODAY }).map(f => f.kind), ["no_contract"]);
 eq("no contract → status", partnerStatus([], null, TODAY), "no_contract");
@@ -85,6 +86,30 @@ eq("blank since sorts LAST ascending", rows.slice().sort(comparePartners("since"
 eq("blank since sorts LAST descending too", rows.slice().sort(comparePartners("since", "desc")).map(r => r.company), ["C", "a", "B"]);
 eq("blank renewal sorts LAST", rows.slice().sort(comparePartners("renewal", "asc")).map(r => r.company), ["C", "B", "a"]);
 eq("status sort: attention first", rows.slice().sort(comparePartners("status", "asc")).map(r => r.company), ["C", "a", "B"]);
+
+// ── Money (incl GST, part payments) ──
+{
+  const pays = [
+    { ...p({ id: 1, contractId: 9, amountCents: 100000, dueOn: "2026-09-01", paidOn: "2026-09-02" }), paidCents: 115000 },
+    { ...p({ id: 2, contractId: 9, amountCents: 100000, dueOn: "2026-10-01" }), paidCents: 42000 },   // part paid, late
+    { ...p({ id: 3, contractId: 9, amountCents: 100000, dueOn: "2026-11-01" }) },                     // due soon
+    { ...p({ id: 4, contractId: 9, amountCents: 100000, dueOn: "2027-03-01" }) },                     // scheduled
+  ];
+  const m = moneySummary(pays, TODAY);
+  eq("money: total is incl GST", m.totalCents, 460000);
+  eq("money: a paid row counts its full incl-GST amount", paidInclCents(pays[0]), 115000);
+  eq("money: a part payment counts what landed", paidInclCents(pays[1]), 42000);
+  eq("money: paid = full + part", m.paidCents, 157000);
+  eq("money: remaining", m.remainingCents, 303000);
+  eq("money: overdue is only what is LEFT on the late row", m.overdueCents, 73000);
+  eq("money: overdue count", m.overdueCount, 1);
+  eq("money: segments in date order", m.segments, ["paid", "overdue", "due_soon", "scheduled"]);
+  eq("money: part paid not yet due reads part", moneySegment({ ...pays[3], paidCents: 1000 }, TODAY), "part");
+  eq("money: overpaid is capped", paidInclCents({ ...pays[3], paidCents: 999999 }), 115000);
+  eq("money: GST-inclusive row not grossed up", leftInclCents({ ...pays[3], gstIncluded: true }), 100000);
+  const fl = partnerFlags({ contracts: [c({ id: 9, startDate: "2026-01-01", endDate: "2027-06-01" })], payments: pays, today: TODAY });
+  eq("flag: overdue speaks incl GST and only the remainder", fl.find(f => f.kind === "payment_overdue")?.text.startsWith("$730 incl GST overdue"), true);
+}
 
 console.log(`\n${bad.length ? "✗" : "✓"} ${n - bad.length}/${n} passed`);
 for (const b of bad) console.log("  - " + b);

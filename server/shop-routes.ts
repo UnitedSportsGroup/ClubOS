@@ -43,6 +43,8 @@ import {
 } from "@shared/schema";
 // T13 — WMS reservation on payment-confirm (dark-launched, see finalizeShopOrderPaid).
 import { runReserveStock, runReleaseReservationsForRef } from "./warehouse";
+import { canSell, inStock as shopInStock } from "@shared/shop-stock";
+import { recordShopMovement, reverseRecordedSale } from "./shop-warehouse-link";
 
 // ─── Brand registry — add a row per brand to open a new store ──────────────
 
@@ -130,6 +132,14 @@ const SHOP_BRANDS: Record<string, ShopBrand> = {
 function shopBrand(brandKey: string): ShopBrand | undefined {
   return SHOP_BRANDS[String(brandKey || "").toLowerCase()];
 }
+
+/** For server/eship.ts — the brand registry stays private to this file. */
+export function shopBrandForOrg(orgId: number): { brandKey: string; storeName: string } | undefined {
+  const b = shopBrandByOrgId(orgId);
+  return b ? { brandKey: b.brandKey, storeName: b.storeName } : undefined;
+}
+export function shopBrandKeys(): string[] { return Object.keys(SHOP_BRANDS); }
+export function shopBrandOrgId(brandKey: string): number | undefined { return shopBrand(brandKey)?.orgId; }
 
 function shopBrandByOrgId(orgId: number): ShopBrand | undefined {
   return Object.values(SHOP_BRANDS).find((b) => b.orgId === orgId);
@@ -377,6 +387,22 @@ function labelPrintUnits(
   });
 }
 
+/** Everyone who ticked "Email me new orders" in the Shop Orders tab (United
+ *  Prints workspace) — the warehouse, which packs for EVERY shop. Best-effort:
+ *  a failed lookup sends nothing extra and never blocks a paid order. */
+async function shopFulfilmentRecipients(): Promise<string[]> {
+  try {
+    const r: any = await db.execute(sql`SELECT email FROM users WHERE shop_order_emails = true AND email IS NOT NULL`);
+    const rows: any[] = Array.isArray(r) ? r : (r?.rows ?? []);
+    return Array.from(new Set(rows.map((x) => String(x.email).trim().toLowerCase()).filter(Boolean)));
+  } catch (e) {
+    console.error("[Shop] fulfilment recipients lookup failed:", e);
+    return [];
+  }
+}
+
+const SHOP_ORDERS_HINT = "ClubOS → United Prints → Shop Orders";
+
 /** Batch-fetch print_options for the products behind a set of order items,
  *  keyed by productId — feeds labelPrintUnits() for the order emails. */
 async function printOptionsByProductForItems(
@@ -491,7 +517,7 @@ async function priceCart(
     const variant = variants.find((v) => v.colourId === colour.id && v.size === it.size && v.active);
     if (!variant) throw new ShopError(`Size ${it.size} is no longer available for ${product.title}.`);
     demand.set(variant.id, (demand.get(variant.id) || 0) + it.qty);
-    if (demand.get(variant.id)! > variant.stock) {
+    if (!canSell(variant, demand.get(variant.id)!)) {
       throw new ShopError(`${product.title} (${colour.name} · ${it.size}) is out of stock.`, 409);
     }
     const image = images.find((im) => im.colourId === colour.id) || images.find((im) => im.productId === product.id && im.colourId == null) || null;
@@ -658,6 +684,7 @@ export function shopDownloadPageUrl(orgId: number, orderToken: string): string |
 
 /** A fully refunded till sale takes its Store orders (and photo downloads) with it. */
 export async function markPosSaleShopOrdersRefunded(saleId: number): Promise<void> {
+  await reverseRecordedSale(`pos-sale:${saleId}:sale`, `pos-sale:${saleId}:return`, `Till sale ${saleId} refunded`, null);
   await db.update(shopOrders).set({ status: "refunded", updatedAt: new Date() } as any)
     .where(and(eq(shopOrders.posSaleId, saleId), sql`${shopOrders.status} <> 'refunded'`));
 }
@@ -744,6 +771,17 @@ export async function finalizeShopOrderPaid(orderId: number, paymentIntentId: st
     }
   }
 
+  // The warehouse is the stock of record for a shop switched on in
+  // WH_STOCK_BRANDS: the sale comes out of it (and the shop's count follows).
+  await recordShopMovement({
+    lines: items.filter((i) => i.variantId).map((i) => ({ variantId: i.variantId!, qty: i.qty })),
+    sign: -1,
+    ref: { kind: "shop_order", id: order.id },
+    operatorUserId: null,
+    idempotencyKey: `shop-order:${order.id}:sale`,
+    note: `Online order ${order.orderNumber ?? order.id}`,
+  });
+
   // Discount usage.
   if (order.discountCode) {
     try {
@@ -803,6 +841,27 @@ export async function finalizeShopOrderPaid(orderId: number, paymentIntentId: st
     });
   } catch (e) {
     console.error("[Shop] admin notification email failed:", e);
+  }
+  for (const to of await shopFulfilmentRecipients()) {
+    if (to === (brand?.adminEmail || "").toLowerCase()) continue;
+    try {
+      await sendShopOrderNotification({
+        to,
+        orderNumber: order.orderNumber || `#${order.id}`,
+        customerName: `${order.firstName} ${order.lastName}`.trim(),
+        email: order.email,
+        phone: order.phone,
+        lines: emailLines,
+        totalCents: order.totalCents,
+        shippingLabel: order.shippingLabel,
+        requiresAddress,
+        addressSummary,
+        brandKey: brand?.brandKey,
+        manageHint: SHOP_ORDERS_HINT,
+      });
+    } catch (e) {
+      console.error(`[Shop] fulfilment email to ${to} failed:`, e);
+    }
   }
 
   // Server Purchase event — the storefront fires the pixel with the SAME
@@ -914,6 +973,16 @@ async function finalizeTeamOrderAllPaid(orderId: number): Promise<void> {
             WHERE colour_id = ${colour.id} AND size = ${size}
           `);
         }
+        const teamLines: { variantId: number; qty: number }[] = [];
+        for (const [size, count] of Array.from(sizeCounts.entries())) {
+          const [v] = await db.select({ id: shopVariants.id }).from(shopVariants)
+            .where(and(eq(shopVariants.colourId, colour.id), eq(shopVariants.size, size)));
+          if (v) teamLines.push({ variantId: v.id, qty: count });
+        }
+        await recordShopMovement({
+          lines: teamLines, sign: -1, ref: { kind: "shop_order", id: order.id }, operatorUserId: null,
+          idempotencyKey: `shop-order:${order.id}:sale`, note: `Team order ${order.orderNumber ?? order.id}`,
+        });
       } else {
         console.error(`[Shop] team order ${order.id}: colour "${item.colourName}" no longer exists — stock not decremented`);
       }
@@ -964,6 +1033,30 @@ async function finalizeTeamOrderAllPaid(orderId: number): Promise<void> {
   } catch (e) {
     console.error("[Shop] print-ready admin email failed:", e);
   }
+  for (const to of await shopFulfilmentRecipients()) {
+    if (to === (brand?.adminEmail || "").toLowerCase()) continue;
+    try {
+      await sendShopPrintReadyNotification({
+      to,
+      orderNumber: order.orderNumber || `#${order.id}`,
+      teamName: order.teamName || "—",
+      coachName: `${order.firstName} ${order.lastName}`.trim(),
+      coachEmail: order.email,
+      coachPhone: order.phone,
+      kitTitle: item?.title || "Team kit",
+      colourName: item?.colourName,
+      sponsors: sponsorSummary(item?.customisation),
+      roster,
+      totalCents: order.totalCents,
+      shippingLabel: order.shippingLabel,
+      requiresAddress,
+      addressSummary,
+    });
+    } catch (e) {
+      console.error(`[Shop] print-ready fulfilment email to ${to} failed:`, e);
+    }
+  }
+
 
   // ONE server Purchase event for the FULL order total (not per share) — the
   // storefront never fires a pixel Purchase for team orders, and the eventId
@@ -1192,7 +1285,7 @@ export function registerShopRoutes(app: Express) {
                 .filter((v) => v.colourId === c.id)
                 .map((v) => ({
                   size: v.size,
-                  inStock: v.stock > 0,
+                  inStock: shopInStock(v),
                   // Only variable-price products (e.g. gift cards) carry a per-variant
                   // price; MFL kits leave this null so the field is omitted.
                   ...(v.priceCents != null ? { priceDollars: toDollars(v.priceCents) } : {}),
@@ -1582,7 +1675,7 @@ export function registerShopRoutes(app: Express) {
       for (const [size, count] of Array.from(sizeCounts.entries())) {
         const variant = variants.find((v) => v.size === size);
         if (!variant) throw new ShopError(`Size ${size} isn't available for ${product.title}.`);
-        if (count > variant.stock) {
+        if (!canSell(variant, count)) {
           throw new ShopError(`${product.title} (${colour.name} · ${size}) doesn't have enough stock for your roster.`, 409);
         }
       }
@@ -2341,6 +2434,12 @@ export function registerShopRoutes(app: Express) {
       // stays permanently reduced by a promise that will never be dispatched.
       // Best-effort + idempotent (releaseReservationsForRef only touches
       // still-active reservations): never fails the status update itself.
+      if (status === "cancelled" || status === "refunded") {
+        // Put back exactly what the sale took out of the warehouse — only
+        // ever the mirror of a recorded sale, so an unpaid order moves nothing.
+        await reverseRecordedSale(`shop-order:${updated.id}:sale`, `shop-order:${updated.id}:return`,
+          `Order ${updated.orderNumber ?? updated.id} ${status}`, req.session.userId ?? null);
+      }
       if (process.env.WMS_NATIVE_SYNC === "1" && (status === "cancelled" || status === "refunded")) {
         try {
           await runReleaseReservationsForRef({ kind: "shop_order", id: updated.id });
@@ -2636,6 +2735,180 @@ export function registerShopRoutes(app: Express) {
       });
     } catch (e: any) {
       handleShopError(res, e, "admin sales");
+    }
+  });
+}
+
+// ═══ Shop Orders — every club shop's orders in ONE place (United Prints) ═════
+// Daniel, 2 Nov 2026: the shops moved off Shopify into ClubOS, and Dima (the
+// warehouse + merchandise manager for all of United Sports Group) needs to see
+// and pack EVERY shop's orders without opening the CUFC, SIU, MFL and CIC
+// workspaces one by one. Same rows, same statuses and the same rules as each
+// brand's own Store tab — this is a second door, never a second pipeline.
+//   🔴 Only PAID orders are shown (unpaid checkouts are not orders).
+//   🔴 Answers 404 outside the United Prints workspace: requireTab lets an
+//      admin of ANY workspace through, and a CUFC admin must not read SIU's
+//      customers' addresses from here.
+const SHOP_ORDERS_WORKSPACE = "united-prints";
+const HUB_VISIBLE_STATUSES = ["paid", "processing", "ready_for_pickup", "shipped", "completed", "cancelled", "refunded"];
+
+function hubGuard(req: Request, res: Response, next: NextFunction) {
+  if (String(req.headers["x-workspace-slug"] || "") !== SHOP_ORDERS_WORKSPACE) {
+    return res.status(404).json({ message: "Not found" });
+  }
+  next();
+}
+
+function hubBrandOf(orgId: number) {
+  const b = shopBrandByOrgId(orgId);
+  return b ? { key: b.brandKey, name: b.storeName } : { key: "other", name: "Other" };
+}
+
+export function registerShopOrdersHubRoutes(app: Express) {
+  const gate = [requireAuth, requireTab("shop-orders"), hubGuard] as const;
+  const handleShopError = (res: Response, e: any, context: string) => {
+    if (e instanceof ShopError) return res.status(e.status).json({ message: e.message });
+    console.error(`[Shop] ${context} error:`, e);
+    return res.status(500).json({ message: "Something went wrong. Please try again." });
+  };
+  const brandOrgIds = Object.values(SHOP_BRANDS).map((b) => b.orgId);
+
+  app.get("/api/admin/shop-orders", ...gate, async (req, res) => {
+    try {
+      const brandKey = String(req.query.brand || "").trim();
+      const status = String(req.query.status || "").trim();
+      const q = String(req.query.q || "").trim();
+      const source = String(req.query.source || "online").trim(); // online | pos | all
+      const brand = brandKey ? shopBrand(brandKey) : undefined;
+      if (brandKey && !brand) return res.status(400).json({ message: "Unknown shop" });
+
+      const filters: any[] = [
+        inArray(shopOrders.organizationId, brand ? [brand.orgId] : brandOrgIds),
+        inArray(shopOrders.status, HUB_VISIBLE_STATUSES),
+      ];
+      if (source === "online" || source === "pos") filters.push(eq(shopOrders.source, source));
+      if (status === "to_pack") filters.push(inArray(shopOrders.status, ["paid", "processing"]));
+      else if (status && HUB_VISIBLE_STATUSES.includes(status)) filters.push(eq(shopOrders.status, status));
+      if (q) {
+        const like = `%${q}%`;
+        filters.push(or(
+          ilike(shopOrders.firstName, like), ilike(shopOrders.lastName, like),
+          ilike(shopOrders.email, like), ilike(shopOrders.orderNumber, like),
+          ilike(shopOrders.teamName, like),
+        ));
+      }
+      const orders = await db.select().from(shopOrders).where(and(...filters))
+        .orderBy(desc(shopOrders.createdAt)).limit(400);
+      const ids = orders.map((o) => o.id);
+      const items = ids.length ? await db.select().from(shopOrderItems).where(inArray(shopOrderItems.orderId, ids)) : [];
+      const printOpts = await printOptionsByProductForItems(items);
+
+      // Counts for the chips — same brand/source scope, every status.
+      const countRows = await db.select({ status: shopOrders.status, orgId: shopOrders.organizationId, n: sql<number>`count(*)::int` })
+        .from(shopOrders)
+        .where(and(
+          inArray(shopOrders.organizationId, brandOrgIds),
+          inArray(shopOrders.status, HUB_VISIBLE_STATUSES),
+          ...(source === "online" || source === "pos" ? [eq(shopOrders.source, source)] : []),
+        ))
+        .groupBy(shopOrders.status, shopOrders.organizationId);
+
+      res.json({
+        brands: Object.values(SHOP_BRANDS).map((b) => ({ key: b.brandKey, name: b.storeName })),
+        counts: countRows.map((r) => ({ status: r.status, brand: hubBrandOf(r.orgId).key, n: Number(r.n) })),
+        orders: orders.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber || `#${o.id}`,
+          brand: hubBrandOf(o.organizationId),
+          status: o.status,
+          source: o.source,
+          createdAt: o.createdAt,
+          firstName: o.firstName, lastName: o.lastName, email: o.email, phone: o.phone,
+          teamName: o.teamName,
+          shippingLabel: o.shippingLabel,
+          ships: !!o.addressLine1,
+          address: o.addressLine1
+            ? { line1: o.addressLine1, line2: o.addressLine2, suburb: o.suburb, city: o.city, postcode: o.postcode }
+            : null,
+          totalCents: o.totalCents,
+          notes: o.notes,
+          eship: {
+            orderId: o.eshipOrderId, pushedAt: o.eshipPushedAt, error: o.eshipError,
+            international: !!o.addressLine1 && /australia|international|world|overseas/i.test(o.shippingLabel || ""),
+          },
+          tracking: o.trackingNumber
+            ? { number: o.trackingNumber, carrier: o.trackingCarrier, status: o.trackingStatus, updatedAt: o.trackingUpdatedAt,
+                url: `https://www.nzpost.co.nz/tools/tracking/item/${encodeURIComponent(o.trackingNumber)}` }
+            : null,
+          items: items.filter((i) => i.orderId === o.id).map((i) => ({
+            id: i.id, title: i.title, colourName: i.colourName, size: i.size, qty: i.qty,
+            imageUrl: absUrl(shopBrandByOrgId(o.organizationId)!, i.imageUrl),
+            printCents: i.printCents,
+            units: labelPrintUnits(i.units, i.productId != null ? printOpts.get(i.productId) : undefined) ?? null,
+            customisation: i.customisation ? sponsorSummary(i.customisation) : null,
+          })),
+        })),
+      });
+    } catch (e: any) {
+      handleShopError(res, e, "shop orders hub list");
+    }
+  });
+
+  const HUB_SETTABLE = ["processing", "ready_for_pickup", "shipped", "completed", "paid"];
+  app.patch("/api/admin/shop-orders/:id/status", ...gate, async (req, res) => {
+    try {
+      const status = String(req.body?.status || "");
+      // Fulfilment moves only. Cancelling or refunding involves money and stays
+      // in the brand's own Store tab, where the refund lives.
+      if (!HUB_SETTABLE.includes(status)) {
+        return res.status(400).json({ message: "That status can't be set from here." });
+      }
+      const id = parseInt(String(req.params.id));
+      const [current] = await db.select().from(shopOrders).where(eq(shopOrders.id, id));
+      if (!current || !brandOrgIds.includes(current.organizationId)) return res.status(404).json({ message: "Order not found" });
+      if (!["paid", "processing", "ready_for_pickup", "shipped", "completed"].includes(current.status)) {
+        return res.status(409).json({ message: `This order is ${current.status.replace(/_/g, " ")} and can't be moved.` });
+      }
+      const [updated] = await db.update(shopOrders).set({ status, updatedAt: new Date() })
+        .where(eq(shopOrders.id, id)).returning();
+      res.json({ id: updated.id, status: updated.status });
+    } catch (e: any) {
+      handleShopError(res, e, "shop orders hub status");
+    }
+  });
+
+  app.patch("/api/admin/shop-orders/:id/notes", ...gate, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const [current] = await db.select({ orgId: shopOrders.organizationId }).from(shopOrders).where(eq(shopOrders.id, id));
+      if (!current || !brandOrgIds.includes(current.orgId)) return res.status(404).json({ message: "Order not found" });
+      const notes = String(req.body?.notes ?? "").trim().slice(0, 4000) || null;
+      await db.update(shopOrders).set({ notes, updatedAt: new Date() }).where(eq(shopOrders.id, id));
+      res.json({ ok: true, notes });
+    } catch (e: any) {
+      handleShopError(res, e, "shop orders hub notes");
+    }
+  });
+
+  // "Email me new orders" — per person, their own switch only.
+  app.get("/api/admin/shop-orders/me/alerts", ...gate, async (req, res) => {
+    try {
+      const uid = (req as any).session?.userId;
+      const r: any = await db.execute(sql`SELECT shop_order_emails AS on, email FROM users WHERE id = ${uid}`);
+      const row = (Array.isArray(r) ? r : r?.rows ?? [])[0];
+      res.json({ on: !!row?.on, email: row?.email ?? null });
+    } catch (e: any) {
+      handleShopError(res, e, "shop orders alerts get");
+    }
+  });
+  app.put("/api/admin/shop-orders/me/alerts", ...gate, async (req, res) => {
+    try {
+      const uid = (req as any).session?.userId;
+      const on = req.body?.on === true;
+      await db.execute(sql`UPDATE users SET shop_order_emails = ${on} WHERE id = ${uid}`);
+      res.json({ on });
+    } catch (e: any) {
+      handleShopError(res, e, "shop orders alerts put");
     }
   });
 }

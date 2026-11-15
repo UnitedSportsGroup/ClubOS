@@ -46,6 +46,8 @@ type Deps = {
   unsubUrl: (orgId: number, email: string) => string;
   /** Every address that has opted out of this organisation's email. */
   unsubscribed: (orgId: number) => Promise<Set<string>>;
+  /** Whose contact list the unsubscribe footer names (one Mailer, every workspace). */
+  listName?: (orgId: number) => string;
 };
 
 const q = async (text: string, params: any[] = []) => (await pool.query(text, params)).rows as any[];
@@ -825,6 +827,7 @@ async function deliver(o: {
   const recipientCtx = {
     email: o.to,
     unsubscribeUrl: o.deps.unsubUrl(o.orgId, o.to),
+    listName: o.deps.listName?.(o.orgId),
     firstName: o.ctx.parentFirstName ?? null,
     lastName: null,
     players: (o.ctx.players ?? []).map((f) => ({ firstName: f })),

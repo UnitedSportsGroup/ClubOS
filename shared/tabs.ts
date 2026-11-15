@@ -197,7 +197,7 @@ const tournamentTabs: TabDef[] = [
   { slug: "volunteers", title: "Volunteers", url: "/admin/volunteers" },
   { slug: "cic-registrations", title: "Registrations", url: "/admin/cic-registrations" },
   { slug: "cic-livechat", title: "Live Chat", url: "/admin/cic-livechat" },
-  { slug: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer" },
+  { slug: "mailer", title: "Mailer", url: "/admin/mailer" }, // ONE Mailer, every workspace (2026-11-14) — was cic-mailer
   { slug: "cic-push", title: "Notifications", url: "/admin/cic-push" },
   { slug: "cic-logo-consents", title: "Logo Consents", url: "/admin/cic-logo-consents" },
   { slug: "cic-watch", title: "Watch", url: "/admin/cic-watch" },
@@ -216,6 +216,9 @@ const tournamentTabs: TabDef[] = [
   // Team Pay — entered teams, their squads, who has paid, and the fill-in pool.
   // NOT super-admin locked: Isaac runs the tournaments and this is his board.
   { slug: "team-entries", title: "Team Entries", url: "/admin/team-entries" },
+  // CIC 2027 packages — bookings, deposits, players and extras (packages.cicyouth.com).
+  // NOT locked: Isaac and Ryan run it. Shows club manager contacts, no money secrets.
+  { slug: "cic-packages", title: "Packages", url: "/admin/cic-packages" },
   { slug: "store", title: "Store", url: "/admin/store" },
   { slug: "media", title: "Media", url: "/admin/media" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
@@ -238,7 +241,7 @@ const gymnasticsTabs: TabDef[] = [
   { slug: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics" },
   { slug: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox" },
   { slug: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat" },
-  { slug: "cugc-mailer", title: "Mailer", url: "/admin/cugc-mailer" },
+  { slug: "mailer", title: "Mailer", url: "/admin/mailer" }, // ONE Mailer, every workspace (2026-11-14) — was cugc-mailer
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "studio", title: "Studio", url: "/admin/studio", secondary: true },
   { slug: "esign", title: "E-Sign", url: "/admin/esign", secondary: true },
@@ -318,6 +321,54 @@ const groupTabs: TabDef[] = [
   // (email/SMS), which is hidden in every sidebar. NOT locked: every figure is
   // an aggregate, with no names, emails or salaries in it.
   { slug: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub" },
+  // Social media (2026-11-10, Daniel): every brand's Instagram, Facebook,
+  // YouTube, TikTok, X and LinkedIn in one place — accounts, stats, posts and a
+  // calendar of everything ever posted. Sits under Marketing in the sidebar.
+  // NOT locked: it shows what is already public on each platform, plus reach.
+  { slug: "social-media", title: "Social Media", url: "/admin/social-media" },
+  // Website analytics (2026-11-10, Daniel): one website in depth — visitors,
+  // pages, where people came from, time on page, buttons pressed. Named so it
+  // is not mistaken for "Website" (the tab that PUBLISHES news to the sites).
+  { slug: "web-analytics", title: "Websites", url: "/admin/web-analytics" },
+  // The other marketing channels (2026-11-10, Daniel: "the foundational stuff,
+  // all built and mapped out"). REPORT tabs: nothing is sent from them. Email
+  // is sent from each workspace's Mailer; these show what happened afterwards.
+  // Campaigns (2026-11-10, Daniel): plan a campaign, set a revenue and sign-up
+  // goal, link what ClubOS sells, and watch the goal move live; tasks, a
+  // timeline, channels and split tests hang off it. Slug is `campaign-planner`
+  // because "campaigns" already means email sends in two other places.
+  { slug: "campaign-planner", title: "Campaigns", url: "/admin/campaigns" },
+  // Ideas (2026-11-12, Daniel): the marketing ideas backlog and the plan. Every
+  // idea names the Marketing section it belongs to and also shows on that page.
+  { slug: "marketing-ideas", title: "Ideas", url: "/admin/marketing-ideas" },
+  { slug: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads" },
+  { slug: "email-stats", title: "Email", url: "/admin/email-stats" },
+  { slug: "sms-stats", title: "SMS", url: "/admin/sms-stats" },
+  { slug: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats" },
+  // Offline marketing (2026-11-11, Daniel): registers staff keep. Signage is
+  // what the club puts up or prints itself; Billboards is campaigns booked with
+  // companies such as Go Media; Traditional Media is TV, radio and news outlets
+  // and what has gone out through them. Under Marketing in the sidebar.
+  { slug: "signage", title: "Signage", url: "/admin/signage" },
+  { slug: "billboards", title: "Billboards", url: "/admin/billboards" },
+  { slug: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media" },
+  // The rest of the marketing map (2026-11-12, Daniel). Registers staff keep,
+  // except Word of Mouth and Offers & Codes, which read what checkouts record.
+  // Email also holds "Other people's newsletters" (no tab of its own).
+  { slug: "flyers-print", title: "Flyers & Print", url: "/admin/flyers-print" },
+  { slug: "events-activations", title: "Events & Activations", url: "/admin/events-activations" },
+  { slug: "search-reviews", title: "Search & Reviews", url: "/admin/search-reviews" },
+  { slug: "listings", title: "Listings", url: "/admin/listings" },
+  { slug: "mobile-apps", title: "Mobile Apps", url: "/admin/mobile-apps" },
+  { slug: "partners-ambassadors", title: "Partners & Ambassadors", url: "/admin/partners-ambassadors" },
+  { slug: "word-of-mouth", title: "Word of Mouth", url: "/admin/word-of-mouth" },
+  { slug: "offers-codes", title: "Offers & Codes", url: "/admin/offers-codes" },
+  { slug: "product-quality", title: "Product Quality", url: "/admin/product-quality" },
+  // Branding (2026-11-11, Daniel: "branding is different to marketing"): each
+  // brand's guidelines site with a working board. Its own item in the sidebar.
+  { slug: "branding", title: "Branding", url: "/admin/branding" },
+  // Website — every club site in one list (see cufcExtraTabs for the CUFC copy).
+  { slug: "sites", title: "Website", url: "/admin/sites" },
   // Financial Insight — the club's cash P&L with what-if levers. NOT locked to super admins: whoever
   // holds the tab sees a PASSWORD screen, and no figure is served until the password is in the session.
   { slug: "finance-insight", title: "Financial Insight", url: "/admin/finance-insight" },
@@ -359,6 +410,9 @@ const printsTabs: TabDef[] = [
   { slug: "analytics", title: "Analytics", url: "/admin/print-analytics" },
   { slug: "landing", title: "Landing Pages", url: "/admin/print-landing" },
   { slug: "email", title: "Mailer", url: "/admin/print-email" },
+  // Every club shop's paid orders (CUFC, SIU, MFL, CIC) in one list for the
+  // warehouse to pack, post or hand over — the shops left Shopify for ClubOS.
+  { slug: "shop-orders", title: "Shop Orders", url: "/admin/shop-orders" },
   { slug: "warehouse", title: "Warehouse", url: "/admin/warehouse" },
   { slug: "marketing", title: "Marketing", url: "/admin/marketing" },
   { slug: "integrations", title: "Integrations", url: "/admin/integrations", secondary: true },
@@ -369,10 +423,13 @@ const printsTabs: TabDef[] = [
   { slug: "settings", title: "Settings", url: "/admin/settings", secondary: true },
 ];
 
-// Sandbox — private super-admin experimentation workspace (Daniel only). New
-// features get trialled here before they touch a real workspace. First project:
-// the Club Dossier. Keep this tab set minimal; add tabs as experiments land.
+// Sandbox — shown as "Canterbury Sport" since 2026-11-11 (Daniel: "keep the stuff inside of the sandbox one but just
+// rename and rebrand it to canterbury sport workspace"). The SLUG stays "sandbox" — code switches on it; the name and
+// the ram logo are the organizations row. Home of the land company's numbers (United Sports Group Ltd, formerly
+// Canterbury Sport Ltd); the earlier experiments (Club Dossier, Market Research) stay here.
 const sandboxTabs: TabDef[] = [
+  // Locked below AND limited to named people (shared/canterbury-sport.ts).
+  { slug: "canterbury-sport", title: "Land Company", url: "/admin/canterbury-sport" },
   { slug: "club-dossier", title: "Club Dossier", url: "/admin/club-dossier" },
   { slug: "market-research", title: "Market Research", url: "/admin/market-research" },
   { slug: "team", title: "Team", url: "/admin/team", secondary: true },
@@ -400,6 +457,9 @@ const siuExtraTabs: TabDef[] = [
   // engine after MFL, CIC and CUFC. campsTabs itself carries no "store" slug
   // (see cufcExtraTabs above for CUFC's own copy of this same tab).
   { slug: "store", title: "Store", url: "/admin/store" },
+  // Performance Hub (2026-11-14): wellness, load, GPS, availability, testing,
+  // video — every source in one store. LOCKED below: it holds player health data.
+  { slug: "performance", title: "Performance", url: "/admin/performance" },
 ];
 
 // CUFC's native retail shop (2026-09) — the third brand on the shop_* engine
@@ -411,6 +471,12 @@ const cufcExtraTabs: TabDef[] = [
   // Football in Schools outreach pipeline — schools + early learning centres.
   // Its own slug (not "academy") so it can be granted alone, e.g. to Connor.
   { slug: "football-in-schools", title: "Football in Schools", url: "/admin/football-in-schools" },
+  // Website (2026-11-01): staff write the club site's news; the site rebuilds
+  // from it. Slug `sites`, NOT `website` — that slug is the venue workspace's
+  // own booking-site settings page, a different thing. The tab only lets a
+  // person into the room: what they can touch is a per-SITE grant
+  // (site_members, shared/sites.ts), never their workspace role.
+  { slug: "sites", title: "Website", url: "/admin/sites" },
 ];
 
 export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
@@ -435,6 +501,10 @@ export function tabsForOrgSlug(orgSlug: string | undefined | null): TabDef[] {
  * system (workspace role + tabs whitelist) takes over.
  */
 export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
+  // SIU Performance — player wellness, load and injury data. Opened per person
+  // via unlocked_tabs (Ryan, Adria). Clinical notes need a SECOND grant,
+  // "performance-medical", with no super-admin bypass (shared/performance.ts).
+  "performance",
   // Daniel + Isaac's MFL project board — "me and isaac's". A workspace admin
   // (Ryan, Natalia) would otherwise get it by role; Isaac holds it by name
   // (grant-unlocked-tab.ts). Justified by Daniel's own scope for it, 2026-09-25.
@@ -469,6 +539,9 @@ export const SUPER_ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
   // register, and a mis-click during UAT could create real NRS records.
   // Daniel-only until the integration passes UAT and the deeds are signed.
   "sporty",
+  // The land company's loans, owners' money and bank balance. Daniel only — and named in shared/canterbury-sport.ts,
+  // because a super-admin lock alone also admits Slava (Daniel, 2026-11-11: "only give me access to it for now").
+  "canterbury-sport",
   "cashflow", // Club-wide cashflow insight (Xero patterns, wage-level data). Daniel only.
   "projects", // Work Management System v1 — launched dark while Daniel shapes it. Remove to open to admins/managers.
   "business-plan", // MFL business plan + who-opened-it access log — Daniel only for privacy. Remove to open to admins/managers.

@@ -44,6 +44,7 @@ import {
   Dumbbell,
   Tag,
   Globe,
+  Newspaper,
   Handshake,
   HeartHandshake,
   Landmark,
@@ -70,6 +71,9 @@ import {
   Briefcase,
   Clapperboard,
   MessageCircle,
+  Signpost,
+  RectangleHorizontal,
+  Tv,
   Radio,
   FlaskConical,
   Fingerprint,
@@ -79,10 +83,12 @@ import {
   Bell,
   Link2,
   Target,
+  Filter,
   Activity,
   Images,
   Warehouse,
   Receipt,
+  AlarmClock,
   ReceiptText,
   Car,
   Boxes,
@@ -100,6 +106,27 @@ import {
   QrCode,
   TrendingUp,
   KanbanSquare,
+  Package,
+  ArrowLeftRight,
+  AtSign,
+  MousePointerClick,
+  MessageSquare,
+  PartyPopper,
+  Search,
+  Smartphone,
+  TicketPercent,
+  Gem,
+  Lightbulb,
+  HeartPulse as PerfHeartPulse,
+  Stethoscope as PerfStethoscope,
+  Gauge as PerfGauge,
+  Database as PerfDatabase,
+  ClipboardCheck as PerfClipboard,
+  ListChecks as PerfForm,
+  Smartphone as PerfPhone,
+  Upload as PerfUpload,
+  Timer as PerfTimer,
+  FlaskConical as PerfFlask,
 } from "lucide-react";
 
 // Universal "Feedback" tab — shown in EVERY workspace's System section so any
@@ -182,6 +209,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkspace } from "@/lib/workspace-context";
 import { canAccessTab, canAccessTabAnywhere } from "@shared/tabs";
+import { canSeeCanterburySport } from "@shared/canterbury-sport";
 import { HIDDEN_GLOBAL, HIDDEN_BY_WORKSPACE } from "@shared/sidebar-hidden";
 import { fromParam } from "@/lib/back-to";
 
@@ -204,6 +232,21 @@ const STORE_CHILDREN = [
   { tab: "store", title: "Settings", url: "/admin/store/settings", icon: Tag },
 ];
 
+// SIU Performance Hub (2026-11-14) — one tab slug, each area its own URL.
+const PERFORMANCE_CHILDREN = [
+  { tab: "performance", title: "Check-ins", url: "/admin/performance/checkins", icon: PerfClipboard },
+  { tab: "performance", title: "Players", url: "/admin/performance/players", icon: Users },
+  { tab: "performance", title: "Wellness", url: "/admin/performance/wellness", icon: PerfHeartPulse },
+  { tab: "performance", title: "Load & GPS", url: "/admin/performance/load", icon: PerfGauge },
+  { tab: "performance", title: "Availability", url: "/admin/performance/availability", icon: PerfStethoscope },
+  { tab: "performance", title: "Testing", url: "/admin/performance/testing", icon: PerfFlask },
+  { tab: "performance", title: "Video", url: "/admin/performance/video", icon: Video },
+  { tab: "performance", title: "Import data", url: "/admin/performance/import", icon: PerfUpload },
+  { tab: "performance", title: "Data sources", url: "/admin/performance/sources", icon: PerfDatabase },
+  { tab: "performance", title: "Forms", url: "/admin/performance/forms", icon: PerfForm },
+  { tab: "performance", title: "Try player app", url: "/admin/performance/try", icon: PerfPhone },
+];
+
 const campsNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { tab: "links", title: "Links", url: "/admin/links", icon: Link2 },
@@ -224,6 +267,7 @@ const campsNav = [
     tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck,
     // Bank-transfer families: paid Xero invoices → registrations, and Olga's queue.
     children: [
+      { tab: "registrations", title: "Payments due", url: "/admin/payments-due", icon: AlarmClock },
       { tab: "registrations", title: "Xero payments", url: "/admin/xero-payments", icon: Receipt },
     ],
   },
@@ -261,6 +305,8 @@ const campsNav = [
     children: STORE_CHILDREN,
   },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
+  // Website (2026-11-01) — CUFC only for now; SIU's site is still Webflow.
+  { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
 ];
 
 // South Island United shares the camps workspace type with CUFC but adds its own
@@ -272,12 +318,13 @@ const siuNav = [
   // campsNav, same as CUFC does.
   // Football in Schools is CUFC's outreach board — its child row comes off too.
   ...campsNav
-    .filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings")
+    .filter((t) => t.tab !== "fm-history" && t.tab !== "fm-competitions" && t.tab !== "open-trainings" && t.tab !== "sites")
     .map((t) => (t.children ? { ...t, children: t.children.filter((c) => c.tab !== "football-in-schools") } : t)),
   { tab: "licensing", title: "OFC Licensing", url: "/admin/licensing", icon: Award },
   { tab: "declarations", title: "Declarations", url: "/admin/declarations", icon: FileSignature },
   { tab: "events", title: "Community Events", url: "/admin/events", icon: Calendar },
   { tab: "membership", title: "Membership", url: "/admin/membership", icon: Crown },
+  { tab: "performance", title: "Performance", url: "/admin/performance", icon: Activity, children: PERFORMANCE_CHILDREN },
 ];
 
 const venueNav = [
@@ -326,7 +373,14 @@ const leagueNav = [
   { tab: "academy", title: "Ballers Youth League", url: "/admin/academy", icon: GraduationCap },
   { tab: "registrations", title: "Registrations", url: "/admin/registrations", icon: ClipboardCheck },
   { tab: "discounts", title: "Discounts", url: "/admin/discounts", icon: Tag },
-  { tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "inbox", title: "Inbox", url: "/admin/inbox", icon: Inbox },
   { tab: "mfl-livechat", title: "Live Chat", url: "/admin/mfl-livechat", icon: MessageCircle },
   { tab: "rewards", title: "Rewards", url: "/admin/rewards", icon: Award },
@@ -372,8 +426,16 @@ const tournamentNav = [
   { tab: "vendors", title: "Vendors", url: "/admin/vendors", icon: UtensilsCrossed },
   { tab: "volunteers", title: "Volunteers", url: "/admin/volunteers", icon: HeartHandshake },
   { tab: "cic-registrations", title: "Registrations", url: "/admin/cic-registrations", icon: Inbox },
+  { tab: "cic-packages", title: "Packages", url: "/admin/cic-packages", icon: Package },
   { tab: "cic-livechat", title: "Live Chat", url: "/admin/cic-livechat", icon: MessageCircle },
-  { tab: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "cic-push", title: "Notifications", url: "/admin/cic-push", icon: BellRing },
   { tab: "cic-logo-consents", title: "Logo Consents", url: "/admin/cic-logo-consents", icon: ClipboardCheck },
   { tab: "cic-watch", title: "Watch", url: "/admin/cic-watch", icon: Radio },
@@ -404,7 +466,14 @@ const tournament7sNav = [
   // 7's teams sit on the same page as the Ethnic Cup's. Without this line the
   // 7's view had no way to reach them (2026-09-08).
   { tab: "team-entries", title: "Team Entries", url: "/admin/team-entries", icon: Users },
-  { tab: "cic-mailer", title: "Mailer", url: "/admin/cic-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
 ];
 
 // Christchurch Ethnic Cup — Nov 14-15 2026, run under the CIC organisation.
@@ -432,7 +501,14 @@ const gymnasticsNav = [
   { tab: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics", icon: BarChart3 },
   { tab: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox", icon: Inbox },
   { tab: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat", icon: MessageCircle },
-  { tab: "cugc-mailer", title: "Mailer", url: "/admin/cugc-mailer", icon: Mail },
+  {
+    tab: "mailer", title: "Mailer", url: "/admin/mailer", icon: Mail,
+    // ONE Mailer in every workspace (2026-11-14) — its sub-pages travel with it.
+    children: [
+      { tab: "mailer", title: "Automations", url: "/admin/mailer/automations", icon: Zap },
+      { tab: "mailer", title: "History", url: "/admin/mailer/history", icon: HistoryIcon },
+    ],
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 
@@ -448,7 +524,40 @@ const groupNav = [
   { tab: "dashboard", title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   // `TrendingUp`, not `Megaphone` — Megaphone is MarketingOS (email/SMS),
   // hidden, and two "Marketing" megaphones would be one too many if it returns.
-  { tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp },
+  // Marketing — one section for every marketing tool (Daniel, 10 Nov: "a number of
+  // dropdowns … similar to how finance is"). The section row opens the numbers
+  // hub; each child keeps its own tab.
+  {
+    tab: "marketing-hub", title: "Marketing", url: "/admin/marketing-hub", icon: TrendingUp,
+    children: [
+      { tab: "marketing-ideas", title: "Ideas", url: "/admin/marketing-ideas", icon: Lightbulb },
+      { tab: "campaign-planner", title: "Campaigns", url: "/admin/campaigns", icon: Target },
+      // Funnels live inside campaigns; this page shows every funnel at once. Same permission.
+      { tab: "campaign-planner", title: "Funnels", url: "/admin/funnels", icon: Filter },
+      { tab: "social-media", title: "Social Media", url: "/admin/social-media", icon: AtSign },
+      { tab: "web-analytics", title: "Websites", url: "/admin/web-analytics", icon: MousePointerClick },
+      { tab: "paid-ads", title: "Paid Ads", url: "/admin/paid-ads", icon: Megaphone },
+      { tab: "email-stats", title: "Email", url: "/admin/email-stats", icon: Mail },
+      { tab: "sms-stats", title: "SMS", url: "/admin/sms-stats", icon: MessageSquare },
+      { tab: "whatsapp-stats", title: "WhatsApp", url: "/admin/whatsapp-stats", icon: MessageCircle },
+      { tab: "signage", title: "Signage", url: "/admin/signage", icon: Signpost },
+      { tab: "billboards", title: "Billboards", url: "/admin/billboards", icon: RectangleHorizontal },
+      { tab: "traditional-media", title: "Traditional Media", url: "/admin/traditional-media", icon: Tv },
+      { tab: "flyers-print", title: "Flyers & Print", url: "/admin/flyers-print", icon: Printer },
+      { tab: "events-activations", title: "Events & Activations", url: "/admin/events-activations", icon: PartyPopper },
+      { tab: "search-reviews", title: "Search & Reviews", url: "/admin/search-reviews", icon: Search },
+      { tab: "listings", title: "Listings", url: "/admin/listings", icon: ListChecks },
+      { tab: "mobile-apps", title: "Mobile Apps", url: "/admin/mobile-apps", icon: Smartphone },
+      { tab: "partners-ambassadors", title: "Partners", url: "/admin/partners-ambassadors", icon: Handshake },
+      { tab: "word-of-mouth", title: "Word of Mouth", url: "/admin/word-of-mouth", icon: MessagesSquare },
+      { tab: "offers-codes", title: "Offers & Codes", url: "/admin/offers-codes", icon: TicketPercent },
+      { tab: "product-quality", title: "Product Quality", url: "/admin/product-quality", icon: Gem },
+    ],
+  },
+  // Branding (2026-11-11) — on its own, not under Marketing: "branding is different to marketing".
+  { tab: "branding", title: "Branding", url: "/admin/branding", icon: Palette },
+  // Website (2026-11-01) — every club site; who may publish is a per-site grant.
+  { tab: "sites", title: "Website", url: "/admin/sites", icon: Newspaper },
   // Finance — one section for every money tool (Daniel, 21 Sep: "trim the fat… a dropdown called Finance").
   // The section row opens Financial Insight (password-protected); each child keeps its own tab and its own lock.
   {
@@ -525,7 +634,15 @@ const printsNav = [
   { tab: "analytics", title: "Analytics", url: "/admin/print-analytics", icon: BarChart3 },
   { tab: "landing", title: "Landing Pages", url: "/admin/print-landing", icon: FileText },
   { tab: "email", title: "Mailer", url: "/admin/print-email", icon: Send },
-  { tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse },
+  { tab: "shop-orders", title: "Shop Orders", url: "/admin/shop-orders", icon: ShoppingBag },
+  {
+    tab: "warehouse", title: "Warehouse", url: "/admin/warehouse", icon: Warehouse,
+    // Shopify's Products ▸ Transfers, copied (2026-11-04) — built stage by stage.
+    children: [
+      { tab: "warehouse", title: "Products", url: "/admin/warehouse/products", icon: Package },
+      { tab: "warehouse", title: "Transfers", url: "/admin/warehouse/transfers", icon: ArrowLeftRight },
+    ],
+  },
   { tab: "marketing", title: "Marketing", url: "/admin/marketing", icon: Megaphone },
 ];
 
@@ -538,8 +655,9 @@ const printsSecondary = [
   { tab: "settings", title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 
-// Sandbox — private super-admin experimentation workspace (Daniel only).
+// Sandbox workspace — shown as "Canterbury Sport" (the land company) since 2026-11-11.
 const sandboxNav = [
+  { tab: "canterbury-sport", title: "Land Company", url: "/admin/canterbury-sport", icon: Landmark },
   { tab: "club-dossier", title: "Club Dossier", url: "/admin/club-dossier", icon: Fingerprint },
   { tab: "market-research", title: "Market Research", url: "/admin/market-research", icon: Telescope },
 ];
@@ -746,7 +864,7 @@ function getWorkspaceLabel(slug: string | undefined) {
   if (isGymnasticsWorkspace(slug)) return "Gymnastics";
   if (isGroupWorkspace(slug)) return "Group";
   if (isPrintsWorkspace(slug)) return "Print Studio";
-  if (isSandboxWorkspace(slug)) return "Sandbox";
+  if (isSandboxWorkspace(slug)) return "Land & Fields";
   return "Management";
 }
 
@@ -757,7 +875,7 @@ function getWorkspaceInitials(slug: string | undefined) {
   if (isGymnasticsWorkspace(slug)) return "UG";
   if (isGroupWorkspace(slug)) return "SG";
   if (isPrintsWorkspace(slug)) return "UP";
-  if (isSandboxWorkspace(slug)) return "SB";
+  if (isSandboxWorkspace(slug)) return "CS";
   return "CU";
 }
 
@@ -849,7 +967,9 @@ export function AppSidebar() {
   const hiddenHere = new Set(
     HIDDEN_GLOBAL.concat(HIDDEN_BY_WORKSPACE[currentOrg?.slug ?? ""] ?? []),
   );
-  const canSee = (item: NavItem) => !hiddenHere.has(item.tab) && navFilter(item);
+  // Canterbury Sport is named-people-only on top of its super-admin lock (shared/canterbury-sport.ts).
+  const canSee = (item: NavItem) => !hiddenHere.has(item.tab) && navFilter(item)
+    && (item.tab !== "canterbury-sport" || canSeeCanterburySport((user as { id?: number } | undefined)?.id));
   // 🔴 See lib/nav-tree.ts: nesting must never subtract a destination.
   const mainNav = buildNav(allMainNav, canSee);
   // The System section is now the four things staff USE — the account and

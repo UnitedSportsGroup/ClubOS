@@ -191,21 +191,89 @@ export function zeroDays(range: DateRange): Map<string, number> {
 // Distinct visitors over a year is a real scan, and the page asks for the same
 // slice on every tab switch. Two minutes is short enough that "today" still
 // moves while somebody watches it. Per machine; a miss simply recomputes.
-const cache = new Map<string, { at: number; p: Promise<unknown> }>();
+const cache = new Map<string, { at: number; p: Promise<unknown>; refreshing?: boolean }>();
+/** An answer older than its time-to-live but younger than this is shown at once while a fresh one is worked out behind it. */
+const STALE_OK_MS = 30 * 60_000;
 
-export function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < ttlMs) return hit.p as Promise<T>;
-  const p = fn().catch((e) => {
-    cache.delete(key);
-    throw e;
-  });
-  cache.set(key, { at: Date.now(), p });
+function store(key: string, at: number, p: Promise<unknown>) {
+  cache.delete(key);
+  cache.set(key, { at, p });
   if (cache.size > 400) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
+}
+
+export function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key);
+  const age = hit ? Date.now() - hit.at : Infinity;
+  if (hit && age < ttlMs) return hit.p as Promise<T>;
+  if (hit && age < STALE_OK_MS) {
+    // Recently answered: hand that over now and replace it once the new one is ready.
+    if (!hit.refreshing) {
+      hit.refreshing = true;
+      fn()
+        .then((v) => store(key, Date.now(), Promise.resolve(v)))
+        .catch(() => {
+          hit.refreshing = false;
+        });
+    }
+    return hit.p as Promise<T>;
+  }
+  const p = fn().catch((e) => {
+    cache.delete(key);
+    throw e;
+  });
+  store(key, Date.now(), p);
   return p;
+}
+
+// ── Kept warm ───────────────────────────────────────────────────────────────
+// The view every Marketing page opens on (last 30 days, every workspace) is
+// worked out every few minutes in the background, so the first person in after
+// a quiet hour, or a deploy, does not wait for it. Per machine; one report at a
+// time so the database never sees them all at once.
+type Warmer = { name: string; key: (s: HubScope) => string; run: (s: HubScope) => Promise<unknown>; yearToo: boolean };
+const warmers: Warmer[] = [];
+
+/** `yearToo`: also pre-load "year to date" (every third round; it reads far more rows). */
+export function keepWarm(name: string, run: (s: HubScope) => Promise<unknown>, key?: (s: HubScope) => string, yearToo = false) {
+  if (!warmers.some((w) => w.name === name)) warmers.push({ name, run, key: key ?? ((s) => scopeKey(name, s)), yearToo });
+}
+
+let warming = false;
+let round = 0;
+async function warmAll() {
+  if (warming) return;
+  warming = true;
+  try {
+    const scope = await parseScope({ query: {} } as unknown as Request);
+    const year = round++ % 3 === 0 ? await parseScope({ query: { period: "ytd" } } as unknown as Request) : null;
+    for (const w of warmers) {
+      for (const sc of w.yearToo && year ? [scope, year] : [scope]) {
+        try {
+          const value = await w.run(sc);
+          store(w.key(sc), Date.now(), Promise.resolve(value));
+        } catch (e: any) {
+          console.error(`[Marketing] Could not pre-load ${w.name}:`, e?.message ?? e);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error("[Marketing] Pre-loading failed:", e?.message ?? e);
+  } finally {
+    warming = false;
+  }
+}
+
+let warmStarted = false;
+/** Start pre-loading the default view of every Marketing report (production only). */
+export function startHubWarmers(): void {
+  if (warmStarted || process.env.NODE_ENV !== "production" || process.env.MARKETING_WARM === "0") return;
+  warmStarted = true;
+  setTimeout(() => void warmAll(), 25_000);
+  setInterval(() => void warmAll(), 4 * 60_000);
+  console.log("[Marketing] Default reports are kept pre-loaded (every 4 min).");
 }
 
 export function scopeKey(name: string, s: HubScope): string {

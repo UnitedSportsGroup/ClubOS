@@ -9,13 +9,17 @@
 // piece editor is studio-piece.tsx. One route, /admin/content-studio[/<id>].
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { RamboWorking } from "@/components/rambo-working";
+import { PhotoLibrary } from "@/components/studio/photo-library";
+import { readStudioStream } from "@/lib/stream-lines";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Image as ImageIcon, LayoutTemplate, Clapperboard, Mail, Loader2, ChevronRight, Globe, Clock, FileImage } from "lucide-react";
-import { GRAPHIC_SIZES, studioKindLabel, type StudioKind } from "@shared/studio";
+import { Image as ImageIcon, LayoutTemplate, Clapperboard, GalleryHorizontal, Mail, Loader2, ChevronRight, Globe, Clock, FileImage } from "lucide-react";
+import { GRAPHIC_SIZES, STUDIO_BRANDS, studioKindLabel, type StudioKind } from "@shared/studio";
+import { designedHeadline, isDesignedDoc } from "@shared/studio-designed";
 import { StudioPiece } from "./studio-piece";
 
 const FACE = "/mailer/rambo.png";
@@ -25,7 +29,9 @@ export interface PieceSummary {
   doc: any; version: number; brief: string | null; createdByUserId: number; createdAt: string; updatedAt: string; publishedAt: string | null;
   publicViews: number; publicUrl: string | null; ownerName: string | null; canEdit: boolean; renderUrl: string | null;
 }
-export interface StudioUsage { used: number; limit: number; model: string; editModel: string; enabled: boolean; brand: { key: string; name: string; host: string }; firstName: string; isSuperAdmin: boolean }
+export { readStudioStream } from "@/lib/stream-lines";
+
+export interface StudioUsage { used: number; limit: number; model: string; editModel: string; enabled: boolean; looks?: boolean; brand: { key: string; name: string; host: string }; firstName: string; isSuperAdmin: boolean }
 
 export function whenLabel(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -51,23 +57,36 @@ function StudioHome() {
   const qc = useQueryClient();
   const { data: usage } = useQuery<StudioUsage>({ queryKey: ["/api/admin/content-studio/usage"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/usage")).json() });
   const { data: list, isLoading } = useQuery<{ pieces: PieceSummary[] }>({ queryKey: ["/api/admin/content-studio/pieces"], queryFn: async () => (await workspaceFetch("/api/admin/content-studio/pieces")).json() });
-  const [filter, setFilter] = useState<"all" | "mine" | StudioKind>("all");
+  // ?view=photos opens the photo library (the URL holds the view, so Back and a link both work).
+  const [filter, setFilterState] = useState<"all" | "mine" | "photos" | StudioKind>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "photos" ? "photos" : "all"));
+  const setFilter = (k: "all" | "mine" | "photos" | StudioKind) => {
+    setFilterState(k);
+    const u = new URL(window.location.href);
+    if (k === "photos") u.searchParams.set("view", "photos"); else u.searchParams.delete("view");
+    window.history.replaceState(window.history.state, "", u.toString());
+  };
   const [composer, setComposer] = useState<StudioKind | null>(null);
   const [brief, setBrief] = useState("");
   const [size, setSize] = useState("square");
+  const [slides, setSlides] = useState(5);
   const [footage, setFootage] = useState("");
-  const [format, setFormat] = useState<"landscape" | "vertical" | "both">("landscape");
-  const [length, setLength] = useState(60);
+  const [format, setFormat] = useState<"landscape" | "vertical" | "both">("vertical");
+  const [length, setLength] = useState(45);
   const { data: me } = useQuery<{ id?: number }>({ queryKey: ["/api/auth/me"] });
+  const [brand, setBrand] = useState<string | null>(null);
+  const [engine, setEngine] = useState<"designed" | "template">("designed");
+  const [stage, setStage] = useState<string | null>(null);
+  const brandKey = brand ?? usage?.brand.key ?? "cufc";
 
   const make = useMutation({
     mutationFn: async () => {
       if (composer === "video") {
-        const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length });
+        const res = await apiRequest("POST", "/api/admin/content-studio/video", { brief, footage: footage.split(/\n+/).map((s) => s.trim()).filter(Boolean), format, lengthSeconds: length, brand: brandKey });
         return res.json();
       }
-      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" ? size : undefined });
-      const j = JSON.parse((await res.text()).trim());
+      setStage(null);
+      const res = await apiRequest("POST", "/api/admin/content-studio/generate", { kind: composer, brief, size: composer === "graphic" || composer === "carousel" ? size : undefined, slides: composer === "carousel" ? slides : undefined, brand: brandKey, engine: composer === "carousel" ? "designed" : engine });
+      const j = await readStudioStream(res, setStage);
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that.");
       return j;
     },
@@ -79,17 +98,19 @@ function StudioHome() {
       navigate(`/admin/content-studio/${j.piece.id}`);
     },
     onError: (e: any) => toast({ title: "Couldn't make it", description: e?.message, variant: "destructive" }),
+    onSettled: () => setStage(null),
   });
 
   const pieces = useMemo(() => {
     const all = list?.pieces ?? [];
     if (filter === "all") return all;
     if (filter === "mine") return all.filter((p) => p.createdByUserId === me?.id);
+    if (filter === "photos") return [];
     return all.filter((p) => p.kind === filter);
   }, [list, filter, me?.id]);
 
   const capped = usage ? usage.used >= usage.limit : false;
-  const canMake = !!composer && brief.trim().length > 8 && !make.isPending && !capped && (composer !== "video" || footage.trim().length > 0);
+  const canMake = !!composer && brief.trim().length > 8 && !make.isPending && !capped;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -110,13 +131,14 @@ function StudioHome() {
       </div>
 
       {/* Make something */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="studio-make">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" data-testid="studio-make">
         {([
           ["graphic", ImageIcon, "A graphic", "A post, a story, an event card, a big number or a chart. Square, portrait, story or landscape."],
+          ["carousel", GalleryHorizontal, "A carousel", "One idea told across 3–10 swipeable slides, all in one design — a hook, the points, the call to action."],
           ["page", LayoutTemplate, "A landing page", `Built from a brief with the real dates, prices and booking links, published at ${usage?.brand.host ?? "the club's site"}/p/…`],
           ["video", Clapperboard, "A video", "From real footage — your phone clips or the Drive. Give the brief and the footage; it's cut and delivered back here."],
         ] as const).map(([kind, Icon, title, blurb]) => (
-          <button key={kind} type="button" onClick={() => setComposer(composer === kind ? null : kind)}
+          <button key={kind} type="button" onClick={() => { const next = composer === kind ? null : kind; setComposer(next); if (next === "carousel" && size === "square") setSize("portrait"); }}
             className={`text-left rounded-2xl border p-4 transition-colors ${composer === kind ? "border-blue-500/50 bg-blue-500/[0.06]" : "border-border bg-card hover:border-blue-500/30"}`}
             data-testid={`studio-make-${kind}`}>
             <span className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-3"><Icon className="w-5 h-5" /></span>
@@ -133,12 +155,14 @@ function StudioHome() {
 
       {composer && (
         <div className="rounded-2xl border border-border bg-card p-4 space-y-3" data-testid="studio-composer">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><img src={FACE} alt="" className="w-6 h-6 rounded-md" />{composer === "video" ? "Request a video" : `Tell Rambo what you want — ${studioKindLabel(composer).toLowerCase()}`}</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><img src={FACE} alt="" className="w-6 h-6 rounded-md" />{composer === "video" ? "Make a video" : `Tell Rambo what you want — ${studioKindLabel(composer).toLowerCase()}`}</div>
           <textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
             rows={4}
-            placeholder={composer === "graphic"
+            placeholder={composer === "carousel"
+              ? "e.g. Why your child should start gymnastics before 8 — for parents, ends on the free open training at cugc.co.nz. Or: 5 things that happen at a CUFC holiday camp."
+              : composer === "graphic"
               ? "e.g. A square post for the October holiday camp, U4–U8, last spots, book at cufc.co.nz/camps. Or: a chart of U4–U8 sign-ups by term: T1 140, T2 155, T3 149, T4 162."
               : composer === "page"
                 ? "e.g. A landing page for Football in Schools: what a term looks like, who it's for, the price per term and the starter kit, how a school books a free session."
@@ -146,7 +170,35 @@ function StudioHome() {
             className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[15px] leading-relaxed text-foreground"
             data-testid="studio-brief"
           />
-          {composer === "graphic" && (
+          {composer !== "video" && (
+            <div className="space-y-2">
+              {composer === "carousel" && (
+                <div className="flex flex-wrap items-center gap-2" data-testid="studio-slides">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Slides</span>
+                  {[3, 4, 5, 6, 7, 8, 10].map((n) => (
+                    <button key={n} type="button" onClick={() => setSlides(n)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${slides === n ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{n}</button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2" data-testid="studio-brands">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">Brand</span>
+                {STUDIO_BRANDS.map((b) => (
+                  <button key={b.key} type="button" onClick={() => setBrand(b.key)}
+                    className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${brandKey === b.key ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}
+                    data-testid={`studio-brand-${b.key}`}>{b.name}</button>
+                ))}
+              </div>
+              {composer !== "carousel" && <div className="flex flex-wrap items-center gap-2" data-testid="studio-engines">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mr-1">How</span>
+                {([["designed", "Designed by Rambo", "A one-off design, checked on a phone and a laptop and fixed. About 2–4 minutes."], ["template", "Quick template", "The house template, filled in. Under a minute."]] as const).map(([k, label, tip]) => (
+                  <button key={k} type="button" onClick={() => setEngine(k)} title={tip}
+                    className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${engine === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}
+                    data-testid={`studio-engine-${k}`}>{label}</button>
+                ))}
+              </div>}
+            </div>
+          )}
+          {(composer === "graphic" || composer === "carousel") && (
             <div className="flex flex-wrap gap-2" data-testid="studio-sizes">
               {GRAPHIC_SIZES.map((s) => (
                 <button key={s.key} type="button" onClick={() => setSize(s.key)} title={s.use}
@@ -159,16 +211,13 @@ function StudioHome() {
           )}
           {composer === "video" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="block">
-                <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Where the footage is (one link per line)</span>
-                <textarea value={footage} onChange={(e) => setFootage(e.target.value)} rows={3} placeholder={"https://app.usg.co.nz/admin/drive/…\nor a NAS path, or a Google Drive link"} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[13px] font-mono text-foreground" data-testid="studio-footage" />
-              </label>
+              <div className="rounded-xl border border-dashed border-border p-3 text-[13px] text-muted-foreground">Next you'll upload your clips (phone videos are fine), then Rambo transcribes them, picks the best takes and cuts one video in the brand's style — captions, cards, end card. You can change every word afterwards.</div>
               <div className="space-y-3">
                 <div>
                   <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Format</span>
                   <div className="flex flex-wrap gap-2">
-                    {(["landscape", "vertical", "both"] as const).map((f) => (
-                      <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium capitalize ${format === f ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{f}</button>
+                    {([["vertical", "Vertical (Reels, TikTok, Stories)"], ["landscape", "Landscape (YouTube, screens)"]] as const).map(([f, label]) => (
+                      <button key={f} type="button" onClick={() => setFormat(f)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${format === f ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`}>{label}</button>
                     ))}
                   </div>
                 </div>
@@ -182,25 +231,35 @@ function StudioHome() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
               {composer === "video"
-                ? "No model runs here. The request goes to the editing queue and the finished cut comes back to this piece."
+                ? "This makes the video piece; on the next screen you upload clips and press Edit it with Rambo."
                 : capped ? "You've used today's prompts. It resets at midnight, or a super admin can raise your limit in Team."
-                  : `One prompt. Rambo uses the live programme facts and ${usage?.brand.name ?? "the brand"}'s own pictures; every word can be changed afterwards without re-prompting.`}
+                  : engine === "designed" ? `Rambo designs it from scratch on the brand, looks at it on a phone and a laptop, and fixes what it sees. About 2–4 minutes — you can keep working; it lands in the list below. Every word can be changed afterwards.`
+                  : `One prompt. Rambo uses the live programme facts and the brand's own pictures; every word can be changed afterwards without re-prompting.`}
             </p>
             <Button onClick={() => make.mutate()} disabled={!canMake} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white px-5" data-testid="studio-make-go">
-              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{composer === "page" ? "Building the page…" : "Making it…"}</> : composer === "video" ? "Send the request" : "Make it"}
+              {make.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Working</> : composer === "video" ? "Next: upload clips" : "Make it"}
             </Button>
           </div>
+          {make.isPending && composer !== "video" && (
+            <RamboWorking
+              stage={stage}
+              expect={composer === "carousel" ? "usually 2–4 min" : engine === "designed" ? (composer === "page" ? "usually 3–4 min" : "usually about 1 min") : "usually under a minute"}
+              expectSeconds={composer === "carousel" ? 180 : engine === "designed" ? (composer === "page" ? 200 : 70) : 30}
+            />
+          )}
         </div>
       )}
 
       {/* Everyone's pieces */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["page", "Pages"], ["video", "Videos"]] as const).map(([k, label]) => (
+          {([["all", "All"], ["mine", "Mine"], ["graphic", "Graphics"], ["carousel", "Carousels"], ["page", "Pages"], ["video", "Videos"], ["photos", "Photo library"]] as const).map(([k, label]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} className={`rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${filter === k ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`} data-testid={`studio-filter-${k}`}>{label}</button>
           ))}
         </div>
-        {isLoading ? (
+        {filter === "photos" ? (
+          <PhotoLibrary initialBrand={usage?.brand.key} />
+        ) : isLoading ? (
           <div className="py-10 flex justify-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
         ) : pieces.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground" data-testid="studio-empty">Nothing here yet. Pick a card above and tell Rambo what you want.</div>
@@ -217,12 +276,12 @@ function StudioHome() {
 function PieceCard({ piece: p, onOpen }: { piece: PieceSummary; onOpen: () => void }) {
   const status = p.kind === "video" ? (p.doc?.status === "delivered" ? "Delivered" : p.doc?.status === "in_progress" ? "Being cut" : "Requested") : p.status === "published" ? "Published" : "Draft";
   const tone = status === "Published" || status === "Delivered" ? "bg-emerald-500/10 text-emerald-700" : status === "Being cut" ? "bg-amber-500/10 text-amber-700" : "bg-muted text-muted-foreground";
-  const headline = p.kind === "graphic" ? p.doc?.headline : p.kind === "page" ? p.doc?.blocks?.[0]?.headline : p.doc?.brief;
+  const headline = isDesignedDoc(p.doc) ? designedHeadline(p.doc) : p.kind === "graphic" ? p.doc?.headline : p.kind === "page" ? p.doc?.blocks?.[0]?.headline : p.doc?.brief;
   return (
     <button type="button" onClick={onOpen} className="text-left rounded-2xl border border-border bg-card overflow-hidden hover:border-blue-500/30 transition-colors" data-testid={`studio-piece-${p.id}`}>
       <div className="aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">
-        {p.kind === "graphic" && p.renderUrl ? (
-          <img src={p.renderUrl} alt="" className="w-full h-full object-cover" />
+        {(p.kind === "graphic" || p.kind === "page" || p.kind === "carousel") && p.renderUrl ? (
+          <img src={p.renderUrl} alt="" loading="lazy" className={`w-full h-full object-cover ${p.kind === "page" ? "object-top" : ""}`} data-testid="studio-piece-thumb" />
         ) : (
           <div className="p-4 text-center">
             {p.kind === "graphic" ? <FileImage className="w-8 h-8 mx-auto text-muted-foreground/60" /> : p.kind === "page" ? <Globe className="w-8 h-8 mx-auto text-muted-foreground/60" /> : <Clapperboard className="w-8 h-8 mx-auto text-muted-foreground/60" />}

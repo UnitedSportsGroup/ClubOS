@@ -200,6 +200,76 @@ function ReviewCard({ review, index }: { review: typeof reviews[0]; index: numbe
   );
 }
 
+/** "just now" / "12 minutes ago" / "4 hours ago" / "3 days ago" — from a real timestamp. */
+function timeAgo(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+type RecentBooking = { at: string; children: number; days: number; kind: "full" | "half" | "mixed" };
+
+/**
+ * Bottom-left "A family booked FUNdamentals · 2 kids · 5 full days · 3 hours ago"
+ * (Daniel 2026-11-07, the MFL landing-page toast). REAL paid bookings only, from
+ * /api/public/camps/:slug/recent — no bookings, nothing shown, never an invented
+ * one. 🔴 No names: these are children. Sits above the phone's sticky Book bar,
+ * one pass only, × ends it for the visit.
+ */
+function BookingToast({ slug, campName }: { slug: string; campName: string }) {
+  const [items, setItems] = useState<RecentBooking[]>([]);
+  const [idx, setIdx] = useState(-1);
+  const [shown, setShown] = useState(false);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/public/camps/${slug}/recent`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.bookings?.length) setItems(d.bookings.slice(0, 6)); }).catch(() => {});
+  }, [slug]);
+  useEffect(() => {
+    if (!items.length || closed) return;
+    let i = 0; const timers: any[] = [];
+    const cycle = () => {
+      if (i >= items.length) return;
+      setIdx(i); setShown(true);
+      timers.push(setTimeout(() => setShown(false), 5500));
+      i += 1;
+      timers.push(setTimeout(cycle, 5500 + 9000));
+    };
+    timers.push(setTimeout(cycle, 5000));
+    return () => timers.forEach(clearTimeout);
+  }, [items, closed]);
+  if (closed || idx < 0 || !items[idx]) return null;
+  const b = items[idx];
+  const kids = b.children === 1 ? "1 child" : `${b.children} kids`;
+  const dayWord = b.kind === "full" ? "full day" : b.kind === "half" ? "half day" : "day";
+  const days = `${b.days} ${dayWord}${b.days === 1 ? "" : "s"}`;
+  const short = (campName || "").replace(/\s*(Holiday Camp|Holiday Programme).*$/i, "").trim() || "camp";
+  return (
+    <div role="status" aria-live="polite"
+      className="fixed z-40 left-3 right-3 sm:right-auto sm:left-5 sm:max-w-[360px] bottom-[calc(84px+env(safe-area-inset-bottom))] md:bottom-5 transition-all duration-500"
+      style={{ opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(12px)", pointerEvents: shown ? "auto" : "none" }}
+      data-testid="booking-toast">
+      <div className="flex items-center gap-3 rounded-2xl bg-white pl-3 pr-1.5 py-2.5"
+        style={{ border: "1px solid rgba(34,57,155,0.12)", boxShadow: "0 12px 36px rgba(15,23,60,0.18)" }}>
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full" style={{ background: "rgba(34,57,155,0.08)" }}>
+          <CalendarCheck className="h-5 w-5" style={{ color: BRAND.blue }} />
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[14px] font-bold" style={{ color: BRAND.darkBlue }}>A family booked {short}</p>
+          <p className="truncate text-[12px] mt-0.5 text-slate-500">{kids} · {days} · {timeAgo(b.at)}</p>
+        </div>
+        <button type="button" onClick={() => setClosed(true)} aria-label="Dismiss"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-xl leading-none text-slate-400">×</button>
+      </div>
+    </div>
+  );
+}
+
 export default function CampPage() {
   const [, params] = useRoute("/:slug");
   const slug = params?.slug || "";
@@ -833,6 +903,8 @@ export default function CampPage() {
           </div>
         </div>
       </footer>
+
+      <BookingToast slug={slug} campName={camp?.name || ""} />
 
       {/* STICKY MOBILE CTA */}
       <div className="fixed bottom-0 left-0 right-0 md:hidden z-50 bg-white/95 backdrop-blur-lg border-t border-slate-100 p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">

@@ -14,7 +14,8 @@
 // tab which only transferred across gets hidden with its original.
 export const HIDDEN_GLOBAL: string[] = [
   "studio",             // AI page-brief tool — unfinished, rarely used
-  "esign",              // e-signature — works, but not day-to-day for anyone
+  // "esign" UN-hidden 2026-11-04: staff now build + send their own agreements
+  // (template builder, Rambo drafts, open links) — it is day-to-day work now.
   "feedback",           // superseded by Chat: staff report bugs in the chat now
   "links",              // AttributionOS — same page in all 7 workspaces
   "attribution",        // AttributionOS

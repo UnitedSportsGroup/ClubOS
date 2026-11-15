@@ -8,7 +8,7 @@ import type { VenueSplitSummary } from "@shared/venue-booking-truth";
 import { db } from "./db";
 import { REAL_STATUS_SQL } from "./registration-visibility";
 import { resolveMailerAudience } from "./mailer-audience";
-import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import crypto from "crypto";
 import { contentHashOf } from "./studio/hash";
@@ -214,6 +214,9 @@ export type ProgramPlayer = {
   allergies: string | null;
   epiPen: boolean;
   medicalNotes: string | null;
+  /** From the player's kit sizes (children.shirt_size / contacts.shirt_size).
+   *  Null = nobody told us — never a guess. A camp that gives out a shirt asks it. */
+  shirtSize: string | null;
   parent: { id: number; firstName: string; lastName: string; email: string | null; phone: string | null } | null;
   status: string;                  // best status across their registrations
   registrationIds: number[];
@@ -545,7 +548,7 @@ export interface IStorage {
   createMetaEventLog(log: InsertMetaEventLog): Promise<MetaEventLog>;
 
   getEmailCampaigns(): Promise<EmailCampaign[]>;
-  searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
+  searchEmailCampaigns(opts?: { q?: string; limit?: number; offset?: number; scope?: SQL }): Promise<{ rows: EmailCampaignSummary[]; total: number }>;
   getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
   getCampaignRecipients(campaignId: number): Promise<{ email: string; name: string | null; status: string | null; sentAt: Date | null; firstOpenedAt: Date | null; openCount: number; variant: string | null; inTest: boolean; firstClickedAt: Date | null; clickCount: number }[]>;
   createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
@@ -2103,6 +2106,7 @@ export class DatabaseStorage implements IStorage {
           gender: r.gender,
           allergies: r.allergies,
           epiPen: false,
+          shirtSize: null,
           medicalNotes: r.medicalNotes,
           parent: r.parentId
             ? {
@@ -2220,6 +2224,23 @@ export class DatabaseStorage implements IStorage {
       for (const p of players) {
         if (p.personType === "contact") p.team = teamByContact.get(p.personId) ?? null;
       }
+    }
+
+    // Shirt sizes in one pass per person table (raw columns, shared/kit-sizes.ts).
+    for (const p of players) if ((p as any).shirtSize === undefined) (p as any).shirtSize = null;
+    {
+      const kidIds = players.filter(p => p.personType === "child").map(p => p.personId);
+      const conIds = players.filter(p => p.personType === "contact").map(p => p.personId);
+      const sizeBy = new Map<string, string>();
+      if (kidIds.length) {
+        const r: any = await db.execute(sql`SELECT id, shirt_size FROM children WHERE id IN (${sql.join(kidIds.map(i => sql`${i}`), sql`, `)}) AND shirt_size IS NOT NULL`);
+        for (const row of (r.rows ?? r)) sizeBy.set(`child-${row.id}`, row.shirt_size);
+      }
+      if (conIds.length) {
+        const r: any = await db.execute(sql`SELECT id, shirt_size FROM contacts WHERE id IN (${sql.join(conIds.map(i => sql`${i}`), sql`, `)}) AND shirt_size IS NOT NULL`);
+        for (const row of (r.rows ?? r)) sizeBy.set(`contact-${row.id}`, row.shirt_size);
+      }
+      for (const p of players) p.shirtSize = sizeBy.get(`${p.personType}-${p.personId}`) ?? null;
     }
 
     // child_medical in one pass — allergies and EpiPen matter most on a roll.
@@ -2494,14 +2515,16 @@ export class DatabaseStorage implements IStorage {
   // mailer (camps, CIC, CUFC, MFL, league), newest first. `q` matches the
   // subject OR the email content, so "goalkeeper" finds the send that mentioned
   // it even when the subject line didn't. Paged, and body-free (see the type).
-  async searchEmailCampaigns(opts: { q?: string; limit?: number; offset?: number } = {}): Promise<{ rows: EmailCampaignSummary[]; total: number }> {
+  async searchEmailCampaigns(opts: { q?: string; limit?: number; offset?: number; scope?: SQL } = {}): Promise<{ rows: EmailCampaignSummary[]; total: number }> {
     const raw = (opts.q ?? "").trim();
     // `%` and `_` are ILIKE wildcards — a search for "50% off" must not match
     // every campaign ever sent. Backslash is Postgres's default escape char.
     const term = raw.replace(/[\\%_]/g, (c) => `\\${c}`);
-    const where = term
-      ? or(ilike(emailCampaigns.subject, `%${term}%`), ilike(emailCampaigns.body, `%${term}%`))
-      : undefined;
+    const where = and(
+      term ? or(ilike(emailCampaigns.subject, `%${term}%`), ilike(emailCampaigns.body, `%${term}%`)) : undefined,
+      // One workspace's sends (the Mailer's history). Absent = every campaign.
+      opts.scope,
+    );
 
     const limit = Number.isFinite(opts.limit) ? Math.min(Math.max(Math.trunc(opts.limit!), 1), 100) : 20;
     const offset = Number.isFinite(opts.offset) ? Math.max(Math.trunc(opts.offset!), 0) : 0;

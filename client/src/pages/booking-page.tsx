@@ -1,4 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
+import { campSessions, parsePageContent } from "@/lib/camp-sessions";
+import { campShirtSize, CAMP_SHIRT_SIZES, shirtSizeLabel } from "@shared/camp-shirt-size";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HdyhauField, useHdyhauRequired, hdyhauPayload, hdyhauError, EMPTY_HDYHAU, type HdyhauAnswer } from "@/components/hdyhau-field";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -25,6 +28,8 @@ interface ChildData {
   allergies: string;
   epiPen: boolean;
   medicalNotes: string;
+  /** Only asked when the camp hands every child a shirt (campShirtSize). */
+  shirtSize: string;
 }
 
 interface BookingItem {
@@ -234,7 +239,7 @@ export default function BookingPage() {
   const [parentPhone, setParentPhone] = useState("");
 
   const [children, setChildren] = useState<ChildData[]>([{
-    firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "",
+    firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "", shirtSize: "",
   }]);
 
   const [bookingResult, setBookingResult] = useState<any>(null);
@@ -264,6 +269,15 @@ export default function BookingPage() {
   const priceFor = (pt: string) => {
     const m = (data?.pricing || []).find((p: any) => p.productType === pt);
     return m ? m.priceCents : (hardcodedPrices[pt] || 0);
+  };
+  // Only the sessions this camp actually prices, with its own labels/times
+  // (shared with the camp landing page — see lib/camp-sessions.ts).
+  const sessions = campSessions(data?.pricing, parsePageContent(data?.camp?.pageContentJson));
+  // A camp that gives every child a shirt asks each child's size (required).
+  const shirt = campShirtSize(parsePageContent(data?.camp?.pageContentJson));
+  const sessionInfo = (pt: string) => {
+    const s = sessions.find((x) => x.type === pt);
+    return s ? { label: s.label, time: s.time } : sessionTypes[pt];
   };
 
   const bookMutation = useMutation({
@@ -344,7 +358,7 @@ export default function BookingPage() {
     onError: (e: Error) => toast({ title: "Booking failed", description: e.message, variant: "destructive" }),
   });
 
-  const addChild = () => setChildren([...children, { firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "" }]);
+  const addChild = () => setChildren([...children, { firstName: "", lastName: "", dateOfBirth: "", allergies: "", epiPen: false, medicalNotes: "", shirtSize: "" }]);
   const removeChild = (i: number) => {
     setChildren(children.filter((_, idx) => idx !== i));
   };
@@ -462,7 +476,8 @@ export default function BookingPage() {
   const canProceedStep1 = items.length > 0;
   const canProceedStep2 = parentFirst.trim() && parentLast.trim() && parentEmail.trim() && parentEmail.includes("@")
     && hdyhauError(hdyhauRequired, hdyhau) === null;
-  const canProceedStep3 = children.some(c => c.firstName.trim() && c.lastName.trim());
+  const canProceedStep3 = children.some(c => c.firstName.trim() && c.lastName.trim())
+    && (!shirt.ask || children.filter(c => c.firstName.trim()).every(c => !!c.shirtSize));
 
   return (
     <div className="min-h-screen" style={{ background: BRAND.white, fontFamily: "'Inter Tight', system-ui, -apple-system, sans-serif" }}>
@@ -561,10 +576,10 @@ export default function BookingPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      {(["MORNING", "AFTERNOON", "FULL_DAY"] as const).map(pt => {
+                      {sessions.map(({ type: pt }) => {
                         const isSelected = items.some(i => i.childIndex === 0 && i.campDateId === d.id && i.productType === pt);
                         const price = priceFor(pt);
-                        const info = sessionTypes[pt];
+                        const info = sessionInfo(pt);
                         return (
                           <button
                             key={pt}
@@ -597,7 +612,7 @@ export default function BookingPage() {
                 <div className="space-y-1.5">
                   {items.map((item, i) => (
                     <div key={i} className="flex justify-between text-[13px]">
-                      <span className="text-slate-600">{sessionTypes[item.productType]?.label} — {item.dateName}</span>
+                      <span className="text-slate-600">{sessionInfo(item.productType)?.label} — {item.dateName}</span>
                       <span className="text-slate-700 font-semibold">${(priceFor(item.productType) / 100).toFixed(0)}</span>
                     </div>
                   ))}
@@ -774,6 +789,24 @@ export default function BookingPage() {
                       month, so a 2017 birthday was ~110 taps back. */}
                   <DobInput value={child.dateOfBirth} onChange={e => updateChild(i, "dateOfBirth", e.target.value)} inputClassName="rounded-xl border-slate-200 h-11" tone="light" data-testid={`input-child-dob-${i}`} />
                 </div>
+                {shirt.ask && (
+                  <div className="space-y-1.5">
+                    <label className="text-[12px] text-slate-500 font-semibold">Shirt size *</label>
+                    <Select value={child.shirtSize} onValueChange={v => updateChild(i, "shirtSize", v)}>
+                      <SelectTrigger className="rounded-xl border-slate-200 h-11 bg-white" data-testid={`select-child-shirt-${i}`}>
+                        <SelectValue placeholder="Choose a size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CAMP_SHIRT_SIZES.map(sz => (
+                          <SelectItem key={sz} value={sz} data-testid={`option-shirt-${sz}`}>{shirtSizeLabel(sz)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      {shirt.note ? `${shirt.note} ` : ""}NZ sizing: kids sizes go by age, and the number in brackets is your child's height. Between sizes? Go up one.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <label className="text-[12px] text-slate-500 font-semibold">Allergies / Medical Notes</label>
                   <Input value={child.allergies} onChange={e => updateChild(i, "allergies", e.target.value)} placeholder="None" className="rounded-xl border-slate-200 h-11" data-testid={`input-child-allergies-${i}`} />
@@ -823,6 +856,9 @@ export default function BookingPage() {
                 {bookMutation.isPending ? "Processing..." : pricing.total > 0 ? "Proceed to Payment" : "Confirm Booking"}
               </Button>
             </div>
+            {shirt.ask && children.some(c => c.firstName.trim() && !c.shirtSize) && (
+              <p className="text-[12px] text-slate-500 text-center" data-testid="hint-shirt-size">Choose a shirt size for each child to continue.</p>
+            )}
           </div>
         )}
 
@@ -841,7 +877,7 @@ export default function BookingPage() {
                 {items.map((item, i) => (
                   <div key={i} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-2.5">
                     <div>
-                      <p className="text-[13px] font-medium text-slate-700">{sessionTypes[item.productType]?.label}</p>
+                      <p className="text-[13px] font-medium text-slate-700">{sessionInfo(item.productType)?.label}</p>
                       <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                         <Calendar className="w-3 h-3" /> {item.dateName}
                       </p>

@@ -10,17 +10,25 @@ import { apiRequest, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronLeft, Download, Link as LinkIcon, Check, Loader2, Globe, EyeOff, CopyPlus, Trash2, History, Settings2, Type, Image as ImageIcon, Upload, ExternalLink } from "lucide-react";
-import { applyField, graphicFields, graphicSize, GRAPHIC_SIZES, pageFields, readField, studioKindLabel, type GraphicDoc, type PageDoc, type TextField, type VideoDoc } from "@shared/studio";
+import { Smartphone, Monitor, ChevronLeft, Download, Link as LinkIcon, Check, Loader2, Globe, EyeOff, CopyPlus, Trash2, History, Settings2, Type, Image as ImageIcon, Upload, ExternalLink } from "lucide-react";
+import { applyField, artboardFor, graphicFields, graphicSize, GRAPHIC_SIZES, pageFields, readField, studioKindLabel, type GraphicDoc, type PageDoc, type TextField, type VideoDoc } from "@shared/studio";
 import { renderPage } from "@shared/studio-render";
+import { countSlides, designedFields, designedPictureSlots, isDesignedDoc, renderDesignedGraphic, renderDesignedPage, type DesignedDoc } from "@shared/studio-designed";
 import { GraphicArtboard, exportArtboardPng } from "@/components/studio/artboard";
 import { FieldList } from "@/components/studio/fields";
-import { whenLabel, type PieceSummary, type StudioUsage } from "./studio";
+import { Pencil, Scaling } from "lucide-react";
+import { createPortal } from "react-dom";
+import { RamboWorking } from "@/components/rambo-working";
+import { VideoEditor } from "@/components/studio/video-editor";
+import { PagePreview } from "@/components/studio/page-preview";
+import { edlFields } from "@shared/studio-video";
+import { DarkChip } from "@/components/studio/dark-chip";
+import { readStudioStream, whenLabel, type PieceSummary, type StudioUsage } from "./studio";
 
 const FACE = "/mailer/rambo.png";
 type Tab = "words" | "rambo" | "pictures" | "versions" | "settings";
 
-interface Detail { piece: PieceSummary; versions: { version: number; how: string; note: string | null; createdAt: string; by: string | null }[]; renders: { version: number; url: string; width: number; height: number }[] }
+interface Detail { piece: PieceSummary; versions: { version: number; how: string; note: string | null; createdAt: string; by: string | null }[]; renders: { version: number; slide?: number; url: string; width: number; height: number }[] }
 
 export function StudioPiece({ id }: { id: number }) {
   const [, navigate] = useLocation();
@@ -36,6 +44,8 @@ export function StudioPiece({ id }: { id: number }) {
   const [chat, setChat] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [renderUrl, setRenderUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [askStage, setAskStage] = useState<string | null>(null);
+  const [device, setDevice] = useState<"phone" | "desktop">("desktop");
   const artboardNode = useRef<HTMLElement | null>(null);
   useEffect(() => { setEdits({}); setRenderUrl(data?.piece.renderUrl ?? null); }, [data?.piece.version, data?.piece.renderUrl]);
 
@@ -50,12 +60,15 @@ export function StudioPiece({ id }: { id: number }) {
   }, [doc, edits]);
   const fields: TextField[] = useMemo(() => {
     if (!piece || !liveDoc) return [];
+    if (piece.kind !== "video" && isDesignedDoc(liveDoc)) return designedFields(liveDoc, piece.kind as "page" | "graphic");
     if (piece.kind === "graphic") return graphicFields(liveDoc as GraphicDoc);
     if (piece.kind === "page") return pageFields(liveDoc as PageDoc);
     const v = liveDoc as VideoDoc;
     return [
+      // The edit's words first: these change the video (save, then Render again).
+      ...(v.edl ? edlFields(v.edl).map((f) => ({ ...f, path: `edl.${f.path}` })) : []),
       { path: "brief", label: "The brief", value: v.brief, multiline: true },
-      ...v.footage.map((f, i) => ({ path: `footage.${i}`, label: `Footage ${i + 1}`, value: f, href: true })),
+      ...v.footage.map((f, i) => ({ path: `footage.${i}`, label: `Footage link ${i + 1}`, value: f, href: true })),
       { path: "notes", label: "Notes", value: v.notes ?? "", multiline: true },
     ];
   }, [piece, liveDoc]);
@@ -70,14 +83,17 @@ export function StudioPiece({ id }: { id: number }) {
   const saveWords = () => patch.mutate({ doc: liveDoc, note: `${Object.keys(edits).length} field${Object.keys(edits).length === 1 ? "" : "s"} edited` }, { onSuccess: () => { setEdits({}); toast({ title: "Saved", description: "The words are updated. A new version was kept." }); } });
 
   const askRambo = useMutation({
-    mutationFn: async () => {
-      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/ask`, { instruction: ask, history: chat });
-      const j = JSON.parse((await r.text()).trim());
+    mutationFn: async (instruction: string) => {
+      setAskStage(null);
+      setAsk("");
+      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/ask`, { instruction, history: chat });
+      const j = await readStudioStream(r, setAskStage);
       if (!j.ok) throw new Error(j.message || "Rambo couldn't make that change.");
       return j;
     },
-    onSuccess: (j: any) => { setChat((c) => [...c, { role: "user", content: ask }, { role: "assistant", content: j.reply }]); setAsk(""); setEdits({}); invalidate(); if (!j.changed) toast({ title: "Rambo", description: j.reply }); },
-    onError: (e: any) => toast({ title: "Rambo", description: e?.message, variant: "destructive" }),
+    onSuccess: (j: any, instruction) => { setChat((c) => [...c, { role: "user", content: instruction }, { role: "assistant", content: j.reply }]); setEdits({}); invalidate(); if (!j.changed) toast({ title: "Rambo", description: j.reply }); },
+    onError: (e: any, instruction) => { setAsk((a) => a || instruction); toast({ title: "Rambo", description: e?.message, variant: "destructive" }); },
+    onSettled: () => setAskStage(null),
   });
   const publish = useMutation({
     mutationFn: async (on: boolean) => (await apiRequest("POST", `/api/admin/content-studio/pieces/${id}/${on ? "publish" : "unpublish"}`, {})).json(),
@@ -99,7 +115,25 @@ export function StudioPiece({ id }: { id: number }) {
 
   const [exporting, setExporting] = useState(false);
   const downloadPng = async () => {
-    if (!piece || !artboardNode.current) return;
+    if (!piece) return;
+    if (isDesignedDoc(piece.doc)) {
+      // A designed graphic is drawn by the render service on every save.
+      if (dirty) { toast({ title: "Save the words first", description: "The PNG is drawn from the saved version." }); return; }
+      if (!renderUrl) { toast({ title: "Still drawing", description: "The PNG isn't ready yet — try again in a few seconds." }); qc.invalidateQueries({ queryKey: key }); return; }
+      setExporting(true);
+      try {
+        const blob = await (await fetch(renderUrl)).blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const size = graphicSize(piece.size);
+        a.download = `${piece.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${size.width}x${size.height}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      } catch (e: any) { toast({ title: "Couldn't download", description: e?.message, variant: "destructive" }); }
+      finally { setExporting(false); }
+      return;
+    }
+    if (!artboardNode.current) return;
     const size = graphicSize(piece.size);
     setExporting(true);
     try {
@@ -123,8 +157,29 @@ export function StudioPiece({ id }: { id: number }) {
   if (isLoading) return <div className="p-10 flex justify-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>;
   if (error || !piece || !liveDoc) return <div className="p-6 text-sm text-muted-foreground">That piece isn't here. <button className="underline" onClick={() => navigate("/admin/content-studio")}>Back to Studio</button></div>;
 
-  const pageHtml = piece.kind === "page" ? renderPage(liveDoc as PageDoc, piece.brand, { noindex: true, url: piece.publicUrl ?? undefined, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." }) : "";
+  const designed = piece.kind !== "video" && isDesignedDoc(liveDoc) ? (liveDoc as DesignedDoc) : null;
+  const pageHtml = piece.kind === "page" && designed ? renderDesignedPage(designed, piece.brand, { noindex: true, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." })
+    : piece.kind === "page" ? renderPage(liveDoc as PageDoc, piece.brand, { noindex: true, url: piece.publicUrl ?? undefined, draftNote: piece.status === "published" ? undefined : "Draft preview — publish to put it on the club's site." }) : "";
   const video = piece.kind === "video" ? (liveDoc as VideoDoc) : null;
+  const board = artboardFor(graphicSize(piece.size));
+  const slideRenders = (data?.renders ?? []).filter((r) => r.version === piece.version).sort((a, b) => (a.slide ?? 0) - (b.slide ?? 0));
+  const slug = (t: string) => t.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  const downloadAll = async () => {
+    if (dirty) { toast({ title: "Save the words first", description: "The slides are drawn from the saved version." }); return; }
+    setExporting(true);
+    try {
+      for (const r of slideRenders) {
+        const blob = await (await fetch(r.url)).blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${slug(piece.title)}-slide-${(r.slide ?? 0) + 1}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        await new Promise((res) => setTimeout(res, 350));
+      }
+    } catch (e: any) { toast({ title: "Couldn't download", description: e?.message, variant: "destructive" }); }
+    finally { setExporting(false); }
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -132,11 +187,19 @@ export function StudioPiece({ id }: { id: number }) {
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="outline" onClick={() => navigate("/admin/content-studio")} className="h-11 md:h-9 border-border" data-testid="studio-back"><ChevronLeft className="w-4 h-4 mr-1" />Studio</Button>
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-foreground truncate" data-testid="studio-piece-title">{piece.title}</h1>
+            <EditableTitle title={piece.title} canEdit={canEdit} onSave={(t) => patch.mutate({ title: t }, { onSuccess: () => toast({ title: "Renamed", description: t }) })} />
             <div className="text-xs text-muted-foreground">{studioKindLabel(piece.kind)} · {piece.ownerName || "someone"} · v{piece.version} · {whenLabel(piece.updatedAt)}{!canEdit ? " · someone else's — duplicate to edit" : ""}</div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {piece.kind === "carousel" && (
+            <Button onClick={() => void downloadAll()} disabled={exporting || !slideRenders.length} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-download-all">
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}Download all
+            </Button>
+          )}
+          {(piece.kind === "graphic" || piece.kind === "carousel") && designed && (
+            <ResizeButton pieceId={piece.id} currentSize={piece.size} onMade={(made) => { qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pieces"] }); if (made.length === 1) navigate(`/admin/content-studio/${made[0].id}`); }} />
+          )}
           {piece.kind === "graphic" && (
             <Button onClick={downloadPng} disabled={exporting} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-download">
               {exporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}Download PNG
@@ -161,20 +224,36 @@ export function StudioPiece({ id }: { id: number }) {
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4">
         {/* Preview */}
         <div className="rounded-2xl border border-border bg-muted/40 p-4 min-w-0" data-testid="studio-preview">
-          {piece.kind === "graphic" && (
-            <div className="flex justify-center"><GraphicArtboard doc={liveDoc as GraphicDoc} sizeKey={piece.size ?? "square"} brand={piece.brand} maxWidth={640} onNode={(n) => { artboardNode.current = n; }} /></div>
-          )}
-          {piece.kind === "page" && (
-            <iframe title="Page preview" srcDoc={pageHtml} sandbox="" className="w-full bg-white rounded-xl border border-border" style={{ height: 720 }} data-testid="studio-page-preview" />
-          )}
-          {video && (
-            <div className="space-y-3 text-sm text-foreground">
-              <div className="flex items-center gap-2"><span className={`text-[11px] px-2 py-0.5 rounded-full ${video.status === "delivered" ? "bg-emerald-500/10 text-emerald-700" : video.status === "in_progress" ? "bg-amber-500/10 text-amber-700" : "bg-muted text-muted-foreground"}`} data-testid="studio-video-status">{video.status === "delivered" ? "Delivered" : video.status === "in_progress" ? "Being cut" : "Requested"}</span><span className="text-xs text-muted-foreground">{video.format} · about {video.lengthSeconds}s</span></div>
-              <p className="leading-relaxed whitespace-pre-wrap">{video.brief}</p>
-              {video.footage.length > 0 && <div className="text-xs text-muted-foreground space-y-1"><div className="font-semibold uppercase tracking-wider text-[10px]">Footage</div>{video.footage.map((f, i) => <div key={i} className="font-mono break-all">{f}</div>)}</div>}
-              {video.deliveredUrl ? <a href={video.deliveredUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-blue-600 underline" data-testid="studio-video-delivered"><ExternalLink className="w-4 h-4" />Watch the finished cut</a> : <p className="text-xs text-muted-foreground">No model runs for a video — it is cut from your footage by the editing kit and the link lands here when it's done.</p>}
+          {piece.kind === "graphic" && designed && (
+            <div className="space-y-2">
+              <DesignedArtboard html={renderDesignedGraphic(designed, piece.brand, board.width, board.height)} width={board.width} height={board.height} />
+              <p className="text-xs text-muted-foreground text-center">{dirty ? "Live preview of your edits — save to redraw the PNG." : renderUrl ? "Download PNG gives you this exact picture." : "The PNG is being drawn…"}</p>
             </div>
           )}
+          {piece.kind === "graphic" && !designed && (
+            <div className="flex justify-center"><GraphicArtboard doc={liveDoc as GraphicDoc} sizeKey={piece.size ?? "square"} brand={piece.brand} maxWidth={640} onNode={(n) => { artboardNode.current = n; }} /></div>
+          )}
+          {piece.kind === "carousel" && designed && (
+            <div className="space-y-3" data-testid="studio-carousel">
+              <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                {Array.from({ length: Math.max(1, countSlides(designed)) }, (_, i) => {
+                  const r = slideRenders.find((x) => (x.slide ?? 0) === i);
+                  return (
+                    <figure key={i} className="space-y-1.5" data-testid="studio-slide">
+                      <DesignedArtboard html={renderDesignedGraphic(designed, piece.brand, board.width, board.height, i)} width={board.width} height={board.height} maxWidth={360} maxHeight={460} />
+                      <figcaption className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>Slide {i + 1}</span>
+                        {r && !dirty && <a href={r.url} download={`${slug(piece.title)}-slide-${i + 1}.png`} className="underline">PNG</a>}
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground text-center">{dirty ? "Live preview of your edits — save to redraw the slides." : slideRenders.length ? "Download all gives you every slide as a PNG, in order." : "The slides are being drawn…"}</p>
+            </div>
+          )}
+          {piece.kind === "page" && <PagePreview html={pageHtml} title={piece.title} />}
+          {video && <VideoEditor pieceId={piece.id} video={video} canEdit={canEdit} wordsDirty={dirty} />}
         </div>
 
         {/* Panel */}
@@ -210,11 +289,13 @@ export function StudioPiece({ id }: { id: number }) {
                   {chat.map((m, i) => (
                     <div key={i} className={`text-[13px] rounded-xl px-3 py-2 ${m.role === "user" ? "bg-blue-600 text-white ml-6" : "bg-muted text-foreground mr-6"}`}>{m.content}</div>
                   ))}
+                  {askRambo.isPending && <div className="text-[13px] rounded-xl px-3 py-2 bg-blue-600 text-white ml-6">{askRambo.variables ?? ask}</div>}
                 </div>
+                {askRambo.isPending && <RamboWorking stage={askStage} expect={isDesignedDoc(piece.doc) ? "usually 1–3 min" : "usually under a minute"} expectSeconds={isDesignedDoc(piece.doc) ? 120 : 30} />}
                 <textarea value={ask} onChange={(e) => setAsk(e.target.value)} rows={3} disabled={!canEdit} placeholder={canEdit ? "What should change?" : "Duplicate this piece to ask Rambo to change your copy."} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-[14px] text-foreground" data-testid="studio-ask" />
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground">{usage ? `${usage.used} of ${usage.limit} today` : ""}</span>
-                  <Button onClick={() => askRambo.mutate()} disabled={!canEdit || ask.trim().length < 3 || askRambo.isPending} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-ask-go">{askRambo.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Working…</> : "Ask Rambo"}</Button>
+                  <Button onClick={() => askRambo.mutate(ask.trim())} disabled={!canEdit || ask.trim().length < 3 || askRambo.isPending} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-ask-go">{askRambo.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Working</> : "Ask Rambo"}</Button>
                 </div>
               </div>
             )}
@@ -294,7 +375,8 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   // Where a picture goes: a graphic's photo, or a page's hero / photo blocks / cards.
-  const slots: { path: string; label: string; current: string | null }[] = piece.kind === "graphic"
+  const slots: { path: string; label: string; current: string | null }[] = isDesignedDoc(liveDoc) ? designedPictureSlots(liveDoc)
+    : piece.kind === "graphic"
     ? [{ path: "photo", label: "The photo", current: liveDoc.photo ?? null }]
     : (liveDoc.blocks as any[]).flatMap((b, i) => b.type === "hero" ? [{ path: `blocks.${i}.photo`, label: `${i + 1}. Hero photo`, current: b.photo ?? null }]
       : b.type === "photo" ? [{ path: `blocks.${i}.src`, label: `${i + 1}. Photo`, current: b.src ?? null }]
@@ -324,6 +406,7 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
         <Button variant="outline" disabled={!canEdit || uploading} onClick={() => fileRef.current?.click()} className="h-11 md:h-9 border-border">{uploading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}Upload a picture</Button>
         {slots[slot]?.current && canEdit && <button type="button" className="text-xs text-muted-foreground underline" onClick={() => onPick(slots[slot].path, "")}>Remove the picture</button>}
       </div>
+      {canEdit && slots[slot] && <LogoFinder onUse={(url) => { onPick(slots[slot].path, url); qc.invalidateQueries({ queryKey: ["/api/admin/content-studio/pictures", piece.brand] }); }} defaultQuery="" />}
       <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
         {(data?.pictures ?? []).map((p) => (
           <button key={p.src} type="button" disabled={!canEdit} title={p.caption} onClick={() => onPick(slots[slot].path, p.src)} className={`rounded-lg overflow-hidden border ${slots[slot]?.current === p.src ? "border-blue-600 ring-2 ring-blue-500/30" : "border-border"} disabled:opacity-60`} data-testid="studio-picture">
@@ -333,5 +416,188 @@ function PicturePicker({ piece, liveDoc, canEdit, onPick }: { piece: PieceSummar
       </div>
       <p className="text-xs text-muted-foreground">Pick a picture, then Save words. Captions tell Rambo who is in each one; hover to read.</p>
     </div>
+  );
+}
+
+/** A designed graphic, drawn live in a sandboxed frame at its real size and
+ *  scaled to fit. No script runs inside it. */
+function DesignedArtboard({ html, width, height, maxWidth = 640, maxHeight = 760 }: { html: string; width: number; height: number; maxWidth?: number; maxHeight?: number }) {
+  const host = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0.4);
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const fit = () => setScale(Math.min(1, Math.min(el.clientWidth || 560, maxWidth) / width, maxHeight / height));
+    fit();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [width, height, maxWidth, maxHeight]);
+  return (
+    <div ref={host} className="w-full flex justify-center" data-testid="studio-designed-artboard">
+      <div style={{ width: width * scale, height: height * scale, overflow: "hidden" }} className="rounded-lg shadow-sm">
+        <iframe title="Graphic preview" srcDoc={html} sandbox="" scrolling="no" style={{ width, height, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", display: "block" }} />
+      </div>
+    </div>
+  );
+}
+
+interface LogoCandidate { id: string; from: string; width: number; height: number; ink: "light" | "dark" | "colour"; dataUrl: string }
+
+/** Find a partner's real logo: ClubOS reads their website (in a real browser if
+ *  it has to) and shows every logo it finds on a light and a dark chip; a
+ *  person picks the right one. Nothing is placed without that choice. */
+function LogoFinder({ onUse, defaultQuery }: { onUse: (url: string) => void; defaultQuery: string }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(defaultQuery);
+  const [busy, setBusy] = useState(false);
+  const [using, setUsing] = useState<string | null>(null);
+  const [found, setFound] = useState<{ site: string | null; candidates: LogoCandidate[]; message?: string } | null>(null);
+  const search = async () => {
+    if (q.trim().length < 2) return;
+    setBusy(true); setFound(null);
+    try {
+      const r = await workspaceFetch(`/api/admin/content-studio/logo-search?q=${encodeURIComponent(q.trim())}`);
+      setFound(await r.json());
+    } catch (e: any) { setFound({ site: null, candidates: [], message: e?.message || "Search failed." }); }
+    finally { setBusy(false); }
+  };
+  const use = async (c: LogoCandidate) => {
+    setUsing(c.id);
+    try {
+      const r = await apiRequest("POST", "/api/admin/content-studio/logo-pick", { dataUrl: c.dataUrl, name: q.trim() });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.message);
+      onUse(j.url);
+      toast({ title: "Logo placed", description: "Save words to keep it." });
+    } catch (e: any) { toast({ title: "Couldn't use that logo", description: e?.message, variant: "destructive" }); }
+    finally { setUsing(null); }
+  };
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-blue-600 underline min-h-9" data-testid="studio-logo-open">Find a company's logo</button>;
+  return (
+    <div className="rounded-xl border p-3 space-y-2" data-testid="studio-logo-finder">
+      <p className="text-xs text-muted-foreground">Type the company's name or website. ClubOS reads their own site for the logo they publish; you choose the right one.</p>
+      <div className="flex gap-2">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }} placeholder="e.g. Swyftx or swyftx.com" className="h-11 md:h-9" data-testid="studio-logo-q" />
+        <Button onClick={() => void search()} disabled={busy || q.trim().length < 2} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white shrink-0">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}</Button>
+      </div>
+      {busy && <RamboWorking stage="Reading their website for the logo" compact />}
+      {found?.message && <p className="text-xs text-muted-foreground">{found.message}</p>}
+      {found?.site && found.candidates.length > 0 && <p className="text-[11px] text-muted-foreground">From {found.site}. Pick the one that reads on your design's background.</p>}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {found?.candidates.map((c) => (
+          <div key={c.id} className="rounded-lg border overflow-hidden" data-testid="studio-logo-candidate">
+            <div className="grid grid-cols-2">
+              <div className="flex h-20 items-center justify-center bg-white p-3"><img src={c.dataUrl} alt="" className="max-h-full max-w-full object-contain" /></div>
+              <DarkChip className="flex h-20 items-center justify-center p-3"><img src={c.dataUrl} alt="" className="max-h-full max-w-full object-contain" /></DarkChip>
+            </div>
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <span className="text-[11px] text-muted-foreground">{c.from} · {c.width}×{c.height}</span>
+              <Button size="sm" variant="outline" disabled={!!using} onClick={() => void use(c)} className="h-9 shrink-0">{using === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "Use this"}</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The piece's name, renamed in place: click it (or the pencil), type, Enter. */
+function EditableTitle({ title, canEdit, onSave }: { title: string; canEdit: boolean; onSave: (t: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  useEffect(() => { if (!editing) setValue(title); }, [title, editing]);
+  const commit = () => { const t = value.trim(); setEditing(false); if (t && t !== title) onSave(t.slice(0, 120)); };
+  if (!canEdit) return <h1 className="text-lg font-semibold text-foreground truncate" data-testid="studio-piece-title">{title}</h1>;
+  if (editing) {
+    return (
+      <input
+        autoFocus value={value} maxLength={120} onChange={(e) => setValue(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { setValue(title); setEditing(false); } }}
+        className="h-9 w-full min-w-0 max-w-xl rounded-md border border-blue-500/50 bg-background px-2 text-lg font-semibold text-foreground outline-none ring-2 ring-blue-500/20"
+        aria-label="Name" data-testid="studio-piece-title-input"
+      />
+    );
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)} title="Rename" className="group flex min-w-0 items-center gap-2 rounded-md text-left hover:bg-muted px-1 -mx-1" data-testid="studio-piece-title">
+      <h1 className="truncate text-lg font-semibold text-foreground">{title}</h1>
+      <Pencil className="h-4 w-4 shrink-0 text-muted-foreground opacity-60 group-hover:opacity-100" />
+    </button>
+  );
+}
+
+/** Copy & resize — Canva's resize, done by Rambo: the same design re-laid for
+ *  other sizes, each a new piece. Any W×H for a billboard's own spec. */
+function ResizeButton({ pieceId, currentSize, onMade }: { pieceId: number; currentSize: string | null; onMade: (made: { id: number; title: string }[]) => void }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [w, setW] = useState("");
+  const [h, setH] = useState("");
+  const [stage, setStage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<{ id: number; title: string }[]>([]);
+  const custom = `${parseInt(w, 10) || 0}x${parseInt(h, 10) || 0}`;
+  const customOk = /^[1-9][0-9]{2,3}x[1-9][0-9]{2,3}$/.test(custom) && (parseInt(w, 10) || 0) <= 4000 && (parseInt(h, 10) || 0) <= 4000;
+  const toggle = (k: string) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const go = async () => {
+    setBusy(true); setStage(null); setMade([]);
+    try {
+      const r = await apiRequest("POST", `/api/admin/content-studio/pieces/${pieceId}/resize`, { sizes: picked });
+      const j = await readStudioStream(r, setStage);
+      if (j.made?.length) { setMade(j.made); onMade(j.made); }
+      if (j.failed?.length) toast({ title: "Some sizes didn't work", description: j.failed.join("; "), variant: "destructive" });
+      if (!j.ok && !j.made?.length) throw new Error(j.message || "Rambo couldn't resize it.");
+      setPicked([]);
+    } catch (e: any) { toast({ title: "Copy & resize", description: e?.message, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
+  const chip = (on: boolean) => `rounded-full border px-3 min-h-11 md:min-h-9 text-xs font-medium ${on ? "border-blue-500/50 bg-blue-500/15 text-blue-700" : "border-border text-muted-foreground hover:bg-muted"}`;
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-11 md:h-9 border-border" data-testid="studio-resize"><Scaling className="w-4 h-4 mr-2" />Copy &amp; resize</Button>
+      {open && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={() => !busy && setOpen(false)}>
+          <div className="w-full max-w-lg space-y-4 rounded-2xl border border-border bg-background p-5 shadow-xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Copy and resize" data-testid="studio-resize-dialog">
+            <div>
+              <div className="text-base font-semibold text-foreground">Copy &amp; resize</div>
+              <p className="text-xs text-muted-foreground mt-1">Rambo re-lays this design for each size you pick — same words, photos and look, rearranged to fit. Each one is a new copy; this one stays as it is. One prompt per size.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {GRAPHIC_SIZES.filter((s) => s.key !== currentSize).map((s) => (
+                <button key={s.key} type="button" disabled={busy} onClick={() => toggle(s.key)} className={chip(picked.includes(s.key))}>{s.label} <span className="opacity-60">{s.width}×{s.height}</span></button>
+              ))}
+              {picked.filter((k) => /x/.test(k)).map((k) => (
+                <button key={k} type="button" disabled={busy} onClick={() => toggle(k)} className={chip(true)}>{k.replace("x", "×")} ✕</button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Any size (a billboard's own spec, in pixels)</div>
+              <div className="flex items-center gap-2">
+                <Input value={w} onChange={(e) => setW(e.target.value.replace(/\D/g, ""))} placeholder="Width" inputMode="numeric" className="h-11 md:h-9 w-24" />
+                <span className="text-muted-foreground">×</span>
+                <Input value={h} onChange={(e) => setH(e.target.value.replace(/\D/g, ""))} placeholder="Height" inputMode="numeric" className="h-11 md:h-9 w-24" />
+                <Button variant="outline" disabled={!customOk || busy || picked.includes(custom)} onClick={() => { setPicked((p) => [...p, custom]); setW(""); setH(""); }} className="h-11 md:h-9 border-border">Add</Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">100 to 4000 pixels each side. Big boards are drawn at half size and exported at full size.</p>
+            </div>
+            {busy && <RamboWorking stage={stage} expect={picked.length > 1 ? "they run side by side, about 1–2 min" : "usually about 1 min"} expectSeconds={90} />}
+            {made.length > 0 && !busy && (
+              <div className="space-y-1">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Made</div>
+                {made.map((m) => <a key={m.id} href={`/admin/content-studio/${m.id}`} className="block text-sm text-blue-600 underline">{m.title}</a>)}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => setOpen(false)} className="h-11 md:h-9 border-border">Close</Button>
+              <Button disabled={busy || !picked.length} onClick={() => void go()} className="h-11 md:h-9 bg-blue-600 hover:bg-blue-700 text-white" data-testid="studio-resize-go">{busy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Make {picked.length || ""} {picked.length === 1 ? "copy" : "copies"}</Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

@@ -56,6 +56,13 @@ type StoreConfig = {
 const STORES: StoreConfig[] = [
   { orgId: 3, brand: "mfl", excludeProductTypes: [] },
   { orgId: 5, brand: "cic", excludeProductTypes: ["giftcard"] },
+  // 2026-11-04 (Daniel: "sort by different shops … cufc, siu, mfl"): CUFC
+  // (org 1) and SIU (org 2) moved off Shopify onto this same commerce engine
+  // in October, so the "resolved live off Shopify" reason below no longer
+  // holds. Team photos are printed to order and a name/number print is a
+  // service — neither is stock on a shelf.
+  { orgId: 1, brand: "cufc", excludeProductTypes: ["photo", "personalisation", "giftcard"] },
+  { orgId: 2, brand: "siu", excludeProductTypes: ["giftcard"] },
 ];
 
 if (!process.env.DATABASE_URL) {

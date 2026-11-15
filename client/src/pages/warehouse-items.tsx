@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Search, Plus, X, Tag, MapPin, History, CheckSquare, Square, Printer, Trash2, Loader2,
+  Search, Plus, X, Tag, MapPin, History, Printer, Trash2, Loader2, ScanLine, ChevronDown, ChevronRight, Package,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BarcodeEditor, BarcodeDraftEditor, type DraftBarcode } from "@/components/warehouse-barcodes";
@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ITEM_KINDS, ITEM_KIND_LABELS, BRAND_OWNERS, BRAND_OWNER_LABELS, UNITS, UNIT_LABELS, MOVEMENT_TYPE_LABELS, REASON_CODE_LABELS, type ItemKind, type BrandOwner, type Unit, type TrackingMode, locationLabel } from "@shared/warehouse";
+import { ITEM_KINDS, ITEM_KIND_LABELS, BRAND_OWNERS, BRAND_OWNER_LABELS, UNITS, UNIT_LABELS, MOVEMENT_TYPE_LABELS, REASON_CODE_LABELS, type ItemKind, type BrandOwner, type Unit, type TrackingMode, locationLabel, SHOP_ORDER, SHOP_SHORT_LABELS, shopCategoryRank } from "@shared/warehouse";
 import type { WhItem, WhLocation, WhBarcodeAlias } from "@shared/schema";
 
 interface ItemRow extends WhItem {
@@ -493,69 +493,243 @@ function ItemDetailModal({
   );
 }
 
+interface CatalogueRow {
+  id: number;
+  sku: string;
+  name: string;
+  shop: string;
+  category: string;
+  productId: number | null;
+  productTitle: string;
+  productDraft: boolean;
+  productSort: number | null;
+  colour: string | null;
+  size: string | null;
+  locationCode: string | null;
+  onHand: number;
+  active: boolean;
+  productImage: string | null;
+  colourImage: string | null;
+}
+
+/** The shop's own photo, drawn small. A missing or broken picture shows a
+ *  plain tile rather than the browser's broken-image icon. */
+function Thumb({ src, alt, size = 44 }: { src: string | null; alt: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const box = { width: size, height: size };
+  if (!src || failed) {
+    return <div style={box} className="rounded-lg bg-white/[0.04] border border-white/5 flex-shrink-0 flex items-center justify-center"><Package className="w-4 h-4 text-white/20" /></div>;
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={box}
+      className="rounded-lg bg-white border border-white/5 object-contain flex-shrink-0"
+    />
+  );
+}
+
+interface ProductGroup {
+  key: string;
+  image: string | null;
+  title: string;
+  draft: boolean;
+  sort: number | null;
+  items: CatalogueRow[];
+  onHand: number;
+}
+
+const SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL", "5XL"];
+function sizeRank(size: string | null): [number, number, string] {
+  const s = (size ?? "").trim().toUpperCase();
+  // "6", "10 (140)" are kids' ages → numeric; "2XL" is a letter size, not 2.
+  if (/^\d+(\.\d+)?(\s|\(|$)/.test(s)) return [0, parseFloat(s), s];
+  const i = SIZE_ORDER.indexOf(s.replace(/^ADULT\s+|^YOUTH\s+/, ""));
+  if (i >= 0) return [1, i, s];
+  return [2, 0, s];
+}
+function compareRank(a: (number | string)[], b: (number | string)[]): number {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  return 0;
+}
+
+/** Shop + category + search live in the URL, so Back and a shared link land on
+ *  the same view (the "section owns its URL" rule). */
+function readParam(name: string): string {
+  return new URLSearchParams(window.location.search).get(name) ?? "";
+}
+function writeParams(next: Record<string, string>) {
+  const url = new URL(window.location.href);
+  for (const [k, v] of Object.entries(next)) {
+    if (v) url.searchParams.set(k, v);
+    else url.searchParams.delete(k);
+  }
+  window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+}
+
 export default function WarehouseItems() {
   const [, setLocation] = useLocation();
-  const { toast: _toast } = useToast();
-  const [q, setQ] = useState("");
-  const [kind, setKind] = useState<string>(ALL);
-  const [brandOwner, setBrandOwner] = useState<string>(ALL);
+  const [shop, setShopState] = useState<string>(() => readParam("shop"));
+  const [cat, setCatState] = useState<string>(() => readParam("cat"));
+  const [q, setQState] = useState<string>(() => readParam("q"));
   const [activeOnly, setActiveOnly] = useState(true);
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [detailId, setDetailId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (kind !== ALL) params.set("kind", kind);
-  if (brandOwner !== ALL) params.set("brandOwner", brandOwner);
-  if (activeOnly) params.set("active", "true");
+  const setShop = (v: string) => { setShopState(v); setCatState(""); setOpen(new Set()); writeParams({ shop: v, cat: "" }); };
+  const setCat = (v: string) => { setCatState(v); writeParams({ cat: v }); };
+  const setQ = (v: string) => { setQState(v); writeParams({ q: v }); };
 
-  const { data: items = [], isLoading } = useQuery<ItemRow[]>({
-    queryKey: ["/api/admin/warehouse/items", "list", q, kind, brandOwner, activeOnly],
-    queryFn: async () => (await apiRequest("GET", `/api/admin/warehouse/items?${params.toString()}`)).json(),
+  const { data: rows = [], isLoading, isError } = useQuery<CatalogueRow[]>({
+    queryKey: ["/api/admin/warehouse/catalogue", activeOnly],
+    queryFn: async () => (await apiRequest("GET", `/api/admin/warehouse/catalogue${activeOnly ? "?active=true" : ""}`)).json(),
   });
   const { data: locations = [] } = useQuery<WhLocation[]>({
     queryKey: ["/api/admin/warehouse/locations", "active"],
     queryFn: async () => (await apiRequest("GET", "/api/admin/warehouse/locations?active=true")).json(),
   });
 
+  // Shops in house order, only those holding something.
+  const shops = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.shop, (counts.get(r.shop) ?? 0) + 1);
+    const ordered = [...SHOP_ORDER.filter((b) => counts.has(b)), ...Array.from(counts.keys()).filter((b) => !SHOP_ORDER.includes(b as BrandOwner)).sort()];
+    return ordered.map((b) => ({
+      key: b,
+      label: SHOP_SHORT_LABELS[b as BrandOwner] ?? b,
+      products: new Set(rows.filter((r) => r.shop === b).map((r) => r.productId ?? `i${r.id}`)).size,
+    }));
+  }, [rows]);
+
+  const activeShop = shops.some((s) => s.key === shop) ? shop : (shops[0]?.key ?? "");
+  const needle = q.trim().toLowerCase();
+
+  // Every word must appear somewhere ("home shirt kids" finds "2026 Home Shirt (Kids)").
+  const shopRows = useMemo(() => {
+    const words = needle ? needle.split(/\s+/) : [];
+    return rows.filter((r) => {
+      if (r.shop !== activeShop) return false;
+      if (!words.length) return true;
+      const hay = `${r.productTitle} ${r.name} ${r.sku} ${r.colour ?? ""} ${r.size ?? ""}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }, [rows, activeShop, needle]);
+
+  // Category → products → variants.
+  const categories = useMemo(() => {
+    const byCat = new Map<string, Map<string, ProductGroup>>();
+    for (const r of shopRows) {
+      const key = r.productId != null ? `p${r.productId}` : `i${r.id}`;
+      let prods = byCat.get(r.category);
+      if (!prods) { prods = new Map(); byCat.set(r.category, prods); }
+      let g = prods.get(key);
+      if (!g) { g = { key, image: r.productImage ?? r.colourImage, title: r.productTitle, draft: r.productDraft, sort: r.productSort, items: [], onHand: 0 }; prods.set(key, g); }
+      g.items.push(r);
+      g.onHand += r.onHand;
+    }
+    return Array.from(byCat.entries())
+      .sort(([a], [b]) => compareRank(shopCategoryRank(activeShop, a), shopCategoryRank(activeShop, b)))
+      .map(([name, prods]) => ({
+        name,
+        products: Array.from(prods.values())
+          .map((g) => ({
+            ...g,
+            items: [...g.items].sort((x, y) =>
+              (x.colour ?? "").localeCompare(y.colour ?? "") || compareRank(sizeRank(x.size), sizeRank(y.size)) || x.sku.localeCompare(y.sku)),
+          }))
+          .sort((x, y) => (x.sort ?? 1e9) - (y.sort ?? 1e9) || x.title.localeCompare(y.title)),
+      }));
+  }, [shopRows, activeShop]);
+
+  const shownCats = categories.filter((c) => !cat || c.name === cat);
+  const toggleOpen = (key: string) => setOpen((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const printSelected = () => setLocation(`/admin/warehouse/labels?kind=item&ids=${Array.from(selected).join(",")}`);
+
+  const navButton = "px-3 py-2 rounded-lg text-xs text-white/70 bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] flex items-center gap-1.5";
 
   return (
     <div className="p-4 sm:p-6 space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Items</h1>
-          <p className="text-sm text-white/40 mt-0.5">Everything stocked — merch, materials, equipment, event stock.</p>
+          <h1 className="text-2xl font-bold text-white">Warehouse</h1>
+          <p className="text-sm text-white/40 mt-0.5">Every shop's stock, in the same categories as its website.</p>
         </div>
-        <Button onClick={() => setCreating(true)} className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> New item
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setLocation("/admin/warehouse/scan")} className={navButton}>
+            <ScanLine className="w-3.5 h-3.5" /> Scan station
+          </button>
+          <button onClick={() => setLocation("/admin/warehouse/stock-take")} className="px-3 py-2 rounded-lg text-xs text-white bg-emerald-600 hover:bg-emerald-700">
+            Stock take
+          </button>
+          <button onClick={() => setLocation("/admin/warehouse/locations")} className={navButton}>Locations</button>
+          <button onClick={() => setLocation("/admin/warehouse/assets")} className={navButton}>Assets</button>
+          <button onClick={() => setLocation("/admin/warehouse/fields")} className={navButton}>Fields</button>
+          <button onClick={() => setCreating(true)} className={navButton} title="A warehouse item with no shop behind it — materials, equipment">
+            <Plus className="w-3.5 h-3.5" /> Item
+          </button>
+          <Button onClick={() => setLocation(`/admin/warehouse/products/new${["cufc", "siu", "mfl", "cic"].includes(activeShop) ? `?shop=${activeShop}` : ""}`)} className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Add product
+          </Button>
+        </div>
+      </div>
+
+      {/* Shops */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Shops">
+        {shops.map((s) => {
+          const on = s.key === activeShop;
+          return (
+            <button
+              key={s.key}
+              role="tab"
+              aria-selected={on}
+              data-testid={`shop-tab-${s.key}`}
+              onClick={() => setShop(s.key)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap border flex items-center gap-2 min-h-[44px] ${on ? "bg-blue-600 border-blue-600 text-white" : "bg-white/[0.02] border-white/10 text-white/70 hover:bg-white/[0.06]"}`}
+            >
+              {s.label}
+              <span className={`text-[11px] font-semibold ${on ? "text-white" : "text-white/40"}`}>{s.products}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-          <Input placeholder="Search SKU, name, category..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-10 bg-white/[0.02] border-white/10 text-white" />
+          <Input placeholder="Search product, SKU, size..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-10 bg-white/[0.02] border-white/10 text-white" />
         </div>
-        <Select value={kind} onValueChange={setKind}>
-          <SelectTrigger className="w-40 bg-white/[0.02] border-white/10 text-white"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All kinds</SelectItem>
-            {ITEM_KINDS.map((k) => <SelectItem key={k} value={k}>{ITEM_KIND_LABELS[k]}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={brandOwner} onValueChange={setBrandOwner}>
-          <SelectTrigger className="w-48 bg-white/[0.02] border-white/10 text-white"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All brands</SelectItem>
-            {BRAND_OWNERS.map((b) => <SelectItem key={b} value={b}>{BRAND_OWNER_LABELS[b]}</SelectItem>)}
-          </SelectContent>
-        </Select>
         <label className="flex items-center gap-2 text-sm text-white/60 flex-shrink-0">
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} /> Active only
         </label>
       </div>
+
+      {/* Categories within the shop */}
+      {categories.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap" aria-label="Categories">
+          {[{ name: "", count: categories.reduce((n, c) => n + c.products.length, 0) }, ...categories.map((c) => ({ name: c.name, count: c.products.length }))].map((c) => {
+            const on = c.name === cat || (!c.name && !cat);
+            return (
+              <button
+                key={c.name || "all"}
+                data-testid={`cat-chip-${c.name || "all"}`}
+                onClick={() => setCat(c.name)}
+                className={`px-3 py-1.5 rounded-full text-xs border min-h-[32px] ${on ? "bg-white/10 border-white/30 text-white" : "bg-transparent border-white/10 text-white/60 hover:text-white"}`}
+              >
+                {c.name || "All"} <span className="text-white/40 ml-0.5">{c.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div className="flex items-center justify-between p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
@@ -570,59 +744,99 @@ export default function WarehouseItems() {
       )}
 
       {isLoading ? (
-        <div className="text-white/40 text-sm py-10 text-center">Loading...</div>
-      ) : items.length === 0 ? (
-        <div className="py-16 text-center text-sm text-white/30">No items match this filter.</div>
+        <div className="text-white/40 text-sm py-10 text-center flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading stock…</div>
+      ) : isError ? (
+        <div className="py-16 text-center text-sm text-red-400">Couldn't load the warehouse. Refresh to try again.</div>
+      ) : shops.length === 0 ? (
+        <div className="py-16 text-center text-sm text-white/30">No items in the warehouse yet.</div>
+      ) : shownCats.length === 0 ? (
+        <div className="py-16 text-center text-sm text-white/30">Nothing in {SHOP_SHORT_LABELS[activeShop as BrandOwner] ?? activeShop} matches “{q}”.</div>
       ) : (
-        <div className="rounded-2xl border border-white/5 overflow-hidden">
-          <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-2 bg-white/[0.03] text-[10px] uppercase tracking-wider text-white/40">
-            <span></span>
-            <span>Item</span>
-            <span>Kind</span>
-            <span>Brand</span>
-            <span>Location</span>
-            <span></span>
-          </div>
-          {items.map((item) => {
-            const checked = selected.has(item.id);
-            return (
-              <div
-                key={item.id}
-                className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center border-t border-white/5 hover:bg-white/[0.03] cursor-pointer"
-                onClick={() => setDetailId(item.id)}
-              >
-                <span onClick={(e) => e.stopPropagation()}>
-                  <Checkbox checked={checked} onCheckedChange={() => setSelected((prev) => toggleId(prev, item.id))} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm text-white font-mono truncate">{item.sku}</div>
-                  <div className="text-[11px] text-white/40 truncate">{item.name}{!item.active ? " · inactive" : ""}</div>
-                </div>
-                <span className="text-xs text-white/60 whitespace-nowrap">{ITEM_KIND_LABELS[item.kind as ItemKind] ?? item.kind}</span>
-                <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.04] text-white/50 whitespace-nowrap">
-                  {item.brandOwner}
-                </span>
-                <span className="text-xs text-white/50 font-mono whitespace-nowrap">{item.defaultLocationCode ?? "—"}</span>
-                <span className="text-white/20">
-                  {selected.has(item.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 opacity-0" />}
-                </span>
+        <div className="space-y-6">
+          {shownCats.map((c) => (
+            <section key={c.name} data-testid={`cat-section-${c.name}`}>
+              <h2 className="text-xs uppercase tracking-wider text-white/40 mb-2">
+                {c.name} <span className="text-white/25 normal-case tracking-normal ml-1">{c.products.length} product{c.products.length === 1 ? "" : "s"}</span>
+              </h2>
+              <div className="rounded-2xl border border-white/5 overflow-hidden">
+                {c.products.map((g, gi) => {
+                  const isOpen = open.has(g.key);
+                  const single = g.items.length === 1 && !g.key.startsWith("p");
+                  return (
+                    <div key={g.key} className={gi > 0 ? "border-t border-white/5" : ""}>
+                      <div className="w-full flex items-center gap-1 pl-2 pr-4 hover:bg-white/[0.03] min-h-[52px]">
+                        {!single ? (
+                          <button onClick={() => toggleOpen(g.key)} aria-expanded={isOpen} aria-label={isOpen ? "Hide sizes" : "Show sizes"} className="w-9 h-11 flex items-center justify-center flex-shrink-0 rounded-lg hover:bg-white/[0.06]">
+                            {isOpen ? <ChevronDown className="w-4 h-4 text-white/50" /> : <ChevronRight className="w-4 h-4 text-white/50" />}
+                          </button>
+                        ) : <span className="w-9 flex-shrink-0" />}
+                      <button
+                        onClick={() => (g.key.startsWith("p") ? setLocation(`/admin/warehouse/products/${g.key.slice(1)}`) : setDetailId(g.items[0].id))}
+                        className="flex-1 min-w-0 flex items-center gap-3 py-3 text-left"
+                        data-testid={`product-row-${g.key}`}
+                      >
+                        <Thumb src={g.image} alt={g.title} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-white">
+                            {g.title}
+                            {g.draft && <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 align-middle">Not on the website</span>}
+                          </div>
+                          <div className="text-[11px] text-white/40">
+                            {single ? g.items[0].sku : `${g.items.length} size${g.items.length === 1 ? "" : "s"}/colours`}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-mono text-white">{qty(g.onHand)}</div>
+                          <div className="text-[10px] text-white/30">on hand</div>
+                        </div>
+                      </button>
+                      </div>
+                      {isOpen && !single && (
+                        <div className="bg-white/[0.015] border-t border-white/5">
+                          {g.items.map((it) => (
+                            <div
+                              key={it.id}
+                              className="grid grid-cols-[auto_auto_1fr_auto_auto] gap-3 pl-11 pr-4 py-2 items-center border-t border-white/[0.03] first:border-t-0 hover:bg-white/[0.03] cursor-pointer"
+                              onClick={() => setDetailId(it.id)}
+                            >
+                              <span onClick={(e) => e.stopPropagation()}>
+                                <Checkbox checked={selected.has(it.id)} onCheckedChange={() => setSelected((prev) => toggleId(prev, it.id))} />
+                              </span>
+                              <Thumb src={it.colourImage ?? g.image} alt={it.name} size={32} />
+                              <div className="min-w-0">
+                                <div className="text-sm text-white/80 truncate">
+                                  {[it.colour && !/^default$/i.test(it.colour) ? it.colour : null, it.size].filter(Boolean).join(" · ") || it.name}
+                                  {!it.active && <span className="text-white/30"> · inactive</span>}
+                                </div>
+                                <div className="text-[11px] text-white/35 font-mono truncate">{it.sku}</div>
+                              </div>
+                              <span className="text-xs text-white/40 font-mono whitespace-nowrap">{it.locationCode ?? "—"}</span>
+                              <span className="text-sm text-white font-mono w-10 text-right">{qty(it.onHand)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </section>
+          ))}
         </div>
       )}
 
-      <CreateItemModal open={creating} onClose={() => setCreating(false)} locations={locations} />
+      <CreateItemModal
+        open={creating}
+        onClose={() => { setCreating(false); queryClient.invalidateQueries({ queryKey: ["/api/admin/warehouse/catalogue"] }); }}
+        locations={locations}
+      />
       {/* key={detailId} forces a fresh mount per item — without it, switching
-          from viewing/editing item A straight to item B (close, click a
-          different row) would carry over A's stale `editing`/`form` local
-          state, letting a Save on B silently apply A's unrelated field
-          values. Same "key by record id" pattern as the sibling Locations
-          page's own EditModal below and prints-materials.tsx's EditModal. */}
+          from viewing/editing item A straight to item B would carry over A's
+          stale `editing`/`form` local state. */}
       <ItemDetailModal
         key={detailId ?? "none"}
         itemId={detailId}
-        onClose={() => setDetailId(null)}
+        onClose={() => { setDetailId(null); queryClient.invalidateQueries({ queryKey: ["/api/admin/warehouse/catalogue"] }); }}
         locations={locations}
         onPrintLabel={(id) => setLocation(`/admin/warehouse/labels?kind=item&ids=${id}`)}
       />

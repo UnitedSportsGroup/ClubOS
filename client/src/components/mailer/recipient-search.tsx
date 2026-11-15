@@ -55,7 +55,7 @@ import { workspaceFetch } from "@/lib/queryClient";
 
 type PersonChild = { name: string; ageGroup: string | null; programme: string | null };
 
-type PersonHit = {
+export type PersonHit = {
   key: string; contactId: number; name: string; type: string;
   email: string | null; emailOwner: string | null; unreachable: string | null; detail: string | null;
   ageGroup?: string | null;
@@ -124,16 +124,28 @@ function SponsorMark({ company, logoUrl, ground }: { company: string; logoUrl: s
   );
 }
 
+/** Who a chip stands for — so a seeded or picked address reads "Abbas Ahmadi ·
+ *  via Sumaya Ahmadi", not a bare mailbox Olga has to decode. Held per
+ *  address in this component (the Mailer's list is addresses only). */
+type ChipLabel = { name: string; via: string | null; type: string };
+
 export function RecipientSearch({
-  emails, onAdd, onRemove, label, placeholder,
+  emails, onAdd, onRemove, label, placeholder, seed, onSeeded,
 }: {
   emails: string[];
   onAdd: (email: string) => void;
   onRemove: (email: string) => void;
   label: string;
   placeholder?: string;
+  /** People handed in from outside — an "Email" button on a profile or a
+   *  Contacts row (`/admin/mailer?to=contact-123`). Each reachable one is
+   *  added and labelled exactly as if it had been picked from the list;
+   *  each unreachable one is reported through `onSeeded`, never dropped. */
+  seed?: PersonHit[] | null;
+  onSeeded?: (added: PersonHit[], unreachable: PersonHit[]) => void;
 }) {
   const [q, setQ] = useState("");
+  const [labels, setLabels] = useState<Record<string, ChipLabel>>({});
   const [hits, setHits] = useState<PersonHit[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -206,14 +218,37 @@ export function RecipientSearch({
     if (e.includes("@") && !emails.includes(e)) { onAdd(e); setQ(""); setHits([]); setOpen(false); void checkTyped(e); }
   }, [q, emails, onAdd, checkTyped]);
 
-  const pick = useCallback((p: PersonHit) => {
-    if (!p.email) return;                       // unreachable rows are not selectable
+  // Adding a person (picked or seeded) is ONE path: the address goes on the
+  // list, the name and whose mailbox it is go on the chip, a known bounce
+  // rides along so it is still visible after the pick.
+  const addPerson = useCallback((p: PersonHit) => {
+    if (!p.email) return false;
     const e = p.email.toLowerCase();
     if (!emails.includes(e)) onAdd(e);
-    // A known bounce rides onto the chip, so it is still visible after the pick.
+    const name = p.name || (p.type === "sponsor" ? p.company : null) || "";
+    if (name) setLabels(prev => ({ ...prev, [e]: { name, via: p.emailOwner ?? null, type: p.type } }));
     if (p.bounce) setFlags(prev => ({ ...prev, [e]: { status: "ok", reason: null, suggestion: null, bounce: { ...p.bounce!, dead: p.bounce!.kind !== "transient" } } }));
-    setQ(""); setHits([]); setOpen(false);
+    return true;
   }, [emails, onAdd]);
+
+  const pick = useCallback((p: PersonHit) => {
+    if (!addPerson(p)) return;                  // unreachable rows are not selectable
+    setQ(""); setHits([]); setOpen(false);
+  }, [addPerson]);
+
+  // People handed in by a link. Each key is processed ONCE — the parent may
+  // re-render with the same seed many times, and a chip the user removed must
+  // not come back on the next render.
+  const seededKeys = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!seed?.length) return;
+    const fresh = seed.filter(p => !seededKeys.current.has(p.key));
+    if (!fresh.length) return;
+    fresh.forEach(p => seededKeys.current.add(p.key));
+    const added = fresh.filter(p => addPerson(p));
+    const unreachable = fresh.filter(p => !p.email);
+    onSeeded?.(added, unreachable);
+  }, [seed, addPerson, onSeeded]);
 
   // Domain completions show only when nobody in ClubOS matches — a real
   // family on file always comes first.
@@ -379,17 +414,28 @@ export function RecipientSearch({
         <div className="flex flex-wrap gap-2">
           {emails.map(email => {
             const f = flags[email];
+            const who = labels[email];
             const bad = f && (f.status === "no_domain" || f.status === "bad_syntax" || f.bounce?.dead);
             const note = f?.bounce ? f.bounce.label : f?.reason;
+            // 🔴 A chip says WHO, then the address, then whose mailbox it is —
+            // "Abbas Ahmadi · sumaya@… · via Sumaya Ahmadi". The person Olga
+            // meant stays on the chip even when the mail goes to a parent.
+            const title = [who ? `${who.name} <${email}>` : email, who?.via ? `via ${who.via}` : null, note].filter(Boolean).join(" · ");
             return (
               <Badge
                 key={email}
                 variant="outline"
-                title={note ?? undefined}
-                className={`gap-1 pr-1 ${bad ? "border-red-500/30 text-red-300 bg-red-500/5" : f ? "border-amber-500/30 text-amber-300 bg-amber-500/5" : "border-blue-500/20 text-blue-400 bg-blue-500/5"}`}
+                title={title}
+                className={`gap-1 pr-1 max-w-full ${bad ? "border-red-500/30 text-red-300 bg-red-500/5" : f ? "border-amber-500/30 text-amber-300 bg-amber-500/5" : "border-blue-500/20 text-blue-400 bg-blue-500/5"}`}
                 data-testid={`chip-email-${email}`}
               >
-                {email}
+                {who ? (
+                  <span className="inline-flex items-center gap-1 min-w-0">
+                    <span className="truncate" data-testid={`chip-name-${email}`}>{who.name}</span>
+                    <span className="font-normal opacity-60 truncate hidden sm:inline">· {email}</span>
+                    {who.via && <span className="font-normal opacity-60 truncate" data-testid={`chip-via-${email}`}>· via {who.via}</span>}
+                  </span>
+                ) : email}
                 {note && <span className="text-[10px] opacity-80 font-normal">· {f?.bounce ? note : bad ? "can't receive mail" : note}</span>}
                 {f?.suggestion && (
                   <button

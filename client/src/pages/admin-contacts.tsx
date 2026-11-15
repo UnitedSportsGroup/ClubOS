@@ -13,9 +13,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
-import { Search, Download, Users, X, ChevronRight } from "lucide-react";
+import { Search, Download, Users, X, ChevronRight, Mail } from "lucide-react";
 import { ageFromDob } from "@shared/family";
 import { workspaceFetch } from "@/lib/queryClient";
+import { useMailerLink } from "@/lib/mailer-link";
 
 type Person = {
   key: string;
@@ -29,6 +30,8 @@ type Person = {
   dateOfBirth: string | null;
   parents: string[];
   children: string[];
+  /** Their own address, or a parent's — whether "Email" leads anywhere. */
+  canEmail?: boolean;
 };
 
 type PeopleData = { people: Person[]; total: number; today: string };
@@ -70,6 +73,8 @@ function downloadCSV(rows: Person[], filename: string) {
 
 export default function AdminContacts() {
   const [, navigate] = useLocation();
+  // null when the Mailer is out of reach here — then no Email control is drawn.
+  const mailerLink = useMailerLink();
   // ── The search lives in the URL ─────────────────────────────────────────
   // Daniel, 2026-09-04: "when I search for a contact and click into it and then
   // click back, it takes me back to all contacts with no search."
@@ -329,6 +334,30 @@ export default function AdminContacts() {
                           : (p.email || p.phone || "No contact details")}
                   </p>
                 </div>
+
+                {/* One click into the Mailer with this person on the list
+                    (Daniel, 2026-11-03). A child with no address of their own
+                    is emailed at the parents' — the Mailer says so on the chip.
+                    The row is itself a <button>, so this is a span, the same
+                    way the duplicates badge is; greyed with the reason when
+                    nobody can be reached, never hidden. */}
+                {mailerLink && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={!p.canEmail}
+                    title={p.canEmail
+                      ? (isPlayer && !p.email ? "Email the parents" : "Email")
+                      : (isPlayer ? "No email on file, and no parent with one" : "No email on file")}
+                    onClick={(e) => { e.stopPropagation(); if (p.canEmail) navigate(mailerLink(p.key)); }}
+                    onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && p.canEmail) { e.stopPropagation(); e.preventDefault(); navigate(mailerLink(p.key)); } }}
+                    className={`w-11 h-11 -my-2 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                      p.canEmail ? "text-blue-400/70 hover:bg-blue-500/10 hover:text-blue-300 cursor-pointer" : "text-white/15 cursor-not-allowed"}`}
+                    data-testid={`button-email-${p.key}`}
+                  >
+                    <Mail className="w-4 h-4" />
+                  </span>
+                )}
 
                 <ChevronRight className="w-4 h-4 text-white/15 flex-shrink-0" />
               </button>

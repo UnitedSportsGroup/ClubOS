@@ -74,10 +74,14 @@ function fmtDate(iso: string): string {
 }
 
 export default function CugcRegistrations() {
-  const { data: regos = [], isLoading } = useQuery<Registration[]>({ queryKey: ["/api/admin/cugc/registrations"] });
+  // 🔴 PAID ONLY (Daniel, 2026-11-14: "remove pending from here, only show actual
+  // paid ones"). A pending_payment row is an unfinished checkout and a cancelled
+  // one is not a customer — "if you ain't paid you ain't registered". The rows
+  // stay in the database; this page just never lists, counts or totals them.
+  const { data: allRegos = [], isLoading } = useQuery<Registration[]>({ queryKey: ["/api/admin/cugc/registrations"] });
+  const regos = allRegos.filter((r) => r.status === "paid");
   const { data: cfg } = useQuery<ProgramConfig>({ queryKey: ["/api/admin/cugc/programs"] });
   const search = useSearch(); // supports deep links from the Programs tab (?program=gymplay)
-  const [filter, setFilter] = useState<"all" | "paid" | "pending_payment" | "cancelled">("all");
   const [progFilter, setProgFilter] = useState<string>(() => new URLSearchParams(search).get("program") || "all");
   const [selected, setSelected] = useState<Registration | null>(null);
 
@@ -116,21 +120,14 @@ export default function CugcRegistrations() {
     : regos.filter((r) => r.term === effectiveTerm);
 
   const inProgram = progFilter === "all" ? inTerm : inTerm.filter((r) => r.programSlug === progFilter);
-  const counts = {
-    all: inProgram.length,
-    paid: inProgram.filter((r) => r.status === "paid").length,
-    pending_payment: inProgram.filter((r) => r.status === "pending_payment").length,
-    cancelled: inProgram.filter((r) => r.status === "cancelled").length,
-  };
-  const shown = filter === "all" ? inProgram : inProgram.filter((r) => r.status === filter);
+  const shown = inProgram;
 
   // Reads `inTerm`, NOT every row — otherwise the cards above the list would
   // count a different population from the list itself.
   const statsFor = (slug: string | "all") => {
     const rows = slug === "all" ? inTerm : inTerm.filter((r) => r.programSlug === slug);
     return {
-      paid: rows.filter((r) => r.status === "paid").length,
-      pending: rows.filter((r) => r.status === "pending_payment").length,
+      paid: rows.length,
       revenue: rows.filter((r) => r.status === "paid").reduce((sum, r) => sum + (r.priceCents || 0), 0),
     };
   };
@@ -153,26 +150,9 @@ export default function CugcRegistrations() {
             <ClipboardCheck className="w-6 h-6 text-blue-400" />
             CUGC — Enrolments{effectiveTerm && effectiveTerm !== "all" && effectiveTerm !== NO_TERM ? ` · ${effectiveTerm}` : ""}
           </h1>
-          <p className="text-sm text-white/40 mt-1">Enrolments from the cugc.co.nz enrol form. Paid via CUGC's Stripe account. Pick a program to see its roster.</p>
+          <p className="text-sm text-white/40 mt-1">Paid enrolments from the cugc.co.nz enrol form (CUGC's Stripe account). Unfinished checkouts are not shown. Pick a program to see its roster.</p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          {([
-            ["all", "All"],
-            ["paid", "Paid"],
-            ["pending_payment", "Pending"],
-            ["cancelled", "Cancelled"],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={`px-3 py-1.5 rounded-lg border transition-colors ${
-                filter === key ? "bg-blue-500/15 border-blue-400/40 text-blue-200" : "bg-white/[0.04] border-white/10 text-white/60 hover:text-white/90"
-              }`}
-            >
-              {label} · {counts[key]}
-            </button>
-          ))}
-        </div>
+        <span className="text-xs text-white/50" data-testid="cugc-regos-paid-count">{inProgram.length} paid</span>
       </div>
 
       {/* Which term. Each chip carries its OWN count and money, so the numbers
@@ -245,7 +225,6 @@ export default function CugcRegistrations() {
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-semibold text-white/90">{s.paid}</span>
                   <span className="text-xs text-white/40">enrolled</span>
-                  {s.pending > 0 && <span className="text-xs text-amber-300/80">+{s.pending} pending</span>}
                 </div>
                 <p className="mt-1 text-xs text-emerald-300/80">{money(s.revenue)} paid</p>
               </button>
@@ -259,7 +238,7 @@ export default function CugcRegistrations() {
       ) : shown.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Inbox className="w-10 h-10 text-white/20 mb-3" />
-          <p className="text-white/60 font-medium">No enrolments {filter === "all" && progFilter === "all" && effectiveTerm === "all" ? "yet" : "in this view"}</p>
+          <p className="text-white/60 font-medium">No paid enrolments {progFilter === "all" && effectiveTerm === "all" ? "yet" : "in this view"}</p>
           <p className="text-white/35 text-sm mt-1">New enrolments from cugc.co.nz will appear here.</p>
         </div>
       ) : (

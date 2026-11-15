@@ -72,7 +72,8 @@ function when(iso: string): string {
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Drive() {
   const { toast } = useToast();
-  const [folderId, setFolderId] = useState<number | null>(null);
+  // `?folder=<id>` opens straight into a folder (used by the sponsor content lists).
+  const [folderId, setFolderId] = useState<number | null>(() => { const f = Number(new URLSearchParams(window.location.search).get("folder")); return Number.isFinite(f) && f > 0 ? f : null; });
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [showTrash, setShowTrash] = useState(false);
@@ -282,6 +283,7 @@ export default function Drive() {
 
       {/* Body */}
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+        {folderId !== null && !searching && !showTrash && <ShareFolderBar folderId={folderId} />}
         {uploading > 0 && (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[13px] text-amber-200">
             <Loader2 className="h-4 w-4 animate-spin" /> Uploading {uploading} file{uploading === 1 ? "" : "s"}…
@@ -492,6 +494,63 @@ function DetailSheet({ id, onClose }: { id: number; onClose: () => void }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ── Share a folder with someone outside the club ─────────────────────────────
+// Only a folder inside "Sponsor Content" can carry a link; the server decides
+// and this bar draws nothing anywhere else.
+function ShareFolderBar({ folderId }: { folderId: number }) {
+  const { toast } = useToast();
+  const key = ["/api/admin/drive/share", folderId];
+  const q = useQuery<{ shareable: boolean; link: { url: string; views: number; downloads: number } | null }>({
+    queryKey: key,
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/drive/share/${folderId}`);
+      if (!r.ok) return { shareable: false, link: null };
+      return r.json();
+    },
+  });
+  const change = useMutation({
+    mutationFn: async (method: "POST" | "DELETE") => {
+      const r = await workspaceFetch(`/api/admin/drive/share/${folderId}`, { method });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "That didn't work");
+      return r.json();
+    },
+    onSuccess: (d) => queryClient.setQueryData(key, d),
+    onError: (e: any) => toast({ title: "Couldn't change the link", description: e.message, variant: "destructive" }),
+  });
+  if (!q.data?.shareable) return null;
+  const link = q.data.link;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5" data-testid="drive-share-bar">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-amber-200">{link ? "This folder has a share link" : "Share this folder with the sponsor"}</p>
+        <p className="truncate text-[12px] text-white/45" data-testid="drive-share-url">
+          {link ? `${link.url} · opened ${link.views} time${link.views === 1 ? "" : "s"}, ${link.downloads} download${link.downloads === 1 ? "" : "s"}`
+            : "Anyone with the link can look at and download what is in this folder. Nothing else in the Drive."}
+        </p>
+      </div>
+      {link ? (
+        <>
+          <button
+            onClick={() => { navigator.clipboard.writeText(link.url); toast({ title: "Link copied" }); }}
+            className="inline-flex min-h-[40px] items-center rounded-lg bg-amber-400 px-3 text-[13px] font-semibold text-black hover:bg-amber-300" data-testid="drive-share-copy"
+          >Copy link</button>
+          <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex min-h-[40px] items-center rounded-lg border border-white/10 px-3 text-[13px] text-white/70 hover:bg-white/5">Open</a>
+          <button
+            onClick={() => { if (window.confirm("Switch this link off? The sponsor will no longer be able to open it.")) change.mutate("DELETE"); }}
+            className="inline-flex min-h-[40px] items-center rounded-lg border border-white/10 px-3 text-[13px] text-white/70 hover:bg-white/5" data-testid="drive-share-off"
+          >Switch off</button>
+        </>
+      ) : (
+        <button
+          onClick={() => change.mutate("POST")} disabled={change.isPending}
+          className="inline-flex min-h-[40px] items-center rounded-lg bg-amber-400 px-3 text-[13px] font-semibold text-black hover:bg-amber-300" data-testid="drive-share-create"
+        >Create link</button>
+      )}
     </div>
   );
 }

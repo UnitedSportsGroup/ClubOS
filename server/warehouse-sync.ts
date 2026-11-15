@@ -35,6 +35,7 @@
 // became REQUIRED from API version 2026-04; confirm current syntax on
 // shopify.dev before this file's first real push.
 // ─────────────────────────────────────────────────────────────────────────────
+import { warehouseDrivesShop, warehouseDrivenBrands } from "./shop-warehouse-link";
 import type { Express, Request, Response } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, eq, isNotNull, or, sql } from "drizzle-orm";
@@ -404,6 +405,9 @@ export interface MappedItemForSync {
   shopifyStore: ShopifyStoreKey | null;
   shopifyInventoryItemId: string | null;
   shopifyVariantId: string | null;
+  /** Which shop brand owns it — the native push only runs for a shop switched
+   *  on in WH_STOCK_BRANDS (server/shop-warehouse-link.ts). */
+  brandOwner?: string | null;
 }
 
 export interface SyncSiblingLink {
@@ -451,6 +455,7 @@ export function syncDbFromDb(database: Pick<typeof realDb, "select" | "insert" |
           shopifyStore: whItems.shopifyStore,
           shopifyInventoryItemId: whItems.shopifyInventoryItemId,
           shopifyVariantId: whItems.shopifyVariantId,
+          brandOwner: whItems.brandOwner,
         })
         .from(whItems)
         .where(eq(whItems.id, itemId))
@@ -463,6 +468,7 @@ export function syncDbFromDb(database: Pick<typeof realDb, "select" | "insert" |
         shopifyStore: isShopifyStoreKey(row.shopifyStore) ? row.shopifyStore : null,
         shopifyInventoryItemId: row.shopifyInventoryItemId,
         shopifyVariantId: row.shopifyVariantId,
+        brandOwner: row.brandOwner,
       };
     },
     async getSiblingLinks(itemId) {
@@ -765,7 +771,9 @@ export async function pushItemUsing(
   let shopifyTargets = 0;
   let skippedReason: string | undefined;
 
-  if (item.shopVariantId != null) {
+  // Only a shop switched on in WH_STOCK_BRANDS takes its stock from the
+  // warehouse — the others still own their shop_variants.stock (2026-11-04).
+  if (item.shopVariantId != null && warehouseDrivesShop(item.brandOwner)) {
     const qty = Math.max(0, roundQty(available)); // native storefront never shows negative stock
     await sdb.updateNativeStock(item.shopVariantId, qty);
     await sdb.upsertSyncState(itemId, "native", qty, now);
@@ -823,7 +831,7 @@ export function getPendingPushItemIds(): number[] {
  *  WH_SYNC_ENABLED so the whole subsystem is inert without config even
  *  though the hook itself is always registered. */
 function handlePushTrigger(itemIds: number[]): void {
-  if (!isSyncEnabled()) return;
+  if (!isSyncEnabled() && warehouseDrivenBrands().size === 0) return;
   for (const id of itemIds) schedulePush(id);
 }
 

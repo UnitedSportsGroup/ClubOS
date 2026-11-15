@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { campShirtSize, CAMP_SHIRT_SIZES, shirtSizeLabel, campPageContentOf as parseCampPC } from "@shared/camp-shirt-size";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -1769,6 +1770,8 @@ type ProgramPlayer = {
   allergies: string | null;
   epiPen: boolean;
   medicalNotes: string | null;
+  /** Kit shirt size; null = not given. Asked at checkout by camps that hand out a shirt. */
+  shirtSize?: string | null;
   parent: { id: number; firstName: string; lastName: string; email: string | null; phone: string | null } | null;
   status: string;
   registrationIds: number[];
@@ -2186,8 +2189,18 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
     }
   };
 
+  // Shirt sizes: shown when this camp asks for them, or anyone on it has one.
+  const showShirts = campShirtSize(parseCampPC((camp as any)?.pageContentJson)).ask || all.some(p => !!p.shirtSize);
+  const shirtTally: [string, number][] = (() => {
+    const m = new Map<string, number>();
+    for (const p of all) if (p.shirtSize) m.set(p.shirtSize, (m.get(p.shirtSize) ?? 0) + 1);
+    return CAMP_SHIRT_SIZES.filter(sz => m.has(sz)).map(sz => [sz, m.get(sz)!] as [string, number])
+      .concat(Array.from(m.entries()).filter(([sz]) => !CAMP_SHIRT_SIZES.includes(sz)));
+  })();
+  const shirtMissing = all.filter(p => !p.shirtSize).length;
+
   const exportCsv = () => {
-    const header = ["First name", "Last name", "Date of birth", "Age", "Gender", "Status", "Sessions booked", "Paid (NZD)", "Parent", "Parent email", "Parent phone", "Allergies", "EpiPen", "Registered"];
+    const header = ["First name", "Last name", "Date of birth", "Age", "Gender", "Status", "Sessions booked", "Paid (NZD)", "Parent", "Parent email", "Parent phone", "Allergies", "EpiPen", "Shirt size", "Registered"];
     const rows = filtered.map(p => [
       p.firstName,
       p.lastName,
@@ -2202,6 +2215,7 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
       p.parent?.phone ?? "",
       p.allergies ?? "",
       p.epiPen ? "Yes" : "",
+      p.shirtSize ?? "",
       p.firstRegisteredAt ? new Date(p.firstRegisteredAt).toLocaleDateString("en-NZ") : "",
     ]);
     const esc = (v: any) => {
@@ -2346,6 +2360,19 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
         </div>
       </div>
 
+      {showShirts && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-xl bg-blue-500/[0.04] border border-blue-500/[0.08]" data-testid="shirt-tally">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-blue-300/50">Shirts to order</span>
+          {shirtTally.length === 0 && <span className="text-[12px] text-white/35">No sizes yet</span>}
+          {shirtTally.map(([size, n]) => (
+            <span key={size} className="text-[12px] text-white/70" data-testid={`shirt-tally-${size}`}>
+              {shirtSizeLabel(size)} <span className="text-white/35">×{n}</span>
+            </span>
+          ))}
+          {shirtMissing > 0 && <span className="text-[12px] text-amber-400/70">{shirtMissing} not given</span>}
+        </div>
+      )}
+
       {missingDob > 0 && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/15">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-400/70 flex-shrink-0 mt-0.5" />
@@ -2369,6 +2396,9 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                 <SortHeader label="Contact" sortKey="contact" active={sortKey === "contact"} dir={sortDir} onSort={toggleSort} className="hidden xl:table-cell" />
                 {showSessions && <SortHeader label="Sessions" sortKey="sessions" active={sortKey === "sessions"} dir={sortDir} onSort={toggleSort} align="center" className="hidden sm:table-cell" />}
                 {showPaid && <SortHeader label="Paid" sortKey="paid" active={sortKey === "paid"} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell" />}
+                {showShirts && (
+                  <th className="px-4 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden sm:table-cell">Shirt</th>
+                )}
                 <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort} />
                 {showGroupControl && (
                   <th className="px-2 py-2 text-[10px] uppercase tracking-wider font-semibold text-left text-blue-300/25 hidden md:table-cell w-[104px]">Group</th>
@@ -2446,6 +2476,13 @@ function PlayersTab({ campId, camp, detailPath }: { campId: number; camp?: any; 
                         <span className="text-[12px] text-white/55">
                           {p.paidCents != null ? formatCurrency(p.paidCents, { fromCents: true }) : "—"}
                         </span>
+                      </td>
+                    )}
+                    {showShirts && (
+                      <td className="px-4 py-2.5 hidden sm:table-cell whitespace-nowrap" data-testid={`cell-shirt-${p.key}`}>
+                        {p.shirtSize
+                          ? <span className="text-[12px] text-white/60">{p.shirtSize}</span>
+                          : <span className="text-[11px] text-amber-400/50">Not given</span>}
                       </td>
                     )}
                     <td className="px-4 py-2.5 whitespace-nowrap">

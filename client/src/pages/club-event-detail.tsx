@@ -29,6 +29,7 @@ import { TimePickerInput } from "@/components/ui/time-picker-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { SalesExportMenu } from "@/components/club-events/sales-export";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -427,21 +428,6 @@ export default function ClubEventDetailAdmin() {
     );
   };
 
-  const downloadGuestsCsv = async () => {
-    try {
-      const res = await apiRequest("GET", `/api/admin/club-events/${id}/guests.csv`);
-      const csv = await res.text();
-      const blob = new Blob([csv], { type: "text/csv" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${event.slug}-guests.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (err) {
-      toast({ title: "Download failed", description: apiErrorMessage(err), variant: "destructive" });
-    }
-  };
-
   const filteredOrders = orders.filter((o) => {
     if (orderStatusFilter !== "all" && o.status !== orderStatusFilter) return false;
     const q = orderSearch.trim().toLowerCase();
@@ -584,14 +570,17 @@ export default function ClubEventDetailAdmin() {
             <Button variant="outline" className="min-h-11 gap-2" disabled={reconcile.isPending} onClick={() => reconcile.mutate()} data-testid="button-reconcile">
               {reconcile.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Reconcile with Stripe
             </Button>
-            <Button variant="outline" className="min-h-11 gap-2" onClick={downloadGuestsCsv} data-testid="button-download-guests">
-              <Download className="w-4 h-4" /> Download guest list (CSV)
-            </Button>
+            <SalesExportMenu event={event} orders={orders} guests={guests}
+              onError={(m) => toast({ title: "Export failed", description: m, variant: "destructive" })} />
           </div>
         </TabsContent>
 
         {/* ── Orders ──────────────────────────────────────────────────── */}
         <TabsContent value="orders" className="space-y-4 mt-4">
+          <div className="flex justify-end">
+            <SalesExportMenu event={event} orders={orders} guests={guests}
+              onError={(m) => toast({ title: "Export failed", description: m, variant: "destructive" })} />
+          </div>
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
             <div className="flex gap-2 flex-wrap">
               {(["all", "paid", "pending", "refunded", "cancelled"] as const).map((s) => (

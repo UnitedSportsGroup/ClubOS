@@ -499,6 +499,13 @@ export const registrations = pgTable("registrations", {
   // 'term' | 'year'. The full-year plan earns the policy's 5% training-fee
   // discount and is only offered on core academy programmes.
   academyPaymentPlan: text("academy_payment_plan"),
+  // Bank direct debit state (2026-11-04). A debit clears in 2–3 working days, so a
+  // registration can be "clearing" or "failed" while still pending. Nullable, no
+  // default: NULL = nothing to say. See shared/academy-payment-plan.ts.
+  paymentMethodType: text("payment_method_type"),
+  paymentProcessingAt: timestamp("payment_processing_at", { withTimezone: true }),
+  paymentFailedAt: timestamp("payment_failed_at", { withTimezone: true }),
+  paymentFailureReason: text("payment_failure_reason"),
   seasonYear: integer("season_year"),
   /** WHICH TERM this registration is for.
    *
@@ -750,6 +757,11 @@ export const emailCampaigns = pgTable("email_campaigns", {
   // project } from the builder, or { engine:'html', html } from its small-screen
   // fallback. Null on every campaign sent before 2026-09-09.
   bodyDoc: jsonb("body_doc"),
+  // The workspace that sent it (2026-11-14, one Mailer for every workspace):
+  // History lists a workspace's own sends, and a later step of the send (an
+  // A/B test's winner) uses that workspace's unsubscribe list. NULLABLE, no
+  // default: campaigns from before today are placed by their segment prefix.
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "restrict" }),
   recipientCount: integer("recipient_count").default(0),
   sentCount: integer("sent_count").default(0),
   failedCount: integer("failed_count").default(0),
@@ -5947,6 +5959,11 @@ export const shopVariants = pgTable("shop_variants", {
   // where each denomination variant carries its own price.
   priceCents: integer("price_cents"),
   active: boolean("active").notNull().default(true),
+  // Shopify's inventory policy (2026-11-04). trackInventory=false → never sold
+  // out; continueSelling=true → keeps selling at 0. Both decided by
+  // shared/shop-stock.ts canSell(), the ONE rule the catalog and checkout read.
+  trackInventory: boolean("track_inventory").notNull().default(true),
+  continueSelling: boolean("continue_selling").notNull().default(false),
 }, (t) => ({
   colourSizeUnq: uniqueIndex("shop_variants_colour_size_unique").on(t.colourId, t.size),
 }));
@@ -6079,6 +6096,17 @@ export const shopOrders = pgTable("shop_orders", {
   teamName: text("team_name"),
   allPaidAt: timestamp("all_paid_at"),
   paidAt: timestamp("paid_at"),
+  // NZ Post eShip (Starshipit) — see server/eship.ts. NULL = never sent.
+  eshipOrderId: bigint("eship_order_id", { mode: "number" }),
+  eshipClaimedAt: timestamp("eship_claimed_at", { withTimezone: true }),
+  eshipPushedAt: timestamp("eship_pushed_at", { withTimezone: true }),
+  eshipError: text("eship_error"),
+  eshipAttempts: integer("eship_attempts"),
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  trackingStatus: text("tracking_status"),
+  trackingUpdatedAt: timestamp("tracking_updated_at", { withTimezone: true }),
+  shippedEmailSentAt: timestamp("shipped_email_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -10448,6 +10476,8 @@ export const studioRenders = pgTable("studio_renders", {
   height: integer("height").notNull(),
   bytes: integer("bytes").notNull(),
   data: bytea("data").notNull(),
+  /** Which slide of a carousel (0 for a single graphic or a page). */
+  slide: smallint("slide").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   keyUnq: uniqueIndex("studio_renders_key_key").on(t.key),

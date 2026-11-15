@@ -32,7 +32,7 @@ import { requireAuth, requireTab } from "../auth";
 import { attributionOverview } from "../attribution-reports";
 import {
   HubInputError,
-  cached,
+  cached, keepWarm,
   orgs,
   parseScope,
   q,
@@ -314,6 +314,7 @@ function handle(fn: (req: Request) => Promise<unknown>) {
 }
 
 function scoped<T>(name: string, fn: (s: HubScope) => Promise<T>) {
+  keepWarm(name, fn);
   return handle(async (req) => {
     const scope = await parseScope(req);
     return cached(scopeKey(name, scope), TTL_MS, () => fn(scope));

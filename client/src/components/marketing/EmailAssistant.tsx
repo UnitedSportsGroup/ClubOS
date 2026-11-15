@@ -13,6 +13,7 @@
 // so it sits beside Style / Settings / Layers and keeps its conversation while
 // the person switches tabs.
 
+import { RamboWorking } from "@/components/rambo-working";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { workspaceFetch } from "@/lib/queryClient";
 import type { MailerAiFailure, MailerAiReply } from "@shared/mailer-ai";
@@ -216,9 +217,8 @@ export default function EmailAssistant({ brandKey, getMjml, applyMjml }: EmailAs
             ),
           )}
           {busy && (
-            <div className="mr-6 rounded-xl border bg-background px-3 py-2 text-muted-foreground" data-testid="mailer-assistant-busy">
-              <span className="inline-block animate-pulse">Working on it…</span>
-              <span className="ml-1 text-[11px]">a big change can take up to a minute</span>
+            <div className="mr-6" data-testid="mailer-assistant-busy">
+              <RamboWorking stage="Editing the email" expect="a big change can take a minute" expectSeconds={15} />
             </div>
           )}
         </div>

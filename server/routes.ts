@@ -1,6 +1,12 @@
+import { bankDebitAllowed, BANK_DEBIT_METHOD_TYPES } from "@shared/academy-payment-plan";
 import { removeRegistration, restoreRegistration, removalHistory, RemovalError } from "./registration-removal";
+import { cleanTemplate, openLinkProblems, isPublished, brandKeyOf, slugOf, ESIGN_BRANDS, ESIGN_BRAND_LABELS, ESIGN_BRAND_FOR_ORG_SLUG } from "@shared/esign-template";
+import { draftEsignTemplate } from "./esign-template-ai";
+import { ramboDailyLimitFor, ramboUsedToday } from "./rambo-usage";
+import { campShirtSize, shirtSizeError, campPageContentOf } from "@shared/camp-shirt-size";
 import { mflPixelContent } from "@shared/league-captain";
 import { REAL_REGISTRATION_STATUS_SQL } from "@shared/registrations";
+import { officeSellableTerms } from "@shared/office-term-window";
 import { planTransfer, executeTransfer, TransferError } from "./registration-transfer";
 import type { Program } from "@shared/schema";
 import { lineCents } from "@shared/registration-split";
@@ -50,7 +56,7 @@ import {
   CUGC_TERMS, resolveTermForSale, termStatus, isSellable, defaultTerm,
   termByName, termWindowLabel, type CugcTerm,
 } from "@shared/cugc-terms";
-import { allClasses, classById, classesForRegistration, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
+import { allClasses, classById, classesForRegistration, onClassRoll, classDatesInTerm, classRunsInTerm, optionChoices, CUGC_CLASSES } from "@shared/cugc-classes";
 import * as splitPay from "./split-pay";
 import { markInvoicePaidByPaymentIntent } from "./invoice-routes";
 import * as rewards from "./rewards";
@@ -119,7 +125,8 @@ import {
 } from "@shared/nzf-identity";
 import { isOfficePaymentMethod } from "@shared/payments";
 import { renderForRecipient, applyMergeTagsText, visibleTextLength } from "./mailer-render";
-import { resolveMailerAudience, lookupMailerRecipient, mailerAudienceCatalogue } from "./mailer-audience";
+import { resolveMailerAudience, lookupMailerRecipient, mailerAudienceCatalogue, cleanMailerEmail, type MailerAudience, type MailerRecipient } from "./mailer-audience";
+import type { GroupCatalogue, GroupOption, GroupChoice } from "@shared/mailer-audiences";
 import { checkEmailDeliverability, checkManyDeliverability } from "./mailer-deliverability";
 import { bounceMap, bounceLabel, isDeadMailbox } from "./email-bounces";
 import { shapeAnalyticsEvent, shapeAnalyticsEvents, detectBot, CANONICAL_CHANNELS, normalizeHdyhauAnswer } from "@shared/attribution";
@@ -137,7 +144,7 @@ import { mountMcpServer } from "./mcp";
 import { CURRENT_LOGO_LICENCE, canonicalConsentText } from "./logo-licence";
 import { buildLogoLicencePdf } from "./logo-licence-pdf";
 import { PDFDocument as PdfLibDocument } from "pdf-lib";
-import { registerShopRoutes, finalizeShopOrderPaid, finalizeShopSharePaid } from "./shop-routes";
+import { registerShopRoutes, registerShopOrdersHubRoutes, finalizeShopOrderPaid, finalizeShopSharePaid } from "./shop-routes";
 import { registerPayShareRoutes } from "./payshare-routes";
 import {
   PAYSHARE_SITE_ORIGIN,
@@ -162,12 +169,23 @@ import { registerMailerAiRoutes } from "./mailer-ai";
 import { registerMailerImageRoutes } from "./mailer-images";
 import { registerMailerTestRoutes, startMailerTests, queueRecipients, recordCampaignLinks, renderTrackedForRecipient, subjectForVariant, campaignResults } from "./mailer-tests";
 import { registerStudioRoutes } from "./studio";
+import { registerStudioVideoRoutes } from "./studio-video";
+import { registerSiteRoutes, startSiteScheduler } from "./site-routes";
 import { validateMailerTest, splitForTest, describeTestPlan, type MailerVariant } from "@shared/mailer-tests";
 import { emailCampaignTests } from "@shared/schema";
 import { registerRamboRoutes } from "./rambo-routes";
 import { registerMailerAutomationRoutes, startMailerAutomations } from "./mailer-automations";
 import { registerDashboardRoutes } from "./dashboard-routes";
 import { registerMarketingHubRoutes } from "./marketing-hub/routes";
+import { registerSocialRoutes } from "./social/routes";
+import { registerWebAnalyticsRoutes } from "./marketing-hub/web-analytics";
+import { registerMarketingChannelRoutes } from "./marketing-hub/channels";
+import { registerCampaignRoutes } from "./campaigns/routes";
+import { registerFunnelRoutes } from "./campaigns/funnels";
+import { registerOfflineMarketingRoutes } from "./offline-marketing-routes";
+import { registerMarketingMoreRoutes } from "./marketing-hub/more-reports";
+import { registerMarketingIdeasRoutes } from "./marketing-ideas-routes";
+import { registerPerformanceRoutes } from "./performance-routes";
 import { registerGoogleAdsRoutes } from "./google-ads-attribution";
 import { registerViewAsRoutes, clearViewAs } from "./view-as-routes";
 import {
@@ -2923,10 +2941,16 @@ export async function registerRoutes(
     return t;
   }
 
-  /** Every term this programme's workspace has, for the counter's term picker. */
+  /**
+   * The terms the counter may sell: the one running now and the next one
+   * (in the holidays, the next two). 🔴 Not every term the workspace has —
+   * listing all of 2027 newest-first put Term 4 2027 at the top of the grid,
+   * and two Term 4 2026 walk-ups were filed under it (5 Nov 2026).
+   */
   async function academyTermsFor(program: any): Promise<any[]> {
     if (!program.organizationId) return [];
-    return db.select().from(terms).where(eq(terms.organizationId, program.organizationId));
+    const all = await db.select().from(terms).where(eq(terms.organizationId, program.organizationId));
+    return officeSellableTerms(all as any[], nzTodayIso());
   }
 
   const ACADEMY_DEFAULT_SESSIONS = 10;   // NZ school term
@@ -3641,7 +3665,12 @@ export async function registerRoutes(
         receipt_email: email,
         ...(parentCustomer ? { customer: parentCustomer.customerId } : {}),
         description: `${program.name} — ${option.name} (${plan === "year" ? `${seasonYear} full year` : "one term"})`,
-        automatic_payment_methods: { enabled: true },
+        // NZ bank direct debit is offered ONLY where `bankDebitAllowed` says so
+        // (Pre-Academy, pay the term in full — Daniel, 4 Nov 2026). The account's
+        // default configuration has it OFF, so every other checkout stays as it was.
+        ...(bankDebitAllowed({ programSlug: program.slug, academyPlan: plan })
+          ? { payment_method_types: [...BANK_DEBIT_METHOD_TYPES] }
+          : { automatic_payment_methods: { enabled: true } }),
         // Deliberately no child name here: this metadata rides into Stripe and,
         // via the Purchase event, toward Meta. The parent is the tracked person.
         metadata: {
@@ -5743,7 +5772,7 @@ export async function registerRoutes(
           : null,
         // Every term the counter can sell, each priced in its own right — the
         // one running now costs its remaining sessions, a future one costs the
-        // full term. Sorted newest first so the two that matter are on top.
+        // full term. Only the term running now and the next one (officeSellableTerms).
         terms: (await academyTermsFor(program))
           .map((t: any) => {
             const q = option ? academyQuoteFor(program, t, section, option.fullPriceCents, "term") : null;
@@ -5774,8 +5803,9 @@ export async function registerRoutes(
               // counter would have read "3 of sessions left".
               sessionsTotal: q ? q.totalSessions ?? null : null,
             };
-          })
-          .sort((a: any, b: any) => (b.year - a.year) || (b.termNumber - a.termNumber)),
+          }),
+        // ↑ Already in date order from officeSellableTerms: the term running
+        // now first, then the next one.
         allowFullYear,
         options: sellable.map((o: any) => ({ id: o.id, name: o.name, fullPriceCents: o.fullPriceCents, scheduleText: o.scheduleText })),
         quote,
@@ -5992,6 +6022,11 @@ export async function registerRoutes(
         const term = await academyTermFor(program, askedTermId);
         if (askedTermId != null && !term) {
           return res.status(400).json({ message: "That term doesn't belong to this programme's workspace." });
+        }
+        // 🔴 Same window as the picker: the office sells the term running now
+        // or the next one, never a term a year away (5 Nov 2026).
+        if (askedTermId != null && !(await academyTermsFor(program)).some((t: any) => t.id === askedTermId)) {
+          return res.status(400).json({ message: "The office can only register for the term running now or the next one." });
         }
         if (plan === "year" && !academyFullYearAvailable(section, term?.termNumber ?? null)) {
           return res.status(400).json({ message: "The full-year plan isn't available for this programme right now — it's charged per term." });
@@ -6591,10 +6626,36 @@ export async function registerRoutes(
     }
   });
 
+  // ONE Mailer, every workspace (2026-11-14). Every /api/admin/mailer route
+  // that reads people or sends reads the workspace here: a missing header is
+  // an error (never a guess — the CUFC default is how a gym email could have
+  // gone to football parents), and a member of another workspace gets 404.
+  async function mailerWsReq(req: any, res: any): Promise<MailerWs | null> {
+    const org = await workspaceOrg(req);
+    if (!org) { res.status(400).json({ message: "No workspace on this request — reload the page and try again." }); return null; }
+    const uid = req.session?.userId;
+    const user = uid ? await storage.getUser(uid) : undefined;
+    if (!user) { res.status(401).json({ message: "Sign in again." }); return null; }
+    if (user.role !== "super_admin" && !(await checkUserOrg(uid, org.id))) { res.status(404).json({ message: "Not found" }); return null; }
+    return mailerWsFor(org);
+  }
+
+  // What this workspace's Mailer is: where its people live, and its senders.
+  app.get("/api/admin/mailer/workspace", requireAuth, async (req, res) => {
+    try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json({ slug: ws.slug, kind: ws.kind === "programmes" ? "programmes" : "groups", defaultFrom: ws.defaultFrom, defaultReplyTo: ws.defaultReplyTo });
+    } catch (error: any) { res.status(500).json({ message: error.message }); }
+  });
+
   // Send history — searchable + paged. `q` matches subject OR email content.
   // Returns summaries without the body; open one for the content it sent.
+  // One workspace's sends only.
   app.get("/api/admin/mailer/campaigns", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const q = typeof req.query.q === "string" ? req.query.q : "";
       const limit = parseInt(String(req.query.limit ?? ""));
       const offset = parseInt(String(req.query.offset ?? ""));
@@ -6602,6 +6663,7 @@ export async function registerRoutes(
         q,
         limit: Number.isFinite(limit) ? limit : undefined,
         offset: Number.isFinite(offset) ? offset : undefined,
+        scope: mailerCampaignOrgSql(ws),
       });
       res.json({ campaigns: rows, total });
     } catch (error: any) {
@@ -6612,10 +6674,12 @@ export async function registerRoutes(
   // One past send, in full — including the exact HTML that went out.
   app.get("/api/admin/mailer/campaigns/:id", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       res.json(campaign);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6633,10 +6697,12 @@ export async function registerRoutes(
   // cannot see would be worse than admitting the gap.
   app.get("/api/admin/mailer/campaigns/:id/recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const id = parseInt(String(req.params.id));
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid campaign id" });
       const campaign = await storage.getEmailCampaign(id);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!campaign || !campaignInMailerWs(ws, campaign)) return res.status(404).json({ message: "Campaign not found" });
       const people = await storage.getCampaignRecipients(id);
       // The A/B test (if one ran), each version's numbers, every link's clicks.
       const results = await campaignResults(id).catch(() => null);
@@ -6741,8 +6807,9 @@ export async function registerRoutes(
   // Mailer is the club's).
   app.get("/api/admin/mailer/audiences", requireAuth, async (req, res) => {
     try {
-      const org = await workspaceOrg(req);
-      res.json(await mailerAudienceCatalogue(org?.id ?? 1));
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
+      res.json(ws.kind === "programmes" ? await mailerAudienceCatalogue(ws.orgId) : await mailerGroupCatalogue(ws));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6750,8 +6817,10 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/preview-recipients", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { segmentType, segmentConfig } = req.body;
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) {
         return res.status(400).json({ message: "Invalid segment type" });
       }
@@ -6761,9 +6830,8 @@ export async function registerRoutes(
       // filter as the send, so what is shown is what goes out — each address
       // with the parent's name and the children it stands for, and a flag
       // where the domain cannot take mail.
-      const audience = await resolveMailerAudience(segmentType, segmentConfig);
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const audience = await resolveWorkspaceMailerAudience(ws, segmentType, segmentConfig);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const LIMIT = 500;
       const shown = audience.emails.slice(0, LIMIT);
       const checks = await checkManyDeliverability(shown);
@@ -6817,6 +6885,8 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/test-send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
       if (!RESEND_API_KEY) return res.status(500).json({ message: "RESEND_API_KEY not configured" });
 
@@ -6829,13 +6899,12 @@ export async function registerRoutes(
       const { to, from: fromAddr, fromEmail: fromChosen, subject, body, replyTo } = req.body;
       // The page posts `fromEmail`; this read only `from`, so every test came
       // from "CUFC Camps" whatever sender was chosen.
-      const senderEmail = fromChosen || fromAddr || "CUFC Camps <noreply@cufc.co.nz>";
+      const senderEmail = fromChosen || fromAddr || ws.defaultFrom;
       const att = readMailerAttachments(req.body.attachments);
       if (!att.ok) return res.status(400).json({ message: att.message });
       const dest = String(to || "").trim();
       if (!dest.includes("@")) return res.status(400).json({ message: "A test address is required" });
 
-      const orgId = await predictorOrgId();
       const hasCampaign = typeof body === "string" && body.trim().length > 0;
       // The test address is resolved the way a real recipient is — so a staff
       // member who is also a parent sees their own children's names where a
@@ -6843,7 +6912,8 @@ export async function registerRoutes(
       const who = await lookupMailerRecipient(dest);
       const testCtx = {
         email: dest,
-        unsubscribeUrl: cufcUnsubUrl(orgId, dest),
+        unsubscribeUrl: ws.unsubUrl(dest),
+        listName: ws.listName,
         firstName: who.firstName,
         lastName: who.lastName,
         players: who.players,
@@ -6879,13 +6949,15 @@ export async function registerRoutes(
 
   app.post("/api/admin/mailer/send", requireAuth, async (req, res) => {
     try {
+      const ws = await mailerWsReq(req, res);
+      if (!ws) return;
       const { subject, body, bodyDoc, fromEmail, replyTo, segmentType, segmentConfig, manualEmails } = req.body;
       if (!subject || typeof subject !== 'string' || subject.length > 500) return res.status(400).json({ message: "Valid subject required (max 500 chars)" });
       if (!body || typeof body !== 'string') return res.status(400).json({ message: "Email body is required" });
       // A document can be structurally valid and say nothing — a stray spacer,
       // or a design cleared but not retyped. Refuse before it reaches a list.
       if (visibleTextLength(body) < 3) return res.status(400).json({ message: "This email has no visible content — add some text before sending." });
-      const validSegments = ["all", "camp", "day", "session", "custom", "programme"];
+      const validSegments = ["all", "camp", "day", "session", "custom", "programme", "group"];
       if (!segmentType || !validSegments.includes(segmentType)) return res.status(400).json({ message: "Invalid segment type" });
       // 🔴 The same email twice is refused (28 Oct 2026: "United Together" went
       // out as #91 and, seven seconds later, #92 — 2,297 families got it
@@ -6921,7 +6993,8 @@ export async function registerRoutes(
       // {{player_first_name}} (Zach, 2026-10-05 — an academy invitation is
       // addressed to the player and lands in the parent's inbox). The preview
       // count reads the same function, so the number shown is the number sent.
-      const audience = await resolveMailerAudience(
+      const audience = await resolveWorkspaceMailerAudience(
+        ws,
         segmentType,
         segmentConfig,
         Array.isArray(manualEmails) ? manualEmails : undefined,
@@ -6930,8 +7003,7 @@ export async function registerRoutes(
 
       // 🔴 Honour the opt-out list. Every other mailer in ClubOS does; this one
       // never has, so anyone who unsubscribed kept receiving camp campaigns.
-      const orgId = await predictorOrgId();
-      const unsubscribed = await getUnsubscribedEmails(orgId);
+      const unsubscribed = await getUnsubscribedEmails(ws.unsubOrg);
       const requested = emails.length;
       emails = emails.filter((e) => !unsubscribed.has(e.trim().toLowerCase()));
       const suppressed = requested - emails.length;
@@ -6955,8 +7027,8 @@ export async function registerRoutes(
 
       if (emails.length === 0) return res.status(400).json({ message: "No recipients found for this segment" });
 
-      const senderEmail = fromEmail || "CUFC Camps <noreply@cufc.co.nz>";
-      const replyAddress = replyTo || "info@cufc.co.nz";
+      const senderEmail = fromEmail || ws.defaultFrom;
+      const replyAddress = replyTo || ws.defaultReplyTo;
 
       const campaign = await storage.createEmailCampaign({
         subject,
@@ -6968,6 +7040,7 @@ export async function registerRoutes(
         replyTo: replyAddress,
         segmentType,
         segmentConfig: JSON.stringify(segmentConfig || {}),
+        organizationId: ws.orgId,
         recipientCount: emails.length,
         sentCount: 0,
         failedCount: 0,
@@ -7053,7 +7126,8 @@ export async function registerRoutes(
             firstName: who?.firstName ?? null,
             lastName: who?.lastName ?? null,
             players: who?.players ?? [],
-            unsubscribeUrl: cufcUnsubUrl(orgId, email),
+            unsubscribeUrl: ws.unsubUrl(email),
+            listName: ws.listName,
             pixelUrl,
           };
           const variant = variantOf.get(email) ?? null;
@@ -18398,7 +18472,280 @@ export async function registerRoutes(
     try {
       const orgId = await esignOrgId(req);
       const rows = await db.select().from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.active, true))).orderBy(esignTemplates.name);
-      res.json(rows.map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, variables: t.variables, settings: t.settings, brand: t.brand })));
+      res.json(rows.filter((t) => isPublished(t.settings)).map((t) => ({ id: t.id, slug: t.slug, name: t.name, description: t.description, variables: t.variables, settings: t.settings, brand: t.brand })));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Template builder (2026-11-04) ─────────────────────────────────────────
+  // Staff write their own agreements — words, the details a signer fills in,
+  // the brand — and Rambo can draft one. ONE decider: shared/esign-template.ts.
+  // 🔴 A template is a draft until published; only published ones are sent or
+  // opened by link. 🔴 The open link is never set from the request body — only
+  // by its own route, which takes the club's signature (we sign first).
+  const esignRows = (r: any): any[] => (Array.isArray(r) ? r : r?.rows ?? []);
+  async function esignTplForOrg(id: number, orgId: number) {
+    const [t] = await db.select().from(esignTemplates).where(and(eq(esignTemplates.id, id), eq(esignTemplates.organizationId, orgId)));
+    return t ?? null;
+  }
+  async function esignOrgSlug(orgId: number): Promise<string> {
+    const [o] = await db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, orgId));
+    return o?.slug ?? "";
+  }
+  function esignOpenLinkUrl(token: string) { return `${appBaseUrl()}/agree/${token}`; }
+  function esignTplOut(t: typeof esignTemplates.$inferSelect) {
+    const st = (t.settings ?? {}) as Record<string, any>;
+    const ol = st.openLink as any;
+    return {
+      id: t.id, slug: t.slug, name: t.name, description: t.description,
+      brand: t.brand, brandKey: brandKeyOf(t.brand as any), content: t.content, variables: t.variables, form: t.form,
+      settings: { ...st, openLink: undefined },
+      published: isPublished(st),
+      openLink: ol?.token ? { enabled: ol.enabled === true, url: esignOpenLinkUrl(ol.token), clubSignedBy: ol.clubSignature?.name ?? null, clubSignedAt: ol.clubSignature?.adoptedAt ?? null } : null,
+      createdAt: t.createdAt,
+    };
+  }
+  async function esignUniqueSlug(orgId: number, name: string, exceptId?: number) {
+    const base = slugOf(name);
+    for (let i = 0; i < 50; i++) {
+      const slug = i ? `${base}-${i + 1}` : base;
+      const [hit] = await db.select({ id: esignTemplates.id }).from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.slug, slug)));
+      if (!hit || hit.id === exceptId) return slug;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
+  // Every template in this workspace — drafts too — with how often it has been used.
+  app.get("/api/admin/esign/templates/library", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const rows = await db.select().from(esignTemplates).where(and(eq(esignTemplates.organizationId, orgId), eq(esignTemplates.active, true))).orderBy(esignTemplates.name);
+      const counts = esignRows(await db.execute(sql`SELECT template_id, count(*)::int AS sent, count(*) FILTER (WHERE status = 'completed')::int AS signed FROM esign_documents WHERE organization_id = ${orgId} AND template_id IS NOT NULL GROUP BY template_id`));
+      const by = new Map(counts.map((c: any) => [Number(c.template_id), c]));
+      const slug = await esignOrgSlug(orgId);
+      res.json({
+        defaultBrandKey: ESIGN_BRAND_FOR_ORG_SLUG[slug] ?? "usg",
+        brands: Object.keys(ESIGN_BRANDS).map((k) => ({ key: k, label: ESIGN_BRAND_LABELS[k] })),
+        templates: rows.map((t) => ({ ...esignTplOut(t), used: Number((by.get(t.id) as any)?.sent ?? 0), signed: Number((by.get(t.id) as any)?.signed ?? 0) })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/esign/templates/:id/full", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), await esignOrgId(req));
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const { problems } = cleanTemplate({ ...t, settings: t.settings }, { brandKey: brandKeyOf(t.brand as any) });
+      res.json({ ...esignTplOut(t), problems });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/esign/templates", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const b = req.body ?? {};
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const { template } = cleanTemplate({ ...b, name: b.name || "Untitled agreement", settings: { ...(b.settings ?? {}), published: false, openLink: null } }, { brandKey: b.brandKey });
+      template.settings.createdByName = [me?.firstName, me?.lastName].filter(Boolean).join(" ") || me?.email || null;
+      const [row] = await db.insert(esignTemplates).values({
+        organizationId: orgId, slug: await esignUniqueSlug(orgId, template.name), name: template.name, description: template.description,
+        brand: template.brand, content: template.content, variables: template.variables, form: template.form, settings: template.settings as any, active: true,
+      }).returning();
+      res.json(esignTplOut(row));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.put("/api/admin/esign/templates/:id", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const b = req.body ?? {};
+      const prev = (t.settings ?? {}) as Record<string, any>;
+      const { template, problems } = cleanTemplate({ ...b, settings: { ...(b.settings ?? {}), openLink: prev.openLink ?? null, createdByName: prev.createdByName ?? null } }, { brandKey: b.brandKey });
+      if (template.settings.published && problems.length) return res.status(400).json({ message: "Fix these before publishing:", problems });
+      // Unpublishing switches the open link off — a draft must never be signable.
+      if (!template.settings.published && template.settings.openLink) template.settings.openLink = { ...template.settings.openLink, enabled: false };
+      const [row] = await db.update(esignTemplates).set({
+        name: template.name, slug: await esignUniqueSlug(orgId, template.name, t.id), description: template.description,
+        brand: template.brand, content: template.content, variables: template.variables, form: template.form, settings: template.settings as any,
+      }).where(eq(esignTemplates.id, t.id)).returning();
+      res.json({ ...esignTplOut(row), problems });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/esign/templates/:id/duplicate", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const name = `${t.name} (copy)`.slice(0, 120);
+      const [row] = await db.insert(esignTemplates).values({
+        organizationId: orgId, slug: await esignUniqueSlug(orgId, name), name, description: t.description,
+        brand: t.brand, content: t.content, variables: t.variables, form: t.form,
+        settings: { ...((t.settings ?? {}) as any), published: false, openLink: null, createdByName: [me?.firstName, me?.lastName].filter(Boolean).join(" ") || null },
+        active: true,
+      }).returning();
+      res.json(esignTplOut(row));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Archive, never delete: documents already sent keep pointing at it.
+  app.post("/api/admin/esign/templates/:id/archive", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const st = { ...((t.settings ?? {}) as any) };
+      if (st.openLink) st.openLink = { ...st.openLink, enabled: false };
+      await db.update(esignTemplates).set({ active: false, settings: st }).where(eq(esignTemplates.id, t.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // The exact PDF a signer will get, from the editor's current (unsaved) state.
+  app.post("/api/admin/esign/templates/preview", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const b = req.body ?? {};
+      const { template } = cleanTemplate(b, { brandKey: b.brandKey });
+      const values: Record<string, string> = {};
+      for (const v of template.variables) values[v.key] = v.default || `[${v.label}]`;
+      for (const f of template.form) values[f.key] = `[${f.label}]`;
+      const { renderNativePdf } = await import("./esign-native-pdf");
+      const bytes = await renderNativePdf({
+        brand: template.brand as any, settings: template.settings as any, content: template.content as any, values,
+        formSpec: template.form.map((f) => ({ key: f.key, label: f.label, type: f.type, required: f.required })) as any,
+        formData: null, refereeEmail: null,
+        parties: [
+          { role: template.settings.counterSignerRole, name: null, signatureImage: null, signedAt: null },
+          { role: template.settings.primarySignerRole, name: null, signatureImage: null, signedAt: null },
+        ] as any,
+        guardian: null, logoBytes: await esignLogoBytes(template.brand.logoUrl), envelopeId: null,
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
+      res.send(Buffer.from(bytes));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Rambo drafts (or redrafts) a template. Returns a draft; never saves or sends.
+  app.post("/api/admin/esign/templates/rambo", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const prompt = String(req.body?.prompt ?? "").trim().slice(0, 4000);
+      if (prompt.length < 8) return res.status(400).json({ message: "Tell Rambo what the agreement is for." });
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      const limit = ramboDailyLimitFor((me as any)?.mailerAiDailyLimit);
+      const used = await ramboUsedToday(req.session.userId!);
+      if (used >= limit) return res.status(429).json({ message: limit === 0 ? "Rambo is switched off for your account. A super admin can turn it on in Team." : `You've used today's ${limit} Rambo prompts. It resets at midnight NZ time.` });
+      const slug = await esignOrgSlug(orgId);
+      const brandKey = ESIGN_BRANDS[req.body?.brandKey] ? req.body.brandKey : (ESIGN_BRAND_FOR_ORG_SLUG[slug] ?? "usg");
+      const existing = req.body?.template ? cleanTemplate(req.body.template, { brandKey }).template : null;
+      const out = await draftEsignTemplate({
+        prompt, brandKey, brandLabel: ESIGN_BRAND_LABELS[brandKey] ?? "United Sports Group",
+        legalEntity: ["prints", "usc", "usg", "cugc"].includes(brandKey) ? (ESIGN_BRAND_LABELS[brandKey] ?? "United Sports Group") : "Christchurch United Football Club Incorporated",
+        existing, userId: req.session.userId!, orgId,
+      });
+      if ("error" in out) return res.status(502).json({ message: out.error });
+      res.json({ ...out, brandKey });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Switch a template's open link on (with the club's signature) or off.
+  app.post("/api/admin/esign/templates/:id/open-link", requireAuth, requireTab("esign"), async (req, res) => {
+    try {
+      const orgId = await esignOrgId(req);
+      const t = await esignTplForOrg(parseInt(String(req.params.id)), orgId);
+      if (!t) return res.status(404).json({ message: "Template not found" });
+      const st = { ...((t.settings ?? {}) as any) };
+      const b = req.body ?? {};
+      if (b.enabled !== true) {
+        if (st.openLink) st.openLink = { ...st.openLink, enabled: false };
+        await db.update(esignTemplates).set({ settings: st }).where(eq(esignTemplates.id, t.id));
+        return res.json(esignTplOut({ ...t, settings: st }));
+      }
+      const { template, problems } = cleanTemplate({ ...t, settings: { ...st, published: isPublished(st) } }, { brandKey: brandKeyOf(t.brand as any) });
+      if (!isPublished(st)) return res.status(400).json({ message: "Publish the template before opening a link to it." });
+      const more = [...problems, ...openLinkProblems(template)];
+      if (more.length) return res.status(400).json({ message: "Fix these first:", problems: more });
+      const signatureName = esignClean(b.signatureName, 120);
+      if (!signatureName || b.consent !== true) return res.status(400).json({ message: "Type your name and agree to sign for the club — every agreement from this link opens already signed by you." });
+      const signatureImage = typeof b.signatureImage === "string" && b.signatureImage.startsWith("data:image") ? b.signatureImage.slice(0, 400000) : null;
+      const me = (await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!)))[0];
+      if (!me?.email) return res.status(400).json({ message: "Your account needs an email address to sign for the club." });
+      st.openLink = {
+        enabled: true, token: st.openLink?.token || esignToken(),
+        clubSignature: { name: signatureName, image: signatureImage, userId: me.id, email: me.email, adoptedAt: new Date().toISOString() },
+      };
+      await db.update(esignTemplates).set({ settings: st }).where(eq(esignTemplates.id, t.id));
+      res.json(esignTplOut({ ...t, settings: st }));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Public: the template's open link ───────────────────────────────────────
+  async function esignTplByOpenToken(token: string) {
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
+    const [t] = await db.select().from(esignTemplates).where(and(eq(esignTemplates.active, true), sql`${esignTemplates.settings}->'openLink'->>'token' = ${token}`));
+    const st = (t?.settings ?? {}) as any;
+    if (!t || st.openLink?.enabled !== true || !isPublished(st) || !st.openLink?.clubSignature) return null;
+    return t;
+  }
+
+  app.get("/api/public/agree/:token", async (req, res) => {
+    try {
+      const t = await esignTplByOpenToken(String(req.params.token));
+      if (!t) return res.status(404).json({ message: "This link isn't open any more. Ask the club for a new one." });
+      const st = (t.settings ?? {}) as any;
+      res.json({ name: t.name, description: t.description, brand: t.brand, docTitle: (t.content as any)?.docTitle ?? t.name, primarySignerRole: st.primarySignerRole ?? "The Signer" });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Start an agreement from the open link: creates it ALREADY SIGNED by the club
+  // (the signature adopted when the link was opened) and hands back the signer's
+  // own signing token. 🔴 Nothing is emailed to the address typed here until the
+  // person has signed — a form that mails what is typed into it is a spam relay.
+  app.post("/api/public/agree/:token", async (req, res) => {
+    try {
+      const t = await esignTplByOpenToken(String(req.params.token));
+      if (!t) return res.status(404).json({ message: "This link isn't open any more. Ask the club for a new one." });
+      const b = req.body ?? {};
+      if (String(b.website ?? "").trim()) return res.json({ ok: true, token: null }); // honeypot: same shape, nothing made
+      const email = String(b.email ?? "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return res.status(400).json({ message: "Please enter a valid email address — your signed copy is sent there." });
+      const name = esignClean(b.name, 120);
+      if (!name || name.length < 2) return res.status(400).json({ message: "Please enter your full name." });
+      const ip = esignIp(req);
+      const recent = esignRows(await db.execute(sql`SELECT count(*)::int AS n FROM esign_events WHERE type = 'created' AND ip = ${ip} AND meta->>'via' = 'open_link' AND created_at > now() - interval '1 hour'`));
+      if (Number((recent[0] as any)?.n ?? 0) >= 20) return res.status(429).json({ message: "Too many agreements started from here in the last hour. Try again later." });
+
+      const st = (t.settings ?? {}) as any;
+      const club = st.openLink.clubSignature;
+      const templateData: Record<string, string> = {};
+      for (const v of (t.variables ?? []) as any[]) {
+        let raw = String(v.default ?? "");
+        if (v.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) raw = esignFmtDateNZ(raw);
+        templateData[v.key] = raw.slice(0, 200);
+      }
+      const [doc] = await db.insert(esignDocuments).values({
+        organizationId: t.organizationId, title: `${t.name} — ${name}`.slice(0, 160), message: null, status: "sent", sentAt: new Date(),
+        sequential: true, docType: "native", templateId: t.id, templateData,
+        sourceFileName: null, sourcePdf: "", docHash: "", createdBy: club.userId ?? null,
+      }).returning();
+      const now = new Date();
+      const [clubRow] = await db.insert(esignSigners).values({
+        documentId: doc.id, organizationId: t.organizationId, name: club.name, email: club.email,
+        signingOrder: 0, isFormSigner: false, token: esignToken(), status: "signed",
+        signatureName: club.name, signatureImage: club.image ?? null, signedAt: now, consentedAt: now,
+      }).returning();
+      const [signer] = await db.insert(esignSigners).values({
+        documentId: doc.id, organizationId: t.organizationId, name, email,
+        signingOrder: 1, isFormSigner: true, token: esignToken(),
+      }).returning();
+      const sourceBytes = await esignRenderNativeDoc(doc, t, false);
+      await db.update(esignDocuments).set({ sourcePdf: Buffer.from(sourceBytes).toString("base64"), docHash: esignSha(Buffer.from(sourceBytes)) }).where(eq(esignDocuments.id, doc.id));
+      await esignLog(doc.id, null, "created", { actorEmail: email, ip, userAgent: req.headers["user-agent"], meta: { via: "open_link", template: t.slug } });
+      await esignLog(doc.id, clubRow.id, "signed", { actorEmail: club.email, ip: null, meta: { via: "open_link", adoptedSignature: true, adoptedAt: club.adoptedAt } });
+      res.json({ ok: true, token: signer.token });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -19380,6 +19727,44 @@ export async function registerRoutes(
     }
   });
 
+  // Recent bookings for the camp page's bottom-left "A family booked …" toast
+  // (Daniel 2026-11-07, the MFL /recent pattern). REAL paid bookings only —
+  // status 'confirmed' (never pending, never refunded), last 30 days, THIS
+  // camp. 🔴 These are children: no name, no suburb, no email — only how many
+  // children, how many days, which session kind, and when. Nothing invented:
+  // no bookings → an empty list → the page shows nothing.
+  app.get("/api/public/camps/:slug/recent", async (req, res) => {
+    try {
+      const camp = await storage.getProgramBySlug(req.params.slug);
+      if (!camp || !camp.isActive) return res.json({ bookings: [] });
+      const rows = await db.execute(sql`
+        SELECT coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') AS at,
+               count(DISTINCT ri.child_id)::int AS children,
+               count(DISTINCT ri.camp_date_id)::int AS days,
+               bool_and(ri.product_type = 'FULL_DAY') AS all_full,
+               bool_and(ri.product_type IN ('MORNING','AFTERNOON')) AS all_half
+          FROM registrations r
+          JOIN registration_items ri ON ri.registration_id = r.id AND ri.camp_date_id IS NOT NULL
+         WHERE r.program_id = ${camp.id}
+           AND r.status = 'confirmed'
+           AND coalesce(r.paid_at, r.registered_at AT TIME ZONE 'UTC') >= now() - interval '30 days'
+         GROUP BY r.id, r.paid_at, r.registered_at
+         ORDER BY 1 DESC
+         LIMIT 8`);
+      const list: any[] = (rows as any).rows ?? (rows as any);
+      const bookings = list
+        .filter((b) => Number(b.days) > 0)
+        .map((b) => ({
+          at: new Date(b.at).toISOString(),
+          children: Math.max(1, Number(b.children) || 1),
+          days: Number(b.days),
+          kind: b.all_full ? "full" : b.all_half ? "half" : "mixed",
+        }));
+      res.set("Cache-Control", "public, max-age=120");
+      res.json({ bookings });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.get("/api/public/resolve-domain", async (req, res) => {
     try {
       const hostname = (req.query.hostname as string || "").toLowerCase().trim();
@@ -19439,6 +19824,17 @@ export async function registerRoutes(
       });
       if (!hdyhau.ok) return res.status(400).json({ code: "hdyhau_required", message: hdyhau.message });
 
+      // A camp that hands every child a shirt asks each child's size — checked
+      // here, before a contact, a child or a PaymentIntent is written.
+      const shirtSetting = campShirtSize(campPageContentOf((camp as any).pageContentJson));
+      if (shirtSetting.ask) {
+        for (const c of (Array.isArray(childrenData) ? childrenData : [])) {
+          if (!String(c?.firstName ?? "").trim()) continue;
+          const err = shirtSizeError(c?.shirtSize);
+          if (err) return res.status(400).json({ code: "shirt_size_required", message: err });
+        }
+      }
+
       let parentContact = await storage.findContactByEmail(parent.email);
       if (!parentContact) {
         parentContact = await storage.createContact({
@@ -19465,6 +19861,9 @@ export async function registerRoutes(
           dateOfBirth: childData.dateOfBirth || null,
           gender: childData.gender || null,
         });
+        if (shirtSetting.ask && childData.shirtSize) {
+          await db.execute(sql`UPDATE children SET shirt_size = ${String(childData.shirtSize).trim()}, kit_sizes_updated_at = now() WHERE id = ${child.id}`);
+        }
         if (childData.allergies || childData.epiPen || childData.medicalNotes) {
           await storage.upsertChildMedical(child.id, {
             allergies: childData.allergies || null,
@@ -19678,6 +20077,12 @@ export async function registerRoutes(
           // Club Events (ticketed dinners etc.). Idempotent: an atomic status flip.
           const { markPaidByPaymentIntent } = await import("./club-events");
           await markPaidByPaymentIntent(paymentIntent);
+        } else if (paymentIntent.metadata?.kind === "cic_package" && paymentIntent.metadata?.cicPkgPaymentId) {
+          // CIC 2027 packages: a deposit, instalment or player payment. Idempotent —
+          // an atomic UPDATE ... WHERE paid_at IS NULL. MUST precede the generic
+          // registrationId branch below.
+          const { markPaidByPaymentIntent } = await import("./cic-packages");
+          await markPaidByPaymentIntent(paymentIntent);
         } else if (paymentIntent.metadata?.kind === "teampay" && paymentIntent.metadata?.teampayPlayerId) {
           // Team Pay: one squad member's share cleared. Idempotent — the flip is
           // an atomic UPDATE ... WHERE paid_at IS NULL, so a webhook retry racing
@@ -19723,6 +20128,10 @@ export async function registerRoutes(
           }
         } else if (registrationId) {
           await handlePaymentSuccess(registrationId, paymentIntent.id, paymentIntent.metadata);
+          if (paymentIntent.metadata?.registrationType === "academy") {
+            const { stampPaidMethod } = await import("./bank-debit");
+            await stampPaidMethod(registrationId, paymentIntent);
+          }
         }
         const facilityGroupId = paymentIntent.metadata?.facilityBookingGroupId;
         if (facilityGroupId) {
@@ -19733,12 +20142,26 @@ export async function registerRoutes(
             console.error("[Stripe Webhook] Facility booking confirm failed:", e);
           }
         }
+      } else if (event.type === "payment_intent.processing") {
+        // NZ bank direct debit submitted (the browser's confirm call usually got
+        // here first; this covers a parent who closed the tab). Idempotent.
+        const paymentIntent = event.data.object as any;
+        const registrationId = parseInt(paymentIntent.metadata?.registrationId);
+        if (paymentIntent.metadata?.registrationType === "academy" && registrationId) {
+          const { markBankDebitClearing } = await import("./bank-debit");
+          await markBankDebitClearing(registrationId, paymentIntent);
+        }
       } else if (event.type === "payment_intent.payment_failed") {
         const paymentIntent = event.data.object as any;
         const regType = paymentIntent.metadata?.registrationType;
         const registrationId = parseInt(paymentIntent.metadata?.registrationId);
         if (regType === "league_balance" && registrationId) {
           await handleLeagueBalanceFailed(registrationId);
+        } else if (regType === "academy" && registrationId) {
+          // A bank debit that was clearing has failed. Only acts on one that WAS
+          // clearing (a declined card is retried on the spot and needs no email).
+          const { markBankDebitFailed } = await import("./bank-debit");
+          await markBankDebitFailed(registrationId, paymentIntent);
         } else if (regType === "league_share") {
           // Split Pay: a member's share charge declined → flag them failed so the
           // hub prompts a retry (or the captain resolves). Never re-splits others.
@@ -19952,6 +20375,18 @@ export async function registerRoutes(
           }
           await handlePaymentSuccess(reg.id, pi.id, pi.metadata as any);
           return res.json({ ok: true });
+        }
+        // NZ bank direct debit: submitted, clears in 2–3 working days. NOT a
+        // registration yet (unpaid is not registered) — record it and tell the
+        // family; the payment_intent.succeeded webhook confirms it later.
+        if (pi.status === "processing" && pi.metadata?.registrationType === "academy") {
+          const metaRegistrationId = pi.metadata?.registrationId;
+          if (metaRegistrationId && parseInt(metaRegistrationId) !== reg.id) {
+            return res.status(403).json({ message: "Registration mismatch" });
+          }
+          const { markBankDebitClearing } = await import("./bank-debit");
+          await markBankDebitClearing(reg.id, pi);
+          return res.json({ ok: true, processing: true });
         }
         return res.status(400).json({ message: "Payment not completed" });
       }
@@ -26300,18 +26735,19 @@ export async function registerRoutes(
       // Who is on each class, and who could not be placed on any.
       const onClass = new Map<string, number>();
       const unplaced: { id: number; name: string; programName: string; optionLabel: string; reason: string }[] = [];
+      // Every paid child is on every class of their programme (onClassRoll).
+      // Only a programme with no timetable in ClubOS leaves someone off.
+      const termClasses = allClasses(term.id);
       for (const r of paid) {
-        const placement = classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id);
-        if (!placement.placed) {
+        const ids = termClasses.filter((c) => onClassRoll(r.programSlug, c.id, term.id)).map((c) => c.id);
+        if (ids.length === 0) {
           unplaced.push({
             id: r.id, name: r.gymnastName, programName: r.programName, optionLabel: r.optionLabel,
-            reason: placement.reason === "not-recorded"
-              ? "No class was recorded at sign-up"
-              : "This programme has no timetable in ClubOS",
+            reason: "This programme has no timetable in ClubOS",
           });
           continue;
         }
-        for (const id of placement.classIds) onClass.set(id, (onClass.get(id) ?? 0) + 1);
+        for (const id of ids) onClass.set(id, (onClass.get(id) ?? 0) + 1);
       }
 
       const marks = await db.select({ classId: cugcAttendance.classId, sessionDate: cugcAttendance.sessionDate })
@@ -26373,7 +26809,7 @@ export async function registerRoutes(
         .where(and(eq(cugcRegistrations.organizationId, orgId), eq(cugcRegistrations.term, term.name)));
       const expected = regos
         .filter((r) => CUGC_ON_ROLL.includes(r.status))
-        .filter((r) => classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id));
+        .filter((r) => onClassRoll(r.programSlug, klass.id, term.id));
 
       const marks = expected.length
         ? await db.select().from(cugcAttendance).where(and(
@@ -26409,6 +26845,8 @@ export async function registerRoutes(
               dob: r.gymnastDob,
               programName: r.programName,
               optionLabel: r.optionLabel,
+              // The class they picked at sign-up — a hint, never a filter.
+              booked: classesForRegistration(r.programSlug, r.optionLabel, r.sessionTime, term.id).classIds.includes(klass.id),
               parentName: r.parentName,
               phone: r.phone,
               medical: r.medical,
@@ -26450,8 +26888,8 @@ export async function registerRoutes(
       if (!rego) return res.status(404).json({ message: "No such enrolment." });
       if (rego.term !== term.name) return res.status(400).json({ message: "That enrolment is for a different term." });
       if (!CUGC_ON_ROLL.includes(rego.status)) return res.status(400).json({ message: "That enrolment isn't paid." });
-      if (!classesForRegistration(rego.programSlug, rego.optionLabel, rego.sessionTime, term.id).classIds.includes(klass.id)) {
-        return res.status(400).json({ message: "That child isn't in this class." });
+      if (!onClassRoll(rego.programSlug, klass.id, term.id)) {
+        return res.status(400).json({ message: "That child isn't in this programme." });
       }
 
       const where = and(
@@ -26558,11 +26996,19 @@ export async function registerRoutes(
 
   // The programmes a send can be aimed at — derived from what families have
   // actually signed up to, so the picker can never offer an empty programme.
-  app.get("/api/admin/cugc/mailer/programs", requireAuth, requireTab("cugc-mailer"), async (_req, res) => {
+  app.get("/api/admin/cugc/mailer/programs", requireAuth, requireTab("cugc-mailer"), async (req, res) => {
     try {
       const orgId = await cugcOrgId();
       const unsub = await getUnsubscribedEmails(orgId);
+      const group: CugcGroup = CUGC_GROUPS.includes(req.query.group as any) ? (req.query.group as CugcGroup) : "confirmed";
+      const termId = String(req.query.term || "");
+      cugcTermById(termId); // refuse an unknown term
+      const count = async (programSlug: string | null) =>
+        (await resolveCugcAudience(orgId, { audience: "program", programSlug, group, termId }))
+          .filter((r) => !unsub.has(r.email)).length;
+      // Every programme on the website, plus any older one that still has sign-ups.
       const seen = new Map<string, { slug: string; name: string; count: number }>();
+      for (const p of CUGC_PROGRAMS) seen.set(p.slug, { slug: p.slug, name: p.title, count: 0 });
       const regs = await db.select({ slug: cugcRegistrations.programSlug, name: cugcRegistrations.programName })
         .from(cugcRegistrations).where(eq(cugcRegistrations.organizationId, orgId));
       const trials = await db.select({ slug: cugcFreeSessions.programSlug, name: cugcFreeSessions.programName })
@@ -26571,11 +27017,15 @@ export async function registerRoutes(
         if (!r.slug) continue;
         if (!seen.has(r.slug)) seen.set(r.slug, { slug: r.slug, name: r.name || r.slug, count: 0 });
       }
-      for (const p of Array.from(seen.values())) {
-        const people = await resolveCugcAudience(orgId, { audience: "program", programSlug: p.slug });
-        p.count = people.filter((r) => !unsub.has(r.email)).length;
-      }
-      res.json({ programs: Array.from(seen.values()).sort((a, b) => b.count - a.count) });
+      for (const p of Array.from(seen.values())) p.count = await count(p.slug);
+      const today = nzTodayIso();
+      res.json({
+        programs: Array.from(seen.values()),
+        allCount: await count(null),
+        // Newest first; the default is the term running now (or the one being sold).
+        terms: [...CUGC_TERMS].reverse().map((t) => ({ id: t.id, name: t.name, status: termStatus(t, today) })),
+        defaultTermId: (defaultTerm(today) ?? CUGC_TERMS[CUGC_TERMS.length - 1]).id,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -26670,7 +27120,7 @@ export async function registerRoutes(
         fromEmail: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>",
         replyTo: replyTo || "info@cugc.co.nz",
         segmentType: `cugc_${aud}`,
-        segmentConfig: JSON.stringify({ orgId, audience: aud, programSlug: programSlug || null, emails: recipients }),
+        segmentConfig: JSON.stringify({ orgId, audience: aud, programSlug: programSlug || null, group: req.body?.group || null, termId: req.body?.termId || null, emails: recipients }),
         recipientCount: recipients.length, status: "sending",
       }).returning();
 
@@ -27593,6 +28043,8 @@ export async function registerRoutes(
   // Shop — native e-commerce module (MFL Store pilot). All routes live in
   // server/shop-routes.ts; the only other touchpoint is the webhook branch above.
   registerShopRoutes(app);
+  registerShopOrdersHubRoutes(app);
+  (await import("./eship")).registerEshipRoutes(app);
 
   // PayShare's inbound hooks + the participant pay bridge. Settlement is
   // injected rather than imported so payshare-routes.ts never has to reach back
@@ -27615,17 +28067,51 @@ export async function registerRoutes(
   registerMailerAiRoutes(app);
   registerMailerImageRoutes(app);
   // A/B tests, click tracking and "preview as a person" (2026-10-27).
-  const mailerTestDeps = { runBroadcastQueue, cufcUnsubUrl, predictorOrgId, getUnsubscribedEmails };
+  // A campaign's later steps (an A/B winner, a click) run in the workspace that
+  // SENT it — its unsubscribe list, link and audience — never CUFC's by default.
+  const mailerWsForCampaign = async (c: { organizationId?: number | null }): Promise<MailerWs> => {
+    const [org] = c.organizationId != null
+      ? await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations).where(eq(organizations.id, c.organizationId))
+      : [];
+    return mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+  };
+  const mailerTestDeps = {
+    runBroadcastQueue, getUnsubscribedEmails,
+    forCampaign: async (c: { organizationId?: number | null }) => {
+      const ws = await mailerWsForCampaign(c);
+      return {
+        orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName,
+        audience: (segmentType: string, cfg: any, manual?: string[]) => resolveWorkspaceMailerAudience(ws, segmentType, cfg, manual),
+      };
+    },
+    forRequest: async (req: any) => {
+      const org = await workspaceOrg(req);
+      const ws = mailerWsFor(org ?? { id: await predictorOrgId(), slug: "christchurch-united" });
+      return { orgId: ws.orgId, unsubOrg: ws.unsubOrg, unsubUrl: ws.unsubUrl, listName: ws.listName };
+    },
+  };
   registerMailerTestRoutes(app, mailerTestDeps);
   startMailerTests(mailerTestDeps);
   // Content Studio (2026-10-27): graphics, landing pages on the brand hosts
   // (/p/:slug), video requests. Universal, requireAuth.
   registerStudioRoutes(app);
+  registerStudioVideoRoutes(app);
   registerRamboRoutes(app);
+  // Website (2026-11-01): staff write the club sites' news; the sites build
+  // from /api/public/site/:key. Per-site grants decide who may publish.
+  registerSiteRoutes(app);
+  startSiteScheduler();
   // Mailer → Automations (2026-10-25). The unsubscribe link and the opt-out
   // list are handed in so the secret stays in one file.
   {
-    const automationDeps = { unsubUrl: cufcUnsubUrl, unsubscribed: getUnsubscribedEmails };
+    // Each workspace's own unsubscribe link and list (One Mailer, 2026-11-14).
+    const orgSlugById = new Map((await db.select({ id: organizations.id, slug: organizations.slug }).from(organizations)).map((o) => [o.id, o.slug]));
+    const wsById = (orgId: number) => mailerWsFor({ id: orgId, slug: orgSlugById.get(orgId) ?? "" });
+    const automationDeps = {
+      unsubUrl: (orgId: number, email: string) => wsById(orgId).unsubUrl(email),
+      unsubscribed: (orgId: number) => getUnsubscribedEmails(wsById(orgId).unsubOrg),
+      listName: (orgId: number) => wsById(orgId).listName,
+    };
     registerMailerAutomationRoutes(app, automationDeps);
     startMailerAutomations(automationDeps);
   }
@@ -27653,6 +28139,22 @@ export async function registerRoutes(
   // across the group (websites, forms, ads, social) in one place; group
   // workspace only. See server/marketing-hub/ and shared/marketing-hub.ts.
   registerMarketingHubRoutes(app);
+  // Social media — Marketing → Social media: every brand's accounts, posts and
+  // follower history. Group workspace only. See server/social/ and shared/social.ts.
+  registerSocialRoutes(app);
+  // Website analytics — Marketing → Website analytics: one site in depth.
+  registerWebAnalyticsRoutes(app);
+  // Email · SMS · Paid ads · WhatsApp — one report tab each under Marketing.
+  registerMarketingChannelRoutes(app);
+  // Campaigns — plan a campaign, set its goal, watch it move from real sales.
+  // Funnels first: "/funnels" must be matched ahead of the campaign "/:id".
+  registerFunnelRoutes(app);
+  registerCampaignRoutes(app);
+  registerOfflineMarketingRoutes(app);
+  registerMarketingMoreRoutes(app);
+  registerMarketingIdeasRoutes(app);
+  // SIU Performance Hub (2026-11-14): staff API + the player's phone check-in.
+  registerPerformanceRoutes(app);
   // Google Ads: the scheduled-upload conversions CSV + the hub's attribution check.
   registerGoogleAdsRoutes(app);
 
@@ -29260,15 +29762,66 @@ function cugcUnsubUrl(orgId: number, email: string): string {
 
 type CugcContact = { name: string; email: string; phone: string; role: string; program: string };
 export type CugcAudience = "newsletter" | "all" | "program" | "custom";
+/** Who inside a programme a send is for (Daniel, 2026-11-14: "all confirmed in
+ *  that program for current term or previous term … and a separate one for free
+ *  trialists per program and per term"). Two lists, never mixed:
+ *    confirmed — PAID enrolments only (if you ain't paid you ain't registered),
+ *                in the term STAMPED on the row (cugc_registrations.term)
+ *    trial     — free-session bookings (not cancelled) whose class DATE falls in
+ *                the term — a trial carries no term column, its date decides */
+export type CugcGroup = "confirmed" | "trial";
+const CUGC_GROUPS: CugcGroup[] = ["confirmed", "trial"];
+/** termId "" / null = any term. An unknown id is refused, never widened to all. */
+function cugcTermById(termId: string | null | undefined) {
+  if (!termId) return null;
+  const t = CUGC_TERMS.find((x) => x.id === termId);
+  if (!t) throw new Error("Unknown term");
+  return t;
+}
 
 // Every CUGC contact, tagged with where they came from. Callers filter this
 // down; the suppression list is applied by the caller (getUnsubscribedEmails).
 async function resolveCugcAudience(
   orgId: number,
-  opts?: { audience?: CugcAudience; programSlug?: string | null },
+  opts?: { audience?: CugcAudience; programSlug?: string | null; group?: CugcGroup; termId?: string | null },
 ): Promise<CugcContact[]> {
   const audience = opts?.audience || "all";
   const programSlug = opts?.programSlug || null;
+  // A "By programme" send is ONE group in ONE programme (or every programme)
+  // in ONE term (or any term). Never newsletter signups or enquiries — they
+  // carry no programme — and never both groups at once.
+  if (audience === "program") {
+    const group: CugcGroup = opts?.group === "trial" ? "trial" : "confirmed";
+    const term = cugcTermById(opts?.termId);
+    const out = new Map<string, CugcContact>();
+    const put = (c: CugcContact) => {
+      const email = (c.email || "").trim().toLowerCase();
+      if (!email || !email.includes("@") || out.has(email)) return;
+      out.set(email, { ...c, email });
+    };
+    if (group === "confirmed") {
+      const regs = await db.select().from(cugcRegistrations)
+        .where(eq(cugcRegistrations.organizationId, orgId))
+        .orderBy(desc(cugcRegistrations.createdAt));
+      for (const r of regs) {
+        if (r.status !== "paid") continue;
+        if (programSlug && r.programSlug !== programSlug) continue;
+        if (term && r.term !== term.name) continue;
+        put({ name: r.parentName || "", email: r.email || "", phone: r.phone || "", role: "Enrolled", program: r.programName || "" });
+      }
+    } else {
+      const trials = await db.select().from(cugcFreeSessions)
+        .where(eq(cugcFreeSessions.organizationId, orgId))
+        .orderBy(desc(cugcFreeSessions.createdAt));
+      for (const t of trials) {
+        if (t.status === "cancelled") continue;
+        if (programSlug && t.programSlug !== programSlug) continue;
+        if (term && !(t.sessionDate >= term.start && t.sessionDate <= term.end)) continue;
+        put({ name: t.parentName || "", email: t.email || "", phone: t.phone || "", role: "Free session", program: t.programName || "" });
+      }
+    }
+    return Array.from(out.values());
+  }
   const byEmail = new Map<string, CugcContact>();
   const add = (c: CugcContact) => {
     const email = (c.email || "").trim().toLowerCase();
@@ -29341,14 +29894,263 @@ async function resolveCugcSendList(
 
   const out = new Set<string>();
   if (audience !== "custom") {
-    const programSlug = audience === "program" ? String(body?.programSlug || "").trim() : null;
-    if (audience === "program" && !programSlug) throw new Error("Pick a programme first");
-    const people = await resolveCugcAudience(orgId, { audience, programSlug });
+    // "" programme = every programme; the group and term narrow it.
+    const programSlug = audience === "program" ? String(body?.programSlug || "").trim() || null : null;
+    const group: CugcGroup = CUGC_GROUPS.includes(body?.group) ? body.group : "confirmed";
+    const people = await resolveCugcAudience(orgId, {
+      audience, programSlug, group, termId: audience === "program" ? String(body?.termId || "") : null,
+    });
     for (const p of people) out.add(p.email);
   }
   for (const e of extras) out.add(e.trim().toLowerCase());
 
   return Array.from(out).filter((e) => !unsub.has(e));
+}
+
+// ── One Mailer, every workspace (2026-11-14) ─────────────────────────────────
+// Daniel: "make mailer same for all workspaces same as cufc so the software is
+// uniform across the board and when we update one the updates can go across
+// all workspaces." Four mailers (CUFC, MFL, CIC, Gymnastics) became ONE page
+// and ONE set of /api/admin/mailer routes. This is the one decider for what a
+// workspace's Mailer means: which unsubscribe list it honours, the link that
+// writes to it, where its people live, and who "Everyone" is.
+//
+// 🔴 The unsubscribe list follows the BRAND the family unsubscribed from, and
+// is the same list each old mailer used — CUGC families who opted out under
+// org 6 stay opted out. SIU shares CUFC's list (org 1) because every SIU send
+// before today went out with CUFC's link.
+type MailerWs = {
+  orgId: number;
+  slug: string;
+  kind: "programmes" | "cugc" | "league" | "cic";
+  /** The org whose suppression list applies, and that the link writes to. */
+  unsubOrg: number;
+  unsubUrl: (email: string) => string;
+  defaultFrom: string;
+  defaultReplyTo: string;
+  /** Whose contact list the footer names. */
+  listName: string;
+  /** Guardians with no ClubOS registration at all (Friendly Manager history)
+   *  count as this workspace's families — CUFC only. */
+  includeUntied: boolean;
+};
+
+function mailerWsFor(org: { id: number; slug: string }): MailerWs {
+  switch (org.slug) {
+    case "united-gymnastics":
+      return { orgId: org.id, slug: org.slug, kind: "cugc", unsubOrg: org.id, unsubUrl: (e) => cugcUnsubUrl(org.id, e),
+        defaultFrom: "Christchurch United Gymnastics Club <noreply@cugc.co.nz>", defaultReplyTo: "info@cugc.co.nz", listName: "Christchurch United Gymnastics Club", includeUntied: false };
+    case "mini-football-leagues":
+      return { orgId: org.id, slug: org.slug, kind: "league", unsubOrg: org.id, unsubUrl: (e) => mflUnsubUrl(org.id, e),
+        defaultFrom: "Mini Football Leagues <noreply@minifootball.co.nz>", defaultReplyTo: "minifootball@cufc.co.nz", listName: "Mini Football Leagues", includeUntied: false };
+    case "christchurch-international-cup":
+      return { orgId: org.id, slug: org.slug, kind: "cic", unsubOrg: org.id, unsubUrl: (e) => cicUnsubUrl(org.id, e),
+        defaultFrom: "Christchurch International Cup <noreply@cicyouth.com>", defaultReplyTo: "info@cicyouth.com", listName: "the Christchurch International Cup", includeUntied: false };
+    case "south-island-united":
+      return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
+        defaultFrom: "South Island United <noreply@southislandunited.com>", defaultReplyTo: "info@southislandunited.com", listName: "South Island United", includeUntied: false };
+    default:
+      // Christchurch United, and any workspace that had the Mailer through the
+      // shared camps switch before today: exactly what it did yesterday.
+      return { orgId: org.id, slug: org.slug, kind: "programmes", unsubOrg: 1, unsubUrl: (e) => cufcUnsubUrl(1, e),
+        defaultFrom: "CUFC Camps <noreply@cufc.co.nz>", defaultReplyTo: "info@cufc.co.nz", listName: "Christchurch United Football Club", includeUntied: org.slug === "christchurch-united" };
+  }
+}
+
+/** Which campaigns belong to a workspace's history. Old rows carry no org, so
+ *  the segment prefix the old mailers wrote decides; everything else is CUFC's. */
+function mailerCampaignOrgSql(ws: MailerWs) {
+  const legacy = ws.kind === "cugc" ? sql`segment_type LIKE 'cugc%'`
+    : ws.kind === "league" ? sql`segment_type LIKE 'league%'`
+    : ws.kind === "cic" ? sql`segment_type LIKE 'cic%'`
+    : ws.slug === "christchurch-united" ? sql`segment_type NOT LIKE 'cugc%' AND segment_type NOT LIKE 'league%' AND segment_type NOT LIKE 'cic%'`
+    : sql`false`;
+  return sql`(organization_id = ${ws.orgId} OR (organization_id IS NULL AND ${legacy}))`;
+}
+
+/** The same rule as mailerCampaignOrgSql, for one campaign already loaded. */
+function campaignInMailerWs(ws: MailerWs, c: { organizationId?: number | null; segmentType?: string | null }): boolean {
+  if (c.organizationId != null) return c.organizationId === ws.orgId;
+  const st = String(c.segmentType || "");
+  const tagged = st.startsWith("cugc") ? "cugc" : st.startsWith("league") ? "league" : st.startsWith("cic") ? "cic" : null;
+  if (ws.kind === "cugc" || ws.kind === "league" || ws.kind === "cic") return tagged === ws.kind;
+  return tagged === null && ws.slug === "christchurch-united";
+}
+
+const splitName = (full: string): { firstName: string | null; lastName: string | null } => {
+  const t = String(full || "").trim().replace(/\s+/g, " ");
+  if (!t) return { firstName: null, lastName: null };
+  const i = t.indexOf(" ");
+  return i < 0 ? { firstName: t, lastName: null } : { firstName: t.slice(0, i), lastName: t.slice(i + 1) };
+};
+
+function toMailerAudience(people: { name: string; email: string }[], typed: string[] = []): MailerAudience {
+  const byEmail = new Map<string, MailerRecipient>();
+  const emails: string[] = [];
+  const put = (email: string, name: string) => {
+    const e = cleanMailerEmail(email);
+    if (!e || byEmail.has(e)) return;
+    byEmail.set(e, { email: e, ...splitName(name), players: [], registered: "none" });
+    emails.push(e);
+  };
+  for (const p of people) put(p.email, p.name);
+  for (const e of typed) put(e, "");
+  return { emails, byEmail };
+}
+
+/** What "By Programme" offers in a workspace whose people are not `programs`
+ *  registrations. Rows only — the counts come from the preview. */
+async function mailerGroupCatalogue(ws: MailerWs): Promise<GroupCatalogue> {
+  if (ws.kind === "cugc") {
+    const today = nzTodayIso();
+    const def = (defaultTerm(today) ?? CUGC_TERMS[CUGC_TERMS.length - 1]).id;
+    return {
+      kind: "groups",
+      rows: [
+        { key: "who", label: "Who", initial: "confirmed", options: [
+          { value: "confirmed", label: "Confirmed families" },
+          { value: "trial", label: "Free trialists" },
+          { value: "newsletter", label: "Newsletter signups" },
+        ] },
+        { key: "term", label: "Term", initial: def, showWhen: { key: "who", values: ["confirmed", "trial"] }, options: [
+          ...[...CUGC_TERMS].reverse().map((t) => {
+            const st = termStatus(t, today);
+            return { value: t.id, label: t.name, hint: st === "active" ? "now" : st === "upcoming" ? "next" : undefined };
+          }),
+          { value: "", label: "Any term" },
+        ] },
+        { key: "program", label: "Programme", initial: "", showWhen: { key: "who", values: ["confirmed", "trial"] }, options: [
+          { value: "", label: "All programmes" },
+          ...CUGC_PROGRAMS.map((p) => ({ value: p.slug, label: p.title })),
+        ] },
+      ],
+      notes: {
+        confirmed: "Confirmed = paid enrolments for that term. Unfinished checkouts are left out.",
+        trial: "Free trialists = anyone who booked a free session with a class date in that term (cancelled bookings left out).",
+        newsletter: "Everyone who signed up to the newsletter on cugc.co.nz.",
+      },
+    };
+  }
+  if (ws.kind === "league") {
+    const comps = (await storage.getLeagueCompetitions(ws.orgId))
+      .sort((a: any, b: any) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")));
+    // Open on the term RUNNING today (else the latest one that has started),
+    // never the newest — next term has no teams yet and would read 0 people.
+    const todayIso = nzTodayIso();
+    const day = (v: any) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : "");
+    const liveComp = comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso && (!day(c.endDate) || day(c.endDate) >= todayIso))
+      ?? comps.find((c: any) => day(c.startDate) && day(c.startDate) <= todayIso)
+      ?? comps[0];
+    const divisionOptions: GroupOption[] = [{ value: "", label: "Every league" }];
+    for (const c of comps) {
+      for (const d of await storage.getLeagueDivisions(c.id)) {
+        divisionOptions.push({ value: String(d.id), label: d.name, parent: String(c.id) });
+      }
+    }
+    return {
+      kind: "groups",
+      rows: [
+        { key: "who", label: "Who", initial: "captains", options: [
+          { value: "captains", label: "Team captains" },
+          { value: "all", label: "Captains + squad players" },
+          { value: "schools", label: "Schools list" },
+        ] },
+        { key: "term", label: "Term", initial: liveComp ? String(liveComp.id) : "", showWhen: { key: "who", values: ["captains", "all"] }, options: [
+          ...comps.map((c: any) => ({ value: String(c.id), label: c.name })),
+          { value: "", label: "Every term" },
+        ] },
+        { key: "division", label: "League", initial: "", parentRow: "term", showWhen: { key: "who", values: ["captains", "all"] }, options: divisionOptions },
+      ],
+      notes: {
+        captains: "The captain of every team entered in that term.",
+        all: "Captains, plus every squad player who paid their own share through Player Pay.",
+        schools: "The Football in Schools primary-school office list.",
+      },
+    };
+  }
+  // CIC — Youth tournament or Summer 7's.
+  const tourns = (await storage.getTournaments(ws.orgId)).filter((t: any) => !t.archived);
+  const editions = (await db.selectDistinct({ y: cic7sRegistrations.editionYear }).from(cic7sRegistrations)
+    .where(eq(cic7sRegistrations.organizationId, ws.orgId)))
+    .map((r) => r.y).filter((y): y is number => y != null).sort((a, b) => b - a);
+  return {
+    kind: "groups",
+    rows: [
+      { key: "event", label: "Event", initial: "youth", options: [
+        { value: "youth", label: "CIC Youth" },
+        { value: "7s", label: "CIC 7's" },
+      ] },
+      { key: "who", label: "Who", initial: "all", showWhen: { key: "event", values: ["youth"] }, options: [
+        { value: "all", label: "Team + club contacts and staff" },
+        { value: "contacts", label: "Team + club contacts" },
+        { value: "staff", label: "Coaches and managers" },
+      ] },
+      { key: "tournament", label: "Age group", initial: "", showWhen: { key: "event", values: ["youth"] }, options: [
+        { value: "", label: "Every age group" },
+        ...tourns.map((t: any) => ({ value: String(t.id), label: t.name })),
+      ] },
+      { key: "edition", label: "Edition", initial: editions[0] ? String(editions[0]) : "", showWhen: { key: "event", values: ["7s"] }, options: [
+        ...editions.map((y) => ({ value: String(y), label: `Summer 7's ${y}` })),
+        { value: "", label: "Every edition" },
+      ] },
+    ],
+    notes: {
+      youth: "Every team's contact, every participating club's contact, and team staff with an email.",
+      "7s": "Everyone who registered interest in the Summer 7's.",
+    },
+  };
+}
+
+/** Who a non-programmes workspace's segment reaches. segmentType "all" is the
+ *  workspace's whole list; "group" is one choice from mailerGroupCatalogue;
+ *  "custom" is the typed list. Typed extras ride on top of the others. */
+async function resolveWorkspaceGroupAudience(
+  ws: MailerWs, segmentType: string, cfg: any, typedIn: string[],
+): Promise<MailerAudience> {
+  const typed = Array.from(new Set(typedIn.map(cleanMailerEmail).filter((e): e is string => !!e)));
+  if (segmentType === "custom") return toMailerAudience([], typed);
+  const c: GroupChoice = cfg?.choice && typeof cfg.choice === "object" ? cfg.choice : {};
+  const str = (k: string) => String(c[k] ?? "");
+  const num = (k: string) => { const n = parseInt(str(k)); return Number.isFinite(n) && n > 0 ? n : null; };
+  let people: { name: string; email: string }[] = [];
+  if (ws.kind === "cugc") {
+    if (segmentType === "all") people = await resolveCugcAudience(ws.orgId, { audience: "all" });
+    else if (str("who") === "newsletter") people = await resolveCugcAudience(ws.orgId, { audience: "newsletter" });
+    else people = await resolveCugcAudience(ws.orgId, {
+      audience: "program", programSlug: str("program") || null,
+      group: str("who") === "trial" ? "trial" : "confirmed", termId: str("term") || null,
+    });
+  } else if (ws.kind === "league") {
+    if (segmentType === "all") people = await resolveMflAudience(ws.orgId, { competitionId: null, audience: "all" });
+    else {
+      const who = parseMflAudience(str("who"));
+      people = await resolveMflAudience(ws.orgId, { competitionId: who === "schools" ? null : num("term"), audience: who, divisionId: who === "schools" ? null : num("division") });
+    }
+  } else if (ws.kind === "cic") {
+    if (segmentType === "all") {
+      const youth = await resolveCicAudience(ws.orgId, { source: "youth", tournamentId: null, audience: "all" });
+      const sevens = await resolveCicAudience(ws.orgId, { source: "7s", tournamentId: null, audience: "all" });
+      people = [...youth, ...sevens];
+    } else if (str("event") === "7s") {
+      people = await resolveCicAudience(ws.orgId, { source: "7s", tournamentId: null, audience: "all", edition: num("edition") });
+    } else {
+      const who = str("who") === "contacts" ? "contacts" as const : str("who") === "staff" ? "staff" as const : "all" as const;
+      people = await resolveCicAudience(ws.orgId, { source: "youth", tournamentId: num("tournament"), audience: who });
+    }
+  }
+  return toMailerAudience(people, typed);
+}
+
+/** THE audience for any workspace's Mailer — preview, send and test all call it. */
+async function resolveWorkspaceMailerAudience(
+  ws: MailerWs, segmentType: string, segmentConfig: any, manualEmails?: string[] | null,
+): Promise<MailerAudience> {
+  const cfg = segmentConfig ? (typeof segmentConfig === "string" ? JSON.parse(segmentConfig) : segmentConfig) : {};
+  if (ws.kind === "programmes") {
+    return resolveMailerAudience(segmentType, cfg, manualEmails ?? undefined, { orgId: ws.orgId, includeUntied: ws.includeUntied });
+  }
+  const typed = [...(Array.isArray(cfg?.emails) ? cfg.emails : []), ...(Array.isArray(manualEmails) ? manualEmails : [])];
+  return resolveWorkspaceGroupAudience(ws, segmentType, cfg, typed);
 }
 
 function cugcUnsubPage(message: string): string {

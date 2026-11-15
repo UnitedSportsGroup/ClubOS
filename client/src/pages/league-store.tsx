@@ -205,7 +205,7 @@ export default function LeagueStore() {
             <s.icon className="w-4 h-4" />
             {s.label}
             {s.key === "orders" && (stats?.byStatus?.paid || 0) > 0 && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${section === s.key ? "bg-white text-blue-700" : "bg-emerald-400/20 text-emerald-300"}`}>
                 {stats!.byStatus.paid}
               </span>
             )}

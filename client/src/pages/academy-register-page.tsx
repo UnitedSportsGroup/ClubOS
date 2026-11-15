@@ -331,7 +331,7 @@ function PaymentForm({
   reg: RegisterResponse;
   guardianEmail: string;
   guardianName: string;
-  onSuccess: () => void;
+  onSuccess: (outcome: "paid" | "clearing") => void;
   onError: (msg: string) => void;
 }) {
   const stripe = useStripe();
@@ -367,7 +367,24 @@ function PaymentForm({
       return;
     }
 
-    if (paymentIntent?.status === "succeeded" || paymentIntent?.status === "processing") {
+    if (paymentIntent?.status === "processing") {
+      // NZ bank direct debit: sent to the bank, clears in 2–3 working days.
+      // NOT a purchase yet — no browser Purchase pixel here. The server fires
+      // Purchase (CAPI, same event id) when the money actually lands, so a debit
+      // that fails never reaches Meta as a sale, and a debit that clears after
+      // Meta's 48-hour dedupe window is never counted twice.
+      try {
+        await fetch("/api/public/confirm-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ registrationId: reg.registrationId, paymentIntentId: paymentIntent.id }),
+        });
+      } catch { /* the processing webhook records it too */ }
+      onSuccess("clearing");
+      return;
+    }
+
+    if (paymentIntent?.status === "succeeded") {
       // Browser Purchase pixel. Deduped against the server CAPI event by the
       // shared deterministic id `purchase_<registrationId>` — Meta keeps one.
       try {
@@ -383,7 +400,7 @@ function PaymentForm({
           purchaseEventId(reg.registrationId),
         );
       } catch { /* a tracking failure must never break a paid registration */ }
-      onSuccess();
+      onSuccess("paid");
     } else {
       setError("Payment could not be completed. Please try another card.");
       setProcessing(false);
@@ -756,6 +773,7 @@ export default function AcademyRegisterPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [registerResponse, setRegisterResponse] = useState<RegisterResponse | null>(null);
   const [paymentSucceeded, setPaymentSucceeded] = useState(false);
+  const [paymentClearing, setPaymentClearing] = useState(false);
   const [blocked, setBlocked] = useState<BlockedState>(null);
 
   // Fallback confirmation state — populated only if a 3DS bank redirect sent
@@ -1232,6 +1250,17 @@ export default function AcademyRegisterPage() {
               initialPhone={guardian.phone}
             />
           </div>
+        ) : registerResponse && paymentSucceeded && paymentClearing ? (
+          <SuccessPanel
+            title="Payment on its way"
+            body={`Your bank payment for ${registerResponse.player.firstName}'s place in ${registerResponse.programme.name} has been sent. Bank payments take 2–3 working days to clear, and we'll email you to confirm the registration as soon as it has.`}
+            details={[
+              { label: "Amount", value: `${money(registerResponse.quote.totalCents)} NZD` },
+              { label: "Paying by", value: "Bank account (direct debit)" },
+              { label: "Registration no.", value: `#${registerResponse.registrationId}` },
+            ]}
+            footnote={`We've emailed ${guardian.email}. If your bank declines the payment we'll email you straight away with a link to pay another way.`}
+          />
         ) : registerResponse && paymentSucceeded ? (
           <SuccessPanel
             title="You're registered!"
@@ -1725,7 +1754,7 @@ export default function AcademyRegisterPage() {
                       reg={registerResponse}
                       guardianEmail={guardian.email}
                       guardianName={`${guardian.firstName} ${guardian.lastName}`.trim()}
-                      onSuccess={() => setPaymentSucceeded(true)}
+                      onSuccess={(outcome) => { setPaymentClearing(outcome === "clearing"); setPaymentSucceeded(true); }}
                       onError={(msg) => setSubmitError(msg)}
                     />
                   </Elements>

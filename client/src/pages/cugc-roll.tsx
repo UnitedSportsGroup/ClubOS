@@ -34,6 +34,8 @@ interface RollIndex {
 interface Child {
   registrationId: number; name: string; dob: string | null; programName: string; optionLabel: string;
   parentName: string; phone: string | null; medical: string | null;
+  /** Picked THIS class at sign-up. Everyone in the programme is on the roll. */
+  booked?: boolean;
   status: "present" | "absent" | null; markedAt: string | null; markedBy: string | null;
 }
 interface SessionRoll { class: RollClass; date: string; term: { name: string }; children: Child[] }
@@ -246,7 +248,10 @@ function SessionView({ classId, date, onBack }: { classId: string; date: string;
           {data.children.map((c) => (
             <div key={c.registrationId} className="flex items-center justify-between gap-4 p-4 flex-wrap">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-white/90 truncate">{c.name}</p>
+                <p className="text-sm font-medium text-white/90 truncate">
+                  {c.name}
+                  {c.booked && <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wider text-blue-300/80" title="Picked this class when they signed up">Booked</span>}
+                </p>
                 <p className="text-xs text-white/40 truncate">
                   {c.parentName}
                   {c.phone && (

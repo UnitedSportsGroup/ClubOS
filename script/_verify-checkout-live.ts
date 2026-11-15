@@ -80,12 +80,25 @@ for (const host of HOSTS) {
   /* The entry and every chunk it can load (dynamic imports name them "./x.js"). */
   let entryJs: string;
   try { entryJs = await get(host, entry); } catch (e: any) { bad(`could not fetch the entry: ${e.message}`); continue; }
-  const chunkNames = [...new Set([...entryJs.matchAll(/["'`]\.\/([A-Za-z0-9_-]+\.js)["'`]/g)].map((m) => m[1]))];
+  // 🔴 Follow chunks NESTED inside chunks too (2026-11-06): a page's shared
+  // helper (e.g. pages/cic-packages/common.tsx) is loaded by the page chunks,
+  // never named by the entry, and reading the entry alone missed its key and
+  // reported a dead checkout on a good deploy.
+  const refs = (js: string) => [...js.matchAll(/["'`]\.\/([A-Za-z0-9_-]+\.js)["'`]/g)].map((m) => m[1]);
+  const seen = new Set<string>(refs(entryJs));
   const files: { name: string; js: string }[] = [{ name: entry, js: entryJs }];
-  for (let i = 0; i < chunkNames.length; i += 24) {
-    const batch = chunkNames.slice(i, i + 24);
-    const got = await Promise.all(batch.map((n) => get(host, `/assets/${n}`).then((js) => ({ name: n, js })).catch(() => null)));
-    for (const g of got) if (g) files.push(g);
+  let queue = [...seen];
+  while (queue.length) {
+    const next: string[] = [];
+    for (let i = 0; i < queue.length; i += 24) {
+      const batch = queue.slice(i, i + 24);
+      const got = await Promise.all(batch.map((n) => get(host, `/assets/${n}`).then((js) => ({ name: n, js })).catch(() => null)));
+      for (const g of got) if (g) {
+        files.push(g);
+        for (const r of refs(g.js)) if (!seen.has(r)) { seen.add(r); next.push(r); }
+      }
+    }
+    queue = next;
   }
   ok(`read ${files.length} file(s) (entry + ${files.length - 1} chunk(s))`);
 

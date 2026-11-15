@@ -466,7 +466,7 @@ export function isSellableLocation(location: { code: string; kind: LocationKind 
 
 // ── Polymorphic movement / reservation references ────────────────────────────
 
-export const REF_KINDS = ["shop_order", "shopify_order", "print_order", "requisition", "loan", "po", "count"] as const;
+export const REF_KINDS = ["shop_order", "shopify_order", "print_order", "requisition", "loan", "po", "count", "transfer"] as const;
 export type RefKind = (typeof REF_KINDS)[number];
 export function isRefKind(v: unknown): v is RefKind {
   return typeof v === "string" && (REF_KINDS as readonly string[]).includes(v);
@@ -1302,4 +1302,76 @@ export function missingRequiredFields(
     .filter((t) => t.required)
     .filter((t) => readFieldValue(t.fieldType, values[t.fieldKey] ?? {}) === null)
     .map((t) => t.label);
+}
+
+// ── Shops & shop categories (2026-11-04) ─────────────────────────────────────
+// Daniel: "sort by different shops … within shops have categories … like on
+// shop website". ONE decider for which shop an item sits under and which of
+// that shop's categories, in the words each storefront uses:
+//   SIU  — siu-shop nav: Kit · Kids · Lifestyle · Headwear · Accessories
+//          (youth/kids jerseys sit under Kids, exactly as normaliseProduct does)
+//   CUFC — the shop's product types (Kits, Shirts, Shorts, Socks, Training,
+//          Jackets) + Merchandise for everything else
+//   MFL  — Kits · Shirts     CIC — Apparel · Accessories
+// Items with no shop behind them (manual adds, United Print materials, club
+// equipment) fall back to their own `category`, title-cased, else "Other".
+
+export const SHOP_ORDER: readonly BrandOwner[] = ["cufc", "siu", "mfl", "cic", "up", "club"];
+export const SHOP_SHORT_LABELS: Record<BrandOwner, string> = {
+  cufc: "CUFC", siu: "SIU", mfl: "MFL", cic: "CIC", up: "United Print", club: "Club",
+};
+
+const SHOP_CATEGORY_ORDER: Partial<Record<BrandOwner, readonly string[]>> = {
+  cufc: ["Kits", "Shirts", "Shorts", "Socks", "Training", "Jackets", "Merchandise"],
+  siu: ["Kit", "Kids", "Lifestyle", "Headwear", "Accessories"],
+  mfl: ["Kits", "Shirts"],
+  cic: ["Apparel", "Accessories"],
+};
+
+function titleCase(s: string): string {
+  return s.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+}
+
+/** The category an item shows under, in its shop's own words. `type` is the
+ *  shop product's type when the item came from a shop, else the item's own
+ *  category; `title` is the product (or item) name. */
+export function shopCategoryFor(brand: string, type: string | null | undefined, title: string): string {
+  const t = (type ?? "").toLowerCase();
+  switch (brand) {
+    case "siu":
+      if (t === "jersey" || t === "jersey-gk") return /youth|kids/i.test(title) ? "Kids" : "Kit";
+      if (t === "apparel") return "Lifestyle";
+      if (t === "headwear") return "Headwear";
+      return "Accessories";
+    case "cufc": {
+      const m: Record<string, string> = {
+        kit: "Kits", shirt: "Shirts", shorts: "Shorts", socks: "Socks", training: "Training", jacket: "Jackets",
+      };
+      return m[t] ?? "Merchandise";
+    }
+    case "mfl":
+      return t === "shirt" ? "Shirts" : "Kits";
+    case "cic":
+      return t === "accessory" ? "Accessories" : "Apparel";
+    default:
+      return t ? titleCase(t) : "Other";
+  }
+}
+
+/** Sort key for a category within its shop: the storefront's order first,
+ *  anything else alphabetically after, "Other" last. */
+export function shopCategoryRank(brand: string, category: string): [number, string] {
+  const order = SHOP_CATEGORY_ORDER[brand as BrandOwner] ?? [];
+  const i = order.indexOf(category);
+  if (i >= 0) return [i, ""];
+  return [category === "Other" ? 10_000 : 1_000, category];
+}
+
+// ── Transfers (2026-11-04, Shopify's Transfers copied) ──────────────────────
+export const TRANSFER_STATUSES = ["draft", "transferred"] as const;
+export type TransferStatus = (typeof TRANSFER_STATUSES)[number];
+export const TRANSFER_STATUS_LABELS: Record<TransferStatus, string> = { draft: "Draft", transferred: "Transferred" };
+/** #T0007 — the transfer's own id, padded the way Shopify shows it. */
+export function transferNumber(id: number): string {
+  return `#T${String(id).padStart(4, "0")}`;
 }

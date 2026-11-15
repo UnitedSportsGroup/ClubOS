@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { campSessions } from "@/lib/camp-sessions";
 import { Link } from "wouter";
 import {
   MapPin, Calendar, Users, ArrowRight, Clock, ChevronDown, ChevronUp,
@@ -200,17 +201,10 @@ export default function SiuCampPage({ data, slug, activeVariants, onBookClick }:
   // renders only once real reviews are supplied via pageContentJson.
   const pc_reviews: any[] = pc.reviews && pc.reviews.length > 0 ? pc.reviews : [];
 
-  const sessionTypes: Record<string, { label: string; timeLabel: string }> = {
-    MORNING: { label: "Morning", timeLabel: "9:00am – 12:00pm" },
-    AFTERNOON: { label: "Afternoon", timeLabel: "12:00pm – 3:00pm" },
-    FULL_DAY: { label: "Full Day", timeLabel: "9:00am – 3:00pm" },
-  };
-  const fallbackPrices: Record<string, number> = { MORNING: 3000, AFTERNOON: 3000, FULL_DAY: 5000 };
-  const priceFor = (pt: string) => {
-    const m = (pricing || []).find((p: any) => p.productType === pt);
-    return m ? m.priceCents : (fallbackPrices[pt] || 0);
-  };
-  const lowestPrice = Math.min(...["MORNING", "AFTERNOON", "FULL_DAY"].map(priceFor));
+  // Only the sessions this camp actually prices (shared with the booking form).
+  const sessions = campSessions(pricing, pc);
+  const lowestPrice = sessions.length ? Math.min(...sessions.map((s) => s.priceCents)) : 0;
+  const bestValueType = sessions.length > 1 && sessions.some((s) => s.type === "FULL_DAY") ? "FULL_DAY" : null;
 
   // Hero media: explicit image wins, then an explicitly-set Wistia video.
   // No CUFC fallback video here — the Aoraki backdrop carries the hero.
@@ -421,20 +415,20 @@ export default function SiuCampPage({ data, slug, activeVariants, onBookClick }:
               },
               {
                 icon: Clock, label: "Session Options",
-                lines: [
-                  pc.infoSessionMorning || "Morning: 9am – 12pm",
-                  pc.infoSessionAfternoon || "Afternoon: 12pm – 3pm",
-                  pc.infoSessionFullDay || "Full Day: 9am – 3pm",
-                ],
+                lines: sessions.map((s) =>
+                  (s.type === "MORNING" && pc.infoSessionMorning)
+                  || (s.type === "AFTERNOON" && pc.infoSessionAfternoon)
+                  || (s.type === "FULL_DAY" && pc.infoSessionFullDay)
+                  || `${s.label}: ${s.time}`),
                 testid: "info-card-sessions",
               },
               {
                 icon: Mountain, label: "Price",
-                lines: [
-                  pc.infoPriceMorning || `Morning $${(priceFor("MORNING") / 100).toFixed(0)}`,
-                  pc.infoPriceAfternoon || `Afternoon $${(priceFor("AFTERNOON") / 100).toFixed(0)}`,
-                  pc.infoPriceFullDay || `Full Day $${(priceFor("FULL_DAY") / 100).toFixed(0)}`,
-                ],
+                lines: sessions.map((s) =>
+                  (s.type === "MORNING" && pc.infoPriceMorning)
+                  || (s.type === "AFTERNOON" && pc.infoPriceAfternoon)
+                  || (s.type === "FULL_DAY" && pc.infoPriceFullDay)
+                  || `${s.label} $${(s.priceCents / 100).toFixed(0)}`),
                 testid: "info-card-price",
               },
             ].map((card, ci) => (
@@ -568,11 +562,12 @@ export default function SiuCampPage({ data, slug, activeVariants, onBookClick }:
           <p className="text-[14px] mb-10 text-center font-light" style={{ color: "rgba(255,255,255,0.55)" }}>
             {pc.pricingSub || "Simple online booking. Secure payment. Instant confirmation."}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-            {["MORNING", "AFTERNOON", "FULL_DAY"].map((type) => {
-              const info = sessionTypes[type] || { label: type, timeLabel: "" };
-              const isFullDay = type === "FULL_DAY";
-              const priceCents = priceFor(type);
+          <div className={`grid grid-cols-1 gap-4 mb-8 mx-auto ${sessions.length >= 3 ? "sm:grid-cols-3" : sessions.length === 2 ? "sm:grid-cols-2 max-w-2xl" : "max-w-sm"}`}>
+            {sessions.map((s) => {
+              const type = s.type;
+              const info = { label: s.label, timeLabel: s.time };
+              const isFullDay = type === bestValueType;
+              const priceCents = s.priceCents;
               return (
                 <div
                   key={type}

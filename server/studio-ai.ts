@@ -22,6 +22,7 @@ import {
 import { brandVoice, HOUSE_VOICE } from "@shared/studio-voice";
 import { BRAND_KITS, brandKit, CLUB_LOGOS } from "../client/src/components/marketing/grapes/templates/brand-kit";
 import { programmeFactsFor } from "./brand-facts";
+import { STUDIO_PHOTOS } from "@shared/studio-photos";
 
 export const STUDIO_MODEL = process.env.STUDIO_MODEL || STUDIO_DEFAULT_MODEL;
 export const STUDIO_EDIT_MODEL = process.env.STUDIO_EDIT_MODEL || STUDIO_DEFAULT_EDIT_MODEL;
@@ -37,6 +38,8 @@ export async function pictureLibrary(orgId: number, brandKey: string): Promise<{
   const own = brandKit(brandKey);
   for (const p of own.photos) out.push({ src: p.src, caption: p.alt, brand: brandKey });
   for (const p of own.products ?? []) out.push({ src: p.src, caption: `${p.alt} (product shot on white)`, brand: brandKey });
+  // The curated library (real photographs from the club's own sites, captioned).
+  for (const p of STUDIO_PHOTOS) out.push({ src: p.src, caption: `${p.caption} [${p.w}×${p.h}]`, brand: p.brand });
   for (const k of Object.values(BRAND_KITS)) {
     if (k.key === brandKey) continue;
     for (const p of k.photos) out.push({ src: p.src, caption: p.alt, brand: k.key });
@@ -52,6 +55,19 @@ export async function pictureLibrary(orgId: number, brandKey: string): Promise<{
   return out;
 }
 
+/** The pictures a prompt lists: every photo of this brand, a handful of each other brand's.
+ *  The full library is several hundred photos; listing them all in every prompt would cost
+ *  more than the design. Another brand's photos are only for pieces about that brand. */
+export function promptPictures<T extends { brand: string }>(pictures: T[], brandKey: string, perOtherBrand = 8): T[] {
+  const seen = new Map<string, number>();
+  return pictures.filter((p) => {
+    if (p.brand === brandKey) return true;
+    const n = seen.get(p.brand) ?? 0;
+    seen.set(p.brand, n + 1);
+    return n < perOtherBrand;
+  });
+}
+
 const promptCache = new Map<string, { at: number; text: string }>();
 
 async function systemPromptFor(kind: StudioKind, brandKey: string, orgId: number): Promise<string> {
@@ -61,7 +77,7 @@ async function systemPromptFor(kind: StudioKind, brandKey: string, orgId: number
   const brand = studioBrand(brandKey) ?? studioBrand("cufc")!;
   const kit = brandKit(brandKey);
   const facts = await programmeFactsFor(orgId);
-  const pictures = await pictureLibrary(orgId, brandKey);
+  const pictures = promptPictures(await pictureLibrary(orgId, brandKey), brandKey);
   const pictureList = pictures.map((p) => `- ${p.src}  (${p.brand}: ${p.caption})`).join("\n");
 
   const job = kind === "graphic"
