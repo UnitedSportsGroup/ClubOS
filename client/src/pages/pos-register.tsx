@@ -1135,7 +1135,7 @@ function KeyedCardDialog({ clientSecret, publishableKey, amountCents, accountLab
     <Dialog open onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="max-w-md bg-white text-neutral-900" data-testid="pos-keyed-dialog">
         <DialogTitle className="text-[16px] font-semibold">Type the card · {$(amountCents)}</DialogTitle>
-        <div className="text-[12.5px] text-neutral-500 -mt-2">Charged to {accountLabel}'s Stripe account. Read the card details back to the customer before charging.</div>
+        <div className="text-[12.5px] text-neutral-500 -mt-2">Charged to the {accountLabel} Stripe account. Read the card details back to the customer before charging.</div>
         {stripe ? (
           <Elements stripe={stripe} options={{ clientSecret, appearance: { theme: "stripe" } }}>
             <KeyedCardForm amountCents={amountCents} onDone={onDone} onCancel={onCancel} />
@@ -1158,7 +1158,8 @@ function KeyedCardForm({ amountCents, onDone, onCancel }: { amountCents: number;
   };
   return (
     <div className="space-y-3">
-      <PaymentElement options={{ layout: "tabs" }} />
+      {/* A card STAFF type for a customer: no Link sign-up, no wallets — just the card. */}
+      <PaymentElement options={{ layout: "tabs", wallets: { applePay: "never", googlePay: "never", link: "never" } }} />
       {err && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-800">{err}</div>}
       <div className="flex gap-2">
         <button className={btnGhost} onClick={onCancel} disabled={busy}>Cancel</button>
