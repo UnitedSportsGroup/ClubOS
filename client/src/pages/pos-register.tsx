@@ -936,7 +936,7 @@ function CounterSection({ open, registerId, registerName, onChanged }: { open: b
     onError: (e) => toast({ title: "Couldn't unlink", description: errMessage(e), variant: "destructive" }),
   });
   const c = info.data?.counter ?? null;
-  const ago = (iso: string | null) => { if (!iso) return "never"; const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString("en-NZ"); };
+  const ago = (iso: string | null) => { if (!iso) return "never"; const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString("en-NZ", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }); };
   return (
     <div className="mt-2 border-t border-neutral-200 pt-4 space-y-3" data-testid="pos-counter-section">
       <div className="text-[14px] font-semibold">Counter screen</div>
