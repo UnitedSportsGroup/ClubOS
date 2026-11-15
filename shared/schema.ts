@@ -4676,6 +4676,11 @@ export const cugcRegistrations = pgTable("cugc_registrations", {
   stripeSessionId: text("stripe_session_id"),
   stripePaymentIntent: text("stripe_payment_intent"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
+  // ── Sold at a counter (2026-11-16): the till sale that carried it, how it
+  // was paid, and who served. All NULL for a website enrolment.
+  posSaleId: integer("pos_sale_id"),
+  paymentMethod: text("payment_method"),
+  servedByUserId: integer("served_by_user_id"),
   // First/last-touch ad attribution captured on cugc.co.nz (utm_*, fbclid,
   // referrer, landing page, visit count) — the "which ad created this customer"
   // record that CAC/LTV reporting is built on.
@@ -10153,6 +10158,8 @@ export const posSaleLines = pgTable("pos_sale_lines", {
   variantId: integer("variant_id").references(() => shopVariants.id, { onDelete: "set null" }),
   productId: integer("product_id").references(() => shopProducts.id, { onDelete: "set null" }),
   registrationId: integer("registration_id").references(() => registrations.id, { onDelete: "restrict" }),
+  /** kind = cugc_registration: a United Gymnastics class (cugc_registrations), sold on a sale that banks with the gym. */
+  cugcRegistrationId: integer("cugc_registration_id").references(() => cugcRegistrations.id, { onDelete: "restrict" }),
   clubEventTicketTypeId: integer("club_event_ticket_type_id").references(() => clubEventTicketTypes.id, { onDelete: "restrict" }),
   clubEventOrderId: integer("club_event_order_id").references(() => clubEventOrders.id, { onDelete: "restrict" }),
   title: text("title").notNull(),

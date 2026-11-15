@@ -59,6 +59,7 @@ import { TILL_IDLE_MINUTES, TILL_PIN_LOCK_MINUTES, TILL_PIN_MAX_FAILS, tillPinEr
 import { requirePairedDevice, logEvent, showOnCounter, type DeviceReq } from "./pos-counter";
 import { posHandlers, loadSale, readerAccountForRegister, moneyAccountForOrg } from "./pos-routes";
 import { officeRegistration } from "./office-registration-handlers";
+import { gymCatalogue, createGymRegistration, abandonGymRegistration } from "./pos-gym";
 import { searchPeople, familySummaries, resolveFamily } from "./family-routes";
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
@@ -297,6 +298,7 @@ export function registerPosCounterTillRoutes(app: Express) {
         user: user!, until: new Date(Date.now() + TILL_IDLE_MINUTES * 60_000).toISOString(),
         saleId: sale && sale.status === "open" ? sale.id : null,
         canRegister: await holdsTab(req.tillUserId!, "contacts"),
+        canRegisterGym: await holdsTab(req.tillUserId!, "cugc-registrations"),
         handlesCash: register?.handlesCash === true,
         brands,
         defaultBrandId: brands.find((b) => b.id === register?.defaultOrgId)?.id ?? brands[0]?.id ?? null,
@@ -346,8 +348,34 @@ export function registerPosCounterTillRoutes(app: Express) {
       // Camps first in the school holidays is not something to guess — the
       // reader lists camps by their next day, then term programmes by name.
       programmes.sort((x, y) => (x.kind === y.kind ? (x.kind === "camp" ? String(x.firstDate).localeCompare(String(y.firstDate)) : x.name.localeCompare(y.name)) : x.kind === "camp" ? -1 : 1));
-      res.json({ products, programmes, codeHit: r.body.codeHit ?? null });
+      // United Gymnastics classes, only on a reader that takes cards for the
+      // gym's account — on the club's reader they could never be charged.
+      const gym = account === "cugc" ? await gymCatalogue().catch(() => null) : null;
+      res.json({ products, programmes, gym, codeHit: r.body.codeHit ?? null });
     } catch (e: any) { console.error("[TILL] catalogue", e); res.status(500).json({ message: e.message }); }
+  });
+
+  /**
+   * Register a gymnast into a United Gymnastics class and put it on the sale.
+   * The reader sends names, a date of birth, the parent's contact details and
+   * the class chosen — never a price. Answers hdyhau_required /
+   * already_registered / on_sale_already (409 + code) when it needs one more
+   * answer, exactly as /registrations does; the reader asks and sends again.
+   */
+  app.post(`${P}/gym-registrations`, ...till, async (req: TillReq, res) => {
+    try {
+      const d = req.counter!;
+      const userId = req.tillUserId!;
+      if (!(await holdsTab(userId, "cugc-registrations"))) return res.status(403).json({ message: "Registering a gymnast needs the gym's Registrations access." });
+      const sale = await ensureSale(d, userId);
+      if (sale.moneyAccount !== "cugc") return res.status(409).json({ code: "POS_BUCKET_MISMATCH", message: "This reader takes cards for the club's account, so it can't sell a gymnastics class. Use the gym's reader or the laptop." });
+      const made = await createGymRegistration(req.body ?? {}, { saleId: sale.id, userId });
+      if (!made.ok) return res.status(made.status).json({ code: made.code, message: made.message });
+      const add = await run(posHandlers.addLine, asStaff(req, userId, { params: { id: String(sale.id) }, body: { kind: "cugc_registration", cugcRegistrationId: made.row.id } }));
+      if (add.status >= 400) { await abandonGymRegistration(made.row.id); return res.status(add.status).json(add.body); }
+      await logEvent(d.id, "info", `Registered ${made.row.gymnastName} for ${made.row.programName} on ${sale.saleNumber}`, { kind: "till_gym_registration", cugcRegistrationId: made.row.id, saleId: sale.id, userId });
+      res.status(201).json({ sale: tillSaleView(await loadSale(sale.id)), guardian: { name: made.row.parentName } });
+    } catch (e: any) { console.error("[TILL] gym registration", e); res.status(500).json({ message: e.message }); }
   });
 
   // ── The sale ──────────────────────────────────────────────────────────────

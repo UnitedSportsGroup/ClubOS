@@ -43,7 +43,21 @@ export interface TillMe {
   /** The brands a typed amount may bank under — those on the reader's own account, the register's brand first. */
   brands: TillBrand[];
   defaultBrandId: number | null;
+  /** May this person register a gymnast? The gym's Registrations tab somewhere. */
+  canRegisterGym: boolean;
 }
+
+// ── United Gymnastics on the tills (2026-11-16) ─────────────────────────────
+/** One option of a gym programme, priced for the term being sold. */
+export interface TillGymOption {
+  index: number; label: string;
+  fullPriceCents: number; priceCents: number; prorated: boolean; weeksLeft: number;
+  /** The class times a family may choose this term ("Tuesday 4:00–4:45pm"); empty = no timetable (invite-only). */
+  choices: string[];
+}
+export interface TillGymProgramme { slug: string; title: string; ages: string; inviteOnly: boolean; options: TillGymOption[] }
+/** What a till may sell for the gym today — null when no term is open for enrolment. */
+export interface TillGymCatalogue { orgId: number; term: { id: string; name: string }; programmes: TillGymProgramme[] }
 
 export interface TillLine {
   id: number; kind: string; title: string; detail: string | null; qty: number;

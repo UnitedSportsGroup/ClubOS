@@ -22,7 +22,7 @@
 // 🔴 Every control is ≥48px; the screen is ~360×640 CSS px, portrait.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { $, api, Keyboard, NumPad } from "./kit";
-import { TILL_CUSTOM_LABELS, TILL_IDLE_MINUTES, TILL_PIN_LENGTH, type TillMe, type TillPerson, type TillSale, type TillStaff } from "@shared/pos-counter-till";
+import { TILL_CUSTOM_LABELS, TILL_IDLE_MINUTES, TILL_PIN_LENGTH, type TillMe, type TillPerson, type TillSale, type TillStaff, type TillGymCatalogue, type TillGymProgramme } from "@shared/pos-counter-till";
 import { HDYHAU_OPTIONS } from "@shared/hdyhau";
 import { IDENTITY_DEFER_REASONS } from "@shared/nzf-identity";
 
@@ -122,7 +122,9 @@ interface Product { id: number; orgId: number; title: string; subtitle: string |
 interface Programme {
   id: number; orgId: number; name: string; type: string; registrationOpen: boolean;
   options: { id: number; name: string; fullPriceCents: number }[];
-  kind: "academy" | "camp"; fromCents: number; firstDate?: string; lastDate?: string;
+  kind: "academy" | "camp" | "gym"; fromCents: number; firstDate?: string; lastDate?: string;
+  /** kind = gym: the United Gymnastics programme (a code catalogue, not a programs row), and the term it sells. */
+  gym?: TillGymProgramme; gymTerm?: { id: string; name: string }; ages?: string;
 }
 /** The family the last registration was for, so the next child is two taps. */
 export interface TillFamily { key?: string; guardian?: { firstName: string; lastName: string; email: string; phone: string }; name: string }
@@ -211,7 +213,7 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
   const [labelDraft, setLabelDraft] = useState("");
   const [typingLabel, setTypingLabel] = useState(false);
   const [brandId, setBrandId] = useState<number | null>(me.defaultBrandId);
-  const [catalogue, setCatalogue] = useState<{ products: Product[]; programmes: Programme[] } | null>(null);
+  const [catalogue, setCatalogue] = useState<{ products: Product[]; programmes: Programme[]; gym?: TillGymCatalogue | null } | null>(null);
   const [sale, setSale] = useState<TillSale | null>(null);
   const [picked, setPicked] = useState<Product | null>(null);
   const [registering, setRegistering] = useState<Programme | null>(null);
@@ -228,7 +230,7 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
   }, [till]);
 
   useEffect(() => {
-    api<{ products: Product[]; programmes: Programme[] }>("GET", `${T}/catalogue`).then(setCatalogue).catch(handle);
+    api<{ products: Product[]; programmes: Programme[]; gym?: TillGymCatalogue | null }>("GET", `${T}/catalogue`).then(setCatalogue).catch(handle);
     api<{ sale: TillSale | null }>("GET", `${T}/sale`).then(async (r) => {
       // A paid sale left over from the last customer: start clean.
       if (r.sale && r.sale.status !== "open") { await api("POST", `${T}/sale/next`, {}).catch(() => {}); setSale(null); }
@@ -239,7 +241,15 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
 
   const needle = q.trim().toLowerCase();
   const products = useMemo(() => (catalogue?.products ?? []).filter((p) => !needle || `${p.title} ${p.subtitle ?? ""} ${p.colours.flatMap((c) => c.variants.map((v) => v.sku ?? "")).join(" ")}`.toLowerCase().includes(needle)), [catalogue, needle]);
-  const programmes = useMemo(() => (catalogue?.programmes ?? []).filter((p) => !needle || p.name.toLowerCase().includes(needle)), [catalogue, needle]);
+  const programmes = useMemo(() => {
+    const own = (catalogue?.programmes ?? []).filter((p) => !needle || p.name.toLowerCase().includes(needle));
+    const g = catalogue?.gym;
+    if (!g || !me.canRegisterGym) return own;
+    const gym: Programme[] = g.programmes
+      .filter((p) => p.options.length && (!needle || p.title.toLowerCase().includes(needle)))
+      .map((p, i) => ({ id: -(i + 1), orgId: g.orgId, name: p.title, type: "gym", registrationOpen: !p.inviteOnly, options: [], kind: "gym" as const, fromCents: Math.min(...p.options.map((o) => o.priceCents)), gym: p, gymTerm: g.term, ages: p.ages }));
+    return [...own, ...gym];
+  }, [catalogue, needle, me.canRegisterGym]);
 
   const addVariant = async (v: Variant, qty: number, label: string) => {
     setBusy("add"); setErr(null);
@@ -284,7 +294,7 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
   if (registering) {
     const done = (s: TillSale, note: string, fam: TillFamily | null) => { setSale(s); setRegistering(null); setToast(note); if (fam) { setFamily(fam); setTab("programmes"); } };
     const props = { programme: registering, me, family, onCancel: () => setRegistering(null), onDone: done, onLocked: () => till.lock("expired") };
-    return registering.kind === "camp" ? <CampFlow {...props} /> : <RegisterFlow {...props} />;
+    return registering.kind === "gym" ? <GymFlow {...props} /> : registering.kind === "camp" ? <CampFlow {...props} /> : <RegisterFlow {...props} />;
   }
 
   return (
@@ -371,6 +381,7 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
                   <div className="text-[15px] font-semibold leading-snug">{p.name}</div>
                   {p.kind === "camp" && p.firstDate && <div className="text-[12px] text-white/50">Holiday camp · {dayLabel(p.firstDate, false)} – {dayLabel(p.lastDate ?? p.firstDate, false)}</div>}
                   {p.kind === "academy" && !p.registrationOpen && <div className="text-[12px] text-amber-300/80">Invite only</div>}
+                  {p.kind === "gym" && <div className="text-[12px] text-white/50">United Gymnastics · {p.ages}{p.gymTerm ? ` · ${p.gymTerm.name}` : ""}{!p.registrationOpen ? " · invite only" : ""}</div>}
                 </div>
                 <div className="shrink-0 text-[13px] text-white/60">from {$(p.fromCents)}{p.kind === "camp" ? "/day" : ""}</div>
               </button>
@@ -466,7 +477,7 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
                   {l.detail && <div className="truncate text-[12px] text-white/55">{l.detail}</div>}
                   <div className="text-[13px] font-semibold tabular-nums">{$(l.lineCents)}</div>
                 </div>
-                {l.kind === "registration" ? (
+                {l.kind === "registration" || l.kind === "cugc_registration" ? (
                   <button onClick={() => setQty(l.id, 0)} className="h-11 w-11 shrink-0 rounded-xl bg-white/[0.08] text-[16px]" aria-label="Remove">✕</button>
                 ) : (
                   <div className="flex shrink-0 items-center gap-1">
@@ -708,14 +719,14 @@ function PolicyTick({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 }
 
 /** Send a registration; on a "needs one more answer" code, ask, then send again with the answers so far. */
-function useRegistrationSubmit(onLocked: () => void) {
+function useRegistrationSubmit(onLocked: () => void, path: string = `${T}/registrations`) {
   const [ask, setAsk] = useState<{ code: string; message: string } | null>(null);
   const [extra, setExtra] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const send = async (body: Record<string, unknown>, more = extra): Promise<{ sale: TillSale; nzfMissing: string[]; guardian?: { name: string } } | null> => {
     setBusy(true); setErr(null);
-    try { return await api("POST", `${T}/registrations`, { ...body, ...more }); }
+    try { return await api("POST", path, { ...body, ...more }); }
     catch (e: any) {
       if (e?.status === 401) { onLocked(); return null; }
       const code = e?.data?.code;
@@ -895,6 +906,103 @@ function RegisterFlow({ programme, me, family, onCancel, onDone, onLocked }: Flo
       <div className="border-t border-white/10 px-4 pb-4 pt-3">
         <button onClick={() => submit()} disabled={sub.busy} className="h-14 w-full rounded-2xl bg-emerald-400 text-[16px] font-bold text-black disabled:opacity-50" data-testid="till-register">{sub.busy ? "Saving…" : "Add to sale"}</button>
         <div className="mt-2 text-center text-[12px] text-white/45">Served by {me.user.name}. The place is confirmed when the sale is paid.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── A United Gymnastics class: one gymnast, the class time, the parent ──────
+// The reader sends names, a date of birth and the parent's contact details —
+// never a price. The server prices the term, checks the class is on this
+// term's timetable, asks "how did you hear about us?" for a new gym family and
+// refuses a double booking before anything is written.
+const GYM_PARENT_FIELDS: FieldDef[] = [
+  { k: "gFirst", label: "Parent's first name", kind: "text" },
+  { k: "gLast", label: "Parent's last name", kind: "text" },
+  { k: "email", label: "Parent's email (the confirmation goes here)", kind: "email" },
+  { k: "phone", label: "Parent's mobile", kind: "phone" },
+];
+function GymFlow({ programme, me, onCancel, onDone, onLocked }: FlowProps) {
+  const gym = programme.gym!;
+  const [step, setStep] = useState<"option" | "time" | "child" | "parent" | "confirm">(gym.options.length === 1 ? (gym.options[0].choices.length ? "time" : "child") : "option");
+  const [optionIndex, setOptionIndex] = useState<number>(gym.options.length === 1 ? 0 : -1);
+  const [sessionTime, setSessionTime] = useState<string>("");
+  const [typed, setTyped] = useState<Typed>(EMPTY);
+  const [photo, setPhoto] = useState<"yes" | "no" | null>(null);
+  const sub = useRegistrationSubmit(onLocked, `${T}/gym-registrations`);
+  const option = optionIndex >= 0 ? gym.options[optionIndex] : null;
+  const childName = `${typed.pFirst} ${typed.pLast}`.trim();
+  const chip = (on: boolean) => `ring-1 ${on ? "bg-white text-black ring-white" : "bg-white/[0.06] ring-white/15"}`;
+  const afterOption = (i: number) => { setOptionIndex(i); setSessionTime(""); setStep(gym.options[i].choices.length ? "time" : "child"); };
+  const body = () => ({
+    programSlug: gym.slug, optionIndex, sessionTime, termId: programme.gymTerm?.id,
+    gymnast: { firstName: typed.pFirst, lastName: typed.pLast, dob: dobIso(typed.dob) },
+    parent: { name: `${typed.gFirst} ${typed.gLast}`.trim(), email: typed.email, phone: typed.phone },
+    photoConsent: photo,
+  });
+  const submit = async (more?: Record<string, unknown>) => {
+    const r = await sub.send(body(), more ?? sub.extra);
+    if (!r) return;
+    onDone(r.sale, `${childName} added`, null);
+  };
+  const eyebrow = `United Gymnastics · ${programme.name}`;
+  if (sub.ask) return <AskScreen eyebrow={eyebrow} ask={sub.ask} onBack={() => { sub.setAsk(null); setStep("confirm"); }} onAnswer={(p) => { setStep("confirm"); void submit(sub.answer(p)); }} />;
+
+  if (step === "option") {
+    return (
+      <div className="flex h-full flex-col">
+        <Head eyebrow={eyebrow} title="Which option?" onBack={onCancel} />
+        <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-4">
+          {gym.options.map((o, i) => (
+            <button key={i} onClick={() => afterOption(i)} className={`flex min-h-[60px] w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${chip(i === optionIndex)}`} data-testid="till-gym-option">
+              <span className="text-[15px] font-semibold">{o.label}</span>
+              <span className="text-[15px] font-semibold tabular-nums">{$(o.priceCents)}{o.prorated ? <span className="font-normal opacity-70"> · {o.weeksLeft} wks left</span> : null}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (step === "time" && option) {
+    return (
+      <div className="flex h-full flex-col">
+        <Head eyebrow={eyebrow} title="Which class?" onBack={() => (gym.options.length > 1 ? setStep("option") : onCancel())} />
+        <div className="mt-1 px-5 text-[13px] text-white/55">{option.label}{programme.gymTerm ? ` · ${programme.gymTerm.name}` : ""}</div>
+        <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-4">
+          {option.choices.map((c) => (
+            <button key={c} onClick={() => { setSessionTime(c); setStep("child"); }} className={`min-h-[56px] w-full rounded-2xl px-4 text-left text-[15px] font-semibold ${chip(c === sessionTime)}`} data-testid="till-gym-time">{c}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (step === "child") return <TypedFields key="child" eyebrow={eyebrow} title="The gymnast" fields={CHILD_FIELDS} value={typed} onChange={setTyped} onBack={() => setStep(option?.choices.length ? "time" : gym.options.length > 1 ? "option" : "child")} onFinish={() => setStep("parent")} finishLabel="Next: the parent" />;
+  if (step === "parent") return <TypedFields key="parent" eyebrow={eyebrow} title="The parent" fields={GYM_PARENT_FIELDS} value={typed} onChange={setTyped} onBack={() => setStep("child")} onFinish={() => setStep("confirm")} finishLabel="Next: check and add" />;
+
+  return (
+    <div className="flex h-full flex-col">
+      <Head eyebrow={eyebrow} title="Add to the sale" onBack={() => setStep("parent")} />
+      <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto px-4">
+        <div className="rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10" data-testid="till-gym-summary">
+          <div className="text-[17px] font-bold">{childName}</div>
+          <div className="mt-0.5 text-[13px] text-white/60">Parent: {`${typed.gFirst} ${typed.gLast}`.trim()}</div>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div className="text-[13.5px] text-white/70">{option?.label}{sessionTime ? ` · ${sessionTime}` : ""}{programme.gymTerm ? ` · ${programme.gymTerm.name}` : ""}</div>
+            <div className="text-[22px] font-bold tabular-nums">{option ? $(option.priceCents) : "—"}</div>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white/[0.04] px-4 py-3 ring-1 ring-white/10">
+          <div className="text-[13px] text-white/70">Photos of the gymnast may be used by the gym?</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button onClick={() => setPhoto("yes")} className={`h-11 rounded-xl text-[14px] font-semibold ${chip(photo === "yes")}`} data-testid="till-gym-photo-yes">Yes</button>
+            <button onClick={() => setPhoto("no")} className={`h-11 rounded-xl text-[14px] font-semibold ${chip(photo === "no")}`}>No</button>
+          </div>
+        </div>
+        <ErrBox err={sub.err} />
+      </div>
+      <div className="border-t border-white/10 px-4 pb-4 pt-3">
+        <button onClick={() => submit()} disabled={sub.busy || !option} className="h-14 w-full rounded-2xl bg-emerald-400 text-[16px] font-bold text-black disabled:opacity-50" data-testid="till-gym-register">{sub.busy ? "Saving…" : "Add to sale"}</button>
+        <div className="mt-2 text-center text-[12px] text-white/45">Served by {me.user.name}. The place is confirmed when the sale is paid — it banks with United Gymnastics.</div>
       </div>
     </div>
   );

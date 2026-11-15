@@ -54,6 +54,7 @@ import {
   shopProducts, shopProductColours, shopProductImages, shopVariants,
   clubEvents, clubEventTicketTypes,
   posRegisters, posShifts, posSales, posSaleLines, posPayments, posRefunds, posDeclines, posOrgMoneyAccounts,
+  cugcRegistrations,
 } from "@shared/schema";
 import {
   POS_TENDERS, POS_MANUAL_TENDERS, POS_DECLINE_REASONS, POS_SELLER, POS_MONEY_ACCOUNTS,
@@ -62,8 +63,10 @@ import {
 } from "@shared/pos";
 import { stripe as clubStripe } from "./stripe";
 import { cugcStripe } from "./cugc-stripe";
-import { sendPosReceiptEmail } from "./email";
+import { sendPosReceiptEmail, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification } from "./email";
 import { liveCounterFor, showOnCounter, counterNoteForPayment } from "./pos-counter";
+import { gymCatalogue, createGymRegistration, abandonGymRegistration, gymLineText } from "./pos-gym";
+import { isPosCardTender } from "@shared/pos";
 
 const RECEIPT_BASE = process.env.POS_RECEIPT_BASE_URL || "https://app.usg.co.nz";
 
@@ -105,7 +108,7 @@ type PosHandler = (req: Request, res: Response) => Promise<unknown>;
  * and the staff PIN. One implementation of every money rule — a second copy
  * for the reader would drift the first time either changed.
  */
-export const posHandlers: Record<"catalogue" | "createSale" | "addLine" | "updateLine" | "deleteLine" | "cardPayment" | "cancelPayment" | "voidSale" | "manualPayment" | "complete", PosHandler> = {} as any;
+export const posHandlers: Record<"catalogue" | "createSale" | "addLine" | "updateLine" | "deleteLine" | "cardPayment" | "cancelPayment" | "voidSale" | "manualPayment" | "complete" | "gymRegistration", PosHandler> = {} as any;
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
 const str = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -242,6 +245,26 @@ export async function fulfilPaidSale(saleId: number): Promise<boolean> {
            WHERE id = ${line.registrationId} AND status = 'pending'
            RETURNING id`);
         if (r.rowCount) await storage.assignOrderNumber(line.registrationId).catch((e) => console.error("[POS] order number", e));
+      } else if (line.kind === "cugc_registration" && line.cugcRegistrationId) {
+        // The gym's row becomes 'paid' exactly as the cugc.co.nz webhook makes
+        // it, plus how and by whom — and the same two emails go: the family's
+        // confirmation and the gym's own notice. `WHERE status = 'pending_payment'`
+        // leaves a row paid some other way alone.
+        const cardPi = succeeded.find((p) => p.stripePaymentIntentId)?.stripePaymentIntentId ?? null;
+        const r = await db.execute(sql`
+          UPDATE cugc_registrations
+             SET status = 'paid', paid_at = now(), payment_method = ${method},
+                 served_by_user_id = ${sale.servedByUserId}, pos_sale_id = ${sale.id},
+                 stripe_payment_intent = COALESCE(${cardPi}, stripe_payment_intent)
+           WHERE id = ${line.cugcRegistrationId} AND status = 'pending_payment'
+           RETURNING *`);
+        const reg: any = r.rows[0];
+        if (reg) {
+          sendCugcEnrolmentConfirmation({ to: reg.email, parentName: reg.parent_name, gymnastName: reg.gymnast_name, programName: reg.program_name, optionLabel: reg.option_label, sessionTime: reg.session_time || undefined, term: reg.term || undefined, amount: reg.price_cents })
+            .catch((e) => console.error("[POS] gym confirmation email", e));
+          sendCugcEnrolmentNotification({ to: "info@cugc.co.nz", gymnastName: reg.gymnast_name, gymnastDob: reg.gymnast_dob || undefined, programName: reg.program_name, optionLabel: reg.option_label, sessionTime: reg.session_time || undefined, term: reg.term || undefined, amount: reg.price_cents, fullAmount: reg.full_price_cents ?? undefined, parentName: reg.parent_name, parentEmail: reg.email, phone: reg.phone || undefined, emergencyName: reg.emergency_name || undefined, emergencyPhone: reg.emergency_phone || undefined, medical: reg.medical || undefined, photoConsent: reg.photo_consent || undefined, heardVia: reg.heard_via ? `${reg.heard_via} (sold at the counter, ${posTenderLabel(method).toLowerCase()})` : `Sold at the counter, ${posTenderLabel(method).toLowerCase()}` })
+            .catch((e) => console.error("[POS] gym staff notice", e));
+        }
       } else if (line.kind === "event_ticket" && line.clubEventTicketTypeId && !line.clubEventOrderId) {
         const ce = await import("./club-events");
         const [tt] = await db.select().from(clubEventTicketTypes).where(eq(clubEventTicketTypes.id, line.clubEventTicketTypeId));
@@ -401,7 +424,16 @@ export function registerPosRoutes(app: Express) {
       const openShifts = await Promise.all(open.map(async (s) => ({ ...s, openedByName: await staffName(s.openedByUserId) })));
       const counters = new Map(await Promise.all(regs.map(async (r) => [r.id, await liveCounterFor(r.id)] as const)));
       res.json({
-        registers: regs.map((r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true, hasCounter: !!counters.get(r.id), counterOnline: counters.get(r.id)?.online === true })),
+        registers: await Promise.all(regs.map(async (r) => ({ ...r, openShift: openShifts.find((s) => s.registerId === r.id) ?? null, hasReader: !!r.stripeReaderId, handlesCash: r.handlesCash === true, hasCounter: !!counters.get(r.id), counterOnline: counters.get(r.id)?.online === true, readerAccount: await readerAccountFor(r) }))),
+        // Publishable keys are public by nature (they ship in every checkout
+        // bundle). The register needs the one for the SALE's account to draw a
+        // card field for a sale its reader cannot take — a gym sale at the club's
+        // counter. Absent = that account cannot take a typed card here.
+        stripePublishableKeys: {
+          club: process.env.STRIPE_PUBLISHABLE_KEY || null,
+          cugc: process.env.CUGC_STRIPE_PUBLISHABLE_KEY || null,
+          trust: process.env.CLUB_EVENTS_TRUST_STRIPE_PUBLISHABLE_KEY || null,
+        },
         brands: orgs.filter((o) => o.slug !== "sandbox").map((o) => ({ ...o, logoUrl: absUrl(o.logoUrl), account: buckets.find((b) => b.organizationId === o.id)?.account ?? null })),
         moneyAccounts: POS_MONEY_ACCOUNTS,
         tenders: POS_TENDERS, manualTenders: POS_MANUAL_TENDERS, declineReasons: POS_DECLINE_REASONS, seller: POS_SELLER,
@@ -627,7 +659,10 @@ export function registerPosRoutes(app: Express) {
         ticketTypes: types.filter((t) => t.eventId === e.id && (!t.salesStart || t.salesStart <= now) && (!t.salesEnd || t.salesEnd >= now)).map((t) => ({ id: t.id, name: t.name, priceCents: t.priceCents })),
       })).filter((e) => e.ticketTypes.length > 0 && (!q || e.name.toLowerCase().includes(q)));
 
-      res.json({ products: list, programmes, events: eventsOut, codeHit: codeHit ? { variantId: codeHit.id, productId: codeHit.productId } : null });
+      // United Gymnastics: a code catalogue (cugc-pricing.ts), not programs rows.
+      const gymAll = await gymCatalogue().catch((e) => { console.error("[POS] gym catalogue", e); return null; });
+      const gym = gymAll ? { ...gymAll, programmes: gymAll.programmes.filter((p) => !q || p.title.toLowerCase().includes(q)) } : null;
+      res.json({ products: list, programmes, events: eventsOut, gym, codeHit: codeHit ? { variantId: codeHit.id, productId: codeHit.productId } : null });
     } catch (e: any) { console.error("[POS] catalogue", e); res.status(500).json({ message: e.message }); }
   });
 
@@ -667,6 +702,14 @@ export function registerPosRoutes(app: Express) {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const b = req.body ?? {};
       const patch: Partial<typeof posSales.$inferInsert> = {};
+      // A sale banks with ONE account, decided before its first line. An EMPTY
+      // sale may change its mind (the register opened a club sale, the first
+      // thing added is a gym class); one with a line or a payment may not.
+      if (b.moneyAccount !== undefined) {
+        if (!isPosMoneyAccount(b.moneyAccount)) return res.status(400).json({ message: "Unknown money account." });
+        if (sale.lines.length || sale.payments.length) return res.status(409).json({ code: "POS_BUCKET_LOCKED", message: "This sale already has something on it. Finish or clear it, then start a sale for the other account." });
+        patch.moneyAccount = b.moneyAccount;
+      }
       if (b.discountCents !== undefined) {
         const d = num(b.discountCents);
         if (!Number.isFinite(d) || d < 0) return res.status(400).json({ message: "Bad discount." });
@@ -703,6 +746,43 @@ export function registerPosRoutes(app: Express) {
   });
 
   // ── Lines ─────────────────────────────────────────────────────────────────
+  /** Put a pending gym registration on a sale as a line. Null = done; else the refusal. */
+  async function addGymLine(sale: NonNullable<Awaited<ReturnType<typeof loadSale>>>, regId: number, nextSort: number): Promise<{ status: number; body: unknown } | null> {
+    const [row] = Number.isFinite(regId) ? await db.select().from(cugcRegistrations).where(eq(cugcRegistrations.id, regId)) : [];
+    if (!row) return { status: 404, body: { message: "Gym registration not found." } };
+    if (row.status !== "pending_payment") return { status: 409, body: { code: "POS_REG_STATE", message: `That gym registration is ${row.status.replace("_", " ")}, not awaiting payment.` } };
+    if ((row as any).posSaleId && (row as any).posSaleId !== sale.id) return { status: 409, body: { code: "POS_REG_TAKEN", message: "That gym registration is already in another sale." } };
+    if (row.priceCents <= 0) return { status: 409, body: { message: "That gym registration has no amount to pay." } };
+    // Said plainly BEFORE Postgres says it (pos_sale_lines_guard would refuse the line anyway).
+    const acct = await moneyAccountForOrg(row.organizationId);
+    if (acct !== sale.moneyAccount) return { status: 409, body: { code: "POS_BUCKET_MISMATCH", message: "Gymnastics classes bank with the gym's own account. Start a gymnastics sale for this — a sale takes one account only." } };
+    const text = gymLineText(row);
+    await db.insert(posSaleLines).values({
+      saleId: sale.id, kind: "cugc_registration", organizationId: row.organizationId, cugcRegistrationId: row.id,
+      title: text.title, detail: text.detail, unitCents: row.priceCents, qty: 1, lineCents: row.priceCents, sort: nextSort,
+    } as any);
+    await db.execute(sql`UPDATE cugc_registrations SET pos_sale_id = ${sale.id} WHERE id = ${row.id}`);
+    return null;
+  }
+
+  /**
+   * Register a gymnast and put the class on this sale — the laptop's door into
+   * the gym's own registration row. Answers hdyhau_required /
+   * already_registered / on_sale_already (409 + code) when it needs one more
+   * answer; the page asks and sends again.
+   */
+  app.post("/api/admin/pos/sales/:id/gym-registrations", ...gate, posHandlers.gymRegistration = async (req: Request, res: Response) => {
+    try {
+      const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
+      if (sale.moneyAccount !== "cugc") return res.status(409).json({ code: "POS_BUCKET_MISMATCH", message: "Gymnastics classes bank with the gym's own account. Start a gymnastics sale for this — a sale takes one account only." });
+      const made = await createGymRegistration(req.body ?? {}, { saleId: sale.id, userId: uid(req) });
+      if (!made.ok) return res.status(made.status).json({ code: made.code, message: made.message });
+      const err = await addGymLine(sale, made.row.id, sale.lines.length);
+      if (err) { await abandonGymRegistration(made.row.id); return res.status(err.status).json(err.body); }
+      res.status(201).json({ sale: await loadSale(sale.id), registrationId: made.row.id });
+    } catch (e: any) { if (!posError(res, e)) { console.error("[POS] gym registration", e); res.status(500).json({ message: e.message }); } }
+  });
+
   app.post("/api/admin/pos/sales/:id/lines", ...gate, posHandlers.addLine = async (req: Request, res: Response) => {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
@@ -757,6 +837,9 @@ export function registerPosRoutes(app: Express) {
           title: row.p.name, detail: [row.c.firstName, row.c.lastName].filter(Boolean).join(" "), unitCents: total, qty: 1, lineCents: total, sort: nextSort,
         });
         await db.update(registrations).set({ posSaleId: sale.id } as any).where(eq(registrations.id, row.r.id));
+      } else if (kind === "cugc_registration") {
+        const err = await addGymLine(sale, num(b.cugcRegistrationId), nextSort);
+        if (err) return res.status(err.status).json(err.body);
       } else if (kind === "event_ticket") {
         const ticketTypeId = num(b.ticketTypeId);
         const [row] = Number.isFinite(ticketTypeId) ? await db.select({ t: clubEventTicketTypes, e: clubEvents }).from(clubEventTicketTypes).innerJoin(clubEvents, eq(clubEvents.id, clubEventTicketTypes.eventId)).where(eq(clubEventTicketTypes.id, ticketTypeId)) : [];
@@ -785,7 +868,7 @@ export function registerPosRoutes(app: Express) {
       const qty = Math.round(num(req.body?.qty));
       if (!Number.isFinite(qty) || qty < 1 || qty > 100) return res.status(400).json({ message: "Quantity must be between 1 and 100." });
       // A registration is one child in one programme — it has no quantity.
-      if (line.kind === "registration") return res.status(409).json({ message: "A registration is for one player." });
+      if (line.kind === "registration" || line.kind === "cugc_registration") return res.status(409).json({ message: "A registration is for one player." });
       if (line.kind === "variant" && line.variantId) {
         const [v] = await db.select().from(shopVariants).where(eq(shopVariants.id, line.variantId));
         if (v && !canSell(v, qty)) return res.status(409).json({ code: "POS_STOCK", message: `Only ${v.stock} of that size in stock.` });
@@ -803,6 +886,7 @@ export function registerPosRoutes(app: Express) {
       await db.delete(posSaleLines).where(eq(posSaleLines.id, line.id));
       // The pending registration stays as checkout scaffolding, just unlinked.
       if (line.registrationId) await db.update(registrations).set({ posSaleId: null } as any).where(eq(registrations.id, line.registrationId));
+      if (line.cugcRegistrationId) await db.execute(sql`UPDATE cugc_registrations SET pos_sale_id = NULL WHERE id = ${line.cugcRegistrationId} AND status = 'pending_payment'`);
       res.json(await loadSale(sale.id));
     } catch (e: any) { if (!posError(res, e)) res.status(500).json({ message: e.message }); }
   });
@@ -812,7 +896,7 @@ export function registerPosRoutes(app: Express) {
     try {
       const sale = await openSaleOr409(res, num(req.params.id)); if (!sale) return;
       const method = str(req.body?.method, 20);
-      if (!isPosTender(method) || method === "card_present") return res.status(400).json({ message: "Choose how they paid: EFTPOS terminal, bank transfer or other." });
+      if (!isPosTender(method) || isPosCardTender(method)) return res.status(400).json({ message: "Choose how they paid: EFTPOS terminal, bank transfer or other." });
       // 🔴 Cashless unless the register says otherwise. Hiding the button is not
       // the same as refusing the payment — a stale tab would still post it.
       const [reg] = await db.select().from(posRegisters).where(eq(posRegisters.id, sale.registerId));
@@ -878,7 +962,12 @@ export function registerPosRoutes(app: Express) {
       // 🔴 A register with a counter screen takes the card THERE. The S710 runs
       // our app, so a server-driven prompt would never show — say "offline"
       // plainly rather than fall back to something the customer cannot see.
-      const counter = req.body?.sdk === true || req.body?.viaReader === false ? null : await liveCounterFor(sale.registerId);
+      // A card typed into the laptop's own card field, on the SALE's account:
+      // no reader, no counter screen, a PaymentIntent the browser confirms with
+      // Stripe Elements and this server then reads back (never trusted from the
+      // browser — the same /confirm as a reader payment).
+      const keyed = req.body?.keyed === true;
+      const counter = keyed || req.body?.sdk === true || req.body?.viaReader === false ? null : await liveCounterFor(sale.registerId);
       if (counter && !counter.online) {
         return res.status(409).json({ code: "POS_COUNTER_OFFLINE", message: "The counter screen is offline. Check it is switched on and connected, or take the payment on the EFTPOS terminal and record it." });
       }
@@ -890,7 +979,7 @@ export function registerPosRoutes(app: Express) {
       if (counter && (await readerAccountFor(register!)) !== sale.moneyAccount) {
         return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "The counter reader takes payments for a different Stripe account than this sale banks with. Use the EFTPOS terminal and record it." });
       }
-      const useReader = !counter && req.body?.viaReader !== false && !!register?.stripeReaderId;
+      const useReader = !counter && !keyed && req.body?.viaReader !== false && !!register?.stripeReaderId;
       if (useReader && (await readerAccountFor(register!)) !== sale.moneyAccount) {
         return res.status(409).json({ code: "POS_READER_ACCOUNT", message: "This reader takes payments for a different Stripe account than this sale banks with. Use that account's reader, or the EFTPOS terminal and record it." });
       }
@@ -902,13 +991,14 @@ export function registerPosRoutes(app: Express) {
       }
       const pi = await stripe.paymentIntents.create({
         amount: sale.remainingCents, currency: "nzd",
-        payment_method_types: ["card_present"], capture_method: "automatic",
+        payment_method_types: [keyed ? "card" : "card_present"], capture_method: "automatic",
         description: `Register ${sale.saleNumber}`,
         ...(sale.customerEmail ? { receipt_email: sale.customerEmail } : {}),
         metadata: { kind: "pos_sale", posSaleId: String(sale.id), saleNumber: sale.saleNumber, registerId: String(sale.registerId) },
       }, { idempotencyKey: `pos_sale_${sale.id}_card_${sale.payments.length}` });
-      const channel = counter ? "counter" : useReader ? "reader" : req.body?.sdk === true ? "sdk" : null;
-      const [payment] = await db.insert(posPayments).values({ saleId: sale.id, method: "card_present", amountCents: sale.remainingCents, stripePaymentIntentId: pi.id, status: "pending", channel, createdByUserId: uid(req) }).returning();
+      const channel = counter ? "counter" : useReader ? "reader" : keyed ? "keyed" : req.body?.sdk === true ? "sdk" : null;
+      const [payment] = await db.insert(posPayments).values({ saleId: sale.id, method: keyed ? "card_keyed" : "card_present", amountCents: sale.remainingCents, stripePaymentIntentId: pi.id, status: "pending", channel, createdByUserId: uid(req) }).returning();
+      if (keyed) return res.status(201).json({ paymentId: payment.id, paymentIntentId: pi.id, clientSecret: pi.client_secret, viaReader: false, keyed: true, account: sale.moneyAccount, readerAction: null });
       if (counter) {
         await showOnCounter(sale.registerId, sale.id);
         return res.status(201).json({ paymentId: payment.id, paymentIntentId: pi.id, clientSecret: null, viaReader: true, viaCounter: true, readerAction: null });
@@ -978,6 +1068,7 @@ export function registerPosRoutes(app: Express) {
       if (sale.paidCents > 0) return res.status(409).json({ code: "POS_SALE_HAS_MONEY", message: "This sale has taken money — refund it instead of voiding." });
       const reason = str(req.body?.reason, 200) || "Voided at the register";
       for (const l of sale.lines) if (l.registrationId) await db.update(registrations).set({ posSaleId: null } as any).where(eq(registrations.id, l.registrationId));
+      for (const l of sale.lines) if (l.cugcRegistrationId) await db.execute(sql`UPDATE cugc_registrations SET pos_sale_id = NULL WHERE id = ${l.cugcRegistrationId} AND status = 'pending_payment'`);
       await db.update(posSales).set({ status: "void", voidedAt: new Date(), voidReason: reason }).where(eq(posSales.id, sale.id));
       void clearReaderDisplay(sale.registerId);
       res.json(await loadSale(sale.id));
@@ -995,10 +1086,10 @@ export function registerPosRoutes(app: Express) {
       if (!reason) return res.status(400).json({ message: "Say why — it goes on the sale." });
       if (amount > sale.refundableCents) return res.status(409).json({ code: "POS_OVERREFUND", message: `Only ${(sale.refundableCents / 100).toFixed(2)} can still be refunded.` });
       const paymentId = num(req.body?.paymentId);
-      const payment = Number.isFinite(paymentId) ? sale.payments.find((p) => p.id === paymentId && p.status === "succeeded") : sale.payments.find((p) => p.status === "succeeded" && p.method === "card_present") ?? sale.payments.find((p) => p.status === "succeeded");
+      const payment = Number.isFinite(paymentId) ? sale.payments.find((p) => p.id === paymentId && p.status === "succeeded") : sale.payments.find((p) => p.status === "succeeded" && isPosCardTender(p.method)) ?? sale.payments.find((p) => p.status === "succeeded");
       if (!payment) return res.status(409).json({ message: "No payment on this sale to refund against." });
       let stripeRefundId: string | null = null;
-      if (payment.method === "card_present" && payment.stripePaymentIntentId) {
+      if (isPosCardTender(payment.method) && payment.stripePaymentIntentId) {
         const { stripe } = stripeForAccount(sale.moneyAccount);
         const r = await stripe.refunds.create({ payment_intent: payment.stripePaymentIntentId, amount, metadata: { kind: "pos_sale", posSaleId: String(sale.id) } }, { idempotencyKey: `pos_refund_${sale.id}_${payment.id}_${amount}_${sale.refunds.length}` });
         stripeRefundId = r.id;
@@ -1048,7 +1139,7 @@ export function registerPosRoutes(app: Express) {
         seller: POS_SELLER, saleNumber: sale.saleNumber, paidAt: sale.paidAt, status: sale.status, tier,
         lines: sale.lines.map((l) => ({ title: l.title, detail: l.detail, brand: l.brand, qty: l.qty, unitCents: l.unitCents, lineCents: l.lineCents })),
         subtotalCents: sale.subtotalCents, discountCents: sale.discountCents, roundingCents: sale.roundingCents, totalCents: sale.totalCents, gstCents: sale.gstCents,
-        payments: sale.payments.filter((p) => p.status === "succeeded").map((p) => ({ label: p.label, amountCents: p.amountCents, reference: p.method === "card_present" ? null : p.reference })),
+        payments: sale.payments.filter((p) => p.status === "succeeded").map((p) => ({ label: p.label, amountCents: p.amountCents, reference: isPosCardTender(p.method) ? null : p.reference })),
         refunds: sale.refunds.map((r) => ({ amountCents: r.amountCents, at: r.createdAt })),
         customerName: tier === "over_1000" ? sale.customerName : null,
         servedBy: sale.servedByName,
