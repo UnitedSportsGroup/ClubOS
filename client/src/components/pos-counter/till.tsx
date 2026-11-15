@@ -4,6 +4,10 @@
 // logged to ClubOS without needing phone or laptop or iPad … pick and search
 // items on the touch screen and quickly choose existing player or type in and
 // enter new player."
+// Daniel, 2026-11-16: "they can just select the programs, enter all the details,
+// and boom, it pops up with the right amount … also like our current EFTPOS
+// machine, where you can just type in the amount for a quick transaction or a
+// custom sale." → the Amount tab: digits shift in from the right, a label, Charge.
 //
 // Staff tap "Staff" on the idle screen, pick their name, type their PIN. The
 // sale they build is theirs (served by). "Charge" hands the reader to the
@@ -18,7 +22,7 @@
 // 🔴 Every control is ≥48px; the screen is ~360×640 CSS px, portrait.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { $, api, Keyboard, NumPad } from "./kit";
-import { TILL_IDLE_MINUTES, TILL_PIN_LENGTH, type TillMe, type TillPerson, type TillSale, type TillStaff } from "@shared/pos-counter-till";
+import { TILL_CUSTOM_LABELS, TILL_IDLE_MINUTES, TILL_PIN_LENGTH, type TillMe, type TillPerson, type TillSale, type TillStaff } from "@shared/pos-counter-till";
 import { HDYHAU_OPTIONS } from "@shared/hdyhau";
 import { IDENTITY_DEFER_REASONS } from "@shared/nzf-identity";
 
@@ -198,9 +202,15 @@ function Unlock({ till }: { till: TillSession }) {
 }
 
 function Till({ till, me }: { till: TillSession; me: TillMe }) {
-  const [tab, setTab] = useState<"kit" | "programmes">("kit");
+  const [tab, setTab] = useState<"kit" | "programmes" | "amount">("kit");
   const [q, setQ] = useState("");
   const [typing, setTyping] = useState(false);
+  // The typed amount: a digit string, cents, so 2·5·0·0 reads $25.00 (the bank terminal's own gesture).
+  const [digits, setDigits] = useState("");
+  const [customLabel, setCustomLabel] = useState<string>(TILL_CUSTOM_LABELS[0]);
+  const [labelDraft, setLabelDraft] = useState("");
+  const [typingLabel, setTypingLabel] = useState(false);
+  const [brandId, setBrandId] = useState<number | null>(me.defaultBrandId);
   const [catalogue, setCatalogue] = useState<{ products: Product[]; programmes: Programme[] } | null>(null);
   const [sale, setSale] = useState<TillSale | null>(null);
   const [picked, setPicked] = useState<Product | null>(null);
@@ -253,6 +263,22 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
     catch (e) { handle(e); } finally { setBusy(null); }
   };
 
+  const amountCents = digits ? parseInt(digits, 10) : 0;
+  const isPresetLabel = (TILL_CUSTOM_LABELS as readonly string[]).includes(customLabel);
+  /** Add the typed amount as a line; with `thenCharge`, hand the reader to the customer straight away. */
+  const addCustom = async (thenCharge: boolean) => {
+    setBusy(thenCharge ? "charge" : "add"); setErr(null);
+    try {
+      if (amountCents > 0) {
+        const r = await api<{ sale: TillSale }>("POST", `${T}/sale/custom`, { amountCents, title: customLabel, orgId: brandId });
+        setSale(r.sale); setDigits("");
+        if (!thenCharge) setToast(`Added ${$(amountCents)} · ${customLabel}`);
+      }
+      if (thenCharge) { await api("POST", `${T}/sale/charge`, {}); setCartOpen(false); }
+    } catch (e) { handle(e); } finally { setBusy(null); }
+  };
+  const chip = (on: boolean) => `h-10 shrink-0 rounded-full px-3.5 text-[13px] font-semibold ${on ? "bg-white text-black" : "bg-white/[0.08] text-white/75 ring-1 ring-white/10"}`;
+
   const count = sale?.lines.reduce((a, l) => a + l.qty, 0) ?? 0;
 
   if (registering) {
@@ -275,15 +301,15 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
           </div>
           <button onClick={() => till.lock("manual")} className="h-11 shrink-0 rounded-full px-4 text-[13px] text-white/70 ring-1 ring-white/15" data-testid="till-lock">Lock</button>
         </div>
-        <button onClick={() => setTyping(true)} className="mt-3 flex h-12 w-full items-center gap-2 rounded-2xl bg-white/[0.08] px-4 text-left text-[15px] ring-1 ring-white/10" data-testid="till-search">
+        {tab !== "amount" && <button onClick={() => setTyping(true)} className="mt-3 flex h-12 w-full items-center gap-2 rounded-2xl bg-white/[0.08] px-4 text-left text-[15px] ring-1 ring-white/10" data-testid="till-search">
           <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-white/50" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
           <span className={`min-w-0 flex-1 truncate ${q ? "" : "text-white/40"}`}>{q || (tab === "kit" ? "Search kit, or scan a SKU" : "Search programmes")}</span>
           {q && <span onClick={(e) => { e.stopPropagation(); setQ(""); }} className="px-1 text-white/50">✕</span>}
-        </button>
-        <div className="mt-3 grid grid-cols-2 gap-1 rounded-2xl bg-white/[0.06] p-1">
-          {(["kit", "programmes"] as const).map((t) => (
+        </button>}
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-white/[0.06] p-1">
+          {(["kit", "programmes", "amount"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)} className={`h-10 rounded-xl text-[14px] font-semibold ${tab === t ? "bg-white text-black" : "text-white/65"}`} data-testid={`till-tab-${t}`}>
-              {t === "kit" ? "Kit" : "Register a player"}
+              {t === "kit" ? "Kit" : t === "programmes" ? "Programmes" : "Amount"}
             </button>
           ))}
         </div>
@@ -291,8 +317,29 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
 
       {/* Middle: the catalogue */}
       <div className="mt-3 flex-1 overflow-y-auto px-4 pb-3">
-        {!catalogue && !err && <div className="pt-6 text-center text-[14px] text-white/45">Loading…</div>}
-        {tab === "kit" ? (
+        {!catalogue && !err && tab !== "amount" && <div className="pt-6 text-center text-[14px] text-white/45">Loading…</div>}
+        {tab === "amount" ? (
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-2.5 text-black" data-testid="till-amount">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-black/45">Amount</div>
+                <div className="text-[32px] font-bold leading-tight tabular-nums">{$(amountCents)}</div>
+              </div>
+              {digits && <button onClick={() => setDigits("")} className="h-10 rounded-full px-3 text-[13px] font-semibold text-black/60 ring-1 ring-black/15">Clear</button>}
+            </div>
+            <div className="-mx-4 mt-2.5 flex gap-1.5 overflow-x-auto px-4 pb-1" data-testid="till-labels">
+              {TILL_CUSTOM_LABELS.map((l) => <button key={l} onClick={() => setCustomLabel(l)} className={chip(customLabel === l)}>{l}</button>)}
+              <button onClick={() => { setLabelDraft(isPresetLabel ? "" : customLabel); setTypingLabel(true); }} className={chip(!isPresetLabel)} data-testid="till-label-type">{isPresetLabel ? "Type…" : customLabel}</button>
+            </div>
+            {me.brands.length > 1 && (
+              <div className="-mx-4 mt-1 flex gap-1.5 overflow-x-auto px-4 pb-1" data-testid="till-brands">
+                {me.brands.map((b) => <button key={b.id} onClick={() => setBrandId(b.id)} className={`${chip(brandId === b.id)} !h-9 !text-[12.5px]`}>{b.name}</button>)}
+              </div>
+            )}
+            <div className="flex-1" />
+            <div className="-mx-1 pb-1"><NumPad value={digits} onChange={setDigits} max={7} extra={{ label: "00", onPress: () => { if (digits && digits.length <= 5) setDigits(digits + "00"); } }} /></div>
+          </div>
+        ) : tab === "kit" ? (
           <div className="grid grid-cols-2 gap-2.5">
             {products.map((p) => {
               const inStock = p.colours.some((c) => c.variants.some((v) => v.stock > 0));
@@ -337,7 +384,23 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
 
       {/* Bottom: the sale */}
       <div className="border-t border-white/10 bg-[#0c0f14] px-4 pb-4 pt-3">
-        {count === 0 ? (
+        {tab === "amount" ? (
+          <div className="flex gap-2">
+            {amountCents > 0 || count === 0 ? (
+              <button onClick={() => addCustom(false)} disabled={amountCents <= 0 || busy !== null} className="h-14 min-w-0 flex-1 rounded-2xl bg-white/[0.08] text-[15px] font-semibold ring-1 ring-white/10 disabled:opacity-40" data-testid="till-amount-add">
+                {busy === "add" ? "Adding…" : count > 0 ? `Add to sale · ${count}` : "Add to sale"}
+              </button>
+            ) : (
+              <button onClick={() => setCartOpen(true)} className="h-14 min-w-0 flex-1 rounded-2xl bg-white/[0.08] px-3 text-left ring-1 ring-white/10" data-testid="till-cart">
+                <div className="text-[12px] text-white/55">{count} item{count === 1 ? "" : "s"} · view</div>
+                <div className="text-[17px] font-bold tabular-nums">{$(sale!.remainingCents)}</div>
+              </button>
+            )}
+            <button onClick={() => addCustom(true)} disabled={busy !== null || (amountCents <= 0 && count === 0)} className="h-14 flex-[1.3] rounded-2xl bg-emerald-400 text-[17px] font-bold text-black disabled:opacity-50" data-testid="till-amount-charge">
+              {busy === "charge" ? "Starting…" : `Charge ${$(amountCents + (sale?.remainingCents ?? 0))}`}
+            </button>
+          </div>
+        ) : count === 0 ? (
           <div className="flex h-14 items-center justify-center text-[14px] text-white/40">Tap an item to start a sale</div>
         ) : (
           <div className="flex gap-2">
@@ -365,6 +428,20 @@ function Till({ till, me }: { till: TillSession; me: TillMe }) {
           <div className="flex-1" />
           <Keyboard value={q} onChange={setQ} mode="text" max={60} />
           <div className="px-3 pb-4 pt-2"><button onClick={() => setTyping(false)} className="h-14 w-full rounded-2xl bg-white text-[16px] font-bold text-black">Show results</button></div>
+        </div>
+      )}
+
+      {typingLabel && (
+        <div className="absolute inset-0 z-40 flex flex-col bg-[#07090c]/95" onPointerDown={till.touch}>
+          <div className="px-4 pt-5">
+            <div className="text-[12.5px] text-white/50">What is this sale for?</div>
+            <div className="mt-1 flex min-h-[52px] items-center rounded-2xl bg-white px-4 text-[17px] font-medium text-black">
+              {labelDraft || <span className="text-black/35">e.g. Scarf, Hall hire, Raffle</span>}<span className="counter-pulse ml-0.5 inline-block h-5 w-[2px] bg-black" />
+            </div>
+          </div>
+          <div className="flex-1" />
+          <Keyboard value={labelDraft} onChange={setLabelDraft} mode="text" max={60} autoCap />
+          <div className="px-3 pb-4 pt-2"><button onClick={() => { if (labelDraft.trim()) setCustomLabel(labelDraft.trim()); setTypingLabel(false); }} className="h-14 w-full rounded-2xl bg-white text-[16px] font-bold text-black" data-testid="till-label-done">Done</button></div>
         </div>
       )}
 

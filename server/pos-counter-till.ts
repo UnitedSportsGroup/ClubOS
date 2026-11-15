@@ -17,6 +17,7 @@
 //   GET    /api/public/pos/counter/till/catalogue     ?q=
 //   GET    /api/public/pos/counter/till/sale          the sale being built (or null)
 //   POST   /api/public/pos/counter/till/sale/lines    { variantId, qty }
+//   POST   /api/public/pos/counter/till/sale/custom   { amountCents, title, orgId }  — a typed amount
 //   PATCH  /api/public/pos/counter/till/sale/lines/:lineId   { qty }
 //   DELETE /api/public/pos/counter/till/sale/lines/:lineId
 //   POST   /api/public/pos/counter/till/sale/charge   card on THIS reader
@@ -50,14 +51,11 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, requireTabAnywhere } from "./auth";
 import { storage } from "./storage";
-import { posCounterDevices, posRegisters, posSales, posShifts, posStaffPins, users, programs } from "@shared/schema";
+import { posCounterDevices, posRegisters, posSales, posShifts, posStaffPins, users, programs, organizations, posOrgMoneyAccounts } from "@shared/schema";
 import { canAccessTabAnywhere } from "@shared/tabs";
 import { parsePersonKey, personKey } from "@shared/family";
 import { ageGradeFor, nzTodayIso } from "@shared/academy";
-import {
-  TILL_IDLE_MINUTES, TILL_PIN_LOCK_MINUTES, TILL_PIN_MAX_FAILS, tillPinError,
-  type TillMe, type TillPerson, type TillSale, type TillStaff,
-} from "@shared/pos-counter-till";
+import { TILL_IDLE_MINUTES, TILL_PIN_LOCK_MINUTES, TILL_PIN_MAX_FAILS, tillPinError, type TillMe, type TillPerson, type TillSale, type TillStaff, TILL_CUSTOM_MAX_CENTS, type TillBrand } from "@shared/pos-counter-till";
 import { requirePairedDevice, logEvent, showOnCounter, type DeviceReq } from "./pos-counter";
 import { posHandlers, loadSale, readerAccountForRegister, moneyAccountForOrg } from "./pos-routes";
 import { officeRegistration } from "./office-registration-handlers";
@@ -216,6 +214,20 @@ function deviceTooMany(deviceId: number): boolean {
   return recent.length >= 12;
 }
 
+/** The brands whose money lands in the account this reader takes cards for —
+ *  the only ones a line on it may bank under (Postgres refuses a mixed sale).
+ *  The register's own brand first, so it is the default. Only brands with a
+ *  money account on file: a brand nobody has placed is not offered. */
+async function readerBrands(register: typeof posRegisters.$inferSelect): Promise<TillBrand[]> {
+  const account = await readerAccountForRegister(register);
+  const rows = await db.select({ id: organizations.id, name: organizations.name, account: posOrgMoneyAccounts.account })
+    .from(posOrgMoneyAccounts).innerJoin(organizations, eq(organizations.id, posOrgMoneyAccounts.organizationId));
+  const out = rows.filter((r) => r.account === account).map((r) => ({ id: r.id, name: r.name }));
+  out.sort((a, b) => (a.id === register.defaultOrgId ? -1 : b.id === register.defaultOrgId ? 1 : a.name.localeCompare(b.name)));
+  return out;
+}
+const dollars = (c: number) => `$${(c / 100).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export function registerPosCounterTillRoutes(app: Express) {
   const noStore = (_req: Request, res: Response, next: NextFunction) => { res.setHeader("Cache-Control", "no-store"); res.setHeader("X-Robots-Tag", "noindex"); next(); };
   const P = "/api/public/pos/counter/till";
@@ -279,11 +291,15 @@ export function registerPosCounterTillRoutes(app: Express) {
       const d = req.counter!;
       const user = await staffView(req.tillUserId!);
       const sale = await currentSale(d);
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, d.registerId!));
+      const brands = register ? await readerBrands(register) : [];
       const me: TillMe = {
         user: user!, until: new Date(Date.now() + TILL_IDLE_MINUTES * 60_000).toISOString(),
         saleId: sale && sale.status === "open" ? sale.id : null,
         canRegister: await holdsTab(req.tillUserId!, "contacts"),
-        handlesCash: await db.select({ h: posRegisters.handlesCash }).from(posRegisters).where(eq(posRegisters.id, d.registerId!)).then((x) => x[0]?.h === true),
+        handlesCash: register?.handlesCash === true,
+        brands,
+        defaultBrandId: brands.find((b) => b.id === register?.defaultOrgId)?.id ?? brands[0]?.id ?? null,
       };
       res.json(me);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -349,6 +365,29 @@ export function registerPosCounterTillRoutes(app: Express) {
       if (r.status >= 400) return res.status(r.status).json(r.body);
       res.status(201).json({ sale: tillSaleView(await loadSale(sale.id)) });
     } catch (e: any) { console.error("[TILL] add line", e); res.status(500).json({ message: e.message }); }
+  });
+
+  // ── A typed amount, like the bank's own terminal ──────────────────────────
+  // Daniel, 16 Nov: "type in the amount for a quick transaction or a custom
+  // sale." The laptop till's custom line, from the reader: the amount, what it
+  // was for, and the brand it banks under — one the reader takes cards for.
+  app.post(`${P}/sale/custom`, ...till, async (req: TillReq, res) => {
+    try {
+      const d = req.counter!;
+      const amount = Math.round(num(req.body?.amountCents));
+      if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "Type an amount first." });
+      if (amount > TILL_CUSTOM_MAX_CENTS) return res.status(400).json({ message: `A counter sale is under ${dollars(TILL_CUSTOM_MAX_CENTS)}. Check the amount — or make it two sales.` });
+      const [register] = await db.select().from(posRegisters).where(eq(posRegisters.id, d.registerId!));
+      const brands = register ? await readerBrands(register) : [];
+      const wanted = num(req.body?.orgId);
+      const brand = brands.find((b) => b.id === wanted) ?? brands.find((b) => b.id === register?.defaultOrgId) ?? brands[0];
+      if (!brand) return res.status(409).json({ message: "No brand banks with this reader's card account. Set the register's brand in ClubOS → POS → Register." });
+      const title = str(req.body?.title, 120) || "Counter sale";
+      const sale = await ensureSale(d, req.tillUserId!);
+      const r = await run(posHandlers.addLine, asStaff(req, req.tillUserId!, { params: { id: String(sale.id) }, body: { kind: "custom", orgId: brand.id, unitCents: amount, qty: 1, title } }));
+      if (r.status >= 400) return res.status(r.status).json(r.body);
+      res.status(201).json({ sale: tillSaleView(await loadSale(sale.id)) });
+    } catch (e: any) { console.error("[TILL] custom line", e); res.status(500).json({ message: e.message }); }
   });
 
   app.patch(`${P}/sale/lines/:lineId`, ...till, async (req: TillReq, res) => {

@@ -20,7 +20,16 @@ export function tillPinError(pin: unknown): string | null {
   return null;
 }
 
+/** A typed-in amount, like the bank's own terminal. One line can't exceed this:
+ *  a $250 figure typed with one zero too many is the realistic mistake, and a
+ *  sale above it is not a counter sale. */
+export const TILL_CUSTOM_MAX_CENTS = 1_000_000;
+/** What a typed amount is usually for, offered as chips; "Type…" takes anything else. */
+export const TILL_CUSTOM_LABELS = ["Counter sale", "Kit", "Camp day", "Programme fee", "Donation", "Hire"] as const;
+
 export interface TillStaff { id: number; name: string; initials: string; photo: string | null }
+/** A brand whose money lands in the account this reader takes cards for. */
+export interface TillBrand { id: number; name: string }
 
 export interface TillMe {
   user: TillStaff;
@@ -31,6 +40,9 @@ export interface TillMe {
   canRegister: boolean;
   /** Cash is offered only on a register that takes it (the club is cashless by default). */
   handlesCash: boolean;
+  /** The brands a typed amount may bank under — those on the reader's own account, the register's brand first. */
+  brands: TillBrand[];
+  defaultBrandId: number | null;
 }
 
 export interface TillLine {
