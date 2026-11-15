@@ -7,7 +7,7 @@ import { Download, FileText, Loader2, X, ChevronLeft, ChevronRight, Play } from 
 import { ShareReport } from "./drive-share-report";
 
 interface SharedFile { id: number; name: string; folder: string; kind: "image" | "video" | "file"; sizeBytes: number | null }
-interface Payload { title: string; url?: string | null; files: SharedFile[] }
+interface Payload { title: string; url?: string | null; files: SharedFile[]; kind?: "folder" | "file"; sponsor?: boolean }
 
 const size = (n: number | null) => {
   if (n === null) return "";
@@ -92,27 +92,27 @@ export default function DriveShare() {
         <div className="border-b border-slate-200 bg-slate-100" data-testid="share-staff-bar" data-noprint>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2 sm:px-6">
             <a href={from} className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-slate-800 hover:underline" data-testid="share-back"><ChevronLeft className="h-4 w-4" /> Back to ClubOS</a>
-            <span className="text-xs text-slate-600">You are seeing what the sponsor sees.</span>
-            <button onClick={() => navigator.clipboard.writeText(data?.url || `${window.location.origin}/share/${token}`)} className="ml-auto inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50" data-testid="share-copy">Copy the sponsor's link</button>
+            <span className="text-xs text-slate-600">You are seeing what {data?.sponsor === false ? "anyone with the link" : "the sponsor"} sees.</span>
+            <button onClick={() => navigator.clipboard.writeText(data?.url || `${window.location.origin}/share/${token}`)} className="ml-auto inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 hover:bg-slate-50" data-testid="share-copy">{data?.sponsor === false ? "Copy the link" : "Copy the sponsor's link"}</button>
           </div>
         </div>
       )}
       <header className="border-b border-slate-200 bg-white" data-noprint>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-5 sm:px-6">
-          <img src="/logos/south-island-united.png" alt="" className="h-12 w-12 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+          {data.sponsor !== false && <img src="/logos/south-island-united.png" alt="" className="h-12 w-12 object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />}
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Content from South Island United</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{data.sponsor === false ? "Shared with you" : "Content from South Island United"}</p>
             <h1 className="truncate text-2xl font-semibold" data-testid="share-title">{data.title}</h1>
             <p className="mt-0.5 text-sm text-slate-600" data-testid="share-count">{data.files.length} file{data.files.length === 1 ? "" : "s"}{total ? ` · ${size(total)}` : ""}</p>
           </div>
           {nav.tab === "content" && (
             <a href={`${base}/zip`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90" style={{ color: "#ffffff", background: "#0f172a" }} data-testid="share-zip-all">
-              <Download className="h-4 w-4" /> Download everything
+              <Download className="h-4 w-4" /> {data.files.length === 1 ? "Download" : "Download everything"}
             </a>
           )}
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6" data-noprint>
-          {([["content", "Your content"], ["report", "Your report"]] as const).map(([k, label]) => (
+          {data.sponsor !== false && ([["content", "Your content"], ["report", "Your report"]] as const).map(([k, label]) => (
             <button key={k} onClick={() => go({ tab: k })} data-testid={`share-tab-${k}`}
               className="min-h-[44px] border-b-2 px-3 text-sm font-semibold" style={{ borderColor: nav.tab === k ? "#0f172a" : "transparent", color: nav.tab === k ? "#0f172a" : "#64748b" }}>{label}</button>
           ))}
@@ -175,7 +175,7 @@ export default function DriveShare() {
           );
         })}
         <p className="mt-4 border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500">
-          Shared by South Island United for your own channels. Please credit South Island United when you post. Questions: talk to your contact at the club.
+          {data.sponsor === false ? "Shared from Club Drive. Questions: talk to the person who sent you this link." : "Shared by South Island United for your own channels. Please credit South Island United when you post. Questions: talk to your contact at the club."}
         </p>
       </main>
 

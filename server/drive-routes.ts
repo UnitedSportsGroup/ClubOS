@@ -66,6 +66,41 @@ export async function readableNode(viewer: Viewer, id: number): Promise<any | nu
   return node;
 }
 
+/**
+ * Which of `ids` this user can reach through a SHARE — a live
+ * drive_node_shares row for them on the node itself or any folder above it
+ * (16 Nov 2026, "share with a person" like Google Drive). A share is READ
+ * access only: write routes keep `readableNode` (the person's own access) and
+ * never consult this.
+ */
+export async function sharedReach(userId: number, ids: number[]): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (!ids.length) return out;
+  const has: any = await db.execute(sql`SELECT 1 FROM drive_node_shares WHERE user_id = ${userId} AND revoked_at IS NULL LIMIT 1`);
+  if (!(Array.isArray(has) ? has : has.rows ?? []).length) return out; // most people have none: one cheap probe
+  const rows: any = await db.execute(sql`
+    WITH RECURSIVE up AS (
+      SELECT id AS start, id, parent_id FROM drive_nodes WHERE id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+      UNION ALL
+      SELECT up.start, n.id, n.parent_id FROM drive_nodes n JOIN up ON n.id = up.parent_id
+    )
+    SELECT DISTINCT up.start FROM up
+    JOIN drive_node_shares s ON s.node_id = up.id AND s.user_id = ${userId} AND s.revoked_at IS NULL
+    JOIN drive_nodes sn ON sn.id = s.node_id AND sn.trashed_at IS NULL`);
+  for (const r of (Array.isArray(rows) ? rows : rows.rows ?? [])) out.add(Number(r.start));
+  return out;
+}
+
+/** Read-only: the node, if the viewer may LOOK at it — their own access, or a
+ *  share. Used by browse / open / details only; never by a write. */
+export async function viewableNode(viewer: Viewer, id: number): Promise<any | null> {
+  const own = await readableNode(viewer, id);
+  if (own) return own;
+  if (!(await sharedReach(viewer.userId, [id])).has(id)) return null;
+  const [node] = await db.select().from(driveNodes).where(eq(driveNodes.id, id)).limit(1);
+  return node ?? null;
+}
+
 async function log(nodeId: number | null, userId: number, action: string, detail?: string) {
   try {
     await db.insert(driveAccessLog).values({ nodeId: nodeId ?? undefined, userId, action, detail });
@@ -88,6 +123,17 @@ async function breadcrumbs(nodeId: number | null): Promise<{ id: number; name: s
   `);
   const list = Array.isArray(rows) ? rows : rows.rows ?? [];
   return list.map((r: any) => ({ id: Number(r.id), name: String(r.name) }));
+}
+
+/** The breadcrumb trail this viewer may see: it starts at the first folder they
+ *  can open (by their own access or a share), never above it. */
+async function visibleCrumbs(viewer: Viewer, nodeId: number | null): Promise<{ id: number; name: string }[]> {
+  const crumbs = await breadcrumbs(nodeId);
+  if (!crumbs.length) return crumbs;
+  const cg = await gatesFor(crumbs.map((c) => c.id));
+  const cr = await sharedReach(viewer.userId, crumbs.map((c) => c.id));
+  const firstOk = crumbs.findIndex((c) => viewerCanReadDriveNode(viewer, cg.get(c.id) ?? []) || cr.has(c.id));
+  return firstOk < 0 ? [] : crumbs.slice(firstOk);
 }
 
 /** The shape the client renders. Never leaks storage keys. */
@@ -166,7 +212,7 @@ export function registerDriveRoutes(app: Express) {
       // 🔴 Prove the FOLDER is readable before listing it. Otherwise a locked
       // folder's contents are one guessed id away.
       if (parentId) {
-        const folder = await readableNode(viewer, parentId);
+        const folder = await viewableNode(viewer, parentId);
         if (!folder) return res.status(404).json({ message: "Not found" });
       }
 
@@ -182,12 +228,36 @@ export function registerDriveRoutes(app: Express) {
 
       const gates = await gatesFor(rows.map((r: any) => r.id));
       // Folders first, then files, each alphabetical — the ordering people expect.
+      const reach = await sharedReach(viewer.userId, rows.map((r: any) => Number(r.id)));
       const items = rows
-        .filter((r: any) => viewerCanReadDriveNode(viewer, gates.get(r.id) ?? []))
+        .filter((r: any) => viewerCanReadDriveNode(viewer, gates.get(r.id) ?? []) || reach.has(Number(r.id)))
         .map((r: any) => present(r, gates.get(r.id) ?? []))
         .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1));
 
-      res.json({ parentId, breadcrumbs: await breadcrumbs(parentId), items });
+      // 🔴 A folder reached through a share may sit inside folders the person
+      // cannot open. The trail starts at the first one they CAN — the names of
+      // locked folders above it are not theirs to read.
+      const crumbs = await visibleCrumbs(viewer, parentId);
+
+      // At the top: what has been shared with this person, by name.
+      let sharedWithMe: any[] = [];
+      if (!parentId) {
+        const sh: any = await db.execute(sql`
+          SELECT n.*, s.created_at AS shared_at, trim(coalesce(g.first_name,'') || ' ' || coalesce(g.last_name,'')) AS shared_by
+          FROM drive_node_shares s JOIN drive_nodes n ON n.id = s.node_id LEFT JOIN users g ON g.id = s.granted_by
+          WHERE s.user_id = ${viewer.userId} AND s.revoked_at IS NULL AND n.trashed_at IS NULL
+          ORDER BY s.created_at DESC LIMIT 200`);
+        const list = Array.isArray(sh) ? sh : sh.rows ?? [];
+        const sg = await gatesFor(list.map((r: any) => Number(r.id)));
+        sharedWithMe = list.map((r: any) => ({
+          ...present({ id: Number(r.id), parentId: r.parent_id, kind: r.kind, name: r.name, mimeType: r.mime_type, sizeBytes: r.size_bytes, brand: r.brand,
+            description: r.description, source: r.source, sourceUrl: r.source_url, extractStatus: r.extract_status, trashedAt: r.trashed_at,
+            updatedAt: r.updated_at, createdAt: r.created_at }, sg.get(Number(r.id)) ?? []),
+          sharedBy: r.shared_by || null, sharedAt: r.shared_at,
+        }));
+      }
+
+      res.json({ parentId, breadcrumbs: crumbs, items, sharedWithMe });
     } catch (e: any) {
       console.error("[drive] list failed:", e);
       res.status(500).json({ message: e.message });
@@ -228,10 +298,11 @@ export function registerDriveRoutes(app: Express) {
       const list = Array.isArray(rows) ? rows : rows.rows ?? [];
       const gates = await gatesFor(list.map((r: any) => Number(r.id)));
 
+      const reach = await sharedReach(viewer.userId, list.map((r: any) => Number(r.id)));
       const items = [] as any[];
       for (const r of list) {
         const id = Number(r.id);
-        if (!viewerCanReadDriveNode(viewer, gates.get(id) ?? [])) continue;
+        if (!viewerCanReadDriveNode(viewer, gates.get(id) ?? []) && !reach.has(id)) continue;
         const node = {
           id, parentId: r.parent_id, kind: r.kind, name: r.name, mimeType: r.mime_type,
           sizeBytes: r.size_bytes, brand: r.brand, description: r.description,
@@ -246,7 +317,7 @@ export function registerDriveRoutes(app: Express) {
           const at = text.toLowerCase().indexOf(q.toLowerCase());
           if (at >= 0) p.snippet = (at > 60 ? "…" : "") + text.slice(Math.max(0, at - 60), at + 180).trim() + "…";
         }
-        p.path = (await breadcrumbs(node.parentId ? Number(node.parentId) : null)).map((b) => b.name);
+        p.path = (await visibleCrumbs(viewer, node.parentId ? Number(node.parentId) : null)).map((b) => b.name);
         items.push(p);
       }
 
@@ -365,7 +436,7 @@ export function registerDriveRoutes(app: Express) {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Bad id" });
 
-      const node = await readableNode(viewer, id);
+      const node = await viewableNode(viewer, id);
       // 🔴 404, never 403 — a 403 confirms the file exists and tells you its id
       // is worth guessing at. Same doctrine as the hiring by-id routes.
       if (!node || node.kind !== "file" || !node.storageKey) return res.status(404).json({ message: "Not found" });
@@ -393,7 +464,7 @@ export function registerDriveRoutes(app: Express) {
       const viewer = await buildViewer(req.session.userId!);
       if (!viewer) return res.status(401).json({ message: "Not signed in" });
       const id = Number(req.params.id);
-      const node = await readableNode(viewer, id);
+      const node = await viewableNode(viewer, id);
       if (!node) return res.status(404).json({ message: "Not found" });
       const gates = (await gatesFor([id])).get(id) ?? [];
 
@@ -410,7 +481,7 @@ export function registerDriveRoutes(app: Express) {
         ...present(node, gates),
         owner,
         checksum: node.checksum,
-        breadcrumbs: await breadcrumbs(node.parentId),
+        breadcrumbs: await visibleCrumbs(viewer, node.parentId),
         textPreview: node.extractedText ? String(node.extractedText).slice(0, 4000) : null,
       });
     } catch (e: any) {
