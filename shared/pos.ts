@@ -28,6 +28,11 @@ export const POS_TENDERS = [
   { value: "cash",          label: "Cash",             rounds: true,  needsReference: false },
   { value: "eftpos",        label: "EFTPOS terminal",  rounds: false, needsReference: true  },
   { value: "card_present",  label: "Card reader",      rounds: false, needsReference: false },
+  // A card typed into the laptop's own card field, charged on the SALE's Stripe
+  // account — the way a gymnastics sale takes a card at a counter whose reader
+  // is registered to the club's account. Card-not-present, so it carries a
+  // PaymentIntent like a reader payment and is refunded through Stripe.
+  { value: "card_keyed",    label: "Card (typed in)",  rounds: false, needsReference: false },
   { value: "bank_transfer", label: "Bank transfer",    rounds: false, needsReference: true  },
   { value: "other",         label: "Other",            rounds: false, needsReference: true  },
 ] as const;
@@ -39,7 +44,9 @@ export function posTenderLabel(v: unknown): string {
   return POS_TENDERS.find((t) => t.value === v)?.label ?? "Not recorded";
 }
 /** Tenders staff can record without a reader — everything but card_present. */
-export const POS_MANUAL_TENDERS = POS_TENDERS.filter((t) => t.value !== "card_present");
+export const POS_MANUAL_TENDERS = POS_TENDERS.filter((t) => t.value !== "card_present" && t.value !== "card_keyed");
+/** A tender that is a Stripe PaymentIntent, whichever way the card arrived. */
+export const isPosCardTender = (m: string | null | undefined) => m === "card_present" || m === "card_keyed";
 
 /**
  * What a given register may actually take.

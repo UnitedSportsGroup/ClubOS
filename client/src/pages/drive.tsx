@@ -10,14 +10,16 @@
 // finds a PDF nobody named helpfully.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, workspaceFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   ChevronRight, Download, File as FileIcon, FileSpreadsheet, FileText, FileType2,
   Film, Folder, FolderPlus, HardDrive, Home, Image as ImageIcon, Loader2, Lock,
-  Music, Package, Pencil, RotateCcw, Search, Trash2, Upload, X,
+  Music, Package, Pencil, RotateCcw, Search, Trash2, Upload, X, UserPlus, Globe, Link2,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Node {
@@ -40,6 +42,7 @@ interface Node {
   updatedAt: string;
   snippet?: string;
   path?: string[];
+  sharedBy?: string | null;
 }
 
 const ICONS: Record<string, any> = {
@@ -77,7 +80,9 @@ export default function Drive() {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [showTrash, setShowTrash] = useState(false);
-  const [detail, setDetail] = useState<number | null>(null);
+  // `?file=<id>` opens a file's details (the "shared with you" email links here).
+  const [detail, setDetail] = useState<number | null>(() => { const f = Number(new URLSearchParams(window.location.search).get("file")); return Number.isFinite(f) && f > 0 ? f : null; });
+  const [shareFor, setShareFor] = useState<{ id: number; name: string; kind: "folder" | "file" } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -89,7 +94,7 @@ export default function Drive() {
 
   const searching = debounced.length > 0;
 
-  const listing = useQuery<{ parentId: number | null; breadcrumbs: { id: number; name: string }[]; items: Node[] }>({
+  const listing = useQuery<{ parentId: number | null; breadcrumbs: { id: number; name: string }[]; items: Node[]; sharedWithMe?: Node[] }>({
     queryKey: ["/api/admin/drive/list", folderId],
     queryFn: async () => {
       const r = await workspaceFetch(`/api/admin/drive/list${folderId ? `?parentId=${folderId}` : ""}`);
@@ -283,7 +288,37 @@ export default function Drive() {
 
       {/* Body */}
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
-        {folderId !== null && !searching && !showTrash && <ShareFolderBar folderId={folderId} />}
+        {folderId !== null && !searching && !showTrash && crumbs.length > 0 && (
+          <div className="mb-3 flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-[15px] font-semibold text-white/90" data-testid="drive-folder-title">{crumbs[crumbs.length - 1].name}</p>
+            <button
+              onClick={() => setShareFor({ id: folderId, name: crumbs[crumbs.length - 1].name, kind: "folder" })}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-500"
+              data-testid="drive-share-folder"
+            >
+              <UserPlus className="h-4 w-4" /> Share
+            </button>
+          </div>
+        )}
+        {folderId === null && !searching && !showTrash && (listing.data?.sharedWithMe?.length ?? 0) > 0 && (
+          <div className="mb-4" data-testid="drive-shared-with-me">
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/40">Shared with you</p>
+            <div className="overflow-hidden rounded-xl border border-white/10">
+              {listing.data!.sharedWithMe!.map((n, i) => {
+                const Icon = ICONS[n.category] ?? FileIcon;
+                return (
+                  <button key={n.id}
+                    onClick={() => { if (n.kind === "folder") { setFolderId(n.id); setQuery(""); } else setDetail(n.id); }}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] ${i > 0 ? "border-t border-white/[0.06]" : ""}`}>
+                    <Icon className={`h-[18px] w-[18px] shrink-0 ${TINT[n.category] ?? TINT.other}`} />
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-white/90">{n.name}</span>
+                    {n.sharedBy && <span className="shrink-0 text-[11.5px] text-white/35">from {n.sharedBy}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {uploading > 0 && (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[13px] text-amber-200">
             <Loader2 className="h-4 w-4 animate-spin" /> Uploading {uploading} file{uploading === 1 ? "" : "s"}…
@@ -350,6 +385,13 @@ export default function Drive() {
                     {when(n.updatedAt)}
                   </span>
 
+                  {!showTrash && (
+                    <button onClick={() => setShareFor({ id: n.id, name: n.name, kind: n.kind })} title="Share"
+                      aria-label={`Share ${n.name}`}
+                      className="shrink-0 rounded p-1.5 text-white/40 hover:bg-white/10 hover:text-white" data-testid={`drive-share-${n.id}`}>
+                      <UserPlus className="h-4 w-4" />
+                    </button>
+                  )}
                   <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                     {showTrash ? (
                       <button onClick={() => act(n.id, "restore")} title="Restore"
@@ -392,6 +434,7 @@ export default function Drive() {
       )}
 
       {detail !== null && <DetailSheet id={detail} onClose={() => setDetail(null)} />}
+      {shareFor && <ShareDialog target={shareFor} onClose={() => setShareFor(null)} />}
     </div>
   );
 }
@@ -499,58 +542,179 @@ function DetailSheet({ id, onClose }: { id: number; onClose: () => void }) {
 }
 
 
-// ── Share a folder with someone outside the club ─────────────────────────────
-// Only a folder inside "Sponsor Content" can carry a link; the server decides
-// and this bar draws nothing anywhere else.
-function ShareFolderBar({ folderId }: { folderId: number }) {
+// ── Share (Google Drive style) ───────────────────────────────────────────────
+// Add people by name (any ClubOS staff login) and choose General access:
+// Restricted, or Anyone with the link. A locked item can't have a public link;
+// the server decides and says why (server/drive-share.ts).
+interface ShareState {
+  node: { id: number; name: string; kind: "folder" | "file" };
+  everyone: string;
+  locked: boolean;
+  publicAllowed: boolean;
+  publicRefusedReason: string | null;
+  link: { url: string; views: number; downloads: number } | null;
+  people: { userId: number; name: string; email: string; avatarUrl: string | null; grantedBy: string | null }[];
+}
+interface Person { userId: number; name: string; email: string; avatarUrl: string | null }
+
+const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
+function Avatar({ p }: { p: { name: string; avatarUrl: string | null } }) {
+  return p.avatarUrl
+    ? <img src={p.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+    : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-600 text-[12px] font-semibold text-white">{initials(p.name)}</span>;
+}
+
+function ShareDialog({ target, onClose }: { target: { id: number; name: string; kind: "folder" | "file" }; onClose: () => void }) {
   const { toast } = useToast();
-  const key = ["/api/admin/drive/share", folderId];
-  const q = useQuery<{ shareable: boolean; link: { url: string; views: number; downloads: number } | null }>({
+  const key = ["/api/admin/drive/share", target.id];
+  const st = useQuery<ShareState>({
     queryKey: key,
     queryFn: async () => {
-      const r = await workspaceFetch(`/api/admin/drive/share/${folderId}`);
-      if (!r.ok) return { shareable: false, link: null };
+      const r = await workspaceFetch(`/api/admin/drive/share/${target.id}`);
+      if (!r.ok) throw new Error(r.status === 404 ? "Only people who can open this through their own access can share it." : "Couldn't load sharing");
       return r.json();
     },
   });
-  const change = useMutation({
-    mutationFn: async (method: "POST" | "DELETE") => {
-      const r = await workspaceFetch(`/api/admin/drive/share/${folderId}`, { method });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "That didn't work");
-      return r.json();
-    },
-    onSuccess: (d) => queryClient.setQueryData(key, d),
-    onError: (e: any) => toast({ title: "Couldn't change the link", description: e.message, variant: "destructive" }),
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<Person | null>(null);
+  const [message, setMessage] = useState("");
+  const people = useQuery<{ people: Person[] }>({
+    queryKey: ["/api/admin/drive/share-people", q],
+    queryFn: async () => (await workspaceFetch(`/api/admin/drive/share-people?q=${encodeURIComponent(q)}`)).json(),
+    enabled: q.trim().length > 0 && !picked,
   });
-  if (!q.data?.shareable) return null;
-  const link = q.data.link;
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5" data-testid="drive-share-bar">
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium text-amber-200">{link ? "This folder has a share link" : "Share this folder with the sponsor"}</p>
-        <p className="truncate text-[12px] text-white/45" data-testid="drive-share-url">
-          {link ? `${link.url} · opened ${link.views} time${link.views === 1 ? "" : "s"}, ${link.downloads} download${link.downloads === 1 ? "" : "s"}`
-            : "Anyone with the link can look at and download what is in this folder. Nothing else in the Drive."}
-        </p>
+  const call = useMutation({
+    mutationFn: async ({ path, method, body }: { path: string; method: string; body?: any }) => {
+      const r = await workspaceFetch(path, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message ?? "That didn't work");
+      return j as ShareState;
+    },
+    onSuccess: (j) => queryClient.setQueryData(key, j),
+    onError: (e: any) => toast({ title: e.message, variant: "destructive" }),
+  });
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+
+  const d = st.data;
+  const already = new Set((d?.people ?? []).map((p) => p.userId));
+  const add = () => {
+    if (!picked) return;
+    call.mutate({ path: `/api/admin/drive/share/${target.id}/people`, method: "POST", body: { userId: picked.userId, message } }, {
+      onSuccess: () => { toast({ title: `Shared with ${picked.name}`, description: "They've been emailed a link." }); setPicked(null); setQ(""); setMessage(""); },
+    });
+  };
+  const copy = async (url: string) => { try { await navigator.clipboard.writeText(url); toast({ title: "Link copied" }); } catch { window.prompt("Copy this link", url); } };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-3" onClick={onClose} data-testid="share-dialog">
+      <div role="dialog" aria-label={`Share ${target.name}`} onClick={(e) => e.stopPropagation()}
+        className="max-h-[92vh] w-full max-w-[520px] overflow-y-auto rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl">
+        <div className="flex items-start gap-3">
+          <h2 className="min-w-0 flex-1 text-[18px] font-semibold leading-snug">Share “<span className="break-words">{target.name}</span>”</h2>
+          <button onClick={onClose} aria-label="Close" className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+
+        {st.isLoading ? (
+          <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : st.error ? (
+          <p className="mt-4 text-[14px] text-foreground" data-testid="share-error">{(st.error as any).message}</p>
+        ) : d && (
+          <>
+            {/* Add people */}
+            <div className="relative mt-4">
+              {picked ? (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2">
+                  <Avatar p={picked} />
+                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{picked.name}</p><p className="truncate text-[12px] text-muted-foreground">{picked.email}</p></div>
+                  <button onClick={() => setPicked(null)} aria-label="Remove" className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+                </div>
+              ) : (
+                <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Add people by name or email"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none"
+                  data-testid="share-people-input" />
+              )}
+              {!picked && q.trim() && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover text-popover-foreground shadow-xl" data-testid="share-people-results">
+                  {people.isLoading ? <p className="p-3 text-[13px] text-muted-foreground">Searching…</p>
+                    : (people.data?.people ?? []).length === 0 ? <p className="p-3 text-[13px] text-muted-foreground">No one with a ClubOS login matches “{q.trim()}”.</p>
+                    : people.data!.people.map((p) => (
+                      <button key={p.userId} disabled={already.has(p.userId)} onClick={() => setPicked(p)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:opacity-50" data-testid={`share-person-${p.userId}`}>
+                        <Avatar p={p} />
+                        <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-muted-foreground">{p.email}</p></div>
+                        {already.has(p.userId) && <span className="text-[11.5px] text-muted-foreground">Has access</span>}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            {picked && (
+              <div className="mt-2">
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="Message (optional)"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-[14px] text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none" />
+                <div className="mt-2 flex justify-end">
+                  <button onClick={add} disabled={call.isPending} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-blue-600 px-5 text-[14px] font-semibold text-white hover:bg-blue-500 disabled:opacity-60" data-testid="share-send">
+                    {call.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Share
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* People with access */}
+            <p className="mt-5 text-[13px] font-semibold text-foreground">People with access</p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{d.everyone}{d.people.length ? ", plus:" : "."}</p>
+            <div className="mt-1" data-testid="share-people-list">
+              {d.people.map((p) => (
+                <div key={p.userId} className="flex items-center gap-2 py-2">
+                  <Avatar p={p} />
+                  <div className="min-w-0 flex-1"><p className="truncate text-[14px]">{p.name}</p><p className="truncate text-[12px] text-muted-foreground">{p.email}{p.grantedBy ? ` · added by ${p.grantedBy}` : ""}</p></div>
+                  <button onClick={() => call.mutate({ path: `/api/admin/drive/share/${target.id}/people/${p.userId}`, method: "DELETE" })}
+                    className="rounded px-2 py-1 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-red-600" data-testid={`share-remove-${p.userId}`}>Remove</button>
+                </div>
+              ))}
+            </div>
+
+            {/* General access */}
+            <p className="mt-5 text-[13px] font-semibold text-foreground">General access</p>
+            <div className="mt-2 flex items-start gap-3 rounded-lg bg-muted/50 p-3">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${d.link ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
+                {d.link ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <Select
+                  value={d.link ? "anyone" : "restricted"}
+                  disabled={!d.publicAllowed || call.isPending}
+                  onValueChange={(v) => call.mutate({ path: `/api/admin/drive/share/${target.id}`, method: v === "anyone" ? "POST" : "DELETE" })}>
+                  <SelectTrigger className="h-9 w-full border-input bg-background text-[14px] text-foreground" data-testid="share-general-access"><SelectValue /></SelectTrigger>
+                  <SelectContent className="z-[60]">
+                    <SelectItem value="restricted" data-testid="share-opt-restricted">Restricted</SelectItem>
+                    <SelectItem value="anyone" data-testid="share-opt-anyone">Anyone with the link</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[12px] text-muted-foreground" data-testid="share-general-note">
+                  {!d.publicAllowed ? d.publicRefusedReason
+                    : d.link ? `Anyone on the internet with the link can view and download ${d.node.kind === "folder" ? "the files in this folder" : "this file"}. They see only this — nothing else in ClubOS.`
+                    : "Only the people above can open it."}
+                </p>
+                {d.link && <p className="mt-1 text-[11.5px] text-muted-foreground">Opened {d.link.views} time{d.link.views === 1 ? "" : "s"} · {d.link.downloads} download{d.link.downloads === 1 ? "" : "s"}</p>}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              {d.link && (
+                <button onClick={() => copy(d.link!.url)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-blue-600/50 px-4 text-[14px] font-semibold text-blue-700 hover:bg-blue-600/10" data-testid="share-copy-link">
+                  <Link2 className="h-4 w-4" /> Copy link
+                </button>
+              )}
+              <button onClick={onClose} className="ml-auto inline-flex min-h-[40px] items-center rounded-full bg-blue-600 px-5 text-[14px] font-semibold text-white hover:bg-blue-500" data-testid="share-done">Done</button>
+            </div>
+          </>
+        )}
       </div>
-      {link ? (
-        <>
-          <button
-            onClick={() => { navigator.clipboard.writeText(link.url); toast({ title: "Link copied" }); }}
-            className="inline-flex min-h-[40px] items-center rounded-lg bg-amber-400 px-3 text-[13px] font-semibold text-black hover:bg-amber-300" data-testid="drive-share-copy"
-          >Copy link</button>
-          <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex min-h-[40px] items-center rounded-lg border border-white/10 px-3 text-[13px] text-white/70 hover:bg-white/5">Open</a>
-          <button
-            onClick={() => { if (window.confirm("Switch this link off? The sponsor will no longer be able to open it.")) change.mutate("DELETE"); }}
-            className="inline-flex min-h-[40px] items-center rounded-lg border border-white/10 px-3 text-[13px] text-white/70 hover:bg-white/5" data-testid="drive-share-off"
-          >Switch off</button>
-        </>
-      ) : (
-        <button
-          onClick={() => change.mutate("POST")} disabled={change.isPending}
-          className="inline-flex min-h-[40px] items-center rounded-lg bg-amber-400 px-3 text-[13px] font-semibold text-black hover:bg-amber-300" data-testid="drive-share-create"
-        >Create link</button>
-      )}
-    </div>
+    </div>,
+    document.body,
   );
 }

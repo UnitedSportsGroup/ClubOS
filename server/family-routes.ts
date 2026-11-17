@@ -508,8 +508,8 @@ export async function searchPeople(q: string, filter: SearchFilter, limit: numbe
  * name should show WHOSE child they are right there, without a second click.
  * Batched over the visible page only — never the whole table.
  */
-type FamilySummary = { parents: string[]; children: string[]; parentHasEmail: boolean };
-async function familySummaries(rows: any[]): Promise<Map<string, FamilySummary>> {
+export type FamilySummary = { parents: string[]; children: string[]; parentHasEmail: boolean };
+export async function familySummaries(rows: any[]): Promise<Map<string, FamilySummary>> {
   const out = new Map<string, FamilySummary>();
   const blank = (): FamilySummary => ({ parents: [], children: [], parentHasEmail: false });
   const contactIds = rows.filter(r => r.kind === "contact").map(r => Number(r.id));

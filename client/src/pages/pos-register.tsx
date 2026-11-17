@@ -15,6 +15,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { formatCurrency, dollarInputToCents, centsToDollarInput } from "@/lib/format";
 import { RegisterPlayerModal } from "./admin-register-player";
+import { DobInput } from "@/components/ui/dob-input";
+import { HDYHAU_OPTIONS } from "@shared/hdyhau";
+import type { TillGymCatalogue, TillGymProgramme } from "@shared/pos-counter-till";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { feedWedgeKey, shouldIgnoreWedgeTarget, EMPTY_WEDGE, type WedgeState } from "@/lib/wedge-scanner";
 import { roundCashToTenCents } from "@shared/pos";
 import type { CounterStatus } from "@shared/pos-counter";
@@ -25,7 +30,7 @@ import {
 
 // ── Types (JSON shapes from server/pos-routes.ts) ───────────────────────────
 interface Brand { id: number; slug: string; name: string; account: string | null; logoUrl?: string | null }
-interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; hasCounter?: boolean; counterOnline?: boolean; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
+interface Register { id: number; name: string; location: string | null; defaultOrgId: number | null; hasReader: boolean; handlesCash: boolean; hasCounter?: boolean; counterOnline?: boolean; /** The Stripe account this register's reader(s) take cards for. */ readerAccount?: string; openShift: { id: number; openedAt: string; openingFloatCents: number; openedByName: string | null } | null }
 interface Bootstrap {
   registers: Register[]; brands: Brand[];
   tenders: { value: string; label: string; rounds: boolean; needsReference: boolean }[];
@@ -33,13 +38,15 @@ interface Bootstrap {
   declineReasons: { value: string; label: string }[];
   seller: { legalName: string; gstNumber: string };
   me: { id: number; name: string; canIssueRefunds: boolean };
+  /** Per money account; null = no card can be typed in for that account here. */
+  stripePublishableKeys?: Record<string, string | null>;
 }
 interface Variant { id: number; size: string; sku: string | null; stock: number; priceCents: number }
 interface Colour { id: number; name: string; swatchHex: string | null; image: string | null; variants: Variant[] }
 interface Product { id: number; orgId: number; title: string; subtitle: string | null; type: string; priceCents: number; image: string | null; colours: Colour[] }
 interface Programme { id: number; orgId: number; name: string; type: string; registrationOpen: boolean; options: { id: number; name: string; fullPriceCents: number }[] }
 interface EventRow { id: number; orgId: number; name: string; startsAt: string; ticketTypes: { id: number; name: string; priceCents: number }[] }
-interface Catalogue { products: Product[]; programmes: Programme[]; events: EventRow[]; codeHit: { variantId: number; productId: number } | null }
+interface Catalogue { products: Product[]; programmes: Programme[]; events: EventRow[]; gym?: TillGymCatalogue | null; codeHit: { variantId: number; productId: number } | null }
 interface Line { id: number; kind: string; organizationId: number; brand: string; title: string; detail: string | null; unitCents: number; qty: number; lineCents: number; variantId: number | null; registrationId: number | null; meta: any }
 interface Payment { id: number; method: string; label: string; amountCents: number; reference: string | null; status: string; stripePaymentIntentId: string | null }
 interface Sale {
@@ -185,6 +192,9 @@ export default function PosRegister() {
   const [refundOpen, setRefundOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [openingForPlayer, setOpeningForPlayer] = useState(false);
+  // United Gymnastics: the programme being registered, and a card typed into this laptop.
+  const [gymOpen, setGymOpen] = useState<TillGymProgramme | null>(null);
+  const [keyed, setKeyed] = useState<{ paymentId: number; clientSecret: string; account: string } | null>(null);
   const [floatDollars, setFloatDollars] = useState("100.00");
   const [recentOpen, setRecentOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -236,8 +246,13 @@ export default function PosRegister() {
   // What the counter screen last said about this card payment ("declined", "cancelled").
   const [counterNote, setCounterNote] = useState<string | null>(null);
   const cardPay = useMutation({
-    mutationFn: () => json<{ paymentId: number; viaReader: boolean; viaCounter?: boolean; clientSecret: string | null }>("POST", `/api/admin/pos/sales/${saleId}/payments/card`, {}),
-    onSuccess: (r) => { setCardPaymentId(r.paymentId); setCounterNote(null); refreshSale(); if (!r.viaReader) toast({ title: "No reader on this register", description: "Add a Stripe reader to the register, or use the EFTPOS terminal and record it.", variant: "destructive" }); },
+    mutationFn: (opts: { keyed?: boolean } | void) => json<{ paymentId: number; viaReader: boolean; viaCounter?: boolean; keyed?: boolean; account?: string; clientSecret: string | null }>("POST", `/api/admin/pos/sales/${saleId}/payments/card`, opts && opts.keyed ? { keyed: true } : {}),
+    onSuccess: (r) => {
+      setCardPaymentId(r.paymentId); setCounterNote(null); refreshSale();
+      // A typed card: the server made a PaymentIntent on the SALE's account; this laptop draws the card field.
+      if (r.keyed && r.clientSecret) { setKeyed({ paymentId: r.paymentId, clientSecret: r.clientSecret, account: r.account ?? "club" }); return; }
+      if (!r.viaReader) toast({ title: "No reader on this register", description: "Add a Stripe reader to the register, type the card in, or use the EFTPOS terminal and record it.", variant: "destructive" });
+    },
     onError: fail,
   });
   const cancelCard = useMutation({ mutationFn: () => json<Sale>("POST", `/api/admin/pos/sales/${saleId}/payments/${cardPaymentId}/cancel`, {}), onSuccess: (s) => { setCardPaymentId(null); refreshSale(s); }, onError: (e) => { setCardPaymentId(null); fail(e); } });
@@ -250,8 +265,8 @@ export default function PosRegister() {
         if (stop) return;
         refreshSale(r.sale);
         setCounterNote(r.counterNote ?? null);
-        if (r.stripeStatus === "succeeded") { setCardPaymentId(null); toast({ title: `Paid by card — ${r.sale.saleNumber}` }); }
-        else if (r.stripeStatus === "canceled") { setCardPaymentId(null); toast({ title: "Card payment cancelled", variant: "destructive" }); }
+        if (r.stripeStatus === "succeeded") { setCardPaymentId(null); setKeyed(null); toast({ title: `Paid by card — ${r.sale.saleNumber}` }); }
+        else if (r.stripeStatus === "canceled") { setCardPaymentId(null); setKeyed(null); toast({ title: "Card payment cancelled", variant: "destructive" }); }
       } catch { /* keep polling */ }
     };
     const t = setInterval(tick, 2000);
@@ -270,6 +285,19 @@ export default function PosRegister() {
       setSaleId(created.id); ls.set("clubos_pos_sale", String(created.id)); refreshSale(created);
       setRegisterOpen(true);
     } catch (e) { fail(e); } finally { setOpeningForPlayer(false); }
+  };
+  // A gymnastics class banks with United Gymnastics' own account, and a sale
+  // takes ONE account. An empty sale switches; one with anything on it says so.
+  const ensureGymSale = async (): Promise<number> => {
+    if (s) {
+      if (s.moneyAccount === "cugc") return s.id;
+      if (s.lines.length || s.payments.length) throw new Error("This sale banks with the club. Finish or clear it first, then register the gymnast on a new sale — a sale takes one account only.");
+      const patched = await json<Sale>("PATCH", `/api/admin/pos/sales/${s.id}`, { moneyAccount: "cugc" });
+      refreshSale(patched); return patched.id;
+    }
+    const created = await json<Sale>("POST", "/api/admin/pos/sales", { registerId: register!.id, moneyAccount: "cugc" });
+    setSaleId(created.id); ls.set("clubos_pos_sale", String(created.id)); refreshSale(created);
+    return created.id;
   };
   const decline = useMutation({ mutationFn: (body: Record<string, unknown>) => json("POST", "/api/admin/pos/declines", { registerId: register!.id, ...body }), onSuccess: () => { setDeclineOpen(false); toast({ title: "Noted", description: "That goes in the count for an eftpos integration." }); }, onError: fail });
 
@@ -300,6 +328,8 @@ export default function PosRegister() {
   const qq = q.trim().toLowerCase();
   const products = (catalogue.data?.products ?? []).filter((p) => (brand == null || p.orgId === brand) && (!qq || p.title.toLowerCase().includes(qq)));
   const programmes = (catalogue.data?.programmes ?? []).filter((p) => (brand == null || p.orgId === brand) && (!qq || p.name.toLowerCase().includes(qq)));
+  const gym = catalogue.data?.gym ?? null;
+  const gymProgrammes = gym && (brand == null || brand === gym.orgId) ? gym.programmes.filter((p) => p.options.length && (!qq || p.title.toLowerCase().includes(qq))) : [];
   const events = (catalogue.data?.events ?? []).filter((e) => (brand == null || e.orgId === brand) && (!qq || e.name.toLowerCase().includes(qq)));
   const s = sale.data && sale.data.status === "open" ? sale.data : null;
   const done = sale.data && sale.data.status !== "open" ? sale.data : null;
@@ -390,12 +420,19 @@ export default function PosRegister() {
 
             {tab === "programmes" && (
               <div className="mt-3 space-y-2" data-testid="pos-programmes">
-                <div className="bg-white rounded-xl border border-neutral-200 p-3 text-[13px] text-neutral-600">A programme is registered on the office form, priced by the same engine as the website, and paid here as part of this sale. Pre-Academy and Academy can be sold here even while invite-only.</div>
+                <div className="bg-white rounded-xl border border-neutral-200 p-3 text-[13px] text-neutral-600">A programme is registered on the office form, priced by the same engine as the website, and paid here as part of this sale. Pre-Academy and Academy can be sold here even while invite-only. A gymnastics class banks with United Gymnastics' own account — register it below (pick the United Gymnastics brand, or All brands) and it goes on a gymnastics sale.</div>
                 <button className={`${btnPrimary} w-full`} disabled={openingForPlayer} onClick={startPlayerRegistration} data-testid="pos-register-player">{openingForPlayer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Register a player for this sale</button>
                 {programmes.map((p) => (
                   <div key={p.id} className="bg-white rounded-xl border border-neutral-200 p-3 flex items-center gap-3">
                     <div className="min-w-0 flex-1"><div className="text-[14px] font-medium truncate">{p.name}</div><div className="text-[12px] text-neutral-500">{brandName(p.orgId)} · {p.type === "academy" ? "term programme" : "holiday camp"}{p.registrationOpen ? "" : " · invite-only"}</div></div>
                     <div className="text-[13px] text-neutral-700 whitespace-nowrap">{p.options.length ? `from ${$(Math.min(...p.options.map((o) => o.fullPriceCents)))}` : "priced at checkout"}</div>
+                  </div>
+                ))}
+                {gymProgrammes.map((p) => (
+                  <div key={p.slug} className="bg-white rounded-xl border border-neutral-200 p-3 flex items-center gap-3" data-testid="pos-gym-programme">
+                    <div className="min-w-0 flex-1"><div className="text-[14px] font-medium truncate">{p.title}</div><div className="text-[12px] text-neutral-500">United Gymnastics · {p.ages} · {gym!.term.name}{p.inviteOnly ? " · invite-only" : ""}</div></div>
+                    <div className="text-[13px] text-neutral-700 whitespace-nowrap">from {$(Math.min(...p.options.map((o) => o.priceCents)))}</div>
+                    <button className={`${btnGhost} px-3`} onClick={() => setGymOpen(p)} data-testid="pos-gym-register">Register</button>
                   </div>
                 ))}
               </div>
@@ -514,7 +551,13 @@ export default function PosRegister() {
       {/* ── Sheets ── */}
       {picking && <VariantSheet product={picking} brand={brandName(picking.orgId)} onClose={() => setPicking(null)} onPick={(variantId) => addLine.mutate({ kind: "variant", variantId, qty: 1 })} pending={addLine.isPending} />}
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} onCode={onCode} />
-      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders.filter((t) => t.value !== "cash" || register.handlesCash)} hasReader={register.hasReader || !!register.hasCounter} viaCounter={!!register.hasCounter} counterNote={counterNote} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
+      {s && <TenderSheet open={tenderOpen} onClose={() => setTenderOpen(false)} sale={s} tenders={boot.data.manualTenders.filter((t) => t.value !== "cash" || register.handlesCash)} hasReader={register.hasReader || !!register.hasCounter} readerAccount={register.readerAccount ?? null} keyedAvailable={!!boot.data.stripePublishableKeys?.[s.moneyAccount]} viaCounter={!!register.hasCounter} counterNote={counterNote} onPay={(b) => pay.mutate(b)} onCard={() => cardPay.mutate()} onKeyed={() => cardPay.mutate({ keyed: true })} onCancelCard={() => cancelCard.mutate()} cardPending={!!cardPending || cardPay.isPending} pending={pay.isPending} />}
+      {keyed && s && boot.data.stripePublishableKeys?.[keyed.account] && (
+        <KeyedCardDialog clientSecret={keyed.clientSecret} publishableKey={boot.data.stripePublishableKeys[keyed.account]!} amountCents={s.remainingCents} accountLabel={MONEY_ACCOUNT_NAMES[keyed.account] ?? keyed.account}
+          onDone={async () => { try { const r = await json<{ stripeStatus: string; sale: Sale }>("POST", `/api/admin/pos/sales/${s.id}/payments/${keyed.paymentId}/confirm`, {}); refreshSale(r.sale); if (r.stripeStatus === "succeeded") { setCardPaymentId(null); setKeyed(null); setTenderOpen(false); toast({ title: `Paid by card — ${r.sale.saleNumber}` }); } } catch (e) { fail(e); } }}
+          onCancel={() => { setKeyed(null); cancelCard.mutate(); }} />
+      )}
+      {gymOpen && gym && <GymRegisterDialog programme={gymOpen} term={gym.term} onClose={() => setGymOpen(null)} ensureGymSale={ensureGymSale} onSaved={(sale) => { refreshSale(sale); setGymOpen(null); toast({ title: "Gymnast added to the sale", description: "The place is confirmed when the sale is paid — it banks with United Gymnastics." }); }} />}
       {s && <CustomerDialog open={customerOpen} onClose={() => setCustomerOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {s && <DiscountDialog open={discountOpen} onClose={() => setDiscountOpen(false)} sale={s} onSave={(b) => patchSale.mutate(b)} pending={patchSale.isPending} />}
       {done && <RefundDialog open={refundOpen} onClose={() => setRefundOpen(false)} sale={done} onSave={(b) => refund.mutate(b)} pending={refund.isPending} />}
@@ -595,10 +638,15 @@ function EventCard({ event, brand, sale, onAdd }: { event: EventRow; brand: stri
   );
 }
 
-function TenderSheet({ open, onClose, sale, tenders, hasReader, viaCounter, counterNote, onPay, onCard, onCancelCard, cardPending, pending }: {
-  open: boolean; onClose: () => void; sale: Sale; tenders: Bootstrap["manualTenders"]; hasReader: boolean; viaCounter: boolean; counterNote: string | null;
-  onPay: (b: { method: string; amountCents: number; reference?: string }) => void; onCard: () => void; onCancelCard: () => void; cardPending: boolean; pending: boolean;
+function TenderSheet({ open, onClose, sale, tenders, hasReader, readerAccount, keyedAvailable, viaCounter, counterNote, onPay, onCard, onKeyed, onCancelCard, cardPending, pending }: {
+  open: boolean; onClose: () => void; sale: Sale; tenders: Bootstrap["manualTenders"]; hasReader: boolean; readerAccount: string | null; keyedAvailable: boolean; viaCounter: boolean; counterNote: string | null;
+  onPay: (b: { method: string; amountCents: number; reference?: string }) => void; onCard: () => void; onKeyed: () => void; onCancelCard: () => void; cardPending: boolean; pending: boolean;
 }) {
+  // A reader is registered to ONE Stripe account. A sale that banks elsewhere
+  // (a gymnastics class at the club's counter) cannot tap on it — say so, and
+  // offer the card typed in on the sale's own account instead.
+  const readerOk = hasReader && (!readerAccount || readerAccount === sale.moneyAccount);
+  const accountName = (a: string | null) => a ? (MONEY_ACCOUNT_NAMES[a] ?? a) : "";
   // Default to whatever this register can actually take — EFTPOS on a cashless one.
   const [method, setMethod] = useState<string>(tenders[0]?.value ?? "eftpos");
   const [tendered, setTendered] = useState("");
@@ -627,8 +675,10 @@ function TenderSheet({ open, onClose, sale, tenders, hasReader, viaCounter, coun
           <>
             <div className="grid grid-cols-2 gap-2">
               {tenders.map((x) => <button key={x.value} type="button" onClick={() => setMethod(x.value)} className={`h-12 rounded-xl border text-[14px] font-medium flex items-center justify-center gap-2 ${method === x.value ? "bg-neutral-900 text-white border-neutral-900" : "bg-white border-neutral-200"}`} data-testid={`pos-tender-${x.value}`}>{icon(x.value)}{x.label}</button>)}
-              <button type="button" onClick={onCard} disabled={!hasReader} title={hasReader ? "" : "No Stripe reader on this register yet"} className="h-12 rounded-xl border text-[14px] font-medium flex items-center justify-center gap-2 bg-white border-neutral-200 disabled:opacity-40 col-span-2" data-testid="pos-tender-card"><CreditCard className="h-4 w-4" />Card reader{hasReader ? "" : " (not set up)"}</button>
+              <button type="button" onClick={onCard} disabled={!readerOk} title={!hasReader ? "No Stripe reader on this register yet" : !readerOk ? `The reader takes cards for ${accountName(readerAccount)} only` : ""} className="h-12 rounded-xl border text-[14px] font-medium flex items-center justify-center gap-2 bg-white border-neutral-200 disabled:opacity-40 col-span-2" data-testid="pos-tender-card"><CreditCard className="h-4 w-4" />Card reader{!hasReader ? " (not set up)" : !readerOk ? ` (${accountName(readerAccount)} only)` : ""}</button>
+              {keyedAvailable && <button type="button" onClick={onKeyed} className="h-12 rounded-xl border text-[14px] font-medium flex items-center justify-center gap-2 bg-white border-neutral-200 col-span-2" data-testid="pos-tender-keyed"><CreditCard className="h-4 w-4" />Card typed in · {accountName(sale.moneyAccount)}</button>}
             </div>
+            {hasReader && !readerOk && <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12.5px] text-amber-900" data-testid="pos-tender-account-note">This sale banks with {accountName(sale.moneyAccount)}. The reader takes cards for {accountName(readerAccount)}, so type the card in{keyedAvailable ? "" : " (not set up for this account yet)"}, or key it into the EFTPOS terminal and record the slip.</div>}
             {cash && (
               <div className="space-y-2">
                 <div className="text-[12px] text-neutral-600">Cash rounds to the nearest 10c: <b>{$(rounded)}</b>{rounded !== remaining ? ` (was ${$(remaining)})` : ""}.</div>
@@ -877,6 +927,44 @@ function ReaderDialog({ open, onClose, registerId, registerName, onChanged }: { 
   );
 }
 
+/**
+ * Your own 4-digit PIN for using the counter reader as a till on its own
+ * (Daniel, 2026-10-31). Each person sets their own, so every sale built on the
+ * reader says who served it. It is never shown back — only whether one is set.
+ */
+function ReaderPinSection() {
+  const { toast } = useToast();
+  const [pin, setPin] = useState("");
+  const [editing, setEditing] = useState(false);
+  const mine = useQuery<{ hasPin: boolean; setAt: string | null; locked: boolean }>({
+    queryKey: ["/api/admin/pos/my-counter-pin"],
+    queryFn: () => json("GET", "/api/admin/pos/my-counter-pin"),
+  });
+  const save = useMutation({
+    mutationFn: () => json("PUT", "/api/admin/pos/my-counter-pin", { pin }),
+    onSuccess: () => { setPin(""); setEditing(false); mine.refetch(); toast({ title: "Reader PIN saved", description: "Tap Staff on the reader, pick your name and enter it." }); },
+    onError: (e) => toast({ title: "Couldn't save that PIN", description: errMessage(e), variant: "destructive" }),
+  });
+  const has = !!mine.data?.hasPin;
+  return (
+    <div className="rounded-xl border border-neutral-200 p-3 space-y-2" data-testid="pos-reader-pin">
+      <div className="text-[13.5px] font-semibold">Sell on the reader by itself</div>
+      <p className="text-[12.5px] text-neutral-600">Tap <b>Staff</b> on the reader, pick your name and enter your PIN. You can sell kit and register players on it, and the customer pays on the same screen — no laptop needed.</p>
+      {mine.data?.locked && <p className="text-[12.5px] text-amber-800">Your PIN is locked after too many wrong tries. Setting a new one unlocks it.</p>}
+      {!editing ? (
+        <button className={`${btnGhost} w-full`} onClick={() => setEditing(true)} data-testid="pos-reader-pin-edit">{has ? "Change my reader PIN" : "Set my reader PIN"}</button>
+      ) : (
+        <div className="flex gap-2">
+          <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            placeholder="4 digits" className="h-12 w-full min-w-0 rounded-xl border border-neutral-300 bg-white px-3 text-[20px] tracking-[0.5em]" data-testid="pos-reader-pin-input" />
+          <button className={btnPrimary} disabled={pin.length !== 4 || save.isPending} onClick={() => save.mutate()} data-testid="pos-reader-pin-save">{save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Save</button>
+        </div>
+      )}
+      {has && !editing && <p className="text-[12px] text-neutral-500">PIN set{mine.data?.setAt ? ` on ${new Date(mine.data.setAt).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : ""}.</p>}
+    </div>
+  );
+}
+
 /** The counter screen: our own app on the S710, linked by the code it shows. */
 function CounterSection({ open, registerId, registerName, onChanged }: { open: boolean; registerId: number; registerName: string; onChanged: () => void }) {
   const { toast } = useToast();
@@ -898,7 +986,7 @@ function CounterSection({ open, registerId, registerName, onChanged }: { open: b
     onError: (e) => toast({ title: "Couldn't unlink", description: errMessage(e), variant: "destructive" }),
   });
   const c = info.data?.counter ?? null;
-  const ago = (iso: string | null) => { if (!iso) return "never"; const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString("en-NZ"); };
+  const ago = (iso: string | null) => { if (!iso) return "never"; const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(iso).toLocaleString("en-NZ", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }); };
   return (
     <div className="mt-2 border-t border-neutral-200 pt-4 space-y-3" data-testid="pos-counter-section">
       <div className="text-[14px] font-semibold">Counter screen</div>
@@ -914,6 +1002,7 @@ function CounterSection({ open, registerId, registerName, onChanged }: { open: b
             </div>
           </div>
           <p className="text-[13px] text-neutral-600">The customer watches the cart build on this screen, with photos, then pays by card on it. Card sales on {registerName} go here.</p>
+          <ReaderPinSection />
           <button className={`${btnGhost} w-full`} onClick={() => setShowLog((v) => !v)}>{showLog ? "Hide" : "Show"} what the screen has been doing</button>
           {showLog && (
             <div className="max-h-48 overflow-y-auto rounded-xl border border-neutral-200 divide-y divide-neutral-100 text-[12px]">
@@ -931,6 +1020,151 @@ function CounterSection({ open, registerId, registerName, onChanged }: { open: b
           <button className={`${btnPrimary} w-full`} disabled={link.isPending || code.replace(/[^A-Z0-9]/gi, "").length !== 6} onClick={() => link.mutate()} data-testid="pos-counter-link">{link.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Link counter screen</button>
         </>
       )}
+    </div>
+  );
+}
+
+
+// ── United Gymnastics: register a gymnast onto this sale ────────────────────
+// The same row cugc.co.nz's enrol form writes, priced by the server for the
+// term being sold, the class checked against this term's timetable. The page
+// never sends a price. "How did you hear about us?" is required for a new gym
+// family; a double booking is refused before anything is written.
+function GymRegisterDialog({ programme, term, onClose, ensureGymSale, onSaved }: {
+  programme: TillGymProgramme; term: { id: string; name: string }; onClose: () => void;
+  ensureGymSale: () => Promise<number>; onSaved: (sale: Sale) => void;
+}) {
+  const [optionIndex, setOptionIndex] = useState<number>(programme.options.length === 1 ? 0 : -1);
+  const [sessionTime, setSessionTime] = useState("");
+  const [f, setF] = useState({ first: "", last: "", dob: "", parent: "", email: "", phone: "", emergencyName: "", emergencyPhone: "", medical: "", photo: "" as "" | "yes" | "no", heardVia: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [needHeard, setNeedHeard] = useState(false);
+  const [duplicate, setDuplicate] = useState<string | null>(null);
+  const option = optionIndex >= 0 ? programme.options[optionIndex] : null;
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const chipCls = (on: boolean) => `h-10 rounded-xl border px-3 text-[13px] font-medium ${on ? "bg-neutral-900 text-white border-neutral-900" : "bg-white border-neutral-200"}`;
+  const ready = !!option && (!option.choices.length || !!sessionTime) && f.first.trim() && f.last.trim() && f.dob && f.parent.trim() && f.email.includes("@") && f.phone.replace(/\D/g, "").length >= 8;
+  const submit = async (acknowledgeDuplicate = false) => {
+    setBusy(true); setErr(null); setDuplicate(null);
+    try {
+      const saleId = await ensureGymSale();
+      const r = await json<{ sale: Sale }>("POST", `/api/admin/pos/sales/${saleId}/gym-registrations`, {
+        programSlug: programme.slug, optionIndex, sessionTime, termId: term.id,
+        gymnast: { firstName: f.first.trim(), lastName: f.last.trim(), dob: f.dob },
+        parent: { name: f.parent.trim(), email: f.email.trim(), phone: f.phone.trim() },
+        emergencyName: f.emergencyName.trim(), emergencyPhone: f.emergencyPhone.trim(), medical: f.medical.trim(),
+        photoConsent: f.photo || undefined, heardVia: f.heardVia || undefined, acknowledgeDuplicate,
+      });
+      onSaved(r.sale);
+    } catch (e: any) {
+      const m = errMessage(e);
+      const code = (() => { try { const i = String(e?.message ?? "").indexOf(": "); return JSON.parse(String(e?.message ?? "").slice(i + 2)).code; } catch { return null; } })();
+      if (code === "hdyhau_required") { setNeedHeard(true); setErr(m); }
+      else if (code === "already_registered") setDuplicate(m);
+      else setErr(m);
+    } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="max-w-lg bg-white text-neutral-900 max-h-[92vh] overflow-y-auto" data-testid="pos-gym-dialog">
+        <DialogTitle className="text-[16px] font-semibold">Register a gymnast · {programme.title}</DialogTitle>
+        <div className="text-[12.5px] text-neutral-500 -mt-2">United Gymnastics · {programme.ages} · {term.name}. Priced by the gym's own engine; the place is confirmed when this sale is paid.</div>
+        {programme.options.length > 1 && (
+          <div className="space-y-1.5">
+            <div className="text-[12px] font-semibold text-neutral-600">Option</div>
+            <div className="flex flex-wrap gap-2">{programme.options.map((o, i) => <button key={i} type="button" className={chipCls(i === optionIndex)} onClick={() => { setOptionIndex(i); setSessionTime(""); }} data-testid="pos-gym-option">{o.label} · {$(o.priceCents)}</button>)}</div>
+          </div>
+        )}
+        {option && option.choices.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[12px] font-semibold text-neutral-600">Class</div>
+            <div className="flex flex-wrap gap-2">{option.choices.map((c) => <button key={c} type="button" className={chipCls(c === sessionTime)} onClick={() => setSessionTime(c)} data-testid="pos-gym-time">{c}</button>)}</div>
+          </div>
+        )}
+        {option && <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-[13px] flex items-center justify-between"><span>{option.label}{option.prorated ? ` · pro rata, ${option.weeksLeft} weeks left` : " · full term"}</span><b className="tabular-nums">{$(option.priceCents)}</b></div>}
+        <div className="grid grid-cols-2 gap-2">
+          <input className={inputCls} placeholder="Gymnast's first name" value={f.first} onChange={set("first")} data-testid="pos-gym-first" />
+          <input className={inputCls} placeholder="Gymnast's last name" value={f.last} onChange={set("last")} data-testid="pos-gym-last" />
+        </div>
+        <div><div className="text-[12px] font-semibold text-neutral-600 mb-1">Gymnast's date of birth</div><DobInput value={f.dob} onChange={set("dob")} tone="light" data-testid="pos-gym-dob" /></div>
+        <input className={inputCls} placeholder="Parent's name" value={f.parent} onChange={set("parent")} data-testid="pos-gym-parent" />
+        <div className="grid grid-cols-2 gap-2">
+          <input className={inputCls} type="email" placeholder="Parent's email" value={f.email} onChange={set("email")} data-testid="pos-gym-email" />
+          <input className={inputCls} inputMode="tel" placeholder="Parent's mobile" value={f.phone} onChange={set("phone")} data-testid="pos-gym-phone" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input className={inputCls} placeholder="Emergency contact (optional)" value={f.emergencyName} onChange={set("emergencyName")} />
+          <input className={inputCls} inputMode="tel" placeholder="Emergency phone (optional)" value={f.emergencyPhone} onChange={set("emergencyPhone")} />
+        </div>
+        <input className={inputCls} placeholder="Medical or allergies (optional)" value={f.medical} onChange={set("medical")} />
+        <div className="flex items-center gap-2 text-[13px]"><span className="text-neutral-600">Photos of the gymnast may be used by the gym?</span>
+          <button type="button" className={chipCls(f.photo === "yes")} onClick={() => setF((x) => ({ ...x, photo: "yes" }))}>Yes</button>
+          <button type="button" className={chipCls(f.photo === "no")} onClick={() => setF((x) => ({ ...x, photo: "no" }))}>No</button>
+        </div>
+        <div>
+          <div className={`text-[12px] font-semibold mb-1 ${needHeard ? "text-amber-800" : "text-neutral-600"}`}>How did they hear about the gym?{needHeard ? " — needed for a new family" : " (new families)"}</div>
+          <div className="flex flex-wrap gap-1.5">{HDYHAU_OPTIONS.filter((o) => o.value !== "returning").map((o) => <button key={o.value} type="button" className={chipCls(f.heardVia === o.label)} onClick={() => setF((x) => ({ ...x, heardVia: o.label }))} data-testid={`pos-gym-heard-${o.value}`}>{o.label}</button>)}</div>
+        </div>
+        {err && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-800" data-testid="pos-gym-error">{err}</div>}
+        {duplicate && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[13px] text-amber-900 space-y-2" data-testid="pos-gym-duplicate">
+            <div>{duplicate} Check with the parent before taking money twice.</div>
+            <button className={`${btnGhost} w-full`} disabled={busy} onClick={() => submit(true)}>Book it again anyway</button>
+          </div>
+        )}
+        <button className={`${btnPrimary} w-full h-12 text-[15px]`} disabled={!ready || busy} onClick={() => submit(false)} data-testid="pos-gym-save">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Add to the sale{option ? ` · ${$(option.priceCents)}` : ""}</button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── A card typed into this laptop, on the SALE's own Stripe account ─────────
+// For a sale the register's reader cannot take (it is registered to one Stripe
+// account; a gymnastics sale banks with another). The server made the
+// PaymentIntent on the right account and handed back its client secret; Stripe
+// Elements takes the card; the server then reads the result back from Stripe.
+const stripeLoaders = new Map<string, Promise<Stripe | null>>();
+function stripeFor(pk: string) { if (!stripeLoaders.has(pk)) stripeLoaders.set(pk, loadStripe(pk)); return stripeLoaders.get(pk)!; }
+function KeyedCardDialog({ clientSecret, publishableKey, amountCents, accountLabel, onDone, onCancel }: {
+  clientSecret: string; publishableKey: string; amountCents: number; accountLabel: string; onDone: () => Promise<void> | void; onCancel: () => void;
+}) {
+  const [stripe, setStripe] = useState<Stripe | null>(null);
+  useEffect(() => { let alive = true; stripeFor(publishableKey).then((x) => { if (alive) setStripe(x); }); return () => { alive = false; }; }, [publishableKey]);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md bg-white text-neutral-900" data-testid="pos-keyed-dialog">
+        <DialogTitle className="text-[16px] font-semibold">Type the card · {$(amountCents)}</DialogTitle>
+        <div className="text-[12.5px] text-neutral-500 -mt-2">Charged to the {accountLabel} Stripe account. Read the card details back to the customer before charging.</div>
+        {stripe ? (
+          <Elements stripe={stripe} options={{ clientSecret, appearance: { theme: "stripe" } }}>
+            <KeyedCardForm amountCents={amountCents} onDone={onDone} onCancel={onCancel} />
+          </Elements>
+        ) : <div className="py-6 text-neutral-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading the card field…</div>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+function KeyedCardForm({ amountCents, onDone, onCancel }: { amountCents: number; onDone: () => Promise<void> | void; onCancel: () => void }) {
+  const stripe = useStripe(); const elements = useElements();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const pay = async () => {
+    if (!stripe || !elements) return;
+    setBusy(true); setErr(null);
+    const r = await stripe.confirmPayment({ elements, redirect: "if_required" });
+    if (r.error) { setErr(r.error.message ?? "The card was not accepted."); setBusy(false); return; }
+    await onDone(); setBusy(false);
+  };
+  return (
+    <div className="space-y-3">
+      {/* A card STAFF type for a customer: no Link sign-up, no wallets — just the card. */}
+      <PaymentElement options={{ layout: "tabs", wallets: { applePay: "never", googlePay: "never", link: "never" } }} />
+      {err && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-800">{err}</div>}
+      <div className="flex gap-2">
+        <button className={btnGhost} onClick={onCancel} disabled={busy}>Cancel</button>
+        <button className={`${btnPrimary} flex-1`} onClick={pay} disabled={busy || !stripe} data-testid="pos-keyed-charge">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Charge {$(amountCents)}</button>
+      </div>
     </div>
   );
 }

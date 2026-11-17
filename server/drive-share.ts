@@ -1,18 +1,27 @@
-// Club Drive share links — one folder, read-only, for someone outside the club.
+// Club Drive sharing — Google-Drive style (16 Nov 2026), grown out of the
+// sponsor content links (14 Nov).
 //
-// Built 14 Nov 2026 for sponsor content packs: every sponsor gets a folder of
-// the pictures and videos they appear in, and a private link to it.
+// Two ways to share a file or folder, from the Share button on the Drive page:
+//   • WITH A PERSON — any ClubOS staff login, picked by name. They can open and
+//     download it (and everything under a folder), even inside a locked folder.
+//     Read only, cannot pass it on. Stored in drive_node_shares; read by
+//     sharedReach()/viewableNode() in drive-routes.ts.
+//   • ANYONE WITH THE LINK — a public page at app.usg.co.nz/share/<code> that
+//     shows those files and nothing else.
 //
-// 🔴 THE ONE RULE: a link only ever works for a folder inside the
-// "Sponsor Content" root. `shareableFolder()` is the one decider and it runs on
-// create AND on every public read, so moving a shared folder out of that root
-// kills its link on the next request. Club Drive also holds contracts, payroll
-// and children's records; a share feature that could point anywhere would be
-// the biggest hole in the building.
+// 🔴 THE PUBLIC RULE: a link only works for a node that is OPEN (no lock on it
+// or any folder above it) or that sits inside "Sponsor Content" (locked to
+// staff, built to be shared). Club Drive also holds contracts, payroll and
+// children's records, all locked, so none of it can ever go public. Inside a
+// shared folder, a locked sub-folder or file is LEFT OUT of the public view.
+// `shareableNode()` + `publicOk()` decide, on create AND on every public read,
+// so locking a folder or moving it kills its link on the next request.
 //
-// 🔴 The token is the whole authentication (32 random bytes). Every public
-// failure answers the same 404. Trashed files are never listed or served.
-// 🔴 Nothing here can write: the public side has GETs only.
+// 🔴 The token is the whole authentication. Every public failure answers the
+// same 404. Trashed files are never listed or served. The public side is GETs
+// only and touches nothing under /api/admin.
+// 🔴 Only someone who can open the node through their OWN access may share it
+// (a person it was shared with cannot reshare).
 import type { Express } from "express";
 import { randomBytes, createHash } from "crypto";
 import { sql } from "drizzle-orm";
@@ -24,6 +33,7 @@ import { db } from "./db";
 import { requireAuth } from "./auth";
 import { buildViewer } from "./rambo";
 import { readableNode } from "./drive-routes";
+import { sendEmail } from "./email";
 import { driveStorage } from "./drive-storage";
 
 export const SPONSOR_CONTENT_FOLDER = "Sponsor Content";
@@ -35,7 +45,9 @@ const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : r?.rows ?? []);
 // a short code. `media.southislandunited.com` is this same app on another host.
 const shareBase = () => process.env.SPONSOR_SHARE_BASE || "https://media.southislandunited.com";
 const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "content";
-export const shareUrl = (name: string, code: string) => `${shareBase()}/${slugOf(name)}/${code}`;
+const appBase = () => process.env.DRIVE_SHARE_BASE || "https://app.usg.co.nz";
+/** A sponsor's folder keeps its sponsor address; everything else is app.usg.co.nz/share/<code>. */
+export const shareUrl = (name: string, code: string, sponsor = true) => sponsor ? `${shareBase()}/${slugOf(name)}/${code}` : `${appBase()}/share/${code}`;
 const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no look-alikes (0 O 1 l I o)
 const newShortCode = () => Array.from(randomBytes(12)).map((b) => ALPHABET[b % ALPHABET.length]).join("");
 
@@ -52,8 +64,12 @@ export async function ensureSponsorContentRoot(userId: number | null): Promise<n
   return Number(ins[0].id);
 }
 
-/** Is this node a live FOLDER strictly inside the Sponsor Content root? */
-async function shareableFolder(nodeId: number): Promise<{ id: number; name: string } | null> {
+type ShareNode = { id: number; name: string; kind: "folder" | "file"; sponsor: boolean; locked: boolean };
+
+/** A live (not binned) node, whether it sits inside Sponsor Content, and
+ *  whether it carries a lock (its own or any folder's above it). */
+async function shareableNode(nodeId: number): Promise<ShareNode | null> {
+  if (!Number.isFinite(nodeId)) return null;
   const r = rowsOf(await db.execute(sql`
     WITH RECURSIVE up AS (
       SELECT id, parent_id, name, kind, trashed_at, 0 AS depth FROM drive_nodes WHERE id = ${nodeId}
@@ -63,29 +79,43 @@ async function shareableFolder(nodeId: number): Promise<{ id: number; name: stri
     SELECT (SELECT name FROM up WHERE depth = 0) AS name,
            (SELECT kind FROM up WHERE depth = 0) AS kind,
            bool_or(trashed_at IS NOT NULL) AS trashed,
-           bool_or(parent_id IS NULL AND depth > 0 AND lower(name) = lower(${SPONSOR_CONTENT_FOLDER})) AS under_root
+           bool_or(parent_id IS NULL AND depth > 0 AND lower(name) = lower(${SPONSOR_CONTENT_FOLDER})) AS under_root,
+           (SELECT cardinality(gates) FROM drive_node_gates WHERE id = ${nodeId}) AS gates
     FROM up`));
   const x = r[0];
-  if (!x || x.kind !== "folder" || x.trashed || !x.under_root) return null;
-  return { id: nodeId, name: x.name };
+  if (!x || !x.kind || x.trashed) return null;
+  return { id: nodeId, name: x.name, kind: x.kind, sponsor: !!x.under_root && x.kind === "folder", locked: Number(x.gates ?? 0) > 0 };
 }
 
-/** Every live file under a shared folder, with the path of folders it sits in. */
-async function filesUnder(rootId: number): Promise<any[]> {
-  return rowsOf(await db.execute(sql`
+/** May this node have an "Anyone with the link" page? */
+const publicOk = (n: ShareNode) => n.sponsor || !n.locked;
+const PUBLIC_REFUSED = "This is in a locked part of the Drive, so it can't be opened by anyone with the link. Share it with people by name instead.";
+
+/** Every live file a link shows: the file itself, or every file under the
+ *  folder with the path of folders it sits in. Outside Sponsor Content a file
+ *  carrying ANY lock (its own or a sub-folder's) is left out. */
+async function filesUnder(root: number | ShareNode): Promise<any[]> {
+  const n = typeof root === "number" ? await shareableNode(root) : root;
+  if (!n) return [];
+  if (n.kind === "file") {
+    if (n.locked && !n.sponsor) return [];
+    return rowsOf(await db.execute(sql`SELECT id, name, ''::text AS folder, mime_type, size_bytes, storage_key FROM drive_nodes WHERE id = ${n.id} AND storage_key IS NOT NULL AND trashed_at IS NULL`));
+  }
+  const rows = rowsOf(await db.execute(sql`
     WITH RECURSIVE down AS (
-      SELECT id, parent_id, kind, name, ''::text AS folder FROM drive_nodes WHERE parent_id = ${rootId} AND trashed_at IS NULL
+      SELECT id, parent_id, kind, name, ''::text AS folder FROM drive_nodes WHERE parent_id = ${n.id} AND trashed_at IS NULL
       UNION ALL
       SELECT n.id, n.parent_id, n.kind, n.name, CASE WHEN down.folder = '' THEN down.name ELSE down.folder || ' / ' || down.name END
       FROM drive_nodes n JOIN down ON n.parent_id = down.id AND down.kind = 'folder' WHERE n.trashed_at IS NULL
     )
-    SELECT d.id, d.name, d.folder, n.mime_type, n.size_bytes, n.storage_key
-    FROM down d JOIN drive_nodes n ON n.id = d.id
+    SELECT d.id, d.name, d.folder, n.mime_type, n.size_bytes, n.storage_key, cardinality(coalesce(g.gates, '{}')) AS gate_count
+    FROM down d JOIN drive_nodes n ON n.id = d.id LEFT JOIN drive_node_gates g ON g.id = d.id
     WHERE d.kind = 'file' AND n.storage_key IS NOT NULL
     ORDER BY d.folder, d.name`));
+  return n.sponsor ? rows : rows.filter((f) => Number(f.gate_count) === 0);
 }
 
-async function liveLink(token: string): Promise<{ id: number; nodeId: number; label: string | null; folder: { id: number; name: string } } | null> {
+async function liveLink(token: string): Promise<{ id: number; nodeId: number; label: string | null; folder: ShareNode } | null> {
   // Either the long token (links sent before the clean address existed) or the short code.
   const long = /^[A-Za-z0-9_-]{32,80}$/.test(token); const short = /^[A-Za-z0-9]{12,20}$/.test(token);
   if (!long && !short) return null;
@@ -93,8 +123,8 @@ async function liveLink(token: string): Promise<{ id: number; nodeId: number; la
     ? sql`SELECT id, node_id, label FROM drive_share_links WHERE token = ${token} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) LIMIT 1`
     : sql`SELECT id, node_id, label FROM drive_share_links WHERE short_code = ${token} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) LIMIT 1`));
   if (!r[0]) return null;
-  const folder = await shareableFolder(Number(r[0].node_id));
-  if (!folder) return null;
+  const folder = await shareableNode(Number(r[0].node_id));
+  if (!folder || !publicOk(folder)) return null; // locked since it was shared → the link stops working
   return { id: Number(r[0].id), nodeId: Number(r[0].node_id), label: r[0].label, folder };
 }
 
@@ -118,14 +148,16 @@ export function registerDriveShareRoutes(app: Express) {
       noIndex(res);
       const link = await liveLink(String(req.params.token));
       if (!link) return notFound(res);
-      const files = await filesUnder(link.nodeId);
+      const files = await filesUnder(link.folder);
       // A staff member looking from inside ClubOS is not the sponsor opening it.
       if (req.query.preview !== "1") await db.execute(sql`UPDATE drive_share_links SET view_count = view_count + 1, last_viewed_at = now() WHERE id = ${link.id}`);
       res.setHeader("Cache-Control", "no-store");
       const sc = rowsOf(await db.execute(sql`SELECT short_code FROM drive_share_links WHERE id = ${link.id}`))[0]?.short_code;
       res.json({
         title: link.label || link.folder.name,
-        url: sc ? shareUrl(link.folder.name, sc) : null,
+        url: sc ? shareUrl(link.folder.name, sc, link.folder.sponsor) : null,
+        kind: link.folder.kind,
+        sponsor: link.folder.sponsor,
         files: files.map((f) => ({ id: Number(f.id), name: f.name, folder: f.folder || "", kind: kindOf(f.mime_type, f.name), sizeBytes: f.size_bytes === null ? null : Number(f.size_bytes) })),
       });
     } catch (e: any) { console.error("[drive-share] list failed:", e); res.status(500).json({ message: "Something went wrong" }); }
@@ -134,7 +166,7 @@ export function registerDriveShareRoutes(app: Express) {
   const fileIn = async (token: string, id: number) => {
     const link = await liveLink(token);
     if (!link || !Number.isFinite(id)) return null;
-    const f = (await filesUnder(link.nodeId)).find((x) => Number(x.id) === id);
+    const f = (await filesUnder(link.folder)).find((x) => Number(x.id) === id);
     return f ? { link, f } : null;
   };
 
@@ -177,7 +209,7 @@ export function registerDriveShareRoutes(app: Express) {
       const link = await liveLink(String(req.params.token));
       if (!link) return notFound(res);
       const only = typeof req.query.folder === "string" ? req.query.folder : null;
-      const files = (await filesUnder(link.nodeId)).filter((f) => only === null || (f.folder || "") === only);
+      const files = (await filesUnder(link.folder)).filter((f) => only === null || (f.folder || "") === only);
       if (!files.length) return notFound(res);
       const zipName = `${(link.label || link.folder.name).replace(/[^A-Za-z0-9 _-]+/g, "").trim() || "content"}${only ? " - " + only.replace(/[^A-Za-z0-9 _-]+/g, " ").trim() : ""}.zip`;
       res.setHeader("Content-Type", "application/zip");
@@ -203,14 +235,15 @@ export function registerDriveShareRoutes(app: Express) {
     } catch (e: any) { console.error("[drive-share] zip failed:", e); if (!res.headersSent) res.status(500).json({ message: "Something went wrong" }); else res.end(); }
   });
 
-  // ── Staff: the link on a folder (read · create · switch off) ──────────────
-  const staffFolder = async (req: any, nodeId: number) => {
+  // ── Staff: who may share this node ────────────────────────────────────────
+  // Their OWN access decides (readableNode — gates only, never a share), so a
+  // person something was shared with cannot pass it on.
+  const staffNode = async (req: any, nodeId: number) => {
     const viewer = await buildViewer(req.session.userId!);
     if (!viewer || !Number.isFinite(nodeId)) return null;
-    const node = await readableNode(viewer, nodeId); // the folder's own gates decide who may share it
-    if (!node) return null;
-    const folder = await shareableFolder(nodeId);
-    return folder ? { viewer, folder } : { viewer, folder: null };
+    if (!(await readableNode(viewer, nodeId))) return null;
+    const node = await shareableNode(nodeId);
+    return node ? { viewer, node } : null;
   };
 
   // ── Public: the sponsor's one-page report ─────────────────────────────────
@@ -236,7 +269,7 @@ export function registerDriveShareRoutes(app: Express) {
       const link = await liveLink(String(req.params.token));
       if (!link) return notFound(res);
       const key = typeof req.query.period === "string" && PERIODS[req.query.period] ? req.query.period : "ytd";
-      const label = await reportLabel(link.folder.name);
+      const label = link.folder.sponsor ? await reportLabel(link.folder.name) : null;
       res.setHeader("Cache-Control", "no-store");
       if (!label) return res.json({ sponsor: link.folder.name, available: false, period: key, periods: Object.entries(PERIODS).map(([k, v]) => ({ key: k, label: v.label })) });
       const base = sql`
@@ -275,7 +308,7 @@ export function registerDriveShareRoutes(app: Express) {
       noIndex(res);
       const link = await liveLink(String(req.params.token)); const postId = Number(req.params.postId);
       if (!link || !Number.isFinite(postId)) return notFound(res);
-      const label = await reportLabel(link.folder.name);
+      const label = link.folder.sponsor ? await reportLabel(link.folder.name) : null;
       const okRow = label ? rowsOf(await db.execute(sql`SELECT 1 FROM social_post_labels WHERE post_id = ${postId} AND label_id = ${Number(label.id)} AND confirmed_at IS NOT NULL LIMIT 1`))[0] : null;
       if (!okRow) return notFound(res);
       const { smallThumb } = await import("./social/routes");
@@ -304,7 +337,7 @@ export function registerDriveShareRoutes(app: Express) {
           pictures: files.filter((x) => kindOf(x.mime_type, x.name) === "image").length,
           videos: files.filter((x) => kindOf(x.mime_type, x.name) === "video").length,
           sizeBytes: files.reduce((n, x) => n + Number(x.size_bytes ?? 0), 0),
-          link: l ? { token: l.token, url: shareUrl(f.name, l.short_code), views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
+          link: l ? { token: l.token, url: shareUrl(f.name, l.short_code, true), views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
           covers,
         });
       }
@@ -312,43 +345,131 @@ export function registerDriveShareRoutes(app: Express) {
     } catch (e: any) { console.error("[sponsor-content] list failed:", e); res.status(500).json({ message: e.message }); }
   });
 
+  const shareState = async (node: ShareNode) => {
+    const l = rowsOf(await db.execute(sql`SELECT short_code, created_at, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${node.id} AND revoked_at IS NULL LIMIT 1`))[0];
+    const people = rowsOf(await db.execute(sql`
+      SELECT s.user_id, s.created_at, u.first_name, u.last_name, u.email, u.avatar_url,
+             trim(coalesce(g.first_name,'') || ' ' || coalesce(g.last_name,'')) AS granted_by
+      FROM drive_node_shares s JOIN users u ON u.id = s.user_id LEFT JOIN users g ON g.id = s.granted_by
+      WHERE s.node_id = ${node.id} AND s.revoked_at IS NULL ORDER BY s.created_at`));
+    const gateLabel = rowsOf(await db.execute(sql`SELECT gates FROM drive_node_gates WHERE id = ${node.id}`))[0]?.gates ?? [];
+    return {
+      node: { id: node.id, name: node.name, kind: node.kind },
+      // Who can already open it without being added.
+      everyone: node.locked ? "Only staff who hold its lock can open it" : "Everyone with a ClubOS staff login can open it",
+      locked: node.locked, gates: gateLabel,
+      publicAllowed: publicOk(node), publicRefusedReason: publicOk(node) ? null : PUBLIC_REFUSED,
+      // kept for the older share bar
+      shareable: publicOk(node),
+      link: l ? { url: shareUrl(node.name, l.short_code, node.sponsor), createdAt: l.created_at, views: Number(l.view_count), downloads: Number(l.download_count), lastViewedAt: l.last_viewed_at } : null,
+      people: people.map((p) => ({ userId: Number(p.user_id), name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), email: p.email, avatarUrl: p.avatar_url, grantedBy: p.granted_by || null, sharedAt: p.created_at })),
+    };
+  };
+
   app.get("/api/admin/drive/share/:nodeId", requireAuth, async (req: any, res) => {
     try {
-      const s = await staffFolder(req, Number(req.params.nodeId));
+      const s = await staffNode(req, Number(req.params.nodeId));
       if (!s) return res.status(404).json({ message: "Not found" });
-      if (!s.folder) return res.json({ shareable: false, link: null });
-      const r = rowsOf(await db.execute(sql`SELECT short_code, created_at, view_count, download_count, last_viewed_at FROM drive_share_links WHERE node_id = ${s.folder.id} AND revoked_at IS NULL LIMIT 1`));
-      res.json({ shareable: true, link: r[0] ? { url: shareUrl(s.folder.name, r[0].short_code), createdAt: r[0].created_at, views: Number(r[0].view_count), downloads: Number(r[0].download_count), lastViewedAt: r[0].last_viewed_at } : null });
+      res.json(await shareState(s.node));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // Anyone with the link: on.
   app.post("/api/admin/drive/share/:nodeId", requireAuth, async (req: any, res) => {
     try {
-      const s = await staffFolder(req, Number(req.params.nodeId));
+      const s = await staffNode(req, Number(req.params.nodeId));
       if (!s) return res.status(404).json({ message: "Not found" });
-      if (!s.folder) return res.status(400).json({ message: "Only a folder inside Sponsor Content can be shared by link" });
-      const link = await createShareLink(s.folder.id, s.viewer.userId);
-      res.json({ shareable: true, link: { url: link.url, views: 0, downloads: 0 } });
+      if (!publicOk(s.node)) return res.status(400).json({ message: PUBLIC_REFUSED });
+      await createShareLink(s.node.id, s.viewer.userId);
+      await db.execute(sql`INSERT INTO drive_access_log (node_id, user_id, action, detail) VALUES (${s.node.id}, ${s.viewer.userId}, 'share-link-on', ${s.node.name})`).catch(() => {});
+      res.json(await shareState(s.node));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // Anyone with the link: off (restricted).
   app.delete("/api/admin/drive/share/:nodeId", requireAuth, async (req: any, res) => {
     try {
-      const s = await staffFolder(req, Number(req.params.nodeId));
+      const s = await staffNode(req, Number(req.params.nodeId));
       if (!s) return res.status(404).json({ message: "Not found" });
-      await db.execute(sql`UPDATE drive_share_links SET revoked_at = now(), revoked_by = ${s.viewer.userId} WHERE node_id = ${Number(req.params.nodeId)} AND revoked_at IS NULL`);
-      res.json({ shareable: !!s.folder, link: null });
+      await db.execute(sql`UPDATE drive_share_links SET revoked_at = now(), revoked_by = ${s.viewer.userId} WHERE node_id = ${s.node.id} AND revoked_at IS NULL`);
+      await db.execute(sql`INSERT INTO drive_access_log (node_id, user_id, action, detail) VALUES (${s.node.id}, ${s.viewer.userId}, 'share-link-off', ${s.node.name})`).catch(() => {});
+      res.json(await shareState(s.node));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Staff a node can be shared with: an ACTIVE login that belongs to the club
+  // (a super admin or a member of at least one workspace). Fan/parent accounts
+  // never appear.
+  const staffWhere = sql`u.active = true AND (u.role = 'super_admin' OR EXISTS (SELECT 1 FROM user_organizations uo WHERE uo.user_id = u.id))`;
+  app.get("/api/admin/drive/share-people", requireAuth, async (req: any, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim().toLowerCase().slice(0, 80);
+      const like = `%${q}%`;
+      const rows = rowsOf(await db.execute(sql`
+        SELECT u.id, u.first_name, u.last_name, u.email, u.avatar_url FROM users u
+        WHERE ${staffWhere} AND u.id <> ${req.session.userId}
+          AND (${q} = '' OR lower(u.first_name || ' ' || coalesce(u.last_name,'')) LIKE ${like} OR lower(u.email) LIKE ${like})
+          AND u.email NOT ILIKE '%@resend.dev' AND u.email NOT ILIKE '%@example.%' AND u.email NOT ILIKE 'verify%'
+        ORDER BY u.first_name, u.last_name LIMIT 20`));
+      res.json({ people: rows.map((u) => ({ userId: Number(u.id), name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(), email: u.email, avatarUrl: u.avatar_url })) });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Share with a person.
+  app.post("/api/admin/drive/share/:nodeId/people", requireAuth, async (req: any, res) => {
+    try {
+      const s = await staffNode(req, Number(req.params.nodeId));
+      if (!s) return res.status(404).json({ message: "Not found" });
+      const userId = Number(req.body?.userId);
+      const u = rowsOf(await db.execute(sql`SELECT u.id, u.first_name, u.email FROM users u WHERE u.id = ${userId} AND ${staffWhere}`))[0];
+      if (!u) return res.status(400).json({ message: "Pick someone with a ClubOS staff login" });
+      if (userId === s.viewer.userId) return res.status(400).json({ message: "You already have access" });
+      const ins = rowsOf(await db.execute(sql`
+        INSERT INTO drive_node_shares (node_id, user_id, granted_by)
+        SELECT ${s.node.id}, ${userId}, ${s.viewer.userId}
+        WHERE NOT EXISTS (SELECT 1 FROM drive_node_shares WHERE node_id = ${s.node.id} AND user_id = ${userId} AND revoked_at IS NULL)
+        RETURNING id`));
+      if (ins[0]) {
+        await db.execute(sql`INSERT INTO drive_access_log (node_id, user_id, action, detail) VALUES (${s.node.id}, ${s.viewer.userId}, 'share-person', ${`${s.node.name} → user ${userId}`})`).catch(() => {});
+        // Tell them, like Google does. Best effort: a failed email never undoes the share.
+        const message = typeof req.body?.message === "string" ? req.body.message.trim().slice(0, 1000) : "";
+        const href = `${appBase()}/admin/drive?${s.node.kind === "folder" ? `folder=${s.node.id}` : `file=${s.node.id}`}`;
+        const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+        sendEmail({
+          to: u.email, from: "ClubOS Drive <noreply@cufc.co.nz>",
+          subject: `${s.viewer.name} shared "${s.node.name}" with you`,
+          html: `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#161616">
+            <p style="font-size:15px">Hi ${esc(u.first_name ?? "there")},</p>
+            <p style="font-size:15px"><b>${esc(s.viewer.name)}</b> shared a ${s.node.kind} with you in ClubOS Drive:</p>
+            <p style="font-size:17px;font-weight:600;margin:16px 0">${esc(s.node.name)}</p>
+            ${message ? `<p style="font-size:15px;border-left:3px solid #ddd;padding-left:12px;color:#444">${esc(message).replace(/\n/g, "<br>")}</p>` : ""}
+            <p style="margin:24px 0"><a href="${href}" style="background:#22399B;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;font-size:15px">Open in Drive</a></p>
+            <p style="font-size:13px;color:#666">You'll also find it under "Shared with you" at the top of Drive.</p></div>`,
+        }).catch(() => {});
+      }
+      res.json(await shareState(s.node));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Remove a person's access.
+  app.delete("/api/admin/drive/share/:nodeId/people/:userId", requireAuth, async (req: any, res) => {
+    try {
+      const s = await staffNode(req, Number(req.params.nodeId));
+      if (!s) return res.status(404).json({ message: "Not found" });
+      await db.execute(sql`UPDATE drive_node_shares SET revoked_at = now(), revoked_by = ${s.viewer.userId} WHERE node_id = ${s.node.id} AND user_id = ${Number(req.params.userId)} AND revoked_at IS NULL`);
+      await db.execute(sql`INSERT INTO drive_access_log (node_id, user_id, action, detail) VALUES (${s.node.id}, ${s.viewer.userId}, 'unshare-person', ${`${s.node.name} → user ${req.params.userId}`})`).catch(() => {});
+      res.json(await shareState(s.node));
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 }
 
-/** The folder's one live link (made if there is none). */
+/** The node's one live link (made if there is none). */
 export async function createShareLink(nodeId: number, userId: number | null): Promise<{ token: string; shortCode: string; url: string }> {
-  const folder = await shareableFolder(nodeId);
-  if (!folder) throw new Error("Only a folder inside Sponsor Content can be shared by link");
+  const node = await shareableNode(nodeId);
+  if (!node || !publicOk(node)) throw new Error(PUBLIC_REFUSED);
   const ex = rowsOf(await db.execute(sql`SELECT token, short_code FROM drive_share_links WHERE node_id = ${nodeId} AND revoked_at IS NULL LIMIT 1`));
-  if (ex[0]) return { token: ex[0].token, shortCode: ex[0].short_code, url: shareUrl(folder.name, ex[0].short_code) };
+  if (ex[0]) return { token: ex[0].token, shortCode: ex[0].short_code, url: shareUrl(node.name, ex[0].short_code, node.sponsor) };
   const token = randomBytes(32).toString("base64url"); const shortCode = newShortCode();
-  await db.execute(sql`INSERT INTO drive_share_links (token, short_code, node_id, label, created_by) VALUES (${token}, ${shortCode}, ${nodeId}, ${folder.name}, ${userId})`);
-  return { token, shortCode, url: shareUrl(folder.name, shortCode) };
+  await db.execute(sql`INSERT INTO drive_share_links (token, short_code, node_id, label, created_by) VALUES (${token}, ${shortCode}, ${nodeId}, ${node.name}, ${userId})`);
+  return { token, shortCode, url: shareUrl(node.name, shortCode, node.sponsor) };
 }
