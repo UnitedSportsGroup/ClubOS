@@ -36,7 +36,7 @@ const DEFAULT: Config = { range: "today", mostRecent: true, includeMissing: fals
 interface Row {
   id: number; contactId: number | null; name: string; position: string | null; squadNumber: number | null; date: string;
   answers: Answers; flag: "red" | "amber" | null; reasons: string[]; isTest: boolean; enteredBy: string;
-  entriesThisWeek: number | null; loadThisWeek: number | null;
+  entriesThisWeek: number | null; loadThisWeek: number | null; load7?: number | null; load28?: number | null;
 }
 interface Report {
   today: string; from: string; to: string;
@@ -47,7 +47,9 @@ interface Report {
 const EXTRA = [
   { id: "_flag", label: "Flag" },
   { id: "_entries", label: "Entries this week" },
-  { id: "_load", label: "Load this week" },
+  { id: "_load", label: "Load Mon–Sun" },
+  { id: "_load7", label: "Load last 7 days" },
+  { id: "_load28", label: "Load last 28 days" },
   { id: "_by", label: "Entered by" },
 ];
 const RANGES = [
@@ -64,6 +66,8 @@ function extraValue(r: Row, id: string): number | string | null {
   if (id === "_flag") return r.flag ? FLAG_RANK[r.flag] : 0;
   if (id === "_entries") return r.entriesThisWeek;
   if (id === "_load") return r.loadThisWeek;
+  if (id === "_load7") return r.load7 ?? null;
+  if (id === "_load28") return r.load28 ?? null;
   if (id === "_by") return r.enteredBy;
   return null;
 }
@@ -311,6 +315,8 @@ function cell(r: Row, id: string, qMap: Map<string, Question>) {
   if (id === "_flag") return r.flag ? <span title={r.reasons.join(", ")}><Pill tone={r.flag}>{r.flag === "red" ? "Concern" : "Take care"}</Pill></span> : <span className="text-muted-foreground">—</span>;
   if (id === "_entries") return r.entriesThisWeek ?? "—";
   if (id === "_load") return r.loadThisWeek ?? "—";
+  if (id === "_load7") return r.load7 ?? "—";
+  if (id === "_load28") return r.load28 ?? "—";
   if (id === "_by") return r.enteredBy;
   const q = qMap.get(id);
   const t = q ? answerText(q, r.answers[id]) : "";

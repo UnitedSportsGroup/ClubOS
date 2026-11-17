@@ -18,6 +18,9 @@ import {
   type Answers, type FormDef,
 } from "@shared/perf-forms";
 import { addDays, isIsoDate, nzToday, sessionLoad } from "@shared/performance";
+
+/** The Monday of the week an ISO date falls in (a date string, so UTC parts are the date's own). */
+const mondayOf = (iso: string) => addDays(iso, -((new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7));
 import { pool } from "./db";
 import { isExpoPushToken, sendExpoPushBatch } from "./push";
 
@@ -220,11 +223,16 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
       where r.form_id = $1 and r.entry_date between $2 and $3 and ($4 or not r.is_test)
       order by r.entry_date desc, r.updated_at desc`, [form.id, from, to, withTests]);
     const ids = players.map((p) => p.contactId);
-    // Week figures, Rowan's "Entries Per Week" and "Football Total Load": the 7 days ending on the row's date.
+    // Rowan's Smartabase totals: "Entries Per Week" (the 7 days ending on the row's date) and
+    // "Football Total Load" three ways — Mon–Sun (this calendar week up to the row's date),
+    // last 7 days and last 28 days, each ending on the row's date and counting that day.
     const [week, loads] = await Promise.all([
       ids.length ? q(`select contact_id, entry_date from perf_form_responses where form_id = $1 and not is_test and contact_id = any($2::int[]) and entry_date between $3 and $4`, [form.id, ids, addDays(from, -6), to]) : [],
-      ids.length ? q(`select contact_id, date, rpe, minutes from perf_rpe where organization_id = $1 and contact_id = any($2::int[]) and date between $3 and $4`, [v.org, ids, addDays(from, -7), to]) : [],
+      ids.length ? q(`select contact_id, date, rpe, minutes from perf_rpe where organization_id = $1 and contact_id = any($2::int[]) and date between $3 and $4`, [v.org, ids, addDays(from, -27), to]) : [],
     ]);
+    const loadBetween = (contactId: number, a: string, b: string) => loads
+      .filter((l) => l.contact_id === contactId && isoOf(l.date)! >= a && isoOf(l.date)! <= b)
+      .reduce((sum, l) => sum + (sessionLoad({ date: "", rpe: l.rpe, minutes: l.minutes }) ?? 0), 0);
     const seen = new Set<string>();
     const out: Row[] = [];
     for (const r of rows) {
@@ -239,8 +247,9 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
         date, answers: r.answers, flag: r.flag_level, reasons: r.flag_reasons ?? [], isTest: r.is_test,
         enteredBy: r.entered_by_athlete ? "Player" : [r.ufn, r.uln].filter(Boolean).join(" ") || "Staff", updatedAt: r.updated_at,
         entriesThisWeek: r.is_test ? null : week.filter((w) => w.contact_id === r.contact_id && isoOf(w.entry_date)! >= wkFrom && isoOf(w.entry_date)! <= date).length,
-        loadThisWeek: r.is_test ? null : loads.filter((l) => l.contact_id === r.contact_id && isoOf(l.date)! >= addDays(date, -7) && isoOf(l.date)! <= date)
-          .reduce((s, l) => s + (sessionLoad({ date: "", rpe: l.rpe, minutes: l.minutes }) ?? 0), 0),
+        loadThisWeek: r.is_test ? null : loadBetween(r.contact_id, mondayOf(date), date),
+        load7: r.is_test ? null : loadBetween(r.contact_id, addDays(date, -6), date),
+        load28: r.is_test ? null : loadBetween(r.contact_id, addDays(date, -27), date),
       });
     }
     const answered = new Set(out.filter((r) => !r.isTest).map((r) => r.contactId));
