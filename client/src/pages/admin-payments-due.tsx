@@ -271,6 +271,8 @@ export default function AdminPaymentsDue() {
             </div>
           )}
 
+          <BankDebits />
+
           <Coverage snap={data} />
 
           {data.outOfScope.length > 0 && (
@@ -383,6 +385,61 @@ function Coverage({ snap }: { snap: Snap }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+type BankDebitRow = {
+  registrationId: number; state: "clearing" | "failed"; amountCents: number; programme: string; term: string | null;
+  sentAt: string | null; failedAt: string | null; failureReason: string | null;
+  childName: string; childKey: string | null; parentName: string; parentKey: string | null;
+  email: string | null; phone: string | null;
+};
+
+/** Bank direct debits waiting to clear, or failed (Academy AutoPay, 4 Nov 2026).
+ *  These are NOT registrations yet — the money hasn't landed — so they appear
+ *  nowhere else. A failed one is cleared from this list when the family pays
+ *  again (a real registration for the same child, programme and term). */
+function BankDebits() {
+  const here = `${window.location.pathname}${window.location.search}`;
+  const { data } = useQuery<{ rows: BankDebitRow[] }>({
+    queryKey: ["/api/admin/payments-due/bank-debits"],
+    queryFn: async () => {
+      const r = await workspaceFetch(`/api/admin/payments-due/bank-debits`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    refetchInterval: 5 * 60_000,
+  });
+  const rows = data?.rows ?? [];
+  const failed = rows.filter((r) => r.state === "failed");
+  const clearing = rows.filter((r) => r.state === "clearing");
+  const nzDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short", timeZone: "Pacific/Auckland" }) : "");
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-2 min-w-0" data-testid="bank-debits">
+      <div>
+        <div className="font-medium text-white text-[13.5px]">Bank payments</div>
+        <div className="text-[11.5px] text-white/40">
+          Families paying by bank direct debit. A bank payment takes 2–3 working days to clear; the child is registered once it has.
+          {rows.length === 0 ? " None waiting right now." : ` ${failed.length} failed · ${clearing.length} clearing.`}
+        </div>
+      </div>
+      {rows.length > 0 && (
+        <div className="divide-y divide-white/[0.06]">
+          {[...failed, ...clearing].map((r) => (
+            <div key={r.registrationId} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-white/70 min-w-0" data-testid={`bank-debit-${r.registrationId}`}>
+              {r.state === "failed" ? <Badge tone="red">Failed {nzDate(r.failedAt)}</Badge> : <Badge tone="amber">Clearing since {nzDate(r.sentAt)}</Badge>}
+              {r.childKey ? <Link href={withFrom(`/admin/people/${r.childKey}`, here)} className="text-white hover:underline">{r.childName || "Player"}</Link> : <span className="text-white">{r.childName || "Player"}</span>}
+              <span className="text-white/45">{r.programme}{r.term ? ` · ${r.term}` : ""}</span>
+              <span className="tabular-nums">{money(r.amountCents)}</span>
+              <span className="text-white/45 min-w-0 truncate">{r.parentKey ? <Link href={withFrom(`/admin/people/${r.parentKey}`, here)} className="hover:underline">{r.parentName}</Link> : r.parentName}</span>
+              {r.phone && <a href={`tel:${r.phone}`} className="inline-flex items-center gap-1 text-white/45 hover:text-white min-h-[32px]"><Phone className="w-3.5 h-3.5" />{r.phone}</a>}
+              {r.email && <a href={`mailto:${r.email}`} className="inline-flex items-center gap-1 text-white/45 hover:text-white min-h-[32px]"><Mail className="w-3.5 h-3.5" />Email</a>}
+              {r.state === "failed" && r.failureReason && <span className="basis-full text-[11.5px] text-red-300/80">Bank said: {r.failureReason}. The family has been emailed a link to pay again.</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
