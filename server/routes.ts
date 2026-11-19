@@ -4163,6 +4163,7 @@ export async function registerRoutes(
         extraSquadIds,
         today,
         slug: prog.slug,
+        name: prog.name,
       })) });
     } catch (error: any) {
       console.error("[coach-attendance]", error);

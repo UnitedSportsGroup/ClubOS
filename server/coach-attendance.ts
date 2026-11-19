@@ -20,7 +20,8 @@
 import type { ProgramPlayer } from "./storage";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
-import { WEEKLY_PROGRAMMES, OPEN_TRAINING_FREE_SESSIONS, weekdaysInRange, holidayOn } from "@shared/weekly-programmes";
+import { WEEKLY_PROGRAMMES, OPEN_TRAINING_FREE_SESSIONS, weekdaysInRange, holidayOn, rollTakenOnCoachPlatform } from "@shared/weekly-programmes";
+import { streamForProgramme } from "@shared/term-programme-history";
 
 const BASE = (process.env.COACHING_BASE_URL || "https://coach.cufc.co.nz").replace(/\/$/, "");
 
@@ -47,8 +48,13 @@ export async function coachAttendance(opts: {
   /** The programme's slug — a once-a-week programme (Technification) rolls the
    *  whole TERM: every session day as a column, holidays flagged. */
   slug?: string | null;
+  name?: string | null;
 }) {
   const weekly = opts.slug ? WEEKLY_PROGRAMMES[opts.slug] ?? null : null;
+  // Every coach-rolled programme (Technification, Pre-Academy, Academy) reads as
+  // a TERM ROLL — every session of the term in one grid (Daniel, 2026-11-20:
+  // "make it same for rest of pre academy and academy").
+  const termRoll = rollTakenOnCoachPlatform(opts.slug, streamForProgramme(opts.slug, opts.name));
   const termDays = weekly ? weekdaysInRange(opts.term.startDate, opts.term.endDate, weekly.weekday) : [];
   const secret = process.env.COACHING_FEED_SECRET;
   if (!secret) return { connected: false as const, reason: "The link to the coaching platform is not switched on (COACHING_FEED_SECRET)." };
@@ -141,7 +147,7 @@ export async function coachAttendance(opts: {
         for (const r of rows) { const s = r.marks[d]; if (s === "present") present++; else if (s === "absent") absent++; else if (s === "injured") injured++; }
         const taken = present + absent + injured > 0;
         // A public holiday on a weekly programme's day is greyed, never "no roll".
-        const holiday = weekly ? holidayOn(d) : null;
+        const holiday = termRoll ? holidayOn(d) : null;
         return { date: d, present, absent, injured, taken, planned: !holiday && (t.trainingDays.includes(d) || termDays.includes(d)), past: d < opts.today, today: d === opts.today, holiday };
       });
       return { id: t.id, name: t.name, kind: t.kind, age: t.age, sessions, players: rows };
@@ -230,6 +236,7 @@ export async function coachAttendance(opts: {
     today: opts.today,
     registrationsInClubos: canCheck,
     weekly: weekly ? { label: weekly.label, freeSessions: OPEN_TRAINING_FREE_SESSIONS } : null,
+    termRoll,
     teams,
     followUps: follow.sort((a, b) => Number(b.openTraining) - Number(a.openTraining) || (b.lastSeen ?? "").localeCompare(a.lastSeen ?? "")),
   };
