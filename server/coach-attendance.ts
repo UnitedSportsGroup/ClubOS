@@ -58,7 +58,10 @@ export async function coachAttendance(opts: {
     ...(opts.extraSquadIds ?? []),
   ]));
   const qs = new URLSearchParams({ feed: "clubos", programId: String(opts.programId), from: opts.term.startDate, to: opts.term.endDate });
-  if (squadIds.length) qs.set("squadIds", squadIds.join(","));
+  // 🔴 A once-a-week programme is its OWN group on the coaching platform —
+  // its kids' club squads (U9 Kakapos, U10 White…) are other rolls, not this
+  // one. Asking for them buried the Technification roll among 13 squads.
+  if (squadIds.length && !weekly) qs.set("squadIds", squadIds.join(","));
 
   let feed: Feed;
   try {
