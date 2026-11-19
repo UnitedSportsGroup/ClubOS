@@ -103,8 +103,9 @@ export const SOCIAL_PLATFORMS: readonly SocialPlatformDef[] = [
     mode: "link",
     audience: "followers",
     setup: [
-      "At linkedin.com/developers, create an app linked to the Company Page and request the Community Management API (a review of a few days).",
-      "Until then, the link is saved here and followers can be typed in.",
+      "LinkedIn shares a Company Page's posts and numbers with a person who is an admin of that page.",
+      "Save the page's link here first. Then, on the Accounts tab, press \"Sign in with LinkedIn\" as an admin of the page. ClubOS then reads it by itself.",
+      "The sign-in lasts 60 days. When it runs out the page shows a failed update and the same button renews it.",
     ],
   },
 ];
@@ -240,6 +241,8 @@ export type SocialAccount = {
   historyComplete: boolean;
   lastSyncedAt: string | null;
   lastError: string | null;
+  /** When a signed-in account (TikTok, LinkedIn) must sign in again; null = no sign-in on file. */
+  signInEndsAt: string | null;
 };
 
 export type SocialPost = {
@@ -277,6 +280,7 @@ export type SocialAccountsResponse = {
   syncing: boolean;
   /** True when this server can send a TikTok account to sign in. */
   tiktokSignIn: boolean;
+  linkedinSignIn: boolean;
 };
 
 export type SocialSeriesPoint = { day: string; value: number };

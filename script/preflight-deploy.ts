@@ -163,6 +163,7 @@ const CANARIES: Canary[] = [
   // leaves a sidebar link to a page that cannot load an account.
   { feature: "social media",         path: "/api/admin/social/accounts",                expect: [401] },
   { feature: "social media labels",  path: "/api/admin/social/labels",                  expect: [401] },
+  { feature: "social linkedin sign-in", path: "/api/admin/social/connect/linkedin",      expect: [401] },
   { feature: "siu performance",      path: "/api/admin/performance/catalogue",          expect: [401] },
   { feature: "siu athlete check-in", path: "/api/public/athlete/me",                    expect: [401] },
   { feature: "siu check-in forms",   path: "/api/admin/performance/checkins",           expect: [401] },
@@ -288,6 +289,7 @@ const SOURCE: Record<string, { file: string; needle: string }> = {
   "/api/admin/marketing-hub/overview":    { file: "server/marketing-hub/routes.ts", needle: "/overview" },
   "/api/admin/social/accounts":           { file: "server/social/routes.ts", needle: "/accounts" },
   "/api/admin/social/labels":             { file: "server/social/labels-routes.ts", needle: "/labels" },
+  "/api/admin/social/connect/linkedin":   { file: "server/social/routes.ts", needle: "/connect/linkedin" },
   "/api/admin/web-analytics/report":      { file: "server/marketing-hub/web-analytics.ts", needle: "/api/admin/web-analytics/report" },
   "/api/admin/email-stats/report":        { file: "server/marketing-hub/channels.ts", needle: "/api/admin/email-stats/report" },
   "/api/admin/campaigns":                 { file: "server/campaigns/routes.ts", needle: "/api/admin/campaigns" },
