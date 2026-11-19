@@ -4162,6 +4162,7 @@ export async function registerRoutes(
         players,
         extraSquadIds,
         today,
+        slug: prog.slug,
       })) });
     } catch (error: any) {
       console.error("[coach-attendance]", error);
@@ -4262,9 +4263,22 @@ export async function registerRoutes(
     } catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
+  // 🔴 A programme rolled on coach.cufc.co.nz is DISPLAY-ONLY in ClubOS
+  // (Daniel, 2026-11-20) — refused here too, so the staff app cannot take a
+  // second roll that the coaches' roll never sees.
+  async function rollIsCoachPlatformOnly(campId: number): Promise<boolean> {
+    const prog = await storage.getProgram(campId);
+    if (!prog || prog.scheduleType !== "term") return false;
+    const { rollTakenOnCoachPlatform } = await import("@shared/weekly-programmes");
+    const { streamForProgramme } = await import("@shared/term-programme-history");
+    return rollTakenOnCoachPlatform(prog.slug, streamForProgramme(prog.slug, prog.name));
+  }
+  const COACH_PLATFORM_ROLL = "This programme's roll is taken by its coaches on coach.cufc.co.nz — ClubOS shows it but doesn't take it.";
+
   app.post("/api/admin/camps/:id/session-roll/guest", requireAuth, async (req, res) => {
     try {
       const campId = parseInt(req.params.id);
+      if (await rollIsCoachPlatformOnly(campId)) return res.status(409).json({ message: COACH_PLATFORM_ROLL });
       const campDateId = parseInt(req.body?.campDateId);
       const kind = String(req.body?.kind ?? "");
       if (!campDateId) return res.status(400).json({ message: "campDateId is required" });
@@ -4335,6 +4349,10 @@ export async function registerRoutes(
   app.patch("/api/admin/attendance/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      {
+        const [row] = await db.select({ campId: attendance.campId }).from(attendance).where(eq(attendance.id, id));
+        if (row?.campId != null && await rollIsCoachPlatformOnly(row.campId)) return res.status(409).json({ message: COACH_PLATFORM_ROLL });
+      }
       // Whitelist. This used to spread req.body straight into an UPDATE, so an
       // authenticated caller could rewrite campId/childId/contactId and move a
       // roll line onto a different child. Only the four fields the roll UI
