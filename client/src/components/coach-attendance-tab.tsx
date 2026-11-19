@@ -204,7 +204,8 @@ export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boo
         </div>
       </div>
       {noRegs}
-      {follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
+      {/* On the term roll the ROLL comes first; who to chase sits under it. */}
+      {follow.length > 0 && !(weekly && mode === "players") && <FollowUps rows={follow} term={data.term.name} />}
 
       {mode === "sessions" ? (
         <div className="space-y-3">
@@ -225,6 +226,7 @@ export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boo
       ) : (
         <TeamGrid team={team} showUpcoming={!!weekly} highlight="" weekly={weekly} />
       )}
+      {weekly && mode === "players" && follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
     </div>
   );
 }
