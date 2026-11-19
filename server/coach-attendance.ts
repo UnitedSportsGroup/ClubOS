@@ -20,7 +20,7 @@
 import type { ProgramPlayer } from "./storage";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
-import { WEEKLY_PROGRAMMES, OPEN_TRAINING_FREE_SESSIONS, weekdaysInRange, holidayOn, rollTakenOnCoachPlatform } from "@shared/weekly-programmes";
+import { WEEKLY_PROGRAMMES, SET_SCHEDULES, scheduleDays, OPEN_TRAINING_FREE_SESSIONS, weekdaysInRange, holidayOn, rollTakenOnCoachPlatform } from "@shared/weekly-programmes";
 import { streamForProgramme } from "@shared/term-programme-history";
 
 const BASE = (process.env.COACHING_BASE_URL || "https://coach.cufc.co.nz").replace(/\/$/, "");
@@ -55,7 +55,10 @@ export async function coachAttendance(opts: {
   // a TERM ROLL — every session of the term in one grid (Daniel, 2026-11-20:
   // "make it same for rest of pre academy and academy").
   const termRoll = rollTakenOnCoachPlatform(opts.slug, streamForProgramme(opts.slug, opts.name));
-  const termDays = weekly ? weekdaysInRange(opts.term.startDate, opts.term.endDate, weekly.weekday) : [];
+  const schedule = opts.slug ? SET_SCHEDULES[opts.slug] ?? null : null;
+  const termDays = weekly
+    ? weekdaysInRange(opts.term.startDate, opts.term.endDate, weekly.weekday)
+    : schedule ? scheduleDays(opts.term.startDate, opts.term.endDate, schedule.weekdays) : [];
   const secret = process.env.COACHING_FEED_SECRET;
   if (!secret) return { connected: false as const, reason: "The link to the coaching platform is not switched on (COACHING_FEED_SECRET)." };
 
@@ -94,6 +97,9 @@ export async function coachAttendance(opts: {
   const marksByPlayer = new Map<string, Map<string, AttendanceStatus>>();
   for (const m of feed.marks) {
     if (!["present", "absent", "injured"].includes(m.status)) continue;
+    // 🔴 A set schedule's roll is its days only — a mark on another weekday
+    // (a Wednesday tap, a Monday planned by mistake) is not one of its sessions.
+    if (schedule && !termDays.includes(m.date)) continue;
     let mm = marksByPlayer.get(m.player_id);
     if (!mm) marksByPlayer.set(m.player_id, (mm = new Map()));
     mm.set(m.date, m.status as AttendanceStatus);
@@ -107,7 +113,7 @@ export async function coachAttendance(opts: {
       // 🔴 A weekly programme's roll is ITS day only (Daniel, 2026-11-20: "why random
       // thursday 5th … we only do technification on monday"). A planned day on
       // another weekday shows only if a coach actually marked someone on it.
-      const dates = Array.from(new Set([...(weekly ? [] : t.trainingDays), ...termDays, ...Array.from(markDates)])).sort();
+      const dates = schedule ? termDays : Array.from(new Set([...(weekly ? [] : t.trainingDays), ...termDays, ...Array.from(markDates)])).sort();
       const rows = t.players
         .filter((p) => p.active || marksByPlayer.has(p.id))
         .map((p) => {

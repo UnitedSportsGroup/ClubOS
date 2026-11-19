@@ -13,6 +13,20 @@ export const WEEKLY_PROGRAMMES: Record<string, { weekday: number; label: string 
   technification: { weekday: 1, label: "Monday" },
 };
 
+/** Programmes whose training days are SET for the whole term (Daniel,
+ *  2026-11-20: "attendance should be tue thu sat for the whole term for pre
+ *  academy U9-U12 their schedule is set"). Their term roll is exactly these
+ *  weekdays, every week of the term, holidays greyed — a day a coach planned
+ *  or marked on another weekday is not a session of this programme. */
+export const SET_SCHEDULES: Record<string, { weekdays: number[]; label: string }> = {
+  "pre-academy-u9-u12": { weekdays: [2, 4, 6], label: "Tue · Thu · Sat" },
+};
+
+/** Every session day of the term for a set schedule, in date order. */
+export function scheduleDays(from: string, to: string, weekdays: number[]): string[] {
+  return weekdays.flatMap((w) => weekdaysInRange(from, to, w)).sort();
+}
+
 /** Open-training players may come this many times in a term before they must
  *  see the office (Daniel, 2026-11-18: "came like 3 times this term and not
  *  marked as paid then he needs to go to office before can train"). */
