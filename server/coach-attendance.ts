@@ -98,7 +98,10 @@ export async function coachAttendance(opts: {
     .map((t) => {
       const markDates = new Set<string>();
       for (const p of t.players) for (const d of Array.from(marksByPlayer.get(p.id)?.keys() ?? [])) markDates.add(d);
-      const dates = Array.from(new Set([...t.trainingDays, ...termDays, ...Array.from(markDates)])).sort();
+      // 🔴 A weekly programme's roll is ITS day only (Daniel, 2026-11-20: "why random
+      // thursday 5th … we only do technification on monday"). A planned day on
+      // another weekday shows only if a coach actually marked someone on it.
+      const dates = Array.from(new Set([...(weekly ? [] : t.trainingDays), ...termDays, ...Array.from(markDates)])).sort();
       const rows = t.players
         .filter((p) => p.active || marksByPlayer.has(p.id))
         .map((p) => {
