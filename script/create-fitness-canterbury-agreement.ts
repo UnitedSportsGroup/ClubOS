@@ -28,7 +28,10 @@ const COMMIT = process.argv.includes("--commit");
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const OUT = path.resolve(HERE, "../../../../../outputs/sponsorship/2026-11-16-fitness-canterbury-proposal");
 
-const SIGNER = { name: "Bruno Giudice", email: "info@fitnesscanterbury.co.nz" };
+// Bruno gave this address himself on the proposal form (19 Nov 2026). The old bruno.guidice@ spelling bounced.
+const SIGNER = { name: "Bruno Giudice", email: "bruno.giudice.c@gmail.com" };
+// 23 Nov 2026: rebuild the untouched DRAFT #39 in place with Bruno's changes instead of a second document.
+const UPDATE_DOC = (() => { const i = process.argv.indexOf("--update"); return i > 0 ? Number(process.argv[i + 1]) : null; })();
 const CLUB_SIGNER_EMAIL = "daniel@cufc.co.nz";
 
 const p = (text: string) => ({ kind: "p" as const, text });
@@ -59,12 +62,13 @@ function buildTemplate() {
   secs[iA] = { heading: "Schedule A: Sponsorship Benefits", items: [
     p("South Island United Football Club to provide for the period of the contract:"),
     b("The title Official Gym Partner of South Island United, and the Sponsor's logo on the South Island United partners page."),
-    b("Promotion of Fitness Canterbury to the Club's families, players and supporters, with a target of 10 new paying members referred by the Club during the Term."),
+    b("Promotion of Fitness Canterbury to the Club's families, players and supporters, with a target of 15 new paying members referred by the Club during the Term."),
     b("Features of Fitness Canterbury, and any membership offer it runs, in the Christchurch United newsletter."),
     b("Collaboration posts and short videos of the squad training at Fitness Canterbury on the South Island United and Christchurch United social media accounts."),
     b("A Fitness Canterbury sign at United Sports Centre, printed and installed by the Club, size and position agreed with the Sponsor."),
     b("A joint membership offer for the Club's community, starting with a New Year campaign in January 2027. The Sponsor sets the offer; the Club promotes it."),
     b("Fitness Canterbury flyers at the United Sports Centre office and at Club events and holiday camps."),
+    b("Up to 4 tickets to each South Island United home game played in Christchurch during the Term."),
     p("Additionally:"),
     b("Tracking of referred members by a sign-up code chosen by the Sponsor, or a 'How did you hear about us?' answer of South Island United or Christchurch United."),
     b("A monthly report from the Club of what it posted and sent, with photos and videos of the gym for the Sponsor to reuse."),
@@ -75,11 +79,12 @@ function buildTemplate() {
     p("Start date: {{commencement_date}}"),
     p("Duration: This Agreement shall run from the Commencement Date to the Expiry Date. If the Club qualifies for the FIFA Intercontinental Cup, the parties intend to extend this Agreement on the same terms until the end of the Club's participation."),
     p("Reporting: monthly, as set out in Schedule A."),
-    p("Contribution (contra, no cash payment):"),
+    p("Contribution (contra):"),
     b("Team strength sessions for the Club's first-team squad: two sessions a week during the season and up to three a week in some pre-season weeks, in groups of up to 10 players, 30 to 45 minutes each, in the morning, supervised by Club staff."),
     b("General 24/7 memberships, with door access, for the Club's first-team squad (about 20 players) and its coaching and performance staff, names supplied by the Club."),
+    b("Access tags: each player and staff member needs a tag for 24/7 door access. The Sponsor charges a one-off fee of $20 per tag (GST inclusive), which the Club will pay on the Sponsor's invoice."),
     b("Planned team session dates to the end of 2026: 24 and 25 November; 1, 2, 4, 7, 8, 11, 21 and 22 December. Times to be confirmed by the Club in advance."),
-    p("Contra: the Sponsor's contribution is the facilities and access above. No sponsorship fee is payable by either party."),
+    p("Contra: the Sponsor's contribution is the facilities and access above. Apart from the access tag fee, no sponsorship fee is payable by either party."),
     p("Special conditions:"),
     b("The Club will confirm team session dates and times at least one week in advance during the season."),
     b("Club players will use equipment appropriately, keep the facilities tidy and show consideration to the Sponsor's members."),
@@ -130,6 +135,18 @@ async function main() {
       ? (await c.query(`update esign_templates set name=$2,description=$3,brand=$4::jsonb,content=$5::jsonb,variables=$6::jsonb,form=$7::jsonb,settings=$8::jsonb where id=$1 returning id`, [existing.id, ...tv])).rows[0].id
       : (await c.query(`insert into esign_templates (organization_id, slug, name, description, brand, content, variables, form, settings, active) values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,true) returning id`, [org, raw.slug, ...tv])).rows[0].id;
     const hash = crypto.createHash("sha256").update(Buffer.from(pdf)).digest("hex");
+    if (UPDATE_DOC) {
+      const d = (await c.query(`select id, status from esign_documents where id=$1 and organization_id=$2 for update`, [UPDATE_DOC, org])).rows[0];
+      if (!d || d.status !== "draft") throw new Error(`document #${UPDATE_DOC} is not a draft in this workspace — refusing to rewrite it`);
+      const touched = (await c.query(`select count(*)::int n from esign_signers where document_id=$1 and (signed_at is not null or viewed_at is not null)`, [UPDATE_DOC])).rows[0].n;
+      if (touched) throw new Error(`document #${UPDATE_DOC} has been opened or signed — refusing to rewrite it`);
+      await c.query(`update esign_documents set template_id=$2, template_data=$3::jsonb, source_pdf=$4, doc_hash=$5 where id=$1`, [UPDATE_DOC, tplId, JSON.stringify(values), Buffer.from(pdf).toString("base64"), hash]);
+      await c.query(`update esign_signers set email=$2, name=$3 where document_id=$1 and signing_order=1`, [UPDATE_DOC, SIGNER.email, SIGNER.name]);
+      await c.query(`insert into esign_events (document_id, type, actor_email, meta) values ($1,'updated',$2,$3::jsonb)`, [UPDATE_DOC, club.email, JSON.stringify({ via: "script", why: "Bruno's changes 19 Nov: 15 members, $20 tags paid by club, 4 tickets per home game; signer email" })]);
+      await c.query("COMMIT");
+      console.log(`  ✓ template #${tplId} updated · DRAFT document #${UPDATE_DOC} rebuilt in place`);
+      return;
+    }
     const doc = (await c.query(
       `insert into esign_documents (organization_id, title, message, status, sequential, doc_type, template_id, template_data, source_file_name, source_pdf, doc_hash, created_by)
        values ($1,$2,$3,'draft',true,'native',$4,$5::jsonb,null,$6,$7,$8) returning id`,
