@@ -2,7 +2,7 @@
 //   npx tsx script/_test-perf-forms.ts
 import {
   AnswerError, BODY_REGIONS, SI_UNITED_CHECK_IN as F, answerSortKey, answerText, allQuestions, formFlag, formLoad,
-  formProblem, isShown, newQuestionId, regionLabel, validateAnswers,
+  formProblem, formReport, isShown, liveQuestions, newQuestionId, regionLabel, validateAnswers,
 } from "../shared/perf-forms";
 
 let pass = 0, fail = 0;
@@ -15,7 +15,7 @@ const good = { am_well: "yes", ready: 7, sleep_job: "normal" };
 // Rowan's form, as read off the Loom
 const labels = allQuestions(F).map((q) => q.label);
 for (const l of ["Am I well?", "What illness symptoms are you feeling?", "How ready am I to perform?", "Did sleep do its job?", "Anything to modify?",
-  "Areas I'm managing", "What did I do yesterday?", "Session RPE", "Session Minutes", "Football Load", "Anything that would help others this week?", "Other ideas"])
+  "Areas I'm managing", "Anything to explain?", "What did I do yesterday?", "Session RPE", "What rehab/prehab did I do?", "What did I do for rest/recovery?", "Session Minutes", "Football Load", "What would help the team?", "Other ideas"])
   ok(`template asks "${l}"`, labels.includes(l));
 ok("template sections are Rowan's two", F.sections.map((s) => s.title).join("|") === "Professionalism, Team, Ambition|My Training, My Team");
 ok("the template passes its own structure check", formProblem(F) === null, formProblem(F));
@@ -30,36 +30,35 @@ ok("symptoms are kept when the player is not well", validateAnswers(F, { ...good
 ok("'Other ideas' only after 'Something else'", isShown(allQuestions(F).find((q) => q.id === "other_ideas")!, { help_others: "something_else" })
   && !isShown(allQuestions(F).find((q) => q.id === "other_ideas")!, { help_others: "all_set" }));
 ok("unknown keys are dropped", !("hack" in validateAnswers(F, { ...good, hack: "x" })));
-ok("a blank text answer is no answer", !("sleep_modification" in validateAnswers(F, { ...good, sleep_job: "below", sleep_modification: "   " })));
+ok("a blank text answer is no answer", !("areas_note" in validateAnswers(F, { ...good, areas_note: "   " })));
 
-// calc
-const withLoad = validateAnswers(F, { ...good, session_rpe: 8, session_minutes: 60 });
-ok("Football Load = RPE × minutes (Rowan's 8 × 60 = 480)", withLoad.football_load === 480, withLoad);
-ok("a load sent by the phone is ignored and worked out here", validateAnswers(F, { ...good, session_rpe: 2, session_minutes: 30, football_load: 9999 }).football_load === 60);
-ok("no minutes, no load", !("football_load" in validateAnswers(F, { ...good, session_rpe: 6 })));
+// 25 Nov 2026 (Michael + Adria): what you did yesterday decides what is asked next
+const foot = validateAnswers(F, { ...good, yesterday: ["football"], session_rpe: 8, rehab_detail: "ignored", session_minutes: 60, football_load: 9999 });
+ok("football → Session RPE is asked and kept", foot.session_rpe === 8);
+ok("football only → the rehab note is not kept", !("rehab_detail" in foot));
+ok("session minutes and Football Load are no longer asked (hidden, never kept)", !("session_minutes" in foot) && !("football_load" in foot), foot);
+const rehab = validateAnswers(F, { ...good, yesterday: ["rehab_prehab", "rest"], session_rpe: 7, rehab_detail: "Bike and Nordics", rest_detail: "Pool" });
+ok("rehab + rest → both notes kept, no RPE", rehab.rehab_detail === "Bike and Nordics" && rehab.rest_detail === "Pool" && !("session_rpe" in rehab), rehab);
+ok("Session RPE is 1 to 10: 0 is refused", throwsOn(() => validateAnswers(F, { ...good, yesterday: ["football"], session_rpe: 0 }), "session_rpe"));
+ok("a poor sleep no longer asks 'anything to modify'", !liveQuestions(F).some((q) => q.id === "sleep_modification") && !("sleep_modification" in validateAnswers(F, { ...good, sleep_job: "below", sleep_modification: "noise" })));
+ok("a note under the body chart is optional and kept", validateAnswers(F, { ...good, areas_note: "Tight calf" }).areas_note === "Tight calf" && !("areas_note" in validateAnswers(F, good)));
+ok("the last question is about the team", liveQuestions(F).some((q) => q.id === "help_others" && q.label === "What would help the team?"));
 
-// body map
-ok("Smartabase region names: 'Right Posterior Lower Leg / Foot'", regionLabel("right_posterior_lower_leg_foot") === "Right Posterior Lower Leg / Foot");
-ok("'Right Pelvis' exists", BODY_REGIONS.some((r) => r.label === "Right Pelvis"));
-ok("every region key is unique", new Set(BODY_REGIONS.map((r) => r.key)).size === BODY_REGIONS.length);
-ok("a made-up area is refused", throwsOn(() => validateAnswers(F, { ...good, areas: ["left_wing"] }), "areas"));
-ok("areas print as words", answerText(allQuestions(F).find((q) => q.id === "areas")!, ["right_pelvis", "left_upper_leg"]) === "Right Pelvis, Left Upper Leg");
+// what staff are told about
+ok("all well, nothing marked → nothing to report", formReport(F, validateAnswers(F, good)).length === 0);
+ok("not well → reported", formReport(F, validateAnswers(F, { ...good, am_well: "no", illness_symptoms: "Sore throat" })).join("|") === "Not well");
+const rep = validateAnswers(F, { ...good, areas: ["left_knee"], areas_note: "Swollen" });
+ok("an area → reported by name; typed words left out of an alert", formReport(F, rep).join("|") === "Areas: Left Knee|Areas note: written in the app", formReport(F, rep));
+ok("typed words included for the app and ClubOS", formReport(F, rep, { withText: true })[1] === "Areas note: Swollen");
 
-// flags
-ok("a well, ready, normal-sleep player is not flagged", formFlag(F, good).level === null);
-ok("not well → take care", formFlag(F, { ...good, am_well: "no" }).level === "amber");
-ok("ready 3 → concern", formFlag(F, { ...good, ready: 3 }).level === "red");
-ok("ready 5 → take care, with the number", (() => { const f = formFlag(F, { ...good, ready: 5 }); return f.level === "amber" && f.reasons.includes("Ready 5/10"); })());
-ok("sleep well below normal → take care", formFlag(F, { ...good, sleep_job: "well_below" }).reasons.includes("Sleep well below normal"));
-ok("three areas → take care", formFlag(F, { ...good, areas: ["head", "neck", "right_pelvis"] }).reasons.includes("Managing 3 areas"));
 ok("red beats amber", formFlag(F, { ...good, ready: 2, am_well: "no" }).level === "red");
 
 // load into the ACWR engine
-const l = formLoad(F, withLoad, "2026-11-01");
+const l = formLoad(F, foot, "2026-11-01");
 ok("the session belongs to YESTERDAY (crosses the month)", l?.date === "2026-10-31", l);
 ok("football → training", l?.kind === "training");
-ok("rehab only → other", formLoad(F, { ...withLoad, yesterday: ["rehab_prehab"] }, "2026-11-14")?.kind === "other");
-ok("rest with 0 minutes → no session", formLoad(F, { ...good, session_rpe: 0, session_minutes: 0 }, "2026-11-14") === null);
+ok("no minutes asked → the effort is kept, minutes 'not measured' (never RPE × 0)", l?.rpe === 8 && l?.minutes === null, l);
+ok("rehab only → no RPE, no session", formLoad(F, rehab, "2026-11-14") === null);
 
 // sorting + editing
 const sleepQ = allQuestions(F).find((q) => q.id === "sleep_job")!;

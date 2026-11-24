@@ -189,6 +189,11 @@ export const METRICS: MetricDef[] = [
   { key: "duels_won_pct", label: "Duels won", unit: "%", category: "match", higherIsBetter: true, aliases: ["duels won pct", "duels won"] },
   // Body
   { key: "body_mass_kg", label: "Body mass", unit: "kg", category: "body", higherIsBetter: null, decimals: 1, aliases: ["body mass", "weight", "body weight", "weight kg"] },
+  // The player's own daily list in the app (source "player_app").
+  { key: "body_mass_pre_kg", label: "Weight before training", unit: "kg", category: "body", higherIsBetter: null, decimals: 1, aliases: ["pre training weight", "weight pre", "pre weight"] },
+  { key: "body_mass_post_kg", label: "Weight after training", unit: "kg", category: "body", higherIsBetter: null, decimals: 1, aliases: ["post training weight", "weight post", "post weight"] },
+  { key: "knee_to_wall_left_cm", label: "Knee to wall, left", unit: "cm", category: "testing", higherIsBetter: true, decimals: 1, aliases: ["knee to wall left", "ktw left", "ktw l"] },
+  { key: "knee_to_wall_right_cm", label: "Knee to wall, right", unit: "cm", category: "testing", higherIsBetter: true, decimals: 1, aliases: ["knee to wall right", "ktw right", "ktw r"] },
   { key: "skinfolds_mm", label: "Skinfolds (sum)", unit: "mm", category: "body", higherIsBetter: false, decimals: 1, aliases: ["skinfolds", "sum of skinfolds"] },
 ];
 

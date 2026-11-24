@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { formatMetric, metricByKey } from "@shared/performance";
 import {
   AvailBadge, BandPill, DateField, Pill, Empty, LevelDot, Loading, LoadError, PageHead, Panel, Pick, ScoreFlag, Stat,
-  TableWrap, td, th, niceDay, send, refresh, useOverview, useSaver, FormError, type BoardPlayer,
+  TableWrap, td, th, niceDay, send, refresh, useOverview, useSaver, FormError, DemoBanner, type BoardPlayer,
 } from "./ui";
 
 export function gpsText(p: BoardPlayer): string {
@@ -27,6 +27,7 @@ export default function Board() {
         blurb="Who is ready to train today: availability, check-in, effort and load in one place."
         right={<div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Looking at</span><DateField value={date || d?.today || ""} onChange={setDate} className="w-48" testId="perf-date" /></div>}
       />
+      <DemoBanner />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
       {d && (
@@ -53,7 +54,7 @@ export default function Board() {
                   <tbody>
                     {d.players.map((p) => (
                       <tr key={p.contactId} className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => navigate(`/admin/performance/players/${p.contactId}?from=/admin/performance`)}>
+                        onClick={() => { if (!d.demo) navigate(`/admin/performance/players/${p.contactId}?from=/admin/performance`); }}>
                         <td className={td}>
                           <div className="font-medium text-foreground">{p.name}</div>
                           <div className="text-xs text-muted-foreground">{[p.position, p.squadNumber != null ? `#${p.squadNumber}` : null].filter(Boolean).join(" · ") || "—"}</div>

@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { formatMetric, metricByKey } from "@shared/performance";
-import { Pill, AvailBadge, BandPill, Empty, LevelDot, Loading, LoadError, PageHead, Panel, ScoreFlag, TableWrap, td, th, useOverview, niceDay, type BoardPlayer } from "./ui";
+import { ktwTone, massTone, signed } from "@shared/perf-squad";
+import { Pill, AvailBadge, BandPill, DemoBanner, Empty, LevelDot, Loading, LoadError, PageHead, Panel, ScoreFlag, TableWrap, isDemo, td, th, useOverview, niceDay, type BoardPlayer } from "./ui";
+import { AppStaffPanel } from "./app-staff";
 
 export const ACCOUNT_WORD: Record<string, string> = { none: "No account", invited: "Invited", active: "Active", disabled: "Disabled" };
 export const ACCOUNT_TONE: Record<string, "grey" | "amber" | "green" | "red"> = { none: "grey", invited: "amber", active: "green", disabled: "red" };
@@ -13,6 +15,8 @@ const VIEWS = [
   { key: "readiness", label: "Readiness" },
   { key: "wellness", label: "Check-in" },
   { key: "physical", label: "Physical (GPS)" },
+  { key: "body", label: "Weight & knee to wall" },
+  { key: "testing", label: "Testing" },
   { key: "availability", label: "Availability" },
   { key: "profile", label: "Profile" },
 ] as const;
@@ -54,7 +58,30 @@ const gpsCols: Col[] = [
   { head: "Power plays", cell: (p) => gps(p, "power_plays") },
 ];
 
-const COLS: Record<View, Col[]> = {
+const reading = (r: { value: number; date: string } | null, unit: string, today: string): ReactNode => r
+  ? <span className="tabular-nums">{r.value} {unit}{r.date !== today && <span className="block text-xs text-muted-foreground">{niceDay(r.date)}</span>}</span> : dash;
+const bodyCols = (today: string): Col[] => [
+  { head: "Weight before", cell: (p) => reading(p.body.weightPre, "kg", today) },
+  { head: "Weight after", cell: (p) => reading(p.body.weightPost, "kg", today) },
+  { head: "Change", cell: (p) => p.body.changePct == null ? dash : <Pill tone={massTone(p.body.changePct) === "amber" ? "amber" : "green"}>{signed(p.body.changePct, "%")}</Pill> },
+  { head: "Knee to wall L", cell: (p) => reading(p.body.ktwLeft, "cm", today) },
+  { head: "Knee to wall R", cell: (p) => reading(p.body.ktwRight, "cm", today) },
+  { head: "L − R", cell: (p) => p.body.ktwDiff == null ? dash : <Pill tone={ktwTone(p.body.ktwDiff) === "amber" ? "amber" : "green"}>{signed(p.body.ktwDiff, " cm")}</Pill> },
+];
+/** One column per test anyone on the squad has a result for; the arrow is against their own last result. */
+const testCols = (players: BoardPlayer[]): Col[] => Array.from(new Set(players.flatMap((p) => p.tests.map((t) => t.name)))).sort().map((name) => ({
+  head: name.replace(/^ForceDecks |^NordBord · |^ForceFrame · /, ""),
+  cell: (p) => {
+    const t = p.tests.find((x) => x.name === name);
+    if (!t) return dash;
+    const d = t.prev == null || t.prev === 0 ? null : Math.round(((t.value - t.prev) / t.prev) * 1000) / 10;
+    const good = d == null || d === 0 ? null : (d > 0) === t.higherIsBetter;
+    return <span className="tabular-nums whitespace-nowrap">{t.value}{t.unit ? ` ${t.unit}` : ""}{d != null && d !== 0 && <span className={`ml-1 text-xs ${good ? "text-emerald-700" : "text-red-700"}`}>{d > 0 ? "▲" : "▼"} {Math.abs(d)}%</span>}</span>;
+  },
+}));
+const reportCol: Col = { head: "Reported", cell: (p) => p.checkIn?.report.length ? <span className="text-xs">{p.checkIn.report.join(" · ")}</span> : dash };
+
+const COLS: Record<Exclude<View, "body" | "testing">, Col[]> = {
   all: [readyCol, availCol, checkCol, rpeCol, load7Col, acwrCol, gpsCols[1], gpsCols[2], gpsCols[3], gpsCols[5]],
   readiness: [
     readyCol,
@@ -63,7 +90,7 @@ const COLS: Record<View, Col[]> = {
     availCol, checkCol, acwrCol,
   ],
   wellness: [
-    checkCol,
+    checkCol, reportCol,
     { head: "Answers", cell: (p) => p.checkIn
       ? <div className="text-xs text-muted-foreground max-w-[26rem]">{p.checkIn.summary.map((x) => `${x.label} ${x.text}`).join(" · ")}</div>
       : dash },
@@ -110,12 +137,16 @@ export default function Players() {
   };
 
   const d = q.data;
-  const cols = COLS[view];
+  const cols = view === "body" ? bodyCols(d?.today ?? "") : view === "testing" ? testCols(d?.players ?? []) : COLS[view];
+  const demo = isDemo();
+  const toDemo = () => { const u = new URL(window.location.href); u.searchParams.set("demo", "1"); window.location.assign(u.pathname + u.search); };
   const here = `/admin/performance/players${view === "all" ? "" : `?view=${view}`}`;
   const players = d ? d.players.filter((p) => !find.trim() || p.name.toLowerCase().includes(find.trim().toLowerCase())) : [];
   return (
     <div className="space-y-5 min-w-0">
-      <PageHead title="Players" blurb="The South Island United squad. See everything in one table, or pick one view. Open a player for their own page." />
+      <PageHead title="Players" blurb="The South Island United squad. See everything in one table, or pick one view. Open a player for their own page."
+        right={demo ? undefined : <button type="button" onClick={toDemo} className="h-11 md:h-9 px-3 rounded-md border border-border text-sm hover:bg-muted" data-testid="perf-demo-on">See it with demo data</button>} />
+      <DemoBanner />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
       {d && (d.players.length === 0 ? (
@@ -142,7 +173,7 @@ export default function Players() {
                 <thead><tr>{["Player", ...cols.map((c) => c.head)].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {players.map((p) => (
-                    <tr key={p.contactId} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/admin/performance/players/${p.contactId}?from=${encodeURIComponent(here)}`)}>
+                    <tr key={p.contactId} className={demo ? "" : "cursor-pointer hover:bg-muted/50"} onClick={() => { if (!demo) navigate(`/admin/performance/players/${p.contactId}?from=${encodeURIComponent(here)}`); }}>
                       <td className={td}>
                         <div className="font-medium">{p.name}</div>
                         <div className="text-xs text-muted-foreground">{[p.position, p.squadNumber != null ? `#${p.squadNumber}` : null].filter(Boolean).join(" · ") || "—"}</div>
@@ -155,6 +186,10 @@ export default function Players() {
             </TableWrap>
           </Panel>
           {view === "physical" && <p className="text-xs text-muted-foreground">GPS figures are each player's most recent Catapult session. A dash means the pod recorded nothing for that measure.</p>}
+          {view === "body" && <p className="text-xs text-muted-foreground">Players type these into the app each training day. Change is weight after against weight before on the same day; amber at 2% or more lost. Knee to wall is amber when left and right are 2 cm or more apart. Both lines are starting points for the performance staff to set.</p>}
+          {view === "testing" && cols.length === 0 && <Empty>No test results yet. Add them in Testing.</Empty>}
+          {view === "testing" && cols.length > 0 && <p className="text-xs text-muted-foreground">Each player's latest result per test. The arrow compares it with their own result before that.</p>}
+          {view === "profile" && !demo && <AppStaffPanel />}
         </>
       ))}
     </div>

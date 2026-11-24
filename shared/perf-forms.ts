@@ -60,6 +60,12 @@ export interface Question {
   flags?: FlagRule[];
   /** Hidden from the form and the report, answers kept. Never deleted. */
   hidden?: boolean;
+  /**
+   * Staff are TOLD when a player answers this (Michael Peterson, 25 Nov 2026:
+   * "if they say something to report, that's when Mike gets notified").
+   * `true` = any answer; `{ in }` = only these answers.
+   */
+  report?: true | { in: string[] };
 }
 
 export interface Section { id: string; title: string; questions: Question[] }
@@ -74,6 +80,8 @@ export interface FormDef {
    * belongs to the day it was done: "yesterday" for Rowan's morning form.
    */
   load?: { rpe: string; minutes: string; activity?: string; day: "yesterday" | "today" };
+  /** Bumped when the template itself changes, so a stored copy can be brought up to date once. */
+  revision?: number;
 }
 
 export type AnswerValue = string | string[] | number;
@@ -113,6 +121,11 @@ export const SI_UNITED_CHECK_IN: FormDef = {
   key: "si-united-check-in",
   title: "SI United Check In",
   intro: "Every morning. Takes a minute. Only SIU performance staff see your answers.",
+  // Revision 2 — Michael Peterson + Adria Casals, 25 Nov 2026: no "anything to modify" after a
+  // poor sleep; a note under the body chart; what you did yesterday decides what is asked next;
+  // session minutes gone (staff know how long the session was); RPE is 1–10; the last question
+  // is about the team.
+  revision: 2,
   load: { rpe: "session_rpe", minutes: "session_minutes", activity: "yesterday", day: "yesterday" },
   sections: [
     {
@@ -123,6 +136,7 @@ export const SI_UNITED_CHECK_IN: FormDef = {
           id: "am_well", label: "Am I well?", type: "choice", required: true,
           options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No, something to report" }],
           flags: [{ in: ["no"], level: "amber", reason: "Not well" }],
+          report: { in: ["no"] },
         },
         {
           id: "illness_symptoms", label: "What illness symptoms are you feeling?", short: "Illness symptoms", type: "text",
@@ -144,14 +158,17 @@ export const SI_UNITED_CHECK_IN: FormDef = {
           id: "sleep_modification", label: "Anything to modify?", short: "Sleep modification", type: "text",
           help: "Anything that got in the way of your sleep, or that you want to change.",
           showIf: { q: "sleep_job", in: ["well_below", "below"] },
+          hidden: true,
         },
         {
           id: "areas", label: "Areas I'm managing", short: "Areas", type: "body", help: "Tightness, injury, strain etc",
           flags: [{ minCount: 3, level: "amber", reason: "Managing {value} areas" }],
+          report: true,
         },
         {
-          id: "yesterday", label: "What did I do yesterday?", short: "Yesterday", type: "multi", help: "Record the type of exertion from yesterday",
-          options: [{ value: "football", label: "Football" }, { value: "rehab_prehab", label: "Rehab/Prehab" }, { value: "rest", label: "Rest" }],
+          id: "areas_note", label: "Anything to explain?", short: "Areas note", type: "text",
+          help: "Optional. A few words about what you marked, or anything the chart doesn't show.",
+          report: true,
         },
       ],
     },
@@ -160,17 +177,30 @@ export const SI_UNITED_CHECK_IN: FormDef = {
       title: "My Training, My Team",
       questions: [
         {
-          id: "session_rpe", label: "Session RPE", type: "scale", min: 0, max: 10, step: 1,
+          id: "yesterday", label: "What did I do yesterday?", short: "Yesterday", type: "multi", help: "Choose everything you did",
+          options: [{ value: "football", label: "Football" }, { value: "rehab_prehab", label: "Rehab/Prehab" }, { value: "rest", label: "Rest/Recovery" }],
+        },
+        {
+          id: "session_rpe", label: "Session RPE", type: "scale", min: 1, max: 10, step: 1,
           marks: { "1": "Very Light", "3": "Moderate", "5": "Hard", "7": "Very Hard", "10": "Maximal" },
-          help: "How hard did I think the intensity was overall?",
+          help: "How hard did I think the football session was overall?",
+          showIf: { q: "yesterday", in: ["football"] },
+        },
+        {
+          id: "rehab_detail", label: "What rehab/prehab did I do?", short: "Rehab/Prehab", type: "text",
+          showIf: { q: "yesterday", in: ["rehab_prehab"] },
+        },
+        {
+          id: "rest_detail", label: "What did I do for rest/recovery?", short: "Rest/Recovery", type: "text",
+          showIf: { q: "yesterday", in: ["rest"] },
         },
         {
           id: "session_minutes", label: "Session Minutes", short: "Minutes", type: "scale", min: 0, max: 140, step: 5,
-          help: "How many minutes did I train or play?",
+          help: "How many minutes did I train or play?", hidden: true,
         },
-        { id: "football_load", label: "Football Load", type: "calc", calc: { kind: "product", of: ["session_rpe", "session_minutes"] } },
+        { id: "football_load", label: "Football Load", type: "calc", calc: { kind: "product", of: ["session_rpe", "session_minutes"] }, hidden: true },
         {
-          id: "help_others", label: "Anything that would help others this week?", short: "Help others", type: "choice",
+          id: "help_others", label: "What would help the team?", short: "Help the team", type: "choice",
           options: [
             { value: "all_set", label: "We're all set" }, { value: "more_recovery", label: "More recovery" },
             { value: "tactical_clarity", label: "Tactical clarity" }, { value: "team_communication", label: "Team communication" },
@@ -312,15 +342,36 @@ export function formFlag(f: FormDef, answers: Answers): { level: "red" | "amber"
   return { level, reasons };
 }
 
+/**
+ * What staff are told about, in words ("Not well", "Areas: Right Knee"). Empty = nothing to
+ * report. 🔴 `withText: false` leaves a player's own typed words out (a lock screen or an inbox
+ * is not the place for them); the app and ClubOS show them.
+ */
+export function formReport(f: FormDef, answers: Answers, opts: { withText?: boolean } = {}): string[] {
+  const out: string[] = [];
+  for (const q of liveQuestions(f)) {
+    const v = answers[q.id];
+    if (!q.report || v == null || (Array.isArray(v) && !v.length)) continue;
+    if (q.report !== true && !asList(v).some((x) => (q.report as { in: string[] }).in.includes(x))) continue;
+    if (q.type === "text") { if (opts.withText) out.push(`${q.short ?? q.label}: ${String(v)}`); else out.push(`${q.short ?? q.label}: written in the app`); continue; }
+    const flagged = q.flags?.find((r) => r.in && asList(v).some((x) => r.in!.includes(x)));
+    out.push(q.type === "choice" && flagged ? flagged.reason : `${q.short ?? q.label}: ${answerText(q, v)}`);
+  }
+  return out;
+}
+
 /** The session the form describes, for the load engine. Null when there is none. */
-export function formLoad(f: FormDef, answers: Answers, entryDate: string): { date: string; rpe: number; minutes: number; kind: "training" | "other" } | null {
+export function formLoad(f: FormDef, answers: Answers, entryDate: string): { date: string; rpe: number; minutes: number | null; kind: "training" | "other" } | null {
   if (!f.load) return null;
   const rpe = answers[f.load.rpe], minutes = answers[f.load.minutes];
-  if (typeof rpe !== "number" || typeof minutes !== "number" || minutes <= 0) return null;
+  if (typeof rpe !== "number") return null;
+  // No minutes question (or it is hidden): the effort is still kept, with the minutes
+  // "not measured". Load = RPE × minutes appears once staff give the session its length.
+  const mins = typeof minutes === "number" && minutes > 0 ? Math.min(300, Math.round(minutes)) : null;
   const did = f.load.activity ? asList(answers[f.load.activity]) : [];
   const [y, m, d] = entryDate.split("-").map(Number);
   const date = f.load.day === "yesterday" ? new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10) : entryDate;
-  return { date, rpe: Math.round(rpe), minutes: Math.min(300, Math.round(minutes)), kind: did.length && !did.includes("football") ? "other" : "training" };
+  return { date, rpe: Math.round(rpe), minutes: mins, kind: did.length && !did.includes("football") ? "other" : "training" };
 }
 
 /** Structural check on a form someone edited. Returns a sentence, or null when fine. */

@@ -14,7 +14,7 @@
  */
 import type { Express, Request, Response } from "express";
 import {
-  AnswerError, FORM_TEMPLATES, allQuestions, formFlag, formLoad, formProblem, validateAnswers,
+  AnswerError, FORM_TEMPLATES, allQuestions, formFlag, formLoad, formProblem, formReport, validateAnswers,
   type Answers, type FormDef,
 } from "@shared/perf-forms";
 import { addDays, isIsoDate, nzToday, sessionLoad } from "@shared/performance";
@@ -23,6 +23,7 @@ import { addDays, isIsoDate, nzToday, sessionLoad } from "@shared/performance";
 const mondayOf = (iso: string) => addDays(iso, -((new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7));
 import { pool } from "./db";
 import { isExpoPushToken, sendExpoPushBatch } from "./push";
+import { sendEmail, SIU_FROM } from "./email";
 
 type Row = Record<string, any>;
 const q = async <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => (await pool.query(text, params)).rows as T[];
@@ -40,6 +41,7 @@ export interface FormDeps {
   roster: (org: number) => Promise<{ contactId: number; name: string; firstName: string | null; position: string | null; squadNumber: number | null }[]>;
   onRoster: (org: number, contactId: number) => Promise<boolean>;
   requireAthlete: any;
+  requirePlayer: any;
   athleteOf: (req: Request) => { accountId: number; contactId: number; org: number; firstName: string | null; lastName: string | null };
   siuOrg: () => Promise<number>;
   handle: (fn: (req: Request, res: Response) => Promise<unknown>) => any;
@@ -134,7 +136,7 @@ async function answeredIds(formId: number): Promise<Set<string>> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
-  const { gate, viewer, roster, onRoster, requireAthlete, athleteOf, handle } = d;
+  const { gate, viewer, roster, onRoster, requireAthlete, requirePlayer, athleteOf, handle } = d;
 
   // ── forms ──────────────────────────────────────────────────────────────────
   app.get(`${BASE}/forms`, ...gate, handle(async (req, res) => {
@@ -319,7 +321,7 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
   }));
 
   // ── the player ─────────────────────────────────────────────────────────────
-  app.get(`${PUB}/form`, requireAthlete, async (req, res) => {
+  app.get(`${PUB}/form`, requirePlayer, async (req, res) => {
     try {
       const a = athleteOf(req);
       const form = await dailyForm(a.org);
@@ -335,7 +337,7 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
     } catch (e) { console.error("[athlete] form", e); res.status(500).json({ message: "Could not load your check-in." }); }
   });
 
-  app.post(`${PUB}/checkin`, requireAthlete, async (req, res) => {
+  app.post(`${PUB}/checkin`, requirePlayer, async (req, res) => {
     try {
       const a = athleteOf(req);
       const form = await dailyForm(a.org);
@@ -343,8 +345,11 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
       const answers = parseAnswers(form.definition, req.body?.answers, res);
       if (!answers) return;
       // 🔴 Today only, by the server's NZ clock.
-      await saveResponse({ org: a.org, form, contactId: a.contactId, date: nzToday(), answers, enteredBy: null, byAthlete: true, isTest: false });
+      const saved = await saveResponse({ org: a.org, form, contactId: a.contactId, date: nzToday(), answers, enteredBy: null, byAthlete: true, isTest: false });
       res.json({ ok: true });
+      // After the answer is safely in: tell the staff who asked to be told. Never holds up the player.
+      void notifyReport(a.org, form.definition, saved.id, [a.firstName, a.lastName].filter(Boolean).join(" ") || "A player", answers)
+        .catch((e) => console.error("[Performance] report alert failed:", e?.message ?? e));
     } catch (e) { console.error("[athlete] checkin", e); res.status(500).json({ message: "Could not save. Try again." }); }
   });
 
@@ -388,6 +393,55 @@ export function registerPerformanceFormRoutes(app: Express, d: FormDeps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// "Something to report" — Michael Peterson, 25 Nov 2026: "if they say something to
+// report, that's when Mike gets notified, by notification or email."
+//  🔴 Once per check-in: the claim (alert_sent_at) is taken atomically BEFORE sending,
+//     so an edit, a double tap or the second Fly machine cannot send it twice.
+//  🔴 Goes only to staff logins with "tell me" switched on (notify_reports).
+//  🔴 The push names the player and nothing else (it lands on a lock screen). The email
+//     lists what was ticked; a player's own typed words stay in the app and ClubOS.
+//  Off switch: PERF_REPORT_ALERTS=0.
+// ─────────────────────────────────────────────────────────────────────────────
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+export async function notifyReport(org: number, def: FormDef, responseId: number, playerName: string, answers: Answers): Promise<{ pushed: number; emailed: number } | null> {
+  if (process.env.PERF_REPORT_ALERTS === "0") return null;
+  const items = formReport(def, answers);
+  if (!items.length) return null;
+  const claim = await pool.query(`update perf_form_responses set alert_sent_at = now() where id = $1 and alert_sent_at is null returning id`, [responseId]);
+  if (!claim.rowCount) return null;
+  const staff = await q(`select a.id, a.email, c.first_name from perf_athlete_accounts a join contacts c on c.id = a.contact_id
+    where a.organization_id = $1 and a.staff_role is not null and a.notify_reports and a.disabled_at is null and a.password_hash is not null`, [org]);
+  if (!staff.length) return { pushed: 0, emailed: 0 };
+  const tokens = await q(`select id, token from perf_athlete_push_tokens where disabled_at is null and account_id = any($1::int[])`, [staff.map((s) => s.id)]);
+  let pushed = 0;
+  if (tokens.length) {
+    const tickets = await sendExpoPushBatch(tokens.map((t) => ({
+      to: t.token, title: "Check-in: something to report", body: `${playerName} has something to report in today's check-in.`,
+      data: { screen: "squad" }, sound: "default" as const,
+    })));
+    tickets.forEach((t, j) => {
+      if (t.status === "ok") pushed++;
+      else if (t.details?.error === "DeviceNotRegistered") void pool.query(`update perf_athlete_push_tokens set disabled_at = now() where id = $1`, [tokens[j].id]);
+    });
+  }
+  let emailed = 0;
+  for (const s of staff) {
+    if (/@siu\.test$/i.test(s.email)) continue;          // test logins have no mailbox
+    const ok = await sendEmail({
+      from: SIU_FROM, to: s.email, subject: `Check-in: ${playerName} has something to report`,
+      html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#161616">
+        <p>${s.first_name ? `Kia ora ${esc(s.first_name)},` : "Kia ora,"}</p>
+        <p><strong>${esc(playerName)}</strong> reported this in today's check-in:</p>
+        <ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+        <p>Open the SIU Performance app (Squad) or ClubOS, Performance, Check-ins to read the full answer.</p>
+        <p style="color:#666;font-size:13px">You get this because "Tell me when a player reports something" is on for your login. Turn it off in the app under Me.</p></div>`,
+    }).catch(() => false);
+    if (ok) emailed++;
+  }
+  return { pushed, emailed };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The morning reminder — one push to each player who hasn't checked in yet.
 //  🔴 Once per NZ day, claimed by ONE machine (insert into perf_reminder_runs).
 //  🔴 Only players with the app, notifications allowed, and no answer today.
@@ -407,7 +461,7 @@ export async function sendMorningReminders(org: number, opts: { force?: boolean 
   if (!form) return { sent: 0, skipped: 0, claimed: true };
   const rows = await q(`
     select t.id, t.token, c.first_name from perf_athlete_push_tokens t
-    join perf_athlete_accounts a on a.id = t.account_id and a.disabled_at is null and a.organization_id = $1
+    join perf_athlete_accounts a on a.id = t.account_id and a.disabled_at is null and a.organization_id = $1 and a.staff_role is null
     join contacts c on c.id = a.contact_id
     where t.disabled_at is null
       and exists (select 1 from club_squads s join club_squad_members m on m.squad_id = s.id

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Check, Share, X, Loader2 } from "lucide-react";
 import { answerText, liveQuestions, type Answers, type FormDef } from "@shared/perf-forms";
 import { AnswerList, CheckInForm } from "@/components/performance/checkin-form";
+import { PLAYER_MEASURES, parseMeasure, type Measures } from "@shared/perf-squad";
 
 // SIU Performance Hub, the player's phone. Public routes, cookie session.
 // Plain fetch with credentials: these are NOT admin routes, no workspace header.
@@ -15,6 +16,7 @@ interface Me {
   today: string; firstName: string; lastName: string; position: string | null; availability: string;
   todayCheckIn: CheckIn | null; history: { date: string; score: number | null; sleepHours: number | null }[];
   rpe: { date: string; kind: string; rpe: number; minutes: number | null }[]; streak: number;
+  role?: "player" | "staff"; measures?: Measures; checkedIn?: boolean;
 }
 
 async function call(path: string, method: "GET" | "POST", body?: unknown): Promise<{ status: number; data: any }> {
@@ -211,6 +213,43 @@ function CheckInHistory({ def, history }: { def: FormDef; history: { date: strin
   );
 }
 
+/** Today's list beside the check-in: weight before and after training, knee to wall left and right. */
+function TodayList({ me, onSaved }: { me: Me; onSaved: () => void }) {
+  const saved = me.measures ?? { weightPre: null, weightPost: null, ktwLeft: null, ktwRight: null };
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(PLAYER_MEASURES.map((m) => [m.field, saved[m.field] == null ? "" : String(saved[m.field])])));
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const dirty = PLAYER_MEASURES.some((m) => vals[m.field] !== (saved[m.field] == null ? "" : String(saved[m.field])));
+  const save = async () => {
+    setMsg(null);
+    for (const m of PLAYER_MEASURES) { const r = parseMeasure(m.field, vals[m.field]); if ("error" in r) { setMsg({ kind: "err", text: r.error }); return; } }
+    setBusy(true);
+    try {
+      const r = await call("/measure", "POST", Object.fromEntries(PLAYER_MEASURES.map((m) => [m.field, vals[m.field]])));
+      if (r.status === 200) { setMsg({ kind: "ok", text: "Saved." }); onSaved(); } else setMsg({ kind: "err", text: r.data?.message ?? "Could not save. Try again." });
+    } catch { setMsg({ kind: "err", text: "No connection. Try again." }); }
+    setBusy(false);
+  };
+  const tick = (done: boolean) => <span aria-hidden className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ background: done ? "#8FC99B" : "transparent", border: `1px solid ${done ? "#8FC99B" : C.line}`, color: "#000" }}>{done ? <Check size={13} /> : null}</span>;
+  return (
+    <Card title="Today's list">
+      <ul className="space-y-3 text-sm">
+        <li className="flex items-center gap-3">{tick(!!me.checkedIn)}<span>Daily check-in</span><span className="ml-auto" style={{ color: C.mute }}>{me.checkedIn ? "Done" : "Below"}</span></li>
+        {PLAYER_MEASURES.map((m) => (
+          <li key={m.field} className="flex items-center gap-3">
+            {tick(saved[m.field] != null)}
+            <label htmlFor={`m-${m.field}`} className="min-w-0 flex-1">{m.label}</label>
+            <input id={`m-${m.field}`} inputMode="decimal" value={vals[m.field]} onChange={(e) => { setMsg(null); setVals((v) => ({ ...v, [m.field]: e.target.value })); }}
+              placeholder={m.unit} className="h-11 w-24 rounded-xl px-3 text-right text-base" style={{ background: "#000", border: `1px solid ${C.line}`, color: C.ink }} data-testid={`measure-${m.field}`} />
+            <span className="w-6 text-xs" style={{ color: C.mute }}>{m.unit}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4"><Btn onClick={save} disabled={busy || !dirty}>{busy ? <Loader2 className="animate-spin" size={18} /> : null}Save</Btn></div>
+      {msg && <Msg kind={msg.kind}>{msg.text}</Msg>}
+    </Card>
+  );
+}
+
 /** join.southislandunited.com/athlete?demo=1 — the real form, nothing saved, no sign-in. */
 function AthleteDemo() {
   const [data, setData] = useState<{ today: string; form: { definition: FormDef } | null } | null>(null);
@@ -277,6 +316,15 @@ function AthleteCheckInSignedIn() {
   if (state === "error") return <Shell><div className="pt-24 text-center"><Crest /><p className="mt-4">Could not load. Check your connection.</p><div className="mt-4"><Btn onClick={() => { setState("loading"); load(); }}>Try again</Btn></div></div></Shell>;
   if (state === "out" || !me) return <SignIn onDone={load} />;
 
+  if (me.role === "staff") return (
+    <Shell>
+      <div className="pt-16 text-center"><Crest size={84} />
+        <h1 className="mt-4 text-2xl font-semibold">Kia ora {me.firstName}</h1>
+        <p className="mt-3 text-sm" style={{ color: C.mute }}>You're signed in as staff. The squad view is in the SIU Performance app (sign in with this email), and on a laptop in ClubOS, Performance.</p>
+        <button type="button" onClick={signOut} className="mt-6 min-h-[44px] w-full text-center text-sm underline" style={{ color: C.mute }}>Sign out</button>
+      </div>
+    </Shell>
+  );
   const avail = me.availability && me.availability !== "available" ? (AVAIL[me.availability] ?? me.availability) : null;
   return (
     <Shell>
@@ -293,6 +341,7 @@ function AthleteCheckInSignedIn() {
       </div>
       <p className="mt-3 text-xs" style={{ color: C.mute }}>Takes 30 seconds. Only SIU performance staff see your answers.</p>
       <HomeHint />
+      <TodayList key={JSON.stringify(me.measures ?? null)} me={me} onSaved={load} />
       <DailyCheckIn onSaved={load} />
       <button type="button" onClick={signOut} className="mt-6 min-h-[44px] w-full text-center text-sm underline" style={{ color: C.mute }}>Sign out</button>
     </Shell>

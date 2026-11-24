@@ -9,6 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient, workspaceFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
+import { demoSquad, type SquadBoard, type SquadPlayer } from "@shared/perf-squad";
+import { nzToday } from "@shared/performance";
 export const BASE = "/api/admin/performance";
 
 /** Turn "409: {"message":"..."}" into the server's own sentence. */
@@ -42,8 +44,8 @@ export async function send<T = any>(method: "POST" | "PATCH" | "DELETE", path: s
 
 export const refresh = () => queryClient.invalidateQueries({ queryKey: ["perf"] });
 
-export function usePerfQuery<T>(key: string, path: string) {
-  return useQuery<T>({ queryKey: ["perf", key, path], queryFn: () => getJson<T>(path), staleTime: 30_000 });
+export function usePerfQuery<T>(key: string, path: string, enabled = true) {
+  return useQuery<T>({ queryKey: ["perf", key, path], queryFn: () => getJson<T>(path), staleTime: 30_000, enabled });
 }
 
 // ── dates on their parts, never through a Date ──
@@ -62,20 +64,8 @@ export type Level = "green" | "amber" | "red" | null;
 export interface Readiness { level: Level; used: string[]; missing: string[]; reasons: string[] }
 export interface LoadSummary { acute7: number | null; chronic28: number | null; acwr: number | null; acwrNote: string | null; monotony: number | null; strain: number | null; band: "low" | "sweet" | "high" | "danger" | null }
 export interface GpsValue { value: number; date: string; source: string }
-export interface BoardPlayer {
-  contactId: number; name: string; position: string | null; squadNumber: number | null; squad: string; email: string | null;
-  availability: { state: string; since: string | null; expectedReturn: string | null; bodyArea: string | null };
-  wellness: null | { score: number | null; flag: "red" | "amber" | null; reasons: string[]; items: Record<string, number | null>; sleepHours: number | null; soreAreas: string[]; byAthlete: boolean; medicalFlag?: boolean | null; note?: string | null };
-  checkIn: null | { id: number; flag: "red" | "amber" | null; reasons: string[]; byAthlete: boolean; summary: { label: string; text: string }[] };
-  rpe: { date: string; kind: string; rpe: number; minutes: number | null }[];
-  load: LoadSummary; readiness: Readiness; gps: Record<string, GpsValue>;
-  account: "none" | "invited" | "active" | "disabled"; lastSignIn: string | null;
-}
-export interface Overview {
-  today: string; medical: boolean; players: BoardPlayer[];
-  counts: { squad: number; available: number; modified: number; out: number; checkedIn: number; flagged: number; accounts: number };
-  unlinked: { id: number; source: string; source_athlete_key: string; source_name: string; readings: number }[];
-}
+export type BoardPlayer = SquadPlayer;
+export type Overview = SquadBoard;
 export interface SourceRow {
   key: string; name: string; category: string; state: "built" | "import" | "planned"; priority: "now" | "next" | "later";
   what: string; how: string; advice: string; last: string | null; readings: number;
@@ -87,7 +77,24 @@ export interface Catalogue {
   wellnessItems: { key: string; label: string; low: string; high: string }[];
   soreAreas: string[];
 }
-export const useOverview = (date?: string) => usePerfQuery<Overview>("overview", `/overview${date ? `?date=${date}` : ""}`);
+/** ?demo=1 on any Performance page: the made-up squad from shared/perf-squad.ts, nothing read or written. */
+export const isDemo = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
+export function useOverview(date?: string) {
+  const demo = isDemo();
+  const q = usePerfQuery<Overview>("overview", `/overview${date ? `?date=${date}` : ""}`, !demo);
+  if (!demo) return q;
+  return { ...q, data: demoSquad(date || nzToday()), isLoading: false, isError: false, error: null } as typeof q;
+}
+export function DemoBanner() {
+  if (!isDemo()) return null;
+  const leave = () => { const u = new URL(window.location.href); u.searchParams.delete("demo"); window.location.assign(u.pathname + u.search); };
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex flex-wrap items-center gap-3" data-testid="perf-demo-banner">
+      <span><strong>Demo data.</strong> These 18 players are made up, to show the board with every source filled in: check-ins, GPS, weights, knee to wall and VALD testing. Nothing here is real or saved.</span>
+      <button type="button" onClick={leave} className="h-11 md:h-9 px-3 rounded-md border border-amber-400 bg-white text-amber-900">Back to the real squad</button>
+    </div>
+  );
+}
 export const useCatalogue = () => usePerfQuery<Catalogue>("catalogue", "/catalogue");
 
 // ── components ──

@@ -41,7 +41,9 @@ import { sendEmail, SIU_FROM } from "./email";
 import { storage } from "./storage";
 import { registerCatapultSyncRoutes } from "./catapult-sync";
 import { registerPerformanceFormRoutes, todaysCheckIns } from "./performance-forms";
-import { answerText, liveQuestions, type FormDef } from "@shared/perf-forms";
+import { answerText, formReport, isShown, liveQuestions, regionLabel, type FormDef } from "@shared/perf-forms";
+import { PLAYER_MEASURES, NO_MEASURES, ktwDifference, massChangePct, type Measures, type Reading, type SquadBody, type SquadTest } from "@shared/perf-squad";
+import { registerPerformanceAppRoutes } from "./performance-app";
 
 const BASE = "/api/admin/performance";
 const PUB = "/api/public/athlete";
@@ -252,19 +254,21 @@ async function rateLimited(req: Request, email: string): Promise<boolean> {
   } catch (e) { console.error("[athlete] rate check failed (failing OPEN)", e); return false; }
 }
 
-async function sendLink(accountId: number, email: string, firstName: string | null, kind: "set" | "reset") {
+async function sendLink(accountId: number, email: string, firstName: string | null, kind: "set" | "reset", staff = false) {
   const { token, hash } = newToken();
   await pool.query(`insert into perf_athlete_tokens (account_id, token_hash, kind, expires_at) values ($1,$2,$3,$4)`,
     [accountId, hash, kind, new Date(Date.now() + LINK_TTL_MS)]);
   const url = `${ATHLETE_BASE_URL}/athlete/set-password?token=${encodeURIComponent(token)}`;
   const hi = firstName ? `Kia ora ${escapeHtml(firstName)},` : "Kia ora,";
-  const body = kind === "set"
+  const body = kind === "set" && staff
+    ? `<p>${hi}</p><p>You've been set up as staff on SIU Performance. Set a password with the button below, then sign in to the SIU Performance app with this email. You'll see the squad: who has checked in, anything a player has reported, load, GPS, weights and testing.</p>`
+    : kind === "set"
     ? `<p>${hi}</p><p>You've been set up on the South Island United player check-in. It takes 30 seconds a day: how you slept and how you feel before training, and how hard the session was afterwards.</p><p>Only the performance staff see your answers. Anything you mark for the physio goes to the medical staff only.</p>`
     : `<p>${hi}</p><p>Here is the link to set a new password for your South Island United check-in.</p>`;
   return sendEmail({
     from: SIU_FROM,
     to: email,
-    subject: kind === "set" ? "Your SIU player check-in" : "Reset your SIU check-in password",
+    subject: kind === "set" ? (staff ? "Your SIU Performance staff login" : "Your SIU player check-in") : "Reset your SIU Performance password",
     html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#161616">${body}
       <p><a href="${url}" style="display:inline-block;background:#C59949;color:#111;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Set my password</a></p>
       <p style="color:#666;font-size:13px">The link works once and lasts 3 days. Then add the page to your home screen.</p></div>`,
@@ -272,19 +276,21 @@ async function sendLink(accountId: number, email: string, firstName: string | nu
 }
 function escapeHtml(s: string) { return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)); }
 
-interface Athlete { accountId: number; contactId: number; org: number; email: string; firstName: string | null; lastName: string | null }
+/** `staffRole` set = a coach / physio login: sees the squad, never fills in a check-in. */
+interface Athlete { accountId: number; contactId: number; org: number; email: string; firstName: string | null; lastName: string | null; staffRole: string | null; notify: boolean }
 
 async function currentAthlete(req: Request): Promise<Athlete | null> {
   const token = cookieFrom(req);
   if (!token) return null;
   const r = await one(`
-    select a.id, a.contact_id, a.organization_id, a.email, c.first_name, c.last_name
+    select a.id, a.contact_id, a.organization_id, a.email, a.staff_role, a.notify_reports, c.first_name, c.last_name
     from perf_athlete_sessions s join perf_athlete_accounts a on a.id = s.account_id join contacts c on c.id = a.contact_id
     where s.token_hash = $1 and s.revoked_at is null and s.expires_at > now() and a.disabled_at is null`, [sha256(token)]);
   if (!r) return null;
-  // 🔴 Off the roster = signed out, on the next request.
-  if (!(await onRoster(r.organization_id, r.contact_id))) return null;
-  return { accountId: r.id, contactId: r.contact_id, org: r.organization_id, email: r.email, firstName: r.first_name, lastName: r.last_name };
+  // 🔴 Off the roster = signed out, on the next request. (Staff are not on the playing roster;
+  //    their way out is the account being disabled.)
+  if (!r.staff_role && !(await onRoster(r.organization_id, r.contact_id))) return null;
+  return { accountId: r.id, contactId: r.contact_id, org: r.organization_id, email: r.email, firstName: r.first_name, lastName: r.last_name, staffRole: r.staff_role ?? null, notify: !!r.notify_reports };
 }
 
 async function requireAthlete(req: Request, res: Response, next: NextFunction) {
@@ -296,6 +302,20 @@ async function requireAthlete(req: Request, res: Response, next: NextFunction) {
   } catch (e) { console.error("[athlete] session", e); res.status(500).json({ message: "Could not check your sign-in." }); }
 }
 const athleteOf = (req: Request): Athlete => (req as any).athlete;
+/** A player's own entry: staff logins are refused (they read the squad, they don't answer for it). */
+async function requirePlayer(req: Request, res: Response, next: NextFunction) {
+  await requireAthlete(req, res, () => {
+    if (athleteOf(req).staffRole) return res.status(403).json({ message: "Staff logins don't fill in a check-in. Open the Squad tab." });
+    next();
+  });
+}
+async function requireStaff(req: Request, res: Response, next: NextFunction) {
+  await requireAthlete(req, res, () => {
+    // 🔴 404, not 403: a player's login must not learn that a squad route exists.
+    if (!athleteOf(req).staffRole) return res.status(404).json({ message: "Not found" });
+    next();
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation helpers
@@ -333,42 +353,33 @@ const badRequest = (res: Response, e: any) => res.status(e?.status ?? 400).json(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function registerPerformanceRoutes(app: Express) {
-  const gate = [requireAuth, requirePerformance] as const;
-  // Catapult One live sync: status + "Sync now" (server/catapult-sync.ts).
-  registerCatapultSyncRoutes(app, gate);
-  // Check-in forms, the report, staff entry, the player's daily form and the demo.
-  registerPerformanceFormRoutes(app, { gate, viewer, roster, onRoster, requireAthlete, athleteOf, siuOrg, handle });
+/** The parts of a check-in every coach screen asks for by name. Ids are a contract (perf-forms.ts). */
+function checkInDetail(def: FormDef, answers: Record<string, any>) {
+  const qs = liveQuestions(def);
+  const sleepQ = qs.find((x) => x.id === "sleep_job");
+  return {
+    full: qs.filter((x) => isShown(x, answers) && answers[x.id] != null).map((x) => ({ label: x.short ?? x.label, text: answerText(x, answers[x.id]) })),
+    ready: typeof answers.ready === "number" ? answers.ready : null,
+    sleep: sleepQ && answers.sleep_job != null ? answerText(sleepQ, answers.sleep_job) : null,
+    areas: Array.isArray(answers.areas) ? answers.areas.map((k: string) => regionLabel(String(k))) : [],
+    report: formReport(def, answers, { withText: true }),
+  };
+}
 
-  // ── catalogue ──────────────────────────────────────────────────────────────
-  app.get(`${BASE}/catalogue`, ...gate, handle(async (req, res) => {
-    const v = viewer(req);
-    const last = await q(`select source, max(observed_on) last, count(*)::int n from perf_metric_values where organization_id = $1 group by 1`, [v.org]);
-    const lastW = await one(`select max(date) last, count(*)::int n from perf_wellness where organization_id = $1`, [v.org]);
-    const lastR = await one(`select max(date) last, count(*)::int n from perf_rpe where organization_id = $1`, [v.org]);
-    const lastA = await one(`select max(started_on) last, count(*)::int n from perf_availability where organization_id = $1`, [v.org]);
-    const lastT = await one(`select max(r.tested_on) last, count(*)::int n from perf_test_results r join perf_tests t on t.id = r.test_id where t.organization_id = $1`, [v.org]);
-    const lastM = await one(`select max(created_at) last, count(*)::int n from perf_media where organization_id = $1 and archived_at is null`, [v.org]);
-    const bySource = new Map(last.map((r) => [r.source, { last: isoOf(r.last), readings: r.n }]));
-    const special: Record<string, { last: string | null; readings: number }> = {
-      wellness: { last: isoOf(lastW?.last), readings: lastW?.n ?? 0 },
-      rpe: { last: isoOf(lastR?.last), readings: lastR?.n ?? 0 },
-      availability: { last: isoOf(lastA?.last), readings: lastA?.n ?? 0 },
-      testing: { last: isoOf(lastT?.last), readings: lastT?.n ?? 0 },
-      video: { last: lastM?.last ? new Date(lastM.last).toISOString().slice(0, 10) : null, readings: lastM?.n ?? 0 },
-    };
-    res.json({
-      today: nzToday(),
-      medical: v.medical,
-      sources: DATA_SOURCES.map((s) => ({ ...s, ...(special[s.key] ?? bySource.get(s.key) ?? { last: null, readings: 0 }) })),
-      metrics: METRICS, formulas: FORMULAS, wellnessItems: WELLNESS_ITEMS, soreAreas: SORE_AREAS,
-    });
-  }));
+/** What a player has typed into their daily list today (weights, knee to wall). */
+async function todaysMeasures(org: number, contactId: number, today: string): Promise<Measures> {
+  const rows = await q(`select metric_key, value from perf_metric_values where organization_id = $1 and contact_id = $2 and source = 'player_app' and observed_on = $3`, [org, contactId, today]);
+  const out: Measures = { ...NO_MEASURES };
+  for (const m of PLAYER_MEASURES) { const r = rows.find((x) => x.metric_key === m.key); if (r) out[m.field] = Number(r.value); }
+  return out;
+}
 
-  // ── the board: everything about today, one request ─────────────────────────
-  app.get(`${BASE}/overview`, ...gate, handle(async (req, res) => {
-    const v = viewer(req);
-    const today = isIsoDate(req.query.date) ? (req.query.date as string) : nzToday();
+/**
+ * The squad board: everything about a day, for every player, in one object
+ * (shared/perf-squad.ts SquadBoard). ClubOS's dashboard and the app's staff view
+ * are both handed exactly this.
+ */
+async function buildBoard(v: { org: number; medical: boolean }, today: string) {
     const players = await roster(v.org);
     const ids = players.map((p) => p.contactId);
     const from = addDays(today, -41);
@@ -386,6 +397,37 @@ export function registerPerformanceRoutes(app: Express) {
          from perf_athletes a where a.organization_id = $1 and a.contact_id is null order by a.last_seen_at desc`, [v.org]),
     ]);
     const ci = await todaysCheckIns(v.org, ids, today);
+    const MEASURE_KEYS = PLAYER_MEASURES.map((m) => m.key as string);
+    const [bodyRows, testRows, readyRows] = await Promise.all([
+      ids.length ? q(`select contact_id, metric_key, value, observed_on from perf_metric_values
+        where organization_id = $1 and contact_id = any($2::int[]) and metric_key = any($3::text[]) and observed_on between $4 and $5 order by observed_on desc`,
+        [v.org, ids, MEASURE_KEYS, addDays(today, -13), today]) : [],
+      ids.length ? q(`select * from (
+          select r.contact_id, r.test_id, t.name, t.unit, t.higher_is_better, r.value, r.tested_on,
+                 row_number() over (partition by r.contact_id, r.test_id order by r.tested_on desc) rn
+          from perf_test_results r join perf_tests t on t.id = r.test_id
+          where t.organization_id = $1 and r.contact_id = any($2::int[]) and r.tested_on <= $3) x where rn <= 2 order by name, rn`, [v.org, ids, today]) : [],
+      ids.length && ci.form ? q(`select contact_id, entry_date, answers->'ready' ready from perf_form_responses
+        where form_id = $1 and not is_test and contact_id = any($2::int[]) and entry_date between $3 and $4`, [ci.form.id, ids, addDays(today, -6), today]) : [],
+    ]);
+    const bodyFor = (id: number): SquadBody => {
+      const mine = bodyRows.filter((b) => b.contact_id === id);
+      const latest = (key: string): Reading | null => { const r = mine.find((b) => b.metric_key === key); return r ? { value: Number(r.value), date: isoOf(r.observed_on)! } : null; };
+      const [wp, wq, kl, kr] = MEASURE_KEYS.map(latest);
+      const days = Array.from(new Set(mine.map((b) => isoOf(b.observed_on)!))).sort();
+      const on = (d: string, key: string) => { const r = mine.find((b) => b.metric_key === key && isoOf(b.observed_on) === d); return r ? Number(r.value) : null; };
+      // The change across a session only means something on one day: post is paired with THAT day's pre.
+      const pairPre = wq ? (() => { const x = on(wq.date, MEASURE_KEYS[0]); return x == null ? null : { value: x, date: wq.date }; })() : null;
+      const pairR = kl ? (() => { const x = on(kl.date, MEASURE_KEYS[3]); return x == null ? null : { value: x, date: kl.date }; })() : null;
+      return {
+        weightPre: wp, weightPost: wq, changePct: massChangePct(pairPre, wq), ktwLeft: kl, ktwRight: kr, ktwDiff: ktwDifference(kl, pairR),
+        history: days.map((d) => ({ date: d, weightPre: on(d, MEASURE_KEYS[0]), weightPost: on(d, MEASURE_KEYS[1]), ktwLeft: on(d, MEASURE_KEYS[2]), ktwRight: on(d, MEASURE_KEYS[3]) })),
+      };
+    };
+    const testsFor = (id: number): SquadTest[] => testRows.filter((t) => t.contact_id === id && Number(t.rn) === 1).map((t) => {
+      const prev = testRows.find((x) => x.contact_id === id && x.test_id === t.test_id && Number(x.rn) === 2);
+      return { name: t.name, unit: t.unit, value: Number(t.value), date: isoOf(t.tested_on)!, prev: prev ? Number(prev.value) : null, higherIsBetter: !!t.higher_is_better };
+    });
     const rpeToday = ids.length ? await q(`select contact_id, kind, rpe, minutes, date from perf_rpe where organization_id = $1 and contact_id = any($2::int[]) and date between $3 and $4`, [v.org, ids, addDays(today, -1), today]) : [];
 
     const out = players.map((p) => {
@@ -416,7 +458,14 @@ export function registerPerformanceRoutes(app: Express) {
         checkIn: ciRow && ci.form ? {
           id: ciRow.id, flag: ciRow.flag_level ?? null, reasons: ciRow.flag_reasons ?? [], byAthlete: !!ciRow.entered_by_athlete,
           summary: checkInSummary(ci.form.definition, ciRow.answers),
+          ...checkInDetail(ci.form.definition, ciRow.answers),
         } : null,
+        body: bodyFor(p.contactId),
+        tests: testsFor(p.contactId),
+        readyTrend: Array.from({ length: 7 }, (_, i) => {
+          const d = addDays(today, i - 6); const r = readyRows.find((x) => x.contact_id === p.contactId && isoOf(x.entry_date) === d);
+          return r && typeof r.ready === "number" ? r.ready : null;
+        }),
         rpe: rpeToday.filter((r) => r.contact_id === p.contactId).map((r) => ({ date: isoOf(r.date), kind: r.kind, rpe: r.rpe, minutes: r.minutes })),
         load: ls,
         readiness: readiness({ availability: av.state, wellness: flag, load: ls }),
@@ -425,7 +474,7 @@ export function registerPerformanceRoutes(app: Express) {
         lastSignIn: acct?.last_sign_in_at ? new Date(acct.last_sign_in_at).toISOString() : null,
       };
     });
-    res.json({
+    return {
       today, medical: v.medical, players: out,
       counts: {
         squad: out.length,
@@ -437,7 +486,48 @@ export function registerPerformanceRoutes(app: Express) {
         accounts: out.filter((p) => p.account === "active").length,
       },
       unlinked,
+    };
+}
+
+
+export function registerPerformanceRoutes(app: Express) {
+  const gate = [requireAuth, requirePerformance] as const;
+  // Catapult One live sync: status + "Sync now" (server/catapult-sync.ts).
+  registerCatapultSyncRoutes(app, gate);
+  // Check-in forms, the report, staff entry, the player's daily form and the demo.
+  registerPerformanceFormRoutes(app, { gate, viewer, roster, onRoster, requireAthlete, requirePlayer, athleteOf, siuOrg, handle });
+  // The app's own additions: the player's weights and knee to wall, the staff squad board, staff logins.
+  registerPerformanceAppRoutes(app, { gate, viewer, requireAthlete, requirePlayer, requireStaff, athleteOf, buildBoard, todaysMeasures, sendLink, handle });
+
+  // ── catalogue ──────────────────────────────────────────────────────────────
+  app.get(`${BASE}/catalogue`, ...gate, handle(async (req, res) => {
+    const v = viewer(req);
+    const last = await q(`select source, max(observed_on) last, count(*)::int n from perf_metric_values where organization_id = $1 group by 1`, [v.org]);
+    const lastW = await one(`select max(date) last, count(*)::int n from perf_wellness where organization_id = $1`, [v.org]);
+    const lastR = await one(`select max(date) last, count(*)::int n from perf_rpe where organization_id = $1`, [v.org]);
+    const lastA = await one(`select max(started_on) last, count(*)::int n from perf_availability where organization_id = $1`, [v.org]);
+    const lastT = await one(`select max(r.tested_on) last, count(*)::int n from perf_test_results r join perf_tests t on t.id = r.test_id where t.organization_id = $1`, [v.org]);
+    const lastM = await one(`select max(created_at) last, count(*)::int n from perf_media where organization_id = $1 and archived_at is null`, [v.org]);
+    const bySource = new Map(last.map((r) => [r.source, { last: isoOf(r.last), readings: r.n }]));
+    const special: Record<string, { last: string | null; readings: number }> = {
+      wellness: { last: isoOf(lastW?.last), readings: lastW?.n ?? 0 },
+      rpe: { last: isoOf(lastR?.last), readings: lastR?.n ?? 0 },
+      availability: { last: isoOf(lastA?.last), readings: lastA?.n ?? 0 },
+      testing: { last: isoOf(lastT?.last), readings: lastT?.n ?? 0 },
+      video: { last: lastM?.last ? new Date(lastM.last).toISOString().slice(0, 10) : null, readings: lastM?.n ?? 0 },
+    };
+    res.json({
+      today: nzToday(),
+      medical: v.medical,
+      sources: DATA_SOURCES.map((s) => ({ ...s, ...(special[s.key] ?? bySource.get(s.key) ?? { last: null, readings: 0 }) })),
+      metrics: METRICS, formulas: FORMULAS, wellnessItems: WELLNESS_ITEMS, soreAreas: SORE_AREAS,
     });
+  }));
+
+  // ── the board: everything about today, one request ─────────────────────────
+  app.get(`${BASE}/overview`, ...gate, handle(async (req, res) => {
+    const v = viewer(req);
+    res.json(await buildBoard(v, isIsoDate(req.query.date) ? (req.query.date as string) : nzToday()));
   }));
 
   // ── one player ─────────────────────────────────────────────────────────────
@@ -819,9 +909,9 @@ export function registerPerformanceRoutes(app: Express) {
         await audit(req, { email, action: "sign_in", ok: false, reason: "rate_limited" });
         return res.status(429).json({ message: "Too many attempts. Wait a few minutes and try again." });
       }
-      const a = await one(`select id, password_hash, disabled_at, contact_id, organization_id from perf_athlete_accounts where lower(email) = $1`, [email]);
+      const a = await one(`select id, password_hash, disabled_at, contact_id, organization_id, staff_role from perf_athlete_accounts where lower(email) = $1`, [email]);
       const good = verifyPassword(password, a?.password_hash ?? null);
-      const listed = a ? await onRoster(a.organization_id, a.contact_id) : false;
+      const listed = a ? (a.staff_role ? true : await onRoster(a.organization_id, a.contact_id)) : false;
       if (!a || a.disabled_at || !good || !listed) {
         await audit(req, { email, accountId: a?.id, action: "sign_in", ok: false, reason: !a ? "no_account" : a.disabled_at ? "disabled" : !good ? "bad_password" : "off_roster" });
         return res.status(401).json({ message: SIGNIN_FAILED });
@@ -841,9 +931,9 @@ export function registerPerformanceRoutes(app: Express) {
     try {
       const email = String(req.body?.email || "").trim().toLowerCase();
       if (await rateLimited(req, email)) return res.json({ message: LINK_SENT });
-      const a = await one(`select a.id, a.disabled_at, c.first_name, a.password_hash from perf_athlete_accounts a join contacts c on c.id = a.contact_id where lower(a.email) = $1`, [email]);
+      const a = await one(`select a.id, a.disabled_at, c.first_name, a.password_hash, a.staff_role from perf_athlete_accounts a join contacts c on c.id = a.contact_id where lower(a.email) = $1`, [email]);
       if (!a || a.disabled_at) { await audit(req, { email, action: "request_link", ok: false, reason: a ? "disabled" : "no_account" }); return res.json({ message: LINK_SENT }); }
-      await sendLink(a.id, email, a.first_name, a.password_hash ? "reset" : "set");
+      await sendLink(a.id, email, a.first_name, a.password_hash ? "reset" : "set", !!a.staff_role);
       await audit(req, { email, accountId: a.id, action: "request_link", ok: true });
       res.json({ message: LINK_SENT });
     } catch (e) { console.error("[athlete] request-link", e); res.json({ message: LINK_SENT }); }
@@ -881,12 +971,15 @@ export function registerPerformanceRoutes(app: Express) {
     try {
       const a = athleteOf(req);
       const today = nzToday();
-      const [w, r, spells, pos] = await Promise.all([
+      const [w, r, spells, pos, measures, ciDays] = await Promise.all([
         q(`select * from perf_wellness where contact_id = $1 and organization_id = $2 and date >= $3 order by date desc`, [a.contactId, a.org, addDays(today, -27)]),
         q(`select date, kind, rpe, minutes from perf_rpe where contact_id = $1 and organization_id = $2 and date >= $3 order by date desc`, [a.contactId, a.org, addDays(today, -27)]),
         q(`select status, started_on, ended_on, expected_return from perf_availability where contact_id = $1 and organization_id = $2`, [a.contactId, a.org]),
         one(`select m.position from club_squad_members m join club_squads s on s.id = m.squad_id where s.organization_id = $1 and m.contact_id = $2 and m.left_at is null limit 1`, [a.org, a.contactId]),
+        todaysMeasures(a.org, a.contactId, today),
+        q(`select distinct entry_date from perf_form_responses where organization_id = $1 and contact_id = $2 and not is_test and entry_date >= $3`, [a.org, a.contactId, addDays(today, -60)]),
       ]);
+      const days = new Set([...ciDays.map((x) => isoOf(x.entry_date)!), ...w.map((x) => isoOf(x.date)!)]);
       const wRows = w.map(toWellness);
       const av = availabilityOn(spells.map((s) => ({ status: s.status, startedOn: isoOf(s.started_on)!, endedOn: isoOf(s.ended_on) })), today);
       res.json({
@@ -897,12 +990,15 @@ export function registerPerformanceRoutes(app: Express) {
         history: wRows.map((x) => ({ date: x.date, score: wellnessScore(x).score, sleepHours: x.sleepHours })),
         rpe: r.map((x) => ({ date: isoOf(x.date), kind: x.kind, rpe: x.rpe, minutes: x.minutes })),
         items: WELLNESS_ITEMS, soreAreas: SORE_AREAS,
-        streak: (() => { let n = 0; for (let d = today; wRows.some((x) => x.date === d); d = addDays(d, -1)) n++; return n; })(),
+        // Days in a row with a check-in, ending today (or yesterday, before today's is in).
+        streak: (() => { let n = 0; for (let d = days.has(today) ? today : addDays(today, -1); days.has(d); d = addDays(d, -1)) n++; return n; })(),
+        role: a.staffRole ? "staff" : "player", staffRole: a.staffRole, notifyReports: a.notify,
+        measures, checkedIn: days.has(today),
       });
     } catch (e) { console.error("[athlete] me", e); res.status(500).json({ message: "Could not load your check-in." }); }
   });
 
-  app.post(`${PUB}/wellness`, requireAthlete, async (req, res) => {
+  app.post(`${PUB}/wellness`, requirePlayer, async (req, res) => {
     try {
       const a = athleteOf(req);
       let w; try { w = parseWellnessBody(req.body); } catch (e) { return badRequest(res, e); }
@@ -918,7 +1014,7 @@ export function registerPerformanceRoutes(app: Express) {
     } catch (e) { console.error("[athlete] wellness", e); res.status(500).json({ message: "Could not save. Try again." }); }
   });
 
-  app.post(`${PUB}/rpe`, requireAthlete, async (req, res) => {
+  app.post(`${PUB}/rpe`, requirePlayer, async (req, res) => {
     try {
       const a = athleteOf(req);
       let r; try { r = parseRpeBody(req.body); } catch (e) { return badRequest(res, e); }
