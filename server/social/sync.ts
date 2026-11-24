@@ -13,8 +13,8 @@
  *   TikTok                       each account signs in once (TIKTOK_CLIENT_KEY /
  *                                TIKTOK_CLIENT_SECRET); its tokens are kept
  *                                encrypted in social_account_tokens.
- *   LinkedIn                     saved links only; no puller until LinkedIn
- *                                grants read access.
+ *   LinkedIn                     a page admin signs in once (LINKEDIN_CLIENT_ID /
+ *                                LINKEDIN_CLIENT_SECRET); lasts 60 days.
  *
  * 🔴 Every pull is a row in social_sync_runs with the platform's own error.
  * 🔴 A request URL carries a token, so errors are rebuilt from the platform's
@@ -953,6 +953,345 @@ async function tiktokCover(accountId: number, videoId: string): Promise<string |
   return (d.videos?.[0]?.cover_image_url as string) || null;
 }
 
+// ── LinkedIn ────────────────────────────────────────────────────────────────
+//
+// LinkedIn (Community Management API, granted to the club's app 16 Nov 2026)
+// shares a Company Page's numbers with a person who ADMINISTERS that page. One
+// admin signs in once; every page they run that is already saved here is
+// connected with the same sign-in. 🔴 A page they run that is NOT saved here is
+// left out: the same person may run pages that are nothing to do with the club.
+// 🔴 The sign-in lasts 60 days and LinkedIn gives this app no way to renew it
+// quietly, so the Accounts tab shows the day it runs out.
+
+export const LINKEDIN_REDIRECT = `${APP_URL}/api/admin/social/oauth/linkedin/callback`;
+const LINKEDIN_SCOPES = (process.env.LINKEDIN_SCOPES || "r_organization_social rw_organization_admin").trim();
+const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202611";
+const LI_SIGN_IN_AGAIN = "LinkedIn: the sign-in has run out (it lasts 60 days). Press \"Sign in with LinkedIn\" on the Accounts tab to renew it.";
+
+export function linkedinConfigured(): boolean {
+  return Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);
+}
+
+export function linkedinAuthUrl(state: string): string {
+  if (!linkedinConfigured()) throw new SocialNotConfigured("LinkedIn sign-in is not switched on yet.");
+  return `https://www.linkedin.com/oauth/v2/authorization?${new URLSearchParams({
+    response_type: "code",
+    client_id: process.env.LINKEDIN_CLIENT_ID!,
+    redirect_uri: LINKEDIN_REDIRECT,
+    state,
+    scope: LINKEDIN_SCOPES,
+  }).toString()}`;
+}
+
+async function linkedinToken(form: Record<string, string>): Promise<TiktokTokens> {
+  if (!linkedinConfigured()) throw new SocialNotConfigured("LinkedIn sign-in is not switched on yet.");
+  let res: Response;
+  try {
+    res = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: process.env.LINKEDIN_CLIENT_ID!, client_secret: process.env.LINKEDIN_CLIENT_SECRET!, ...form }).toString(),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    throw new Error(`LinkedIn: request failed (${e?.name === "TimeoutError" ? "timed out" : "network error"})`);
+  }
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok || !json?.access_token) {
+    throw new Error(`LinkedIn: ${json?.error_description ?? json?.error ?? `HTTP ${res.status}`}`);
+  }
+  // LinkedIn names the refresh lifetime differently from TikTok.
+  return { ...json, refresh_expires_in: json.refresh_token_expires_in } as TiktokTokens;
+}
+
+/** Thrown when LinkedIn says this sign-in may not read something, so one missing permission never fails a whole pull. */
+class LinkedinDenied extends Error {}
+
+async function linkedinApi(token: string, pathAndQuery: string, method?: "FINDER" | "BATCH_GET"): Promise<any> {
+  let res: Response;
+  try {
+    res = await fetch(`https://api.linkedin.com/rest/${pathAndQuery}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Linkedin-Version": LINKEDIN_VERSION,
+        "X-Restli-Protocol-Version": "2.0.0",
+        ...(method ? { "X-RestLi-Method": method } : {}),
+      },
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e: any) {
+    throw new Error(`LinkedIn: request failed (${e?.name === "TimeoutError" ? "timed out" : "network error"})`);
+  }
+  const json: any = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = String(json?.message ?? `HTTP ${res.status}`).slice(0, 300);
+    if (res.status === 401) throw new Error(LI_SIGN_IN_AGAIN);
+    if (res.status === 403) throw new LinkedinDenied(`LinkedIn: ${msg}`);
+    throw new Error(`LinkedIn: ${msg}`);
+  }
+  return json ?? {};
+}
+
+const liUrn = (orgId: string) => `urn:li:organization:${orgId}`;
+const enc = encodeURIComponent;
+
+async function linkedinOrg(token: string, orgId: string): Promise<{ name: string | null; vanity: string | null }> {
+  const o = await linkedinApi(token, `organizations/${enc(orgId)}`);
+  return { name: (o.localizedName as string) || null, vanity: (o.vanityName as string) || null };
+}
+
+async function linkedinFollowers(token: string, orgId: string): Promise<number | null> {
+  const d = await linkedinApi(token, `networkSizes/${enc(liUrn(orgId))}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`);
+  return num(d.firstDegreeSize);
+}
+
+/** The Company Pages the signed-in person administers. */
+async function linkedinAdminOrgIds(token: string): Promise<string[]> {
+  const ids: string[] = [];
+  for (let start = 0; start < 500; start += 100) {
+    const d = await linkedinApi(token, `organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&count=100&start=${start}`, "FINDER");
+    const els: any[] = d.elements ?? [];
+    for (const e of els) {
+      const m = /^urn:li:organization:(\d+)$/.exec(String(e.organization ?? e.organizationTarget ?? ""));
+      if (m && !ids.includes(m[1])) ids.push(m[1]);
+    }
+    if (els.length < 100) break;
+  }
+  return ids;
+}
+
+/**
+ * Finish a LinkedIn sign-in: swap the code for a token, list the pages this
+ * person administers, and connect the ones already saved here.
+ */
+export async function connectLinkedin(code: string, userId: number): Promise<{ accountIds: number[]; names: string[]; leftOut: number }> {
+  const t = await linkedinToken({ grant_type: "authorization_code", code, redirect_uri: LINKEDIN_REDIRECT });
+  const orgIds = await linkedinAdminOrgIds(t.access_token);
+  const accountIds: number[] = [];
+  const names: string[] = [];
+  let leftOut = 0;
+  for (const orgId of orgIds) {
+    let org: { name: string | null; vanity: string | null };
+    try {
+      org = await linkedinOrg(t.access_token, orgId);
+    } catch {
+      org = { name: null, vanity: null };
+    }
+    const [existing] = await q<{ id: number }>(
+      `SELECT id FROM social_accounts WHERE platform = 'linkedin'
+         AND (external_id = $1 OR (archived_at IS NULL AND (handle = $1 OR lower(handle) = lower($2))))
+       ORDER BY (external_id = $1) DESC NULLS LAST, id LIMIT 1`,
+      [orgId, org.vanity ?? ""],
+    );
+    if (!existing) {
+      leftOut++;
+      continue;
+    }
+    const handle = org.vanity ?? orgId;
+    await q(
+      `UPDATE social_accounts SET external_id = $2, handle = $3, display_name = COALESCE($4, display_name),
+              profile_url = $5, connection = 'api', archived_at = NULL, last_error = NULL WHERE id = $1`,
+      [existing.id, orgId, handle, org.name, `https://www.linkedin.com/company/${handle}`],
+    );
+    await saveTiktokTokens(existing.id, t, userId);
+    accountIds.push(existing.id);
+    names.push(org.name ?? handle);
+  }
+  return { accountIds, names, leftOut };
+}
+
+async function linkedinAccess(accountId: number): Promise<string> {
+  const [row] = await q<{ access_token_enc: string; refresh_token_enc: string | null; fresh: boolean }>(
+    `SELECT access_token_enc, refresh_token_enc, access_expires_at > now() + interval '5 minutes' AS fresh
+     FROM social_account_tokens WHERE account_id = $1`,
+    [accountId],
+  );
+  if (!row) throw new Error("LinkedIn: nobody has signed in for this page yet. Press \"Sign in with LinkedIn\" on the Accounts tab.");
+  if (row.fresh) return unseal(row.access_token_enc);
+  if (!row.refresh_token_enc) throw new Error(LI_SIGN_IN_AGAIN);
+  let t: TiktokTokens;
+  try {
+    t = await linkedinToken({ grant_type: "refresh_token", refresh_token: unseal(row.refresh_token_enc) });
+  } catch (e: any) {
+    if (e instanceof SocialNotConfigured || /request failed|HTTP 5\d\d/.test(String(e?.message))) throw e;
+    throw new Error(LI_SIGN_IN_AGAIN);
+  }
+  await saveTiktokTokens(accountId, t, null);
+  return t.access_token;
+}
+
+/** LinkedIn stores a post's words with its own marks for mentions, hashtags and escaped punctuation. Back to plain words. */
+export function linkedinPlainText(raw: unknown): string | null {
+  const s = String(raw ?? "")
+    .replace(/@\[((?:\\.|[^\]\\])*)\]\(urn:li:[^)]*\)/g, "$1")
+    .replace(/\{hashtag\|\\?#\|([^}]*)\}/g, "#$1")
+    .replace(/\\([\\|{}@\[\]()<>#*_~])/g, "$1")
+    .trim();
+  return s || null;
+}
+
+function linkedinKind(content: any): string {
+  if (!content || typeof content !== "object") return "text";
+  if (content.multiImage) return "carousel";
+  if (content.article) return "link";
+  if (content.poll) return "poll";
+  const id = String(content.media?.id ?? "");
+  if (id.startsWith("urn:li:video:")) return "video";
+  if (id.startsWith("urn:li:image:")) return "image";
+  if (id.startsWith("urn:li:document:")) return "document";
+  return "text";
+}
+
+/** The picture that stands for a post: its image, its video's still, the first of several, or a link's picture. */
+function linkedinMediaUrn(content: any): string | null {
+  if (!content || typeof content !== "object") return null;
+  const id =
+    content.media?.id ??
+    content.multiImage?.images?.[0]?.id ??
+    content.article?.thumbnail ??
+    null;
+  return typeof id === "string" && /^urn:li:(image|video):/.test(id) ? id : null;
+}
+
+/** A working link to one picture. LinkedIn's links run out, so the post's picture is re-asked when it does. Null when not allowed. */
+async function linkedinMediaUrl(token: string, urn: string): Promise<string | null> {
+  try {
+    if (urn.startsWith("urn:li:video:")) {
+      const v = await linkedinApi(token, `videos/${enc(urn)}`);
+      return (v.thumbnail as string) || null;
+    }
+    const i = await linkedinApi(token, `images/${enc(urn)}`);
+    return (i.downloadUrl as string) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Working links for a page of pictures in two requests (pictures, video stills), not one per post: the starter tier allows few requests a day. */
+async function linkedinMediaUrls(token: string, urns: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const groups: [string, string, string[]][] = [
+    ["images", "downloadUrl", urns.filter((u) => u.startsWith("urn:li:image:"))],
+    ["videos", "thumbnail", urns.filter((u) => u.startsWith("urn:li:video:"))],
+  ];
+  for (const [path, field, list] of groups) {
+    for (let i = 0; i < list.length; i += 50) {
+      try {
+        const d = await linkedinApi(token, `${path}?ids=List(${list.slice(i, i + 50).map(enc).join(",")})`, "BATCH_GET");
+        for (const [urn, v] of Object.entries<any>(d.results ?? {})) if (v?.[field]) out.set(urn, String(v[field]));
+      } catch {
+        // Not allowed, or one bad id: these posts simply have no picture.
+      }
+    }
+  }
+  return out;
+}
+
+type LiStats = { views: number | null; clicks: number | null; likes: number | null; comments: number | null; shares: number | null };
+
+/** Lifetime numbers for a batch of posts. A post LinkedIn leaves out of the answer is simply absent from the map. */
+async function linkedinPostStats(token: string, orgId: string, urns: string[]): Promise<Map<string, LiStats>> {
+  const out = new Map<string, LiStats>();
+  const byType = { shares: urns.filter((u) => u.startsWith("urn:li:share:")), ugcPosts: urns.filter((u) => u.startsWith("urn:li:ugcPost:")) };
+  for (const [param, list] of Object.entries(byType)) {
+    for (let i = 0; i < list.length; i += 20) {
+      const chunk = list.slice(i, i + 20);
+      const d = await linkedinApi(
+        token,
+        `organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${enc(liUrn(orgId))}&${param}=List(${chunk.map(enc).join(",")})`,
+        "FINDER",
+      );
+      for (const e of d.elements ?? []) {
+        const urn = String(e.share ?? e.ugcPost ?? "");
+        const s = e.totalShareStatistics ?? {};
+        if (urn) out.set(urn, { views: num(s.impressionCount), clicks: num(s.clickCount), likes: num(s.likeCount), comments: num(s.commentCount), shares: num(s.shareCount) });
+      }
+    }
+  }
+  return out;
+}
+
+async function syncLinkedin(a: AccountRow, opts: SyncOpts): Promise<number> {
+  if (!a.external_id) throw new Error("LinkedIn: nobody has signed in for this page yet. Press \"Sign in with LinkedIn\" on the Accounts tab.");
+  const token = await linkedinAccess(a.id);
+  const orgId = a.external_id;
+  const org = await linkedinOrg(token, orgId).catch(() => ({ name: null, vanity: null }));
+  if (org.name) await q(`UPDATE social_accounts SET display_name = $2 WHERE id = $1`, [a.id, org.name]);
+  let followers: number | null = null;
+  let note: string | null = null;
+  try {
+    followers = await linkedinFollowers(token, orgId);
+  } catch (e: any) {
+    if (!(e instanceof LinkedinDenied)) throw e;
+    note = "followers";
+  }
+
+  // LinkedIn keeps a post's numbers for twelve months. Past that, a missing number is unknown, not zero.
+  const yearAgo = Date.now() - 360 * 86_400_000;
+  let written = 0;
+  let total: number | null = null;
+  let reachedEnd = false;
+  let statsAllowed = true;
+  const pageSize = 50;
+  const maxPages = opts.fullHistory ? 200 : 1;
+  for (let page = 0; page < maxPages; page++) {
+    const d = await linkedinApi(token, `posts?author=${enc(liUrn(orgId))}&q=author&count=${pageSize}&start=${page * pageSize}&sortBy=CREATED`, "FINDER");
+    const els: any[] = (d.elements ?? []).filter((p: any) => !p.lifecycleState || p.lifecycleState === "PUBLISHED");
+    if (typeof d.paging?.total === "number") total = d.paging.total;
+    let stats = new Map<string, LiStats>();
+    if (statsAllowed && els.length) {
+      try {
+        stats = await linkedinPostStats(token, orgId, els.map((p) => String(p.id)));
+      } catch (e: any) {
+        if (!(e instanceof LinkedinDenied)) throw e;
+        statsAllowed = false;
+        note = note ? `${note} and post numbers` : "post numbers";
+      }
+    }
+    const pictures = await linkedinMediaUrls(token, els.map((p) => linkedinMediaUrn(p.content)).filter((u): u is string => Boolean(u)));
+    const rows: PostIn[] = [];
+    for (const p of els) {
+      const urn = String(p.id);
+      const at = Number(p.publishedAt ?? p.createdAt);
+      const s = stats.get(urn);
+      const recent = at > yearAgo;
+      const zero = statsAllowed && recent ? 0 : null;
+      const media = linkedinMediaUrn(p.content);
+      rows.push({
+        externalId: urn,
+        postedAt: new Date(at).toISOString(),
+        kind: p.reshareContext ? "repost" : linkedinKind(p.content),
+        caption: linkedinPlainText(p.commentary),
+        permalink: `https://www.linkedin.com/feed/update/${urn}`,
+        thumbUrl: media ? pictures.get(media) ?? null : null,
+        likes: s ? s.likes : zero,
+        comments: s ? s.comments : zero,
+        shares: s ? s.shares : zero,
+        views: s ? s.views : zero,
+        clicks: s ? s.clicks : zero,
+        insightsIncluded: statsAllowed && (Boolean(s) || recent),
+      });
+    }
+    written += await upsertPosts(a.id, rows);
+    if ((d.elements ?? []).length < pageSize) {
+      reachedEnd = true;
+      break;
+    }
+  }
+  await saveReading(a.id, { followers, postsCount: total });
+  if (opts.fullHistory && reachedEnd) await q(`UPDATE social_accounts SET history_complete = true WHERE id = $1`, [a.id]);
+  if (note) throw new Error(`LinkedIn: posts were read, but this sign-in is not allowed to read ${note}.`);
+  return written;
+}
+
+/** A fresh picture link for one LinkedIn post. */
+async function linkedinThumb(accountId: number, postUrn: string): Promise<string | null> {
+  const token = await linkedinAccess(accountId);
+  const p = await linkedinApi(token, `posts/${enc(postUrn)}`);
+  const media = linkedinMediaUrn(p.content);
+  return media ? linkedinMediaUrl(token, media) : null;
+}
+
 // ── Picture links expire ────────────────────────────────────────────────────
 
 /** Ask the platform for a fresh picture link for one post. Null if it has none. */
@@ -972,6 +1311,8 @@ export async function refreshThumb(postId: number): Promise<string | null> {
     url = m.full_picture ?? null;
   } else if (p.platform === "tiktok") {
     url = await tiktokCover(p.account_id, p.external_id);
+  } else if (p.platform === "linkedin") {
+    url = await linkedinThumb(p.account_id, p.external_id);
   } else {
     return p.thumb_url;
   }
@@ -987,6 +1328,7 @@ const PULLERS: Partial<Record<SocialPlatformKey, (a: AccountRow, o: SyncOpts) =>
   youtube: syncYoutube,
   x: syncX,
   tiktok: syncTiktok,
+  linkedin: syncLinkedin,
 };
 
 export type SocialSyncResult = { accountId: number; label: string; status: "ok" | "error" | "skipped"; posts: number; error: string | null };

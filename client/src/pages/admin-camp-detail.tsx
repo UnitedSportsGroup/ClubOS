@@ -14,6 +14,7 @@ import { CampHistoryTab } from "@/components/camp-history-tab";
 import { TermHistoryTab, PriceHistory } from "@/components/term-history-tab";
 import { CoachAttendanceTab } from "@/components/coach-attendance-tab";
 import { streamForProgramme } from "@shared/term-programme-history";
+import { rollTakenOnCoachPlatform } from "@shared/weekly-programmes";
 import { useWorkspace } from "@/lib/workspace-context";
 import { programBasePath, sectionShowsProgram, useProgramRoute } from "@/lib/program-path";
 import { tabsForOrgSlug } from "@shared/tabs";
@@ -3122,7 +3123,8 @@ export default function AdminCampDetail() {
   // coach.cufc.co.nz, so theirs reads that live. 🔴 The key stays "sessions" —
   // the roll page's Back link and old bookmarks point at #sessions.
   const stream = isTermProgram ? streamForProgramme(camp?.slug, camp?.name) : null;
-  const coachRolled = stream === "pre_academy" || stream === "academy";
+  // Technification joins them (2026-11-20): one place to take a roll.
+  const coachRolled = isTermProgram && rollTakenOnCoachPlatform(camp?.slug, stream);
   const attendanceIsSessions = coachRolled || stream === "funino";
   const tabs = [
     { key: "players", label: "Players", icon: Users },
@@ -3131,7 +3133,8 @@ export default function AdminCampDetail() {
     ...(isTermProgram && !attendanceIsSessions ? [{ key: "attendance", label: "Attendance", icon: ClipboardCheck }] : []),
     ...(isTermProgram ? [{ key: "coaches", label: "Coaches", icon: UserCog }] : []),
     // Content goes from the three core academy programmes (Daniel, 2026-10-14).
-    ...(attendanceIsSessions ? [] : [{ key: "content", label: "Content", icon: FileText }]),
+    // (Technification is coach-rolled now but keeps its Content tab.)
+    ...(stream === "pre_academy" || stream === "academy" || stream === "funino" ? [] : [{ key: "content", label: "Content", icon: FileText }]),
     { key: "dates", label: isTermProgram ? "Schedule" : "Dates & Capacity", icon: Calendar },
     { key: "pricing", label: "Pricing", icon: DollarSign },
     // No Discounts tab: discounts live in the sidebar's Discounts page, one place.

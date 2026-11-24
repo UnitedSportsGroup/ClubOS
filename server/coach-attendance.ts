@@ -20,6 +20,8 @@
 import type { ProgramPlayer } from "./storage";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
+import { WEEKLY_PROGRAMMES, SET_SCHEDULES, scheduleDays, OPEN_TRAINING_FREE_SESSIONS, weekdaysInRange, holidayOn, rollTakenOnCoachPlatform } from "@shared/weekly-programmes";
+import { streamForProgramme } from "@shared/term-programme-history";
 
 const BASE = (process.env.COACHING_BASE_URL || "https://coach.cufc.co.nz").replace(/\/$/, "");
 
@@ -43,7 +45,20 @@ export async function coachAttendance(opts: {
    *  Academy's Term 4 roll exists before its fees are taken in ClubOS. */
   extraSquadIds?: number[];
   today: string;
+  /** The programme's slug — a once-a-week programme (Technification) rolls the
+   *  whole TERM: every session day as a column, holidays flagged. */
+  slug?: string | null;
+  name?: string | null;
 }) {
+  const weekly = opts.slug ? WEEKLY_PROGRAMMES[opts.slug] ?? null : null;
+  // Every coach-rolled programme (Technification, Pre-Academy, Academy) reads as
+  // a TERM ROLL — every session of the term in one grid (Daniel, 2026-11-20:
+  // "make it same for rest of pre academy and academy").
+  const termRoll = rollTakenOnCoachPlatform(opts.slug, streamForProgramme(opts.slug, opts.name));
+  const schedule = opts.slug ? SET_SCHEDULES[opts.slug] ?? null : null;
+  const termDays = weekly
+    ? weekdaysInRange(opts.term.startDate, opts.term.endDate, weekly.weekday)
+    : schedule ? scheduleDays(opts.term.startDate, opts.term.endDate, schedule.weekdays) : [];
   const secret = process.env.COACHING_FEED_SECRET;
   if (!secret) return { connected: false as const, reason: "The link to the coaching platform is not switched on (COACHING_FEED_SECRET)." };
 
@@ -52,7 +67,10 @@ export async function coachAttendance(opts: {
     ...(opts.extraSquadIds ?? []),
   ]));
   const qs = new URLSearchParams({ feed: "clubos", programId: String(opts.programId), from: opts.term.startDate, to: opts.term.endDate });
-  if (squadIds.length) qs.set("squadIds", squadIds.join(","));
+  // 🔴 A once-a-week programme is its OWN group on the coaching platform —
+  // its kids' club squads (U9 Kakapos, U10 White…) are other rolls, not this
+  // one. Asking for them buried the Technification roll among 13 squads.
+  if (squadIds.length && !weekly) qs.set("squadIds", squadIds.join(","));
 
   let feed: Feed;
   try {
@@ -79,6 +97,9 @@ export async function coachAttendance(opts: {
   const marksByPlayer = new Map<string, Map<string, AttendanceStatus>>();
   for (const m of feed.marks) {
     if (!["present", "absent", "injured"].includes(m.status)) continue;
+    // 🔴 A set schedule's roll is its days only — a mark on another weekday
+    // (a Wednesday tap, a Monday planned by mistake) is not one of its sessions.
+    if (schedule && !termDays.includes(m.date)) continue;
     let mm = marksByPlayer.get(m.player_id);
     if (!mm) marksByPlayer.set(m.player_id, (mm = new Map()));
     mm.set(m.date, m.status as AttendanceStatus);
@@ -89,7 +110,10 @@ export async function coachAttendance(opts: {
     .map((t) => {
       const markDates = new Set<string>();
       for (const p of t.players) for (const d of Array.from(marksByPlayer.get(p.id)?.keys() ?? [])) markDates.add(d);
-      const dates = Array.from(new Set([...t.trainingDays, ...Array.from(markDates)])).sort();
+      // 🔴 A weekly programme's roll is ITS day only (Daniel, 2026-11-20: "why random
+      // thursday 5th … we only do technification on monday"). A planned day on
+      // another weekday shows only if a coach actually marked someone on it.
+      const dates = schedule ? termDays : Array.from(new Set([...(weekly ? [] : t.trainingDays), ...termDays, ...Array.from(markDates)])).sort();
       const rows = t.players
         .filter((p) => p.active || marksByPlayer.has(p.id))
         .map((p) => {
@@ -128,7 +152,9 @@ export async function coachAttendance(opts: {
         let present = 0, absent = 0, injured = 0;
         for (const r of rows) { const s = r.marks[d]; if (s === "present") present++; else if (s === "absent") absent++; else if (s === "injured") injured++; }
         const taken = present + absent + injured > 0;
-        return { date: d, present, absent, injured, taken, planned: t.trainingDays.includes(d), past: d < opts.today, today: d === opts.today };
+        // A public holiday on a weekly programme's day is greyed, never "no roll".
+        const holiday = termRoll ? holidayOn(d) : null;
+        return { date: d, present, absent, injured, taken, planned: !holiday && (t.trainingDays.includes(d) || termDays.includes(d)), past: d < opts.today, today: d === opts.today, holiday };
       });
       return { id: t.id, name: t.name, kind: t.kind, age: t.age, sessions, players: rows };
     })
@@ -215,6 +241,8 @@ export async function coachAttendance(opts: {
     term: opts.term,
     today: opts.today,
     registrationsInClubos: canCheck,
+    weekly: weekly ? { label: weekly.label, freeSessions: OPEN_TRAINING_FREE_SESSIONS } : null,
+    termRoll,
     teams,
     followUps: follow.sort((a, b) => Number(b.openTraining) - Number(a.openTraining) || (b.lastSeen ?? "").localeCompare(a.lastSeen ?? "")),
   };

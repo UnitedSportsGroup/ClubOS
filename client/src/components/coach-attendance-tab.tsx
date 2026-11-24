@@ -14,11 +14,11 @@ import { AlertTriangle, Check, Mail, Phone, RefreshCw, Search, X } from "lucide-
 
 type Status = "present" | "absent" | "injured";
 type Row = { id: string; name: string; openTraining: boolean; registered: boolean | null; profilePath: string | null; present: number; absent: number; injured: number; marks: Record<string, Status> };
-type Session = { date: string; present: number; absent: number; injured: number; taken: boolean; planned: boolean; past: boolean; today: boolean };
+type Session = { date: string; present: number; absent: number; injured: number; taken: boolean; planned: boolean; past: boolean; today: boolean; holiday?: string | null };
 type Team = { id: string; name: string; kind: string; age: number | null; sessions: Session[]; players: Row[] };
 type FollowUp = { invoice?: { number: string | null; state: string; dueCents: number; totalCents: number }; parentName?: string | null; lastRegistered?: string | null; profilePath?: string; name: string; openTraining: boolean; teams: string[]; sessionsAttended: number; lastSeen: string | null; email: string | null; phone: string | null; dob: string | null; notes: string | null; addedAt: string };
 type Resp =
-  | { terms: Array<{ id: number; label: string; current: boolean }>; connected: true; term: { id: number; name: string }; today: string; registrationsInClubos: boolean; teams: Team[]; followUps: FollowUp[] }
+  | { terms: Array<{ id: number; label: string; current: boolean }>; connected: true; term: { id: number; name: string }; today: string; registrationsInClubos: boolean; weekly?: { label: string; freeSessions: number } | null; termRoll?: boolean; teams: Team[]; followUps: FollowUp[] }
   | { terms: Array<{ id: number; label: string; current: boolean }>; connected: false; reason: string };
 
 const chip = (on: boolean) =>
@@ -68,7 +68,12 @@ export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boo
   const teams = data && data.connected ? data.teams : [];
   // One group only (Technification, U4–U8) — no point asking which.
   const team = teams.find((t) => t.id === teamParam) ?? (teams.length === 1 ? teams[0] : null);
-  const mode = modeParam === "players" ? "players" : "sessions";
+  // 🔴 A once-a-week programme (Technification) opens on the TERM ROLL — every
+  // session of the term in one grid (Daniel, 2026-11-20: "see every session in
+  // term in one view with tick boxes and x's", like the coaches' roll).
+  const weekly = data && data.connected ? data.weekly ?? null : null;
+  const termRoll = !!(data && data.connected && (data.termRoll || data.weekly));
+  const mode = modeParam === "players" || modeParam === "sessions" ? modeParam : termRoll ? "players" : "sessions";
 
   if (isLoading) return <div className="py-16 text-center text-white/40 text-sm">Loading attendance from the coaching platform…</div>;
   if (error) return <div className="py-16 text-center text-red-400 text-sm">Couldn't load attendance: {(error as Error).message}</div>;
@@ -192,15 +197,16 @@ export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boo
         </div>
         <div className="inline-flex rounded-lg border border-white/[0.08] p-0.5" data-testid="attendance-mode">
           {(["sessions", "players"] as const).map((m) => (
-            <button key={m} onClick={() => setMode(m === "sessions" ? null : m)} data-testid={`attendance-mode-${m}`}
+            <button key={m} onClick={() => setMode(m)} data-testid={`attendance-mode-${m}`}
               className={`px-3 py-1.5 rounded-md text-[12px] font-medium cursor-pointer ${mode === m ? "bg-blue-500/15 text-blue-400" : "text-white/45 hover:text-white/70"}`}>
-              {m === "sessions" ? "Sessions" : "Players · history"}
+              {m === "sessions" ? "Sessions" : termRoll ? "Term roll" : "Players · history"}
             </button>
           ))}
         </div>
       </div>
       {noRegs}
-      {follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
+      {/* On the term roll the ROLL comes first; who to chase sits under it. */}
+      {follow.length > 0 && !(termRoll && mode === "players") && <FollowUps rows={follow} term={data.term.name} />}
 
       {mode === "sessions" ? (
         <div className="space-y-3">
@@ -219,8 +225,9 @@ export function CoachAttendanceTab({ campId }: { campId: number; teamFirst?: boo
           )}
         </div>
       ) : (
-        <TeamGrid team={team} showUpcoming={false} highlight="" />
+        <TeamGrid team={team} showUpcoming={termRoll} highlight="" weekly={weekly} termRoll={termRoll} />
       )}
+      {termRoll && mode === "players" && follow.length > 0 && <FollowUps rows={follow} term={data.term.name} />}
     </div>
   );
 }
@@ -318,8 +325,11 @@ function Cell({ s }: { s: Status | undefined }) {
   return <span className="inline-grid place-items-center w-6 h-6 text-white/20" title="Not marked">–</span>;
 }
 
-function TeamGrid({ team, showUpcoming, highlight }: { team: Team; showUpcoming: boolean; highlight: string }) {
+function TeamGrid({ team, showUpcoming, highlight, weekly, termRoll }: { team: Team; showUpcoming: boolean; highlight: string; weekly?: { label: string; freeSessions: number } | null; termRoll?: boolean }) {
+  const roll = termRoll || !!weekly;
   const cols = team.sessions.filter((s) => showUpcoming || s.past || s.today || s.taken);
+  // Sessions that count: every column but a public holiday.
+  const sessionCount = cols.filter((s) => !s.holiday).length;
   const upcoming = team.sessions.filter((s) => !s.past && !s.today && !s.taken).length;
   const presentTotal = team.players.reduce((n, p) => n + p.present, 0);
   const markedTotal = team.players.reduce((n, p) => n + p.present + p.absent + p.injured, 0);
@@ -328,7 +338,9 @@ function TeamGrid({ team, showUpcoming, highlight }: { team: Team; showUpcoming:
       <div className="px-4 py-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-white/[0.06] bg-white/[0.02]">
         <div>
           <span className="font-semibold text-white">{team.name}</span>
-          <span className="ml-2 text-[12px] text-white/40">{team.players.length} players · {cols.filter((c) => c.taken).length} rolls taken · {pct(presentTotal, markedTotal)} attendance</span>
+          <span className="ml-2 text-[12px] text-white/40">
+            {team.players.length} players · {weekly ? `every ${weekly.label} this term · ${sessionCount} sessions · ` : roll ? `${sessionCount} sessions this term · ` : ""}{cols.filter((c) => c.taken).length} rolls taken · {pct(presentTotal, markedTotal)} attendance
+          </span>
         </div>
         {!showUpcoming && upcoming > 0 && <span className="text-[11.5px] text-white/35">{upcoming} upcoming session{upcoming === 1 ? "" : "s"} hidden</span>}
       </div>
@@ -340,35 +352,51 @@ function TeamGrid({ team, showUpcoming, highlight }: { team: Team; showUpcoming:
             <thead>
               <tr>
                 <th className="sticky left-0 z-10 bg-background text-left px-4 py-2 text-[10.5px] uppercase tracking-wider font-semibold text-white/40 min-w-[220px]">Player</th>
-                <th className="px-3 py-2 text-[10.5px] uppercase tracking-wider font-semibold text-white/40 text-right">Here</th>
+                {!roll && <th className="px-3 py-2 text-[10.5px] uppercase tracking-wider font-semibold text-white/40 text-right">Here</th>}
                 {cols.map((s) => {
                   const l = dayLabel(s.date);
                   return (
-                    <th key={s.date} className={`px-1.5 py-2 text-center font-medium min-w-[56px] ${s.today ? "text-blue-400" : "text-white/45"}`}>
+                    <th key={s.date} title={s.holiday ?? undefined} data-holiday={s.holiday ? "" : undefined}
+                      className={`px-1.5 py-2 text-center font-medium min-w-[56px] ${s.holiday ? "text-white/20 bg-white/[0.02]" : s.today ? "text-blue-400" : "text-white/45"}`}>
                       <div className="text-[10px] uppercase">{l.wd}</div>
                       <div className="text-[11.5px] whitespace-nowrap">{l.day}</div>
-                      <div className={`text-[10px] ${s.taken ? "text-emerald-400/80" : s.past ? "text-red-400/80" : "text-white/25"}`}>
-                        {s.taken ? `${s.present} here` : s.past ? "no roll" : s.today ? "today" : "—"}
+                      <div className={`text-[10px] ${s.holiday ? "text-white/30" : s.taken ? "text-emerald-400/80" : s.past ? "text-red-400/80" : "text-white/25"}`}>
+                        {s.holiday ? "Holiday" : s.taken ? `${s.present} here` : s.past ? "no roll" : s.today ? "today" : "—"}
                       </div>
                     </th>
                   );
                 })}
+                {roll && <th className="px-3 py-2 text-[10.5px] uppercase tracking-wider font-semibold text-white/40 text-center whitespace-nowrap">Term</th>}
               </tr>
             </thead>
             <tbody>
               {team.players.map((p) => {
                 const hit = highlight && p.name.toLowerCase().includes(highlight);
+                // Injured = attended, the coaches' rule (2026-10-29).
+                const came = cols.filter((s) => !s.holiday && (p.marks[s.date] === "present" || p.marks[s.date] === "injured")).length;
+                const office = !!weekly && p.openTraining && came >= weekly.freeSessions;
                 return (
                   <tr key={p.id} className={hit ? "bg-blue-500/[0.06]" : ""}>
                     <td className="sticky left-0 z-10 bg-background px-4 py-1.5 border-t border-white/[0.05] whitespace-nowrap">
                       {p.profilePath ? <Link href={p.profilePath} className="text-white hover:text-blue-400">{p.name}</Link> : <span className="text-white">{p.name}</span>}
                       {p.openTraining && <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase bg-violet-500/15 text-violet-400">Open training</span>}
                       {!p.openTraining && p.registered === false && <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase bg-amber-500/15 text-amber-400">Not registered</span>}
+                      {office && (
+                        <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase bg-red-500/15 text-red-400" data-office-flag
+                          title={`${came} sessions this term and not registered — must see the office before training again`}>Office first</span>
+                      )}
                     </td>
-                    <td className="px-3 py-1.5 border-t border-white/[0.05] text-right text-white/60 whitespace-nowrap">{p.present}/{p.present + p.absent + p.injured}</td>
+                    {!roll && <td className="px-3 py-1.5 border-t border-white/[0.05] text-right text-white/60 whitespace-nowrap">{p.present}/{p.present + p.absent + p.injured}</td>}
                     {cols.map((s) => (
-                      <td key={s.date} className="px-1.5 py-1.5 border-t border-white/[0.05] text-center"><Cell s={p.marks[s.date]} /></td>
+                      <td key={s.date} className={`px-1.5 py-1.5 border-t border-white/[0.05] text-center ${s.holiday ? "bg-white/[0.02]" : ""}`}>
+                        {s.holiday ? <span className="text-white/15 text-[11px]" title={s.holiday}>—</span> : <Cell s={p.marks[s.date]} />}
+                      </td>
                     ))}
+                    {roll && (
+                      <td className={`px-3 py-1.5 border-t border-white/[0.05] text-center font-semibold whitespace-nowrap ${office ? "text-red-400" : "text-white/70"}`} data-term-present>
+                        {came}/{sessionCount}
+                      </td>
+                    )}
                   </tr>
                 );
               })}

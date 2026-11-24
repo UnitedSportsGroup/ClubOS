@@ -39,7 +39,10 @@ import { keepWarm, requireHubWorkspace } from "../marketing-hub/common";
 import {
   SocialNotConfigured,
   checkOauthState,
+  connectLinkedin,
   connectTiktok,
+  linkedinAuthUrl,
+  linkedinConfigured,
   discoverMetaAccounts,
   refreshThumb,
   runSocialSync,
@@ -220,6 +223,8 @@ async function listAccounts(s: Scope): Promise<SocialAccount[]> {
   const rows = await q(
     `SELECT a.id, a.platform, a.brand, a.handle, a.display_name, a.profile_url, a.avatar_url, a.connection,
             a.history_complete, a.last_synced_at, a.last_error,
+            (SELECT CASE WHEN t.refresh_token_enc IS NULL THEN t.access_expires_at ELSE COALESCE(t.refresh_expires_at, t.access_expires_at) END
+               FROM social_account_tokens t WHERE t.account_id = a.id) AS sign_in_ends_at,
             lr.followers, lr.day::text AS followers_day, lr.source AS followers_source,
             (SELECT d.followers FROM social_account_daily d
               WHERE d.account_id = a.id AND d.followers IS NOT NULL AND $4::date IS NOT NULL AND d.day <= $4::date
@@ -255,6 +260,7 @@ async function listAccounts(s: Scope): Promise<SocialAccount[]> {
     historyComplete: r.history_complete,
     lastSyncedAt: r.last_synced_at ? new Date(r.last_synced_at).toISOString() : null,
     lastError: r.last_error,
+    signInEndsAt: r.sign_in_ends_at ? new Date(r.sign_in_ends_at).toISOString() : null,
   }));
 }
 
@@ -288,7 +294,7 @@ export function registerSocialRoutes(app: Express) {
     // The account list is never narrowed to one account: the strip shows them all.
     const s = { ...parseScope(req), accountId: null, platform: null };
     const [accounts, state] = await Promise.all([listAccounts(s), syncState()]);
-    const body: SocialAccountsResponse = { today: s.to, period: s.period.key, accounts, ...state, tiktokSignIn: tiktokConfigured() };
+    const body: SocialAccountsResponse = { today: s.to, period: s.period.key, accounts, ...state, tiktokSignIn: tiktokConfigured(), linkedinSignIn: linkedinConfigured() };
     res.json(body);
   }));
 
@@ -595,6 +601,34 @@ export function registerSocialRoutes(app: Express) {
     } catch (e: any) {
       console.error(`[Social] TikTok sign-in failed: ${String(e?.message ?? e).slice(0, 300)}`);
       back(res, "failed");
+    }
+  });
+
+  // ── LinkedIn sign-in ──────────────────────────────────────────────────────
+  // A person who administers the club's Company Pages signs in once; every page
+  // of theirs that is saved here is connected. Lasts 60 days.
+  const backLi = (res: Response, result: string, extra = "") =>
+    res.redirect(`/admin/social-media?view=accounts&linkedin=${result}${extra}`);
+
+  app.get(`${BASE}/connect/linkedin`, requireAuth, requireTabAnywhere(SOCIAL_TAB), (req, res) => {
+    try {
+      res.redirect(linkedinAuthUrl(signOauthState(req.session.userId!)));
+    } catch {
+      backLi(res, "off");
+    }
+  });
+
+  app.get(`${BASE}/oauth/linkedin/callback`, requireAuth, requireTabAnywhere(SOCIAL_TAB), async (req, res) => {
+    if (!checkOauthState(req.query.state, req.session.userId!)) return backLi(res, "expired");
+    if (req.query.error || !req.query.code) return backLi(res, "declined");
+    try {
+      const r = await connectLinkedin(String(req.query.code), req.session.userId!);
+      if (!r.accountIds.length) return backLi(res, "none", `&left=${r.leftOut}`);
+      for (const accountId of r.accountIds) void runSocialSync("manual", { accountId }).catch(() => {});
+      backLi(res, "connected", `&name=${encodeURIComponent(r.names.join(", "))}&left=${r.leftOut}`);
+    } catch (e: any) {
+      console.error(`[Social] LinkedIn sign-in failed: ${String(e?.message ?? e).slice(0, 300)}`);
+      backLi(res, "failed");
     }
   });
 

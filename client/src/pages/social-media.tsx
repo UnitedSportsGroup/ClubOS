@@ -358,6 +358,9 @@ export default function SocialMedia() {
           tiktokSignIn={Boolean(allQuery.data?.tiktokSignIn)}
           tiktokResult={new URLSearchParams(search).get("tiktok")}
           tiktokName={new URLSearchParams(search).get("name")}
+          linkedinSignIn={Boolean(allQuery.data?.linkedinSignIn)}
+          linkedinResult={new URLSearchParams(search).get("linkedin")}
+          linkedinLeftOut={Number(new URLSearchParams(search).get("left") ?? 0) || 0}
           onConnect={() => setConnect({ platform: null })}
           onFollowers={setFollowersFor}
         />
@@ -837,6 +840,9 @@ function AccountsView({
   tiktokSignIn,
   tiktokResult,
   tiktokName,
+  linkedinSignIn,
+  linkedinResult,
+  linkedinLeftOut,
   onConnect,
   onFollowers,
 }: {
@@ -845,6 +851,9 @@ function AccountsView({
   tiktokSignIn: boolean;
   tiktokResult: string | null;
   tiktokName: string | null;
+  linkedinSignIn: boolean;
+  linkedinResult: string | null;
+  linkedinLeftOut: number;
   onConnect: () => void;
   onFollowers: (a: SocialAccount) => void;
 }) {
@@ -880,8 +889,32 @@ function AccountsView({
     : tiktokResult === "off" ? "TikTok sign-in is not switched on yet."
     : tiktokResult === "failed" ? "TikTok did not accept the sign-in. Try again; if it keeps failing, the account may not be on the club's approved list at TikTok."
     : null;
+  const leftOut = linkedinLeftOut > 0
+    ? ` ${linkedinLeftOut} other page${linkedinLeftOut === 1 ? "" : "s"} you manage ${linkedinLeftOut === 1 ? "was" : "were"} left out because ${linkedinLeftOut === 1 ? "it is" : "they are"} not saved here. To include one, press Connect account, save its LinkedIn link, then sign in again.`
+    : "";
+  const linkedinNote =
+    linkedinResult === "connected" ? `LinkedIn is connected for ${tiktokName ?? "your page"}. Posts are loading now.${leftOut}`
+    : linkedinResult === "none" ? `LinkedIn signed in, but none of the pages you manage are saved here yet. Press Connect account, save the page's LinkedIn link, then sign in again.`
+    : linkedinResult === "declined" ? "LinkedIn sign-in was cancelled. Nothing changed."
+    : linkedinResult === "expired" ? "That sign-in took too long. Press Sign in with LinkedIn again."
+    : linkedinResult === "off" ? "LinkedIn sign-in is not switched on yet."
+    : linkedinResult === "failed" ? "LinkedIn did not accept the sign-in. Try again."
+    : null;
+  const daysLeft = (iso: string | null) => (iso ? Math.ceil((Date.parse(iso) - Date.now()) / 86_400_000) : null);
   return (
     <div className="space-y-5">
+      {linkedinNote && (
+        <p
+          role="status"
+          data-testid="linkedin-result"
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            linkedinResult === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900",
+          )}
+        >
+          {linkedinNote}
+        </p>
+      )}
       {tiktokNote && (
         <p
           role="status"
@@ -906,6 +939,11 @@ function AccountsView({
         {tiktokSignIn && (
           <Button asChild variant="outline" className="h-11 md:h-9">
             <a href="/api/admin/social/connect/tiktok" data-testid="tiktok-sign-in">Sign in with TikTok</a>
+          </Button>
+        )}
+        {linkedinSignIn && (
+          <Button asChild variant="outline" className="h-11 md:h-9">
+            <a href="/api/admin/social/connect/linkedin" data-testid="linkedin-sign-in">Sign in with LinkedIn</a>
           </Button>
         )}
         {found && <span className="text-sm text-muted-foreground" role="status">{found}</span>}
@@ -965,6 +1003,11 @@ function AccountsView({
                         <span className="text-foreground">
                           Connected
                           {!a.historyComplete && <span className="block text-xs text-muted-foreground">Older posts still loading</span>}
+                          {a.platform === "linkedin" && daysLeft(a.signInEndsAt) != null && (
+                            <span className={cn("block text-xs", daysLeft(a.signInEndsAt)! <= 10 ? "text-amber-700" : "text-muted-foreground")} data-testid="linkedin-sign-in-ends">
+                              {daysLeft(a.signInEndsAt)! > 0 ? `Sign in again by ${longDay(a.signInEndsAt!)}` : "Sign-in has run out"}
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">Saved link, not read yet</span>
@@ -982,6 +1025,11 @@ function AccountsView({
                       {a.platform === "tiktok" && tiktokSignIn && (a.connection === "link" || /sign-in|signed in/i.test(a.lastError ?? "")) && (
                         <Button asChild className="h-11 md:h-8 mr-1.5">
                           <a href="/api/admin/social/connect/tiktok">Sign in with TikTok</a>
+                        </Button>
+                      )}
+                      {a.platform === "linkedin" && linkedinSignIn && (a.connection === "link" || /sign-in|signed in/i.test(a.lastError ?? "") || (daysLeft(a.signInEndsAt) ?? 99) <= 10) && (
+                        <Button asChild className="h-11 md:h-8 mr-1.5">
+                          <a href="/api/admin/social/connect/linkedin">Sign in with LinkedIn</a>
                         </Button>
                       )}
                       {a.connection === "link" && (

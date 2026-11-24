@@ -196,6 +196,9 @@ app.use(attributionCookieMiddleware);
   // session.
   const { registerPrintQuoteRoutes } = await import("./print-quote-routes");
   registerPrintQuoteRoutes(app);
+  // Custom one-off tees (pet tees) on shop.unitedprints.co.nz.
+  const { registerCustomTeeRoutes } = await import("./custom-tee-routes");
+  registerCustomTeeRoutes(app);
 
   // Internal print requests — club staff ask the print shop for something,
   // Dima approves it into a job or declines it. Gated by requireTab("requests");
