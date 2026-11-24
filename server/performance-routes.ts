@@ -380,7 +380,7 @@ export function registerPerformanceRoutes(app: Express) {
       ids.length ? q(`
         select distinct on (contact_id, metric_key) contact_id, metric_key, value, observed_on, source
         from perf_metric_values where organization_id = $1 and contact_id = any($2::int[]) and observed_on between $3 and $4
-          and metric_key in ('total_distance_m','hsr_distance_m','sprint_distance_m','top_speed_kmh','player_load','recovery_pct','hrv_ms')
+          and metric_key in ('total_distance_m','hsr_distance_m','sprint_distance_m','top_speed_kmh','player_load','recovery_pct','hrv_ms','distance_per_min','power_plays','max_acceleration','max_deceleration')
         order by contact_id, metric_key, observed_on desc`, [v.org, ids, addDays(today, -7), today]) : [],
       q(`select a.id, a.source, a.source_athlete_key, a.source_name, a.source_squads, (select count(*)::int from perf_metric_values m where m.athlete_id = a.id) readings
          from perf_athletes a where a.organization_id = $1 and a.contact_id is null order by a.last_seen_at desc`, [v.org]),
