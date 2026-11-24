@@ -75,6 +75,9 @@ export function UpNav() {
           <a href="/print/studio" className={`text-sm font-semibold transition hover:text-[#043bcb] ${isStudio ? "text-[#043bcb]" : "text-[#012583]/85"}`}>
             Custom tees
           </a>
+          <a href="/print/pet-tees" className={`text-sm font-semibold transition hover:text-[#043bcb] ${loc.startsWith("/print/pet-tees") ? "text-[#043bcb]" : "text-[#012583]/85"}`}>
+            Pet tees
+          </a>
           <a href={`${SITE}/about`} className="text-sm font-semibold text-[#012583]/85 transition hover:text-[#043bcb]">About</a>
           <a href={`${SITE}/contact`} className="text-sm font-semibold text-[#012583]/85 transition hover:text-[#043bcb]">Contact</a>
         </nav>
@@ -104,6 +107,7 @@ export function UpFooter() {
         <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-sm font-semibold">
           <a href="/print" className="text-[#ffffff]/80 hover:text-[#ffffff]">Products</a>
           <a href="/print/studio" className="text-[#ffffff]/80 hover:text-[#ffffff]">Custom tees</a>
+          <a href="/print/pet-tees" className="text-[#ffffff]/80 hover:text-[#ffffff]">Pet tees</a>
           <a href="/account" className="text-[#ffffff]/80 hover:text-[#ffffff]">My account</a>
           <a href={`${SITE}/contact`} className="text-[#ffffff]/80 hover:text-[#ffffff]">Contact</a>
         </div>

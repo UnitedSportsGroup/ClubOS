@@ -92,6 +92,25 @@ export default function PrintHub() {
         </div>
       </section>
 
+      {/* ── Custom pet tees: upload, see it, pay ── */}
+      <section className="mx-auto max-w-6xl px-5 pt-16 sm:px-8 sm:pt-20">
+        <a
+          href="/print/pet-tees"
+          className="group grid gap-7 overflow-hidden rounded-3xl border border-[#cbd1de] bg-[#ffffff] p-7 transition hover:border-[#043bcb] sm:grid-cols-[1fr_auto] sm:items-center sm:p-10"
+        >
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#043bcb]">New · $60 a tee</p>
+            <h2 className={`${upDisplay} mt-3 text-3xl text-[#012583] sm:text-4xl`}>Your pet on a tee</h2>
+            <p className="mt-3 max-w-lg text-[15px] leading-relaxed text-[#4a5265]">
+              Upload a photo, we cut your pet out of it, and you see it on the tee before you pay.
+              Couriered anywhere in New Zealand.
+            </p>
+            <span className={`${upBtn.green} mt-6`}>Make a pet tee →</span>
+          </div>
+          <img src="/up/tee/example-pet.webp" alt="" className="mx-auto h-40 w-auto sm:h-52" />
+        </a>
+      </section>
+
       {/* ── Custom tees, given its own billing ── */}
       {garment && (
         <section className="mx-auto max-w-6xl px-5 pt-16 sm:px-8 sm:pt-20">

@@ -204,6 +204,8 @@ const CANARIES: Canary[] = [
   { feature: "energy",               path: "/api/admin/energy",                         expect: [401] },
   { feature: "print quote artwork",  path: "/api/admin/print-quotes/1/files/1",          expect: [401] },
   { feature: "print expenses by brand", path: "/api/admin/print-expenses/by-brand",      expect: [401] },
+  // Custom pet tees on shop.unitedprints.co.nz (2026-11-24). 200 = live.
+  { feature: "print custom tees",    path: "/api/public/unitedprints/custom-tee/pet",   expect: [200] },
   // Parent accounts v2 (2026-09-28): password sign-in + saved cards. 401 = live.
   { feature: "parent saved cards",   path: "/api/public/parent/payment-methods",        expect: [401] },
   { feature: "mailer templates",     path: "/api/admin/mailer/templates",               expect: [401] },

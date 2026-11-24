@@ -55,7 +55,14 @@ export async function emailOrderPlaced(order: PrintOrder, item: PrintOrderItem |
     ? `${item.quantity} × ${item.materialName}${item.widthMm ? ` (${item.widthMm}×${item.heightMm}mm)` : ""}`
     : order.title;
 
-  const artworkLine = artworkPath === "design_help"
+  // A custom tee arrives with its photo already attached — nothing to upload.
+  const provided = artworkPath === "provided";
+  const lines = provided && order.description
+    ? order.description.split("\n").map(l => l.replace(/[<>&]/g, "")).join("<br/>")
+    : null;
+  const artworkLine = provided
+    ? `<p style="font-size:14px;line-height:1.6">We have your photo and the mockup you approved. If anything about the print needs checking, we'll email you before we print it.</p>`
+    : artworkPath === "design_help"
     ? `<p style="font-size:14px;line-height:1.6">Our design team will be in touch within one working day to start your design.</p>`
     : artworkPath === "upload_later"
       ? `<p style="font-size:14px;line-height:1.6">When you're ready, upload your artwork via the link below — anytime.</p>${ctaButton(uploadLink(order.magicLinkToken!), "Upload artwork")}`
@@ -66,8 +73,8 @@ export async function emailOrderPlaced(order: PrintOrder, item: PrintOrderItem |
     <p style="font-size:14px;line-height:1.6">Thanks for your order. Here's what we're making for you:</p>
     <div style="background:#fafafa;border-radius:10px;padding:16px;font-size:14px;line-height:1.6;margin:16px 0">
       <strong>${order.orderNumber}</strong><br/>
-      ${itemSummary}<br/>
-      <span style="color:#666">Total ${money(order.totalCents)} incl GST · Ready by ${order.pickupReadyDate ?? "—"}</span>
+      ${lines ?? itemSummary}<br/>
+      <span style="color:#666">Total ${money(order.totalCents)} incl GST${order.pickupReadyDate ? ` · Ready by ${order.pickupReadyDate}` : ""}</span>
     </div>
     ${artworkLine}
     <p style="font-size:14px;line-height:1.6">Your order is paid — we'll keep you posted as it moves through design, production, and finishing. Track it anytime:</p>
@@ -205,8 +212,9 @@ export async function emailDimaNewOrder(order: PrintOrder, item: PrintOrderItem 
       ${order.customerName} (${order.customerEmail})<br/>
       ${order.customerPhone || ""}<br/>
       <strong>${itemSummary}</strong><br/>
+      ${order.description ? order.description.split("\n").map(l => l.replace(/[<>&]/g, "")).join("<br/>") + "<br/>" : ""}
       Ready by: ${order.pickupReadyDate ?? "—"}<br/>
-      Delivery: ${order.deliveryMethod}
+      Delivery: ${order.deliveryMethod}${order.deliveryAddress ? ` — ${order.deliveryAddress.replace(/[<>&]/g, "")}` : ""}
     </div>
     ${order.customerNotes ? `<p style="font-size:13px"><strong>Customer notes:</strong> ${order.customerNotes}</p>` : ""}
     ${ctaButton(`https://app.usg.co.nz/admin/print-orders/${order.id}`, "Open in ClubOS")}

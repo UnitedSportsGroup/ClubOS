@@ -285,6 +285,7 @@ const WarehouseUniformStocktake = lazy(() => import("@/pages/warehouse-uniform-s
 const PrintHub = lazy(() => import("@/pages/print-hub"));
 const PrintAccountPage = lazy(() => import("@/pages/print-account"));
 const PrintDtfPage = lazy(() => import("@/pages/print-dtf"));
+const PrintPetTeesPage = lazy(() => import("@/pages/print-pet-tees"));
 const PrintStudioPage = lazy(() => import("@/pages/print-studio"));
 const PrintArtworkPage = lazy(() => import("@/pages/print-artwork"));
 const PrintConfigure = lazy(() => import("@/pages/print-configure"));
@@ -1061,6 +1062,7 @@ function App() {
             <Route path="/print/studio" component={PrintStudioPage} />
             <Route path="/print/artwork/:token" component={PrintArtworkPage} />
             <Route path="/print/dtf" component={PrintDtfPage} />
+            <Route path="/print/pet-tees" component={PrintPetTeesPage} />
             <Route path="/print" component={PrintHub} />
             <Route path="/print/configure/:slug" component={PrintConfigure} />
             <Route path="/print/checkout" component={PrintCheckout} />
