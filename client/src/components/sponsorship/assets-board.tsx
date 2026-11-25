@@ -132,7 +132,7 @@ export function AssetsBoard({ onOpenPartner, search }: { onOpenPartner: (id: num
     <div className="space-y-4" data-testid="assets-board">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={shownSeason ? String(shownSeason) : ""} onValueChange={v => { setSeason(Number(v)); setUrl("season", v); }}>
-          <SelectTrigger className="h-11 md:h-9 w-[120px]" data-testid="assets-season"><SelectValue placeholder="Season" /></SelectTrigger>
+          <SelectTrigger className="h-11 md:h-9 w-[150px]" data-testid="assets-season"><SelectValue placeholder="Season" /></SelectTrigger>
           <SelectContent>{(data?.seasons ?? []).map(y => <SelectItem key={y} value={String(y)}>{y} season</SelectItem>)}</SelectContent>
         </Select>
         <div className="flex flex-wrap gap-1.5">
