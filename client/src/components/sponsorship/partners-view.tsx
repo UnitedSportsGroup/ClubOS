@@ -22,6 +22,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { TickButton, DoneStamp, StatusMenu, ProofControls, isDone } from "@/components/sponsorship/deliverable-controls";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AssetsBoard } from "@/components/sponsorship/assets-board";
+import { groupLabel } from "@shared/sponsorship-assets";
 import {
   BadgeCheck, Plus, Search, FileText, Download, ExternalLink, Upload, Pencil, Trash2, Mail, Phone,
   Globe, AlertCircle, AlertTriangle, Info, ArrowUp, ArrowDown, Check, Lightbulb, ListChecks, Archive,
@@ -49,6 +51,8 @@ interface PartnerRow extends PartnerBase {
   nextPayment: { id: number; amountCents: number; dueOn: string | null; label: string | null; state: PaymentState } | null;
   paidCents: number; overdueCents: number;
   money: MoneySummary;
+  assets: { id: number; seasonYear: number; club: string; assetGroup: string; name: string }[];
+  assetRank: number | null;
 }
 interface ListResp {
   today: string; partners: PartnerRow[];
@@ -132,8 +136,24 @@ const STATUS_FILTERS: { key: "all" | "owing" | PartnerStatus; label: string }[] 
 ];
 const SORTS: { key: PartnerSortKey; label: string }[] = [
   { key: "company", label: "Company" }, { key: "value", label: "Annual value" }, { key: "since", label: "Longest serving" },
-  { key: "renewal", label: "Renewal date" }, { key: "status", label: "Status" },
+  { key: "renewal", label: "Renewal date" }, { key: "status", label: "Status" }, { key: "asset", label: "Asset" },
 ];
+
+/** What a partner holds, as short chips under the name (club · position). */
+function AssetChips({ assets }: { assets: PartnerRow["assets"] }) {
+  if (!assets?.length) return null;
+  const shown = assets.slice(0, 3);
+  return (
+    <div className="flex flex-wrap gap-1 mt-1" data-testid="partner-asset-chips">
+      {shown.map(a => (
+        <span key={a.id} title={`${a.seasonYear} · ${groupLabel(a.assetGroup)}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 bg-white/[0.03] text-white/70">
+          {a.club.toUpperCase()} · {a.name}
+        </span>
+      ))}
+      {assets.length > shown.length && <span className="text-[10px] text-white/40 self-center" title={assets.slice(3).map(a => a.name).join("\n")}>+{assets.length - shown.length}</span>}
+    </div>
+  );
+}
 
 async function readError(r: Response, fallback: string): Promise<string> {
   try { const j = await r.json(); return j?.message || fallback; } catch { return fallback; }
@@ -339,6 +359,15 @@ export function PartnersView() {
   const [dir, setDir] = useState<"asc" | "desc">("asc");
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState(false);
+  // List or By asset (the budget sheet's layout). Lives in the URL (?by=asset).
+  const [layout, setLayoutState] = useState<"list" | "asset">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("by") === "asset" ? "asset" : "list");
+  const setLayout = (v: "list" | "asset") => {
+    setLayoutState(v);
+    const u = new URL(window.location.href);
+    if (v === "asset") u.searchParams.set("by", "asset"); else { u.searchParams.delete("by"); u.searchParams.delete("season"); u.searchParams.delete("club"); }
+    try { window.history.replaceState(null, "", u.pathname + u.search + u.hash); } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     const onHash = () => setOpenId(readHashId());
@@ -402,7 +431,13 @@ export function PartnersView() {
             <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
             <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search company or contact" className="pl-8 h-11 md:h-9" data-testid="partners-search" />
           </div>
-          <div className="flex items-center gap-1.5" data-testid="partners-sort">
+          <div className="inline-flex rounded-md border border-white/10 overflow-hidden" role="tablist" data-testid="partners-layout">
+            {([["list", "List"], ["asset", "By asset"]] as const).map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={layout === k} onClick={() => setLayout(k)} data-testid={`partners-layout-${k}`}
+                className={`text-xs font-semibold px-3 min-h-[44px] md:min-h-[36px] transition ${layout === k ? "bg-blue-600 text-white" : "text-white/60 hover:text-white bg-white/[0.02]"}`}>{label}</button>
+            ))}
+          </div>
+          {layout === "list" && <div className="flex items-center gap-1.5" data-testid="partners-sort">
             <Select value={sortKey} onValueChange={v => setSortKey(v as PartnerSortKey)}>
               <SelectTrigger className="h-11 md:h-9 w-[170px]"><SelectValue /></SelectTrigger>
               <SelectContent>{SORTS.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}</SelectContent>
@@ -410,20 +445,20 @@ export function PartnersView() {
             <Button variant="outline" size="icon" className="h-11 w-11 md:h-9 md:w-9" onClick={() => setDir(d => (d === "asc" ? "desc" : "asc"))} title={dir === "asc" ? "Ascending" : "Descending"} data-testid="partners-sort-dir">
               {dir === "asc" ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
             </Button>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-white/60 min-h-[44px] md:min-h-0">
+          </div>}
+          {layout === "list" && <label className="flex items-center gap-2 text-xs text-white/60 min-h-[44px] md:min-h-0">
             <Switch checked={archived} onCheckedChange={setArchived} data-testid="partners-archived" /> Show archived
-          </label>
+          </label>}
           <Button onClick={() => setCreating(true)} className="bg-blue-600 hover:bg-blue-700 text-white min-h-[44px] md:min-h-0 ml-auto" data-testid="partners-new"><Plus className="w-4 h-4 mr-1.5" />New partner</Button>
         </div>
         <p className="text-[11px] text-white/40" data-testid="partners-hint">New sponsor signed? New partner → Add contract → upload the signed PDF, or press Make partner on the won deal in Prospects → Pipeline.</p>
-        <div className="flex flex-wrap gap-1.5">
+        {layout === "list" && <div className="flex flex-wrap gap-1.5">
           {STATUS_FILTERS.map(f => (
             <button key={f.key} onClick={() => setStatusF(f.key)} data-testid={`partners-status-${f.key}`}
               className={`text-xs font-semibold px-3 py-2 md:py-1.5 min-h-[44px] md:min-h-[32px] rounded-md border transition ${statusF === f.key ? "bg-blue-600 border-blue-600 text-white" : "border-white/10 text-white/60 hover:text-white bg-white/[0.02]"}`}>{f.label}</button>
           ))}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
+        </div>}
+        {layout === "list" && <div className="flex flex-wrap gap-1.5">
           {BRANDS.map(b => {
             const on = brandF.includes(b.slug);
             return (
@@ -432,19 +467,21 @@ export function PartnersView() {
                 style={{ borderColor: on ? b.color : "hsl(var(--foreground) / 0.085)", background: on ? `${b.color}25` : "transparent", color: "hsl(var(--foreground) / 0.85)" }}>{b.label}</button>
             );
           })}
-        </div>
+        </div>}
       </div>
 
-      {isLoading && <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>}
-      {error && <div className="text-sm text-red-400 rounded-lg border border-red-500/30 bg-red-500/10 p-3" data-testid="partners-error">{(error as Error).message}</div>}
-      {!isLoading && !error && data && rows.length === 0 && (
+      {layout === "asset" && <AssetsBoard onOpenPartner={open} search={search} />}
+
+      {layout === "list" && isLoading && <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>}
+      {layout === "list" && error && <div className="text-sm text-red-400 rounded-lg border border-red-500/30 bg-red-500/10 p-3" data-testid="partners-error">{(error as Error).message}</div>}
+      {layout === "list" && !isLoading && !error && data && rows.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-white/50" data-testid="partners-empty">
           {data.partners.length === 0 ? "No partners yet — add the first one or run the contracts import." : "No partners match these filters."}
           {data.partners.length === 0 && <div className="text-xs text-white/40 mt-2">New sponsor signed? New partner → Add contract → upload the signed PDF, or press Make partner on the won deal in Prospects → Pipeline.</div>}
         </div>
       )}
 
-      {rows.length > 0 && (
+      {layout === "list" && rows.length > 0 && (
         <>
           {/* Desktop table */}
           <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-x-auto" data-testid="partners-table">
@@ -464,6 +501,7 @@ export function PartnersView() {
                         <div className="min-w-0">
                           <div className="font-semibold text-white break-words">{p.company}</div>
                           <BrandChips tags={p.brandTags} />
+                          <AssetChips assets={p.assets} />
                           {/* Signed is king: the file sits under the name, never off the right edge */}
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5"><OpenButton node={p.current?.node} />{p.money.overdueCount > 0 && <MissedBadge count={p.money.overdueCount} />}</div>
                         </div>
@@ -506,6 +544,7 @@ export function PartnersView() {
                       <div className="font-semibold text-white break-words min-w-0">{p.company}</div>
                     </div>
                     <BrandChips tags={p.brandTags} />
+                    <AssetChips assets={p.assets} />
                   </div>
                   <StatusPill status={p.status} />
                 </div>

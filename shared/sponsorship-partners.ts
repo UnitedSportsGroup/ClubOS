@@ -247,7 +247,7 @@ export const PARTNER_STATUS_LABEL: Record<PartnerStatus, string> = {
 
 // ── Sorting the list ────────────────────────────────────────────────────────
 
-export type PartnerSortKey = "company" | "value" | "since" | "renewal" | "status";
+export type PartnerSortKey = "company" | "value" | "since" | "renewal" | "status" | "asset";
 
 export interface PartnerRowLike {
   company: string;
@@ -255,6 +255,8 @@ export interface PartnerRowLike {
   since: string | null;
   renewalOn: string | null;
   status: PartnerStatus;
+  /** Sheet position of the partner's first asset (shared/sponsorship-assets.ts assetRank); null = none recorded. */
+  assetRank?: number | null;
 }
 
 const STATUS_RANK: Record<PartnerStatus, number> = { attention: 0, expired: 1, renewal_due: 2, no_contract: 3, active: 4 };
@@ -266,6 +268,14 @@ export function comparePartners(key: PartnerSortKey, dir: "asc" | "desc") {
       case "company": return sign * a.company.localeCompare(b.company, "en-NZ", { sensitivity: "base" });
       case "value":   return sign * (a.annualValueCents - b.annualValueCents);
       case "status":  return sign * (STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+      case "asset": {
+        // A partner with no asset recorded sorts LAST both ways.
+        const av = a.assetRank ?? null, bv = b.assetRank ?? null;
+        if (av == null && bv == null) return a.company.localeCompare(b.company, "en-NZ", { sensitivity: "base" });
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return sign * (av - bv) || a.company.localeCompare(b.company, "en-NZ", { sensitivity: "base" });
+      }
       case "since":
       case "renewal": {
         // 🔴 A blank sorts LAST in both directions — an unknown date is an

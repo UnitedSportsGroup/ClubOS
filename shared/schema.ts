@@ -3195,6 +3195,35 @@ export const sponsorshipPartnerContracts = pgTable("sponsorship_partner_contract
   partnerIdx: index("sponsorship_partner_contracts_partner_idx").on(t.partnerId),
 }));
 
+// Sponsorship ASSETS (2026-11-25) — one sellable position in one season, the
+// way the budget sheet's Sponsorship tab lists them. Holder = a partner, or a
+// business name for a prospect, or nobody (still for sale). Money columns are
+// what the sheet says; the live deal stays on the partner's contract.
+export const sponsorshipAssets = pgTable("sponsorship_assets", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  seasonYear: integer("season_year").notNull(),
+  club: text("club").notNull(),
+  assetGroup: text("asset_group").notNull(),
+  name: text("name").notNull(),
+  partnerId: integer("partner_id").references(() => sponsorshipPartners.id, { onDelete: "set null" }),
+  businessName: text("business_name"),
+  staffName: text("staff_name"),
+  targetCents: integer("target_cents"),
+  contraCents: integer("contra_cents"),
+  actualCents: integer("actual_cents"),
+  comments: text("comments"),
+  source: text("source"),
+  displayOrder: integer("display_order").notNull().default(0),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  orgSeasonIdx: index("sponsorship_assets_org_season_idx").on(t.organizationId, t.seasonYear),
+}));
+export type SponsorshipAsset = typeof sponsorshipAssets.$inferSelect;
+
 export const insertSponsorshipPartnerContractSchema = createInsertSchema(sponsorshipPartnerContracts).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSponsorshipPartnerContract = z.infer<typeof insertSponsorshipPartnerContractSchema>;
 export type SponsorshipPartnerContract = typeof sponsorshipPartnerContracts.$inferSelect;

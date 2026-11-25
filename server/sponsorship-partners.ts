@@ -25,8 +25,9 @@ import { storage } from "./storage";
 import { requireAuth, requireTab } from "./auth";
 import {
   organizations, driveNodes, sponsorshipDeals, sponsorshipDeliverables, sponsorshipOnboardingTemplates,
-  sponsorshipPartners, sponsorshipPartnerContracts, sponsorshipPartnerPayments, users as usersTable,
+  sponsorshipPartners, sponsorshipPartnerContracts, sponsorshipPartnerPayments, users as usersTable, sponsorshipAssets,
 } from "@shared/schema";
+import { ASSET_CLUBS, ASSET_GROUPS, assetRank, compareAssets } from "@shared/sponsorship-assets";
 import { nzTodayIso } from "@shared/dashboard";
 import {
   SIGNATURE_STATUSES, annualValueCents, contractState, currentContract, daysBetween, isIsoDate, nextPayment,
@@ -129,6 +130,16 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
       const nodeIds = contracts.map(c => c.contractNodeId).filter((x): x is number => !!x);
       const nodes = nodeIds.length ? ((await db.select().from(driveNodes).where(inArray(driveNodes.id, nodeIds))) as any[]) : [];
       const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      // What each partner holds, from the LATEST season that names them.
+      const assetRows = ids.length ? await db.select().from(sponsorshipAssets)
+        .where(and(eq(sponsorshipAssets.organizationId, s.orgId), isNull(sponsorshipAssets.archivedAt), inArray(sponsorshipAssets.partnerId, ids))) : [];
+      const assetsFor = (pid: number) => {
+        const mine = assetRows.filter(a => a.partnerId === pid);
+        if (!mine.length) return [];
+        const latest = Math.max(...mine.map(a => a.seasonYear));
+        return mine.filter(a => a.seasonYear === latest).sort(compareAssets)
+          .map(a => ({ id: a.id, seasonYear: a.seasonYear, club: a.club, assetGroup: a.assetGroup, name: a.name, rank: assetRank(a) }));
+      };
 
       const rows = partners.map(p => {
         const mine = contracts.filter(c => c.partnerId === p.id);
@@ -137,8 +148,11 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
         const flags = partnerFlags({ contracts: mine, payments: pays, today });
         const status = partnerStatus(flags, cur, today);
         const next = nextPayment(pays, today);
+        const assets = assetsFor(p.id);
         return {
           ...p,
+          assets,
+          assetRank: assets.length ? assets[0].rank : null,
           since: partnerSince(mine),
           renewalOn: cur && !cur.openEnded ? cur.endDate : null,
           annualValueCents: annualValueCents(cur),
@@ -176,6 +190,114 @@ export function registerSponsorshipPartnerRoutes(app: Express) {
           paidInFull: rows.filter(r => r.money.instalments > 0 && r.money.remainingCents === 0).length,
         },
       });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Assets — every position, sheet-style (Partners → By asset) ─────────────
+  // Static paths under /sponsorship/assets, so no clash with /partners/:id.
+  const GROUP_KEYS = new Set<string>(ASSET_GROUPS.map(g => g.key));
+  const CLUB_KEYS = new Set<string>(ASSET_CLUBS.map(c => c.key));
+  const assetBody = (b: any, partial: boolean) => {
+    const out: Record<string, any> = {};
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(b ?? {}, k);
+    if (!partial || has("club")) { const v = String(b?.club ?? "").toLowerCase(); if (!CLUB_KEYS.has(v)) throw new Error("Pick a club"); out.club = v; }
+    if (!partial || has("assetGroup")) { const v = String(b?.assetGroup ?? ""); if (!GROUP_KEYS.has(v)) throw new Error("Pick a group"); out.assetGroup = v; }
+    if (!partial || has("name")) { const v = str(b?.name, 200); if (!v) throw new Error("Name the position"); out.name = v; }
+    if (!partial || has("seasonYear")) { const y = Number(b?.seasonYear); if (!Number.isInteger(y) || y < 2015 || y > 2100) throw new Error("Season year required"); out.seasonYear = y; }
+    if (has("partnerId")) out.partnerId = b.partnerId == null || b.partnerId === "" ? null : Number(b.partnerId);
+    if (has("businessName")) out.businessName = str(b.businessName, 200);
+    if (has("staffName")) out.staffName = str(b.staffName, 120);
+    for (const k of ["targetCents", "contraCents", "actualCents"]) if (has(k)) out[k] = cents(b[k]);
+    if (has("comments")) out.comments = str(b.comments, 4000);
+    if (has("displayOrder")) out.displayOrder = Number.isInteger(Number(b.displayOrder)) ? Number(b.displayOrder) : 0;
+    return out;
+  };
+  const checkPartner = async (s: Scope, pid: unknown) => {
+    if (pid == null) return true;
+    return !!(await partnerInScope(s, Number(pid)));
+  };
+
+  app.get("/api/admin/sponsorship/assets", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const all = await db.select().from(sponsorshipAssets)
+        .where(and(eq(sponsorshipAssets.organizationId, s.orgId), isNull(sponsorshipAssets.archivedAt)));
+      const seasons = Array.from(new Set(all.map(a => a.seasonYear))).sort((a, b) => b - a);
+      const asked = Number(req.query.season);
+      const season = Number.isInteger(asked) && asked > 0 ? asked : (seasons[0] ?? Number(nzTodayIso().slice(0, 4)));
+      const rows = all.filter(a => a.seasonYear === season).sort(compareAssets);
+      const partners = await db.select({ id: sponsorshipPartners.id, company: sponsorshipPartners.company, logoUrl: sponsorshipPartners.logoUrl,
+        logoGround: sponsorshipPartners.logoGround, archivedAt: sponsorshipPartners.archivedAt })
+        .from(sponsorshipPartners).where(eq(sponsorshipPartners.organizationId, s.orgId)).orderBy(asc(sponsorshipPartners.company));
+      const held = new Set(rows.map(a => a.partnerId).filter((x): x is number => x != null));
+      res.json({
+        season, seasons, assets: rows,
+        partners: partners.map(p => ({ ...p, archived: !!p.archivedAt })),
+        // Signed partners with no position this season — shown, never hidden.
+        unplaced: partners.filter(p => !p.archivedAt && !held.has(p.id)).map(p => ({ id: p.id, company: p.company })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/admin/sponsorship/assets", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      let v: Record<string, any>;
+      try { v = assetBody(req.body, false); } catch (e: any) { return res.status(400).json({ message: e.message }); }
+      if (!(await checkPartner(s, v.partnerId))) return res.status(400).json({ message: "Partner not found" });
+      if (v.displayOrder == null) {
+        const [{ n }] = (await db.execute(sql`select coalesce(max(display_order), 0) + 10 as n from sponsorship_assets
+          where organization_id = ${s.orgId} and season_year = ${v.seasonYear} and club = ${v.club} and asset_group = ${v.assetGroup}`)).rows as any[];
+        v.displayOrder = Number(n);
+      }
+      const [row] = await db.insert(sponsorshipAssets).values({ ...(v as any), organizationId: s.orgId, createdBy: s.userId }).returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  /** Start a new season from the last one: same positions and targets, nobody holding them. */
+  app.post("/api/admin/sponsorship/assets/copy-season", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const from = Number(req.body?.from), to = Number(req.body?.to);
+      if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return res.status(400).json({ message: "Pick two different seasons" });
+      const exists = await db.select({ id: sponsorshipAssets.id }).from(sponsorshipAssets)
+        .where(and(eq(sponsorshipAssets.organizationId, s.orgId), eq(sponsorshipAssets.seasonYear, to), isNull(sponsorshipAssets.archivedAt))).limit(1);
+      if (exists.length) return res.status(409).json({ message: `${to} already has positions` });
+      const src = await db.select().from(sponsorshipAssets)
+        .where(and(eq(sponsorshipAssets.organizationId, s.orgId), eq(sponsorshipAssets.seasonYear, from), isNull(sponsorshipAssets.archivedAt)));
+      if (!src.length) return res.status(400).json({ message: `${from} has no positions to copy` });
+      await db.insert(sponsorshipAssets).values(src.map(a => ({
+        organizationId: s.orgId, seasonYear: to, club: a.club, assetGroup: a.assetGroup, name: a.name,
+        targetCents: a.targetCents, displayOrder: a.displayOrder, source: `Copied from ${from}`, createdBy: s.userId,
+      })));
+      res.json({ copied: src.length, season: to });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch("/api/admin/sponsorship/assets/:id", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const [cur] = await db.select().from(sponsorshipAssets).where(and(eq(sponsorshipAssets.id, id), eq(sponsorshipAssets.organizationId, s.orgId)));
+      if (!cur) return res.status(404).json({ message: "Not found" });
+      let v: Record<string, any>;
+      try { v = assetBody(req.body, true); } catch (e: any) { return res.status(400).json({ message: e.message }); }
+      if ("partnerId" in v && !(await checkPartner(s, v.partnerId))) return res.status(400).json({ message: "Partner not found" });
+      const [row] = await db.update(sponsorshipAssets).set({ ...(v as any), updatedAt: new Date() }).where(eq(sponsorshipAssets.id, id)).returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  /** Remove = archive, never delete. */
+  app.delete("/api/admin/sponsorship/assets/:id", ...gate, async (req, res) => {
+    try {
+      const s = await scope(req, res); if (!s) return;
+      const id = Number(req.params.id);
+      const [row] = await db.update(sponsorshipAssets).set({ archivedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(sponsorshipAssets.id, id), eq(sponsorshipAssets.organizationId, s.orgId), isNull(sponsorshipAssets.archivedAt))).returning();
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
