@@ -498,6 +498,7 @@ const gymnasticsNav = [
   { tab: "cugc-registrations", title: "Registrations", url: "/admin/cugc-registrations", icon: ClipboardCheck },
   { tab: "cugc-roll", title: "Roll", url: "/admin/cugc-roll", icon: ClipboardList },
   { tab: "cugc-free-sessions", title: "Free Sessions", url: "/admin/cugc-free-sessions", icon: CalendarCheck },
+  { tab: "camps", title: "Holiday Camps", url: "/admin/camps", icon: Tent },
   { tab: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics", icon: BarChart3 },
   { tab: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox", icon: Inbox },
   { tab: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat", icon: MessageCircle },

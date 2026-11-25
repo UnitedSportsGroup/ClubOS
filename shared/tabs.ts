@@ -238,6 +238,9 @@ const gymnasticsTabs: TabDef[] = [
   { slug: "cugc-registrations", title: "Registrations", url: "/admin/cugc-registrations" },
   { slug: "cugc-roll", title: "Roll", url: "/admin/cugc-roll" },
   { slug: "cugc-free-sessions", title: "Free Sessions", url: "/admin/cugc-free-sessions" },
+  // Holiday camps (GymFun, Dec 2026) run on the ClubOS camp engine and bank
+  // with the gym's own Stripe account (shared/camp-money-account.ts).
+  { slug: "camps", title: "Holiday Camps", url: "/admin/camps" },
   { slug: "cugc-analytics", title: "Analytics", url: "/admin/cugc-analytics" },
   { slug: "cugc-inbox", title: "Inbox", url: "/admin/cugc-inbox" },
   { slug: "cugc-livechat", title: "Live Chat", url: "/admin/cugc-livechat" },

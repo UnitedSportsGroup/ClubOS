@@ -211,7 +211,7 @@ export default function SiuCampPage({ data, slug, activeVariants, onBookClick }:
   const heroImage = camp.heroImage || "";
   const heroVideoId = heroImage ? null : (camp.heroVideoId || null);
 
-  const bookHref = `/${slug}/${camp.scheduleType === "term" ? "class-book" : "book"}`;
+  const bookHref = `/${slug}/${camp.scheduleType === "term" ? "class-book" : "book"}${typeof window !== "undefined" ? window.location.search : ""}`; // carries utm_*/fbclid to the booking form
 
   const glassCard: React.CSSProperties = {
     background: "rgba(255,255,255,0.03)",

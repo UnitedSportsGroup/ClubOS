@@ -153,10 +153,12 @@ export async function sendConfirmationEmail(params: {
   // (see @shared/org-domains) — SIU → southislandunited.com, CUFC → cufc.co.nz.
   let orgId: number | undefined;
   let isSiu = false;
+  let isCugc = false;
   try {
     const program = await storage.getProgram(params.campId);
     orgId = program?.organizationId ?? undefined;
     isSiu = orgId === 2; // South Island United — drives the black/gold body below
+    isCugc = orgId === 6; // United Gymnastics — navy/cream body, gym reply address
   } catch {}
 
   const defaultFrom = campFromForOrg(orgId);
@@ -187,7 +189,37 @@ export async function sendConfirmationEmail(params: {
       <p style="text-align: center; color: #94a3b8; font-size: 11px; margin: 16px 0 0;">South Island United — Uniting the South</p>
     </div>
   `;
-  const defaultBody = isSiu ? siuDefaultBody : `
+  const cugcDefaultBody = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #fff8f0;">
+      <div style="background: #013590; padding: 32px; border-radius: 16px 16px 0 0; text-align: center;">
+        <img src="https://join.cugc.co.nz/logos/united-gymnastics.png" alt="United Gymnastics" width="64" height="64" style="display: block; margin: 0 auto 12px; width: 64px; height: 64px;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 24px;">You're booked in!</h1>
+        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0;">{{campName}}</p>
+      </div>
+      <div style="background: #ffffff; padding: 32px; border: 1px solid #e8dbc9; border-top: 0; border-radius: 0 0 16px 16px;">
+        <p style="color: #191919; font-size: 16px; margin: 0 0 16px;">Hi {{parentName}},</p>
+        <p style="color: #3d3d3d; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+          Thank you for booking. Here are your details:
+        </p>
+        <div style="background: #fff8f0; border: 1px solid #e8dbc9; border-radius: 12px; padding: 20px; margin: 0 0 24px;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="color: #8a7a66; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0;">Children</td><td style="color: #191919; font-size: 14px; padding: 6px 0; text-align: right;">{{childrenList}}</td></tr>
+            <tr><td style="color: #8a7a66; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0;">Days</td><td style="color: #191919; font-size: 14px; padding: 6px 0; text-align: right;">{{campDates}}</td></tr>
+            <tr><td style="color: #8a7a66; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 0;">Where</td><td style="color: #191919; font-size: 14px; padding: 6px 0; text-align: right;">{{location}}</td></tr>
+            <tr style="border-top: 1px solid #e8dbc9;"><td style="color: #8a7a66; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 0 6px;">Total paid</td><td style="color: #191919; font-size: 16px; font-weight: 600; padding: 10px 0 6px; text-align: right;">{{totalPaid}}</td></tr>
+          </table>
+        </div>
+        <p style="color: #3d3d3d; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">
+          Morning sessions run 9am to 12pm, afternoon sessions 12pm to 3pm, and full days 9am to 3pm. Please bring comfortable, fitted clothing (a leotard, or fitted shorts and a top), hair tied back, a water bottle and a snack, plus lunch for a full day. No special footwear needed.
+        </p>
+        <p style="color: #3d3d3d; font-size: 13px; line-height: 1.5; margin: 0;">
+          Any questions? Reply to this email, or contact us at info@cugc.co.nz or 021 535 005.
+        </p>
+      </div>
+      <p style="text-align: center; color: #8a7a66; font-size: 11px; margin: 16px 0 0;">United Gymnastics · 466 Yaldhurst Road, Christchurch</p>
+    </div>
+  `;
+  const defaultBody = isCugc ? cugcDefaultBody : isSiu ? siuDefaultBody : `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: linear-gradient(135deg, #1e3a5f, #2563eb); padding: 32px; border-radius: 16px 16px 0 0; text-align: center;">
         <h1 style="color: white; margin: 0; font-size: 24px;">Booking Confirmed!</h1>
@@ -226,7 +258,7 @@ export async function sendConfirmationEmail(params: {
   const from = settings?.fromEmail || defaultFrom;
   const subject = substituteVars(settings?.confirmationEmailSubject || defaultSubject, vars);
   const html = substituteVars(settings?.confirmationEmailBody || defaultBody, vars);
-  const replyTo = settings?.replyTo || "info@cufc.co.nz";
+  const replyTo = settings?.replyTo || (isCugc ? "info@cugc.co.nz" : "info@cufc.co.nz");
 
   return sendEmail({
     to: params.parentEmail,

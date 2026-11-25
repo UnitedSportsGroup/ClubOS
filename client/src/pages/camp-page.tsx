@@ -7,7 +7,8 @@ import { initPixel, trackEvent } from "@/lib/meta-pixel";
 import cuFcLogoPath from "@assets/CUFC_LOGO_1772823768518.png";
 import { PublicBlock } from "@/components/page-blocks/public-block";
 import SiuCampPage from "./siu-camp-page";
-import { SIU_ORG_SLUG } from "@/lib/camp-brand";
+import CugcCampPage from "./cugc-camp-page";
+import { SIU_ORG_SLUG, CUGC_ORG_SLUG, campBookHref } from "@/lib/camp-brand";
 
 const BRAND = {
   blue: "#22399B",
@@ -387,6 +388,25 @@ export default function CampPage() {
   // South Island United camps render their own full-brand page (Unity Black /
   // Ambition Gold / Rough Cut). This component still owns the data fetch,
   // split-test assignment, and Meta pixel events for both clubs.
+  // United Gymnastics camps render the cugc.co.nz look (cream / navy /
+  // Instrument Serif). This component still owns the fetch and the pixel.
+  if (data.organization?.slug === CUGC_ORG_SLUG) {
+    return (
+      <CugcCampPage
+        data={data}
+        slug={slug}
+        onBookClick={() => {
+          trackEvent("InitiateCheckout", {
+            content_name: data.camp.name,
+            content_category: "Holiday Camp",
+            value: (data.pricing.length > 0 ? Math.min(...data.pricing.map((p: any) => p.priceCents)) : 0) / 100,
+            currency: "NZD",
+          });
+        }}
+      />
+    );
+  }
+
   if (data.organization?.slug === SIU_ORG_SLUG) {
     return (
       <SiuCampPage
@@ -807,7 +827,7 @@ export default function CampPage() {
             </div>
           )}
           <div className="text-center">
-            <Link href={`/${slug}/book`}>
+            <Link href={campBookHref(slug)}>
               <button
                 onClick={handleBookClick}
                 className="glow-border-btn group inline-flex items-center gap-2 px-10 py-3.5 text-[15px] font-bold rounded-full transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
@@ -853,7 +873,7 @@ export default function CampPage() {
           <p className="text-[14px] sm:text-[16px] mb-8" style={{ color: 'rgba(251,251,252,0.55)' }}>
             {pc.finalCtaSub || "Limited places available. Fun, safe environment. Easy online booking."}
           </p>
-          <Link href={`/${slug}/book`}>
+          <Link href={campBookHref(slug)}>
             <button
               onClick={handleBookClick}
               className="group inline-flex items-center gap-2 px-10 py-3.5 text-[15px] font-bold rounded-full transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
@@ -908,7 +928,7 @@ export default function CampPage() {
 
       {/* STICKY MOBILE CTA */}
       <div className="fixed bottom-0 left-0 right-0 md:hidden z-50 bg-white/95 backdrop-blur-lg border-t border-slate-100 p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-        <Link href={`/${slug}/book`}>
+        <Link href={campBookHref(slug)}>
           <button
             onClick={handleBookClick}
             className="w-full py-3 text-[14px] font-bold rounded-full transition-all duration-300 cursor-pointer text-white"

@@ -49,6 +49,7 @@ import * as tp from "./teampay";
 import { teampayEntries, mailerListContacts, auditLogs, registrationRefunds } from "@shared/schema";
 import { sendEmail, sendConfirmationEmail, sendLeagueConfirmationEmail, sendLeagueSignupNotification, sendLeagueBalancePaidEmail, sendLeagueBalanceFailedEmail, sendBookingRequestNotificationEmail, sendBookingRequestConfirmedEmail, sendBookingRequestDeclinedEmail, sendSplitTeamConfirmedEmail, sendLeagueBroadcastEmail, sendMflContactNotification, sendFootballInstituteApplicationNotification, sendCic7sRegistrationNotification, sendCicContactNotification, sendCugcContactNotification, sendCugcEnrolmentConfirmation, sendCugcEnrolmentNotification, sendCugcFreeSessionConfirmation, sendCugcFreeSessionNotification, sendClubLogoConsentNotification, sendCicBroadcastEmail, sendMflWaitlistConfirmation, sendMflWaitlistNotification, sendLeaguePaymentReminderEmail, sendMembershipWelcomeEmail, sendMembershipNotificationEmail, sendChatNewConversationNotification, sendChatReplyNotification, sendCicInterestNotification, sendCufcContactNotification, sendCufcBroadcastEmail, sendCugcBroadcastEmail, sendCicVolunteerNotification, sendClubLogoLicenceCopy, sendRefundConfirmationEmail } from "./email";
 import { cugcStripe, constructCugcWebhookEvent } from "./cugc-stripe";
+import { campMoneyAccount } from "@shared/camp-money-account";
 import { computeCugcEnrolPrice, CUGC_PROGRAMS, CUGC_DISCOUNT_CODES } from "./cugc-pricing";
 // nzTodayIso is already imported below from shared/academy — same Intl
 // implementation, and an eighth copy of it is the last thing this repo needs.
@@ -19836,6 +19837,14 @@ export async function registerRoutes(
       const camp = await storage.getProgramBySlug(campSlug);
       if (!camp) return res.status(404).json({ message: "Camp not found" });
 
+      // Which Stripe account banks this camp (United Gymnastics → its own).
+      // Refused BEFORE any write if that account is not configured, so a gym
+      // booking can never fall through to the free/club path.
+      const moneyAccount = campMoneyAccount((camp as any).organizationId);
+      if (moneyAccount === "cugc" && !process.env.CUGC_STRIPE_SECRET_KEY) {
+        return res.status(503).json({ message: "Online booking is not available right now. Please contact us." });
+      }
+
       // "How did you hear about us?" — required of a family new to this club,
       // checked before a contact, a child or a PaymentIntent is written.
       const hdyhau = await decideHdyhau(req, {
@@ -19996,16 +20005,18 @@ export async function registerRoutes(
         // ignore duplicates
       }
 
-      if (totalCents > 0 && process.env.STRIPE_SECRET_KEY) {
+      if (totalCents > 0 && (moneyAccount === "cugc" ? process.env.CUGC_STRIPE_SECRET_KEY : process.env.STRIPE_SECRET_KEY)) {
         const paymentIntent = await createPaymentIntent({
           registrationId: registration.id,
           campName: camp.name,
           totalCents,
           currency: "NZD",
           parentEmail: parent.email,
+          account: moneyAccount,
           metadata: {
             campId: String(camp.id),
             campSlug,
+            moneyAccount,
             fbp: fbp || "",
             fbc: fbc || "",
             userAgent: userAgent || "",
@@ -20460,8 +20471,15 @@ export async function registerRoutes(
         organizationSlug = org?.slug || null;
       }
 
+      // The browser must load Stripe with the SAME account's publishable key
+      // the intent was made on (a gymnastics camp → the gym's account).
+      const publishableKey = campMoneyAccount(program?.organizationId) === "cugc"
+        ? (process.env.CUGC_STRIPE_PUBLISHABLE_KEY || null)
+        : null; // null = the club key the client was built with
+
       res.json({
         clientSecret: pi.client_secret,
+        publishableKey,
         registrationId: reg.id,
         totalCents: reg.totalCents,
         subtotalCents: reg.subtotalCents,
@@ -26459,8 +26477,26 @@ export async function registerRoutes(
 
       // Embedded checkout uses PaymentIntents → payment_intent.succeeded.
       // (checkout.session.completed kept as a harmless fallback for any legacy session.)
+      // A HOLIDAY CAMP owned by United Gymnastics also banks on this account
+      // (shared/camp-money-account.ts). Its metadata.registrationId is a
+      // `registrations` id, NOT a cugc_registrations id — so it is handled
+      // FIRST and never reaches the lookup below, where a colliding number
+      // would mark a different family's gym enrolment as paid.
+      if (event.type === "payment_intent.succeeded" && (event.data.object as any)?.metadata?.campId) {
+        const pi = event.data.object as any;
+        const regId = parseInt(pi.metadata?.registrationId || "");
+        const reg = regId ? await storage.getRegistration(regId) : undefined;
+        if (reg && reg.stripePaymentIntentId === pi.id) {
+          await handlePaymentSuccess(reg.id, pi.id, pi.metadata);
+        } else {
+          console.warn(`[CUGC Webhook] camp PI ${pi.id} does not match registration ${regId} — ignored`);
+        }
+        return res.json({ received: true });
+      }
+
       if (event.type === "payment_intent.succeeded" || event.type === "checkout.session.completed") {
         const obj = event.data.object as any;
+        if (obj.metadata?.campId) return res.json({ received: true }); // a camp — never a cugc_registrations row
         const registrationId = parseInt(obj.metadata?.registrationId || "");
         const piId = event.type === "payment_intent.succeeded"
           ? obj.id
@@ -28970,6 +29006,24 @@ async function handlePaymentSuccess(registrationId: number, stripeSessionId?: st
     location: program.location || "TBD",
     totalPaid: `$${((reg.totalCents || 0) / 100).toFixed(2)} NZD`,
   }).catch(e => console.error("[Post-payment] Email error:", e));
+
+  // United Gymnastics camps: tell the gym a booking landed (its staff live in
+  // the info@ inbox). Fixed address — never the one typed into the form.
+  if (program.organizationId === 6) {
+    const esc = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+    sendEmail({
+      to: "info@cugc.co.nz",
+      from: "United Gymnastics <noreply@cugc.co.nz>",
+      subject: `New booking — ${program.name}`,
+      html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#191919;line-height:1.6">
+        <p><strong>${esc(program.name)}</strong> — new paid booking.</p>
+        <p>Parent: ${esc(`${contact.firstName} ${contact.lastName}`)} · ${esc(contact.email || "")} · ${esc(contact.phone || "")}<br>
+        Children: ${esc(childrenNames.join(", "))}<br>
+        Days: ${campDatesLabel}<br>
+        Paid: $${((reg.totalCents || 0) / 100).toFixed(2)} NZD</p>
+        <p>Allergies and medical notes are on the roll in ClubOS → Gymnastics → Holiday Camps.</p></div>`,
+    }).catch(e => console.error("[Post-payment] CUGC camp notice error:", e));
+  }
 
   // Deterministic id shared with the browser Purchase pixel (checkout-page /
   // booking-page / booking-success) so Meta dedups the two — NO timestamp.

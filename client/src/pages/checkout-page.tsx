@@ -9,6 +9,7 @@ import { trackEvent } from "@/lib/meta-pixel";
 import { purchaseEventId } from "@shared/meta-events";
 import { formatCurrency } from "@/lib/format";
 import { brandForOrg, type CampBrand } from "@/lib/camp-brand";
+import { stripeForKey } from "@/lib/camp-stripe";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -22,6 +23,8 @@ interface CheckoutData {
   campName: string;
   campSlug: string;
   organizationSlug?: string | null;
+  /** Set when the intent is on another Stripe account (a United Gymnastics camp). */
+  publishableKey?: string | null;
   parentName: string;
   parentEmail: string;
   items: { dateName: string; productType: string; childIndex: number }[];
@@ -310,7 +313,7 @@ export default function CheckoutPage() {
         </div>
 
         <Elements
-          stripe={stripePromise}
+          stripe={checkoutData.publishableKey ? stripeForKey(checkoutData.publishableKey) : stripePromise}
           options={{
             clientSecret: checkoutData.clientSecret,
             appearance: {

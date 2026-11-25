@@ -49,6 +49,32 @@ export const SIU_BRAND: CampBrand = {
   logoUrl: "/logos/south-island-united.png",
 };
 
+export const CUGC_ORG_SLUG = "united-gymnastics";
+
+export const CUGC_BRAND: CampBrand = {
+  // cugc.co.nz palette (apps/cugc-website/tailwind.config.js): navy crest blue,
+  // warm cream page, crest-ring gold.
+  primary: "#013590",
+  dark: "#01296e",
+  pageBg: "#fff8f0",
+  gold: "#d9b10f",
+  monogram: "UG",
+  clubName: "United Gymnastics",
+  logoUrl: "/logos/united-gymnastics.png",
+};
+
 export function brandForOrg(orgSlug: string | null | undefined): CampBrand {
-  return orgSlug === SIU_ORG_SLUG ? SIU_BRAND : CUFC_BRAND;
+  if (orgSlug === SIU_ORG_SLUG) return SIU_BRAND;
+  if (orgSlug === CUGC_ORG_SLUG) return CUGC_BRAND;
+  return CUFC_BRAND;
+}
+
+/**
+ * The camp's booking page, carrying the landing page's query string (utm_*,
+ * fbclid, source) — the booking form reads attribution from ITS OWN URL, so a
+ * bare `/slug/book` link turned every ad click into a "direct" booking.
+ */
+export function campBookHref(slug: string): string {
+  const qs = typeof window !== "undefined" ? window.location.search : "";
+  return `/${slug}/book${qs}`;
 }

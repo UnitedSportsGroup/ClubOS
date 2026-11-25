@@ -560,6 +560,7 @@ function AdminRouter() {
         <Route path="/admin/cugc-registrations" component={CugcRegistrations} />
         <Route path="/admin/cugc-roll" component={CugcRoll} />
         <Route path="/admin/cugc-free-sessions" component={CugcFreeSessions} />
+        <Route path="/admin/camps" component={AdminCamps} />
         <Route path="/admin/cugc-analytics" component={CugcAnalytics} />
         <Route path="/admin/cugc-inbox" component={CugcInbox} />
         {/* ONE Mailer, every workspace (2026-11-14). The old URL still lands. */}

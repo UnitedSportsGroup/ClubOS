@@ -18,6 +18,7 @@ import { purchaseEventId } from "@shared/meta-events";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { brandForOrg, type CampBrand } from "@/lib/camp-brand";
+import { stripeForKey } from "@/lib/camp-stripe";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -51,8 +52,10 @@ const hardcodedPrices: Record<string, number> = {
   FULL_DAY: 5000,
 };
 
-function StripePay({ clientSecret, slug, registrationId, totalCents, parentEmail, parentName, campName, itemCount, currency, brand }: {
+function StripePay({ clientSecret, publishableKey, slug, registrationId, totalCents, parentEmail, parentName, campName, itemCount, currency, brand }: {
   clientSecret: string;
+  /** Set when the intent is on another Stripe account (a United Gymnastics camp). */
+  publishableKey?: string | null;
   slug: string;
   registrationId: number;
   totalCents: number;
@@ -65,7 +68,7 @@ function StripePay({ clientSecret, slug, registrationId, totalCents, parentEmail
 }) {
   return (
     <Elements
-      stripe={stripePromise}
+      stripe={publishableKey ? stripeForKey(publishableKey) : stripePromise}
       options={{
         clientSecret,
         appearance: {
@@ -906,6 +909,7 @@ export default function BookingPage() {
 
             <StripePay
               clientSecret={checkoutData.clientSecret}
+              publishableKey={checkoutData.publishableKey}
               slug={slug}
               registrationId={checkoutData.registrationId}
               totalCents={checkoutData.totalCents}

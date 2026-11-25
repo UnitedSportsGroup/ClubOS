@@ -1,8 +1,38 @@
 import Stripe from "stripe";
+import { cugcStripe } from "./cugc-stripe";
+import type { CampMoneyAccount } from "@shared/camp-money-account";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
   apiVersion: "2025-04-30.basil",
 });
+
+/** The Stripe client for an account. Only a holiday camp owned by United
+ *  Gymnastics passes "cugc" (shared/camp-money-account.ts). */
+export function stripeForAccount(account?: CampMoneyAccount): Stripe {
+  return account === "cugc" ? cugcStripe : stripe;
+}
+
+/** A PaymentIntent / refund id the club account has never heard of. */
+function isMissingOnClub(e: any): boolean {
+  return e?.code === "resource_missing" || /No such (payment_intent|refund)/i.test(String(e?.message || ""));
+}
+
+/**
+ * Run a lookup against the club account and, ONLY when Stripe answers "no such
+ * object" there, against the gymnastics account. PaymentIntent and refund ids
+ * are unique across Stripe, so this can never return the wrong account's
+ * object — and every club payment behaves exactly as before (one call, same
+ * account). It is what lets every existing confirm/refund path work for a
+ * gymnastics camp booking without each caller knowing which account it is.
+ */
+async function clubThenCugc<T>(fn: (s: Stripe) => Promise<T>): Promise<T> {
+  try {
+    return await fn(stripe);
+  } catch (e) {
+    if (isMissingOnClub(e) && process.env.CUGC_STRIPE_SECRET_KEY) return fn(cugcStripe);
+    throw e;
+  }
+}
 
 export interface PaymentIntentParams {
   registrationId: number;
@@ -17,10 +47,12 @@ export interface PaymentIntentParams {
   setupFutureUsage?: "off_session" | "on_session";
   /** Optional idempotency key to make retries safe. */
   idempotencyKey?: string;
+  /** Which Stripe account banks it. Omitted = the club account (every caller before 25 Nov 2026). */
+  account?: CampMoneyAccount;
 }
 
 export async function createPaymentIntent(params: PaymentIntentParams): Promise<Stripe.PaymentIntent> {
-  const paymentIntent = await stripe.paymentIntents.create(
+  const paymentIntent = await stripeForAccount(params.account).paymentIntents.create(
     {
       amount: params.totalCents,
       currency: params.currency.toLowerCase(),
@@ -111,7 +143,7 @@ export async function createOffSessionPaymentIntent(params: {
 }
 
 export async function retrievePaymentIntent(id: string): Promise<Stripe.PaymentIntent> {
-  return stripe.paymentIntents.retrieve(id);
+  return clubThenCugc((s) => s.paymentIntents.retrieve(id));
 }
 
 export async function createRefund(params: {
@@ -121,7 +153,7 @@ export async function createRefund(params: {
   metadata?: Record<string, string>;
   idempotencyKey?: string;
 }): Promise<Stripe.Refund> {
-  const refund = await stripe.refunds.create(
+  const refund = await clubThenCugc((s) => s.refunds.create(
     {
       payment_intent: params.paymentIntentId,
       ...(params.amountCents ? { amount: params.amountCents } : {}),
@@ -132,12 +164,12 @@ export async function createRefund(params: {
       },
     },
     params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : undefined
-  );
+  ));
   return refund;
 }
 
 export async function retrieveRefund(id: string): Promise<Stripe.Refund> {
-  return stripe.refunds.retrieve(id);
+  return clubThenCugc((s) => s.refunds.retrieve(id));
 }
 
 export function constructWebhookEvent(payload: string | Buffer, sig: string): Stripe.Event {
