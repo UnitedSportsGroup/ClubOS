@@ -130,6 +130,8 @@ export async function createBooking(body: any): Promise<{ error?: string; url?: 
   // Honeypot: stored, flagged, answered the same. Nothing is emailed before a
   // deposit is paid anyway, so a bot gets nothing out of this form.
   const quarantined = clean(body.website).length > 0;
+  // Overseas teams only; anything else stays NULL (not asked).
+  const visaSupport = typeof body.visaSupport === "boolean" ? body.visaSupport : null;
 
   const tp = await tripPrices();
   const m = priceBooking(input, tp);
@@ -141,14 +143,14 @@ export async function createBooking(body: any): Promise<{ error?: string; url?: 
       (organization_id, token, join_token, club_name, team_name, manager_name, manager_email, manager_phone,
        origin, package_id, age_group, players, staff, adults, input, lines, prices_checked_at,
        total_cents, flights_cents, invoice_cents, deposit_cents, per_player_cents, player_share_cents, per_adult_cents,
-       terms_accepted_at, expires_at, source, quarantined)
+       terms_accepted_at, expires_at, source, quarantined, visa_support)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),
-             now() + ($25 || ' days')::interval, $26, $27)`,
+             now() + ($25 || ' days')::interval, $26, $27, $28)`,
     [CIC_ORG_ID, t, token(), clubName, clean(body.teamName) || null, managerName, managerEmail, managerPhone,
      input.origin, input.pkg, input.age, input.players, input.staff, input.adults,
      JSON.stringify(input), JSON.stringify(m.quote.lines), tp.checkedAt ?? null,
      m.totalCents, m.flightsCents, m.invoiceCents, m.depositCents, m.perPlayerCents, m.playerShareCents, m.perAdultCents,
-     String(QUOTE_HOLD_DAYS), clean(body.source, 500) || null, quarantined],
+     String(QUOTE_HOLD_DAYS), clean(body.source, 500) || null, quarantined, input.origin === "overseas" ? visaSupport : null],
   );
   return { url: `${PUBLIC_BASE}/cic-package/${t}` };
 }
@@ -344,6 +346,7 @@ async function depositEmails(b: any) {
     subject: `New CIC 2027 package booking: ${b.club_name} ${b.age_group} (${pkg}) — deposit ${nzd(b.deposit_cents)}`,
     html: `<p>${esc(b.club_name)} · ${b.age_group} · ${pkg} · ${b.players} players, ${b.staff} staff, ${b.adults} adults.</p>
       <p>Invoice ${nzd(b.invoice_cents)} · deposit ${nzd(b.deposit_cents)} paid.</p>
+      ${b.visa_support === true ? "<p><b>Needs visa support.</b></p>" : b.visa_support === false ? "<p>No visa support needed.</p>" : ""}
       <p>Manager ${esc(b.manager_name)} · ${esc(b.manager_email)} · ${esc(b.manager_phone)}</p>
       <p>ClubOS → CIC → Packages.</p>`,
   });
@@ -503,7 +506,7 @@ export async function adminList(orgId: number) {
       paidTowardCents: b.paid_toward, extrasPaidCents: b.extras_paid, outstandingCents: m.outstandingCents,
       overpaidCents: Math.max(0, b.paid_toward - b.invoice_cents),
       status: status(b), quarantined: b.quarantined, createdAt: b.created_at, expiresAt: b.expires_at,
-      depositPaidAt: b.deposit_paid_at, staffNotes: b.staff_notes, groupId: b.group_id ?? null,
+      depositPaidAt: b.deposit_paid_at, staffNotes: b.staff_notes, groupId: b.group_id ?? null, visaSupport: b.visa_support ?? null,
       teamUrl: `${PUBLIC_BASE}/cic-package/${b.token}`,
       joinUrl: b.deposit_paid_at ? `${PUBLIC_BASE}/cic-join/${b.join_token}` : null,
     };
@@ -603,6 +606,8 @@ export async function createGroupBooking(body: any): Promise<{ error?: string; u
   if (managerPhone.replace(/\D/g, "").length < 6) return { error: "Please add a mobile number." };
   if (body.termsAccepted !== true) return { error: "Please tick that you understand the deposit is non-refundable." };
   const quarantined = clean(body.website).length > 0;
+  // Overseas teams only; anything else stays NULL (not asked).
+  const visaSupport = typeof body.visaSupport === "boolean" ? body.visaSupport : null;
 
   const tp = await tripPrices();
   const priced = inputs.map((input) => ({ input, m: priceBooking(input, tp) }));
@@ -626,13 +631,13 @@ export async function createGroupBooking(body: any): Promise<{ error?: string; u
           (organization_id, token, join_token, club_name, team_name, manager_name, manager_email, manager_phone,
            origin, package_id, age_group, players, staff, adults, input, lines, prices_checked_at,
            total_cents, flights_cents, invoice_cents, deposit_cents, per_player_cents, player_share_cents, per_adult_cents,
-           terms_accepted_at, expires_at, source, quarantined, group_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),$25,$26,$27,$28)`,
+           terms_accepted_at, expires_at, source, quarantined, group_id, visa_support)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),$25,$26,$27,$28,$29)`,
         [CIC_ORG_ID, token(), token(), clubName, `${clubName} ${input.age}`, managerName, managerEmail, managerPhone,
          input.origin, input.pkg, input.age, input.players, input.staff, input.adults,
          JSON.stringify(input), JSON.stringify(m.quote.lines), tp.checkedAt ?? null,
          m.totalCents, m.flightsCents, m.invoiceCents, m.depositCents, m.perPlayerCents, m.playerShareCents, m.perAdultCents,
-         g.rows[0].expires_at, clean(body.source, 500) || null, quarantined, groupId],
+         g.rows[0].expires_at, clean(body.source, 500) || null, quarantined, groupId, input.origin === "overseas" ? visaSupport : null],
       );
     }
     await db.query("COMMIT");
@@ -822,6 +827,7 @@ async function groupDepositEmails(g: any, teams: any[]) {
     subject: `New CIC 2027 package booking: ${g.club_name} ${ages} — deposit ${nzd(g.deposit_cents)}`,
     html: `<p>${esc(g.club_name)} · ${teams.length} teams: ${teams.map((b) => `${b.age_group} (${b.players} players, ${b.staff} staff, invoice ${nzd(b.invoice_cents)})`).join(" · ")}.</p>
       <p>Deposit ${nzd(g.deposit_cents)} paid in one payment.</p>
+      ${teams[0]?.visa_support === true ? "<p><b>Needs visa support.</b></p>" : teams[0]?.visa_support === false ? "<p>No visa support needed.</p>" : ""}
       <p>Manager ${esc(g.manager_name)} · ${esc(g.manager_email)} · ${esc(g.manager_phone)}</p>
       <p>ClubOS → CIC → Packages.</p>`,
   });

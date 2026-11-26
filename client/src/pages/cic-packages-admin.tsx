@@ -101,6 +101,7 @@ export default function CicPackagesAdmin() {
                     <div className="text-[12px] text-white/45">
                       {b.managerName} · {b.registered}/{b.players} registered · {b.status === "held" ? `hold ends ${day(b.expiresAt)}` : `booked ${day(b.createdAt)}`}
                       {b.groupId ? ` · booked with ${all.filter((x) => x.groupId === b.groupId && x.id !== b.id).map((x) => x.ageGroup).join(", ")}, one deposit` : ""}
+                      {b.visaSupport === true ? " · NEEDS VISA SUPPORT" : b.visaSupport === false ? " · no visa support needed" : ""}
                       {b.quarantined ? " · flagged as likely spam" : ""}
                     </div>
                   </div>
