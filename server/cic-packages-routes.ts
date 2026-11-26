@@ -49,6 +49,23 @@ export function registerCicPackagesRoutes(app: Express) {
     try { answer(res, await pk.createBooking(req.body)); } catch (e) { fail(res, "book", e); }
   });
 
+  // Several age groups, one booking, one deposit.
+  app.post("/api/public/cic/packages/book-group", async (req, res) => {
+    if (pk.rateLimited(`book:${ip(req)}`, 12)) {
+      return res.status(429).json({ message: "That's a few bookings in a short time. Try again shortly, or email info@cicyouth.com." });
+    }
+    try { answer(res, await pk.createGroupBooking(req.body)); } catch (e) { fail(res, "book group", e); }
+  });
+  app.get("/api/public/cic/packages/group/:token", async (req, res) => {
+    try { const g = await pk.getGroup(String(req.params.token)); g ? res.json(g) : notFound(res); } catch (e) { fail(res, "group", e); }
+  });
+  app.post("/api/public/cic/packages/group/:token/pay", async (req, res) => {
+    try { answer(res, await pk.startGroupDeposit(String(req.params.token))); } catch (e) { fail(res, "group pay", e); }
+  });
+  app.post("/api/public/cic/packages/group/:token/confirm", async (req, res) => {
+    try { answer(res, await pk.confirmGroupPayment(String(req.params.token), Number(req.body?.paymentId))); } catch (e) { fail(res, "group confirm", e); }
+  });
+
   // Staff and the page can preview the server's price for a set of choices.
   app.post("/api/public/cic/packages/quote", async (req, res) => {
     try {

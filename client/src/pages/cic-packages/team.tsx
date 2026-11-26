@@ -90,7 +90,13 @@ export default function CicPackageTeamPage() {
                 </div>
               ))}
             </div>
-            {!paying && (
+            {b.groupUrl && (
+              <div className="mt-5">
+                <a href={b.groupUrl}><Button brand={brand} className="w-full">Pay the deposit for all your teams</Button></a>
+                <p className="mt-2 text-center text-[12px]" style={{ color: brand.mute }}>This team was booked with your other age groups, so one deposit covers them all.</p>
+              </div>
+            )}
+            {!paying && !b.groupUrl && (
               <div className="mt-5">
                 <Button brand={brand} className="w-full" onClick={() => start("deposit")} disabled={starting !== null}>
                   {starting === "deposit" && <Loader2 size={16} className="mr-2 animate-spin" />} Pay {money(b.depositCents)} deposit

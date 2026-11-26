@@ -100,6 +100,7 @@ export default function CicPackagesAdmin() {
                     <div className="font-medium text-white">{b.clubName}{b.teamName ? ` · ${b.teamName}` : ""} <span className="text-white/45">· {b.ageGroup} · {b.packageName}</span></div>
                     <div className="text-[12px] text-white/45">
                       {b.managerName} · {b.registered}/{b.players} registered · {b.status === "held" ? `hold ends ${day(b.expiresAt)}` : `booked ${day(b.createdAt)}`}
+                      {b.groupId ? ` · booked with ${all.filter((x) => x.groupId === b.groupId && x.id !== b.id).map((x) => x.ageGroup).join(", ")}, one deposit` : ""}
                       {b.quarantined ? " · flagged as likely spam" : ""}
                     </div>
                   </div>

@@ -195,6 +195,7 @@ export async function getBooking(t: string) {
   )).rows.map((p: any) => ({ kind: p.kind, amountCents: p.amount_cents, extrasCents: p.extras_cents, paidAt: p.paid_at }));
   return {
     ...publicBooking(b, m), roster: players, payments,
+    groupUrl: b.group_id ? `${PUBLIC_BASE}/cic-package-group/${(await q(`SELECT token FROM cic_pkg_groups WHERE id=$1`, [b.group_id])).rows[0]?.token}` : null,
     joinUrl: b.deposit_paid_at ? `${PUBLIC_BASE}/cic-join/${b.join_token}` : null,
   };
 }
@@ -210,6 +211,8 @@ export async function startManagerPayment(t: string, kind: PayKind) {
   let amount = 0;
   if (kind === "deposit") {
     if (b.deposit_paid_at) return { error: "Your deposit is already paid." };
+    // A team booked with others pays its deposit once, together, on the group page.
+    if (b.group_id) return { error: "This team's deposit is paid together with your other teams. Use the link in your booking email." };
     if (st === "expired") return { error: `This quote's ${QUOTE_HOLD_DAYS}-day hold has ended. Build it again on packages.cicyouth.com to get today's price.` };
     amount = b.deposit_cents;
   } else {
@@ -500,7 +503,7 @@ export async function adminList(orgId: number) {
       paidTowardCents: b.paid_toward, extrasPaidCents: b.extras_paid, outstandingCents: m.outstandingCents,
       overpaidCents: Math.max(0, b.paid_toward - b.invoice_cents),
       status: status(b), quarantined: b.quarantined, createdAt: b.created_at, expiresAt: b.expires_at,
-      depositPaidAt: b.deposit_paid_at, staffNotes: b.staff_notes,
+      depositPaidAt: b.deposit_paid_at, staffNotes: b.staff_notes, groupId: b.group_id ?? null,
       teamUrl: `${PUBLIC_BASE}/cic-package/${b.token}`,
       joinUrl: b.deposit_paid_at ? `${PUBLIC_BASE}/cic-join/${b.join_token}` : null,
     };
@@ -570,4 +573,256 @@ export async function adminUpdateBooking(orgId: number, id: number, body: any) {
     await q(`UPDATE cic_pkg_bookings SET staff_notes=$1, updated_at=now() WHERE id=$2 AND organization_id=$3`, [body.staffNotes.slice(0, 4000), id, orgId]);
   }
   return { ok: true };
+}
+
+// ── 6. several age groups, one booking, one deposit ──────────────────────────
+// Daniel, 26 Nov 2026. A club picks U12 + U14 (say) on the page; each team is an
+// ordinary booking (own quote, own players' link, own balance and instalments),
+// tied to a cic_pkg_groups row that carries the manager and ONE deposit. A team
+// that belongs to a group never takes a deposit on its own page.
+const MAX_TEAMS = AGE_GROUPS.length;
+
+export async function createGroupBooking(body: any): Promise<{ error?: string; url?: string }> {
+  const raws = Array.isArray(body?.inputs) ? body.inputs.slice(0, MAX_TEAMS + 1) : [];
+  if (raws.length < 2) return { error: "Pick at least two age groups to book them together." };
+  if (raws.length > MAX_TEAMS) return { error: "That's more teams than there are age groups." };
+  const inputs: QuoteInput[] = [];
+  for (const r of raws) {
+    const i = cleanInput(r);
+    if (!i) return { error: "Something in your trip didn't come through. Go back a step and try again." };
+    inputs.push(i);
+  }
+  if (new Set(inputs.map((i) => i.age)).size !== inputs.length) return { error: "Each age group can only be booked once here." };
+  const clubName = clean(body.clubName);
+  const managerName = clean(body.managerName);
+  const managerEmail = clean(body.managerEmail).toLowerCase();
+  const managerPhone = clean(body.managerPhone, 40);
+  if (!clubName) return { error: "Please tell us your club." };
+  if (!managerName) return { error: "Please tell us the manager's name." };
+  if (!emailOk(managerEmail)) return { error: "Please check the email address." };
+  if (managerPhone.replace(/\D/g, "").length < 6) return { error: "Please add a mobile number." };
+  if (body.termsAccepted !== true) return { error: "Please tick that you understand the deposit is non-refundable." };
+  const quarantined = clean(body.website).length > 0;
+
+  const tp = await tripPrices();
+  const priced = inputs.map((input) => ({ input, m: priceBooking(input, tp) }));
+  if (priced.some((p) => p.m.invoiceCents <= 0)) return { error: "One of those teams comes to nothing we can take a deposit on." };
+  const depositCents = priced.reduce((s, p) => s + p.m.depositCents, 0);
+  if (depositCents < 50) return { error: "That trip comes to nothing we can take a deposit on." };
+
+  const gt = token();
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const g = await db.query(
+      `INSERT INTO cic_pkg_groups (organization_id, token, club_name, manager_name, manager_email, manager_phone, deposit_cents, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, now() + ($8 || ' days')::interval) RETURNING id, expires_at`,
+      [CIC_ORG_ID, gt, clubName, managerName, managerEmail, managerPhone, depositCents, String(QUOTE_HOLD_DAYS)],
+    );
+    const groupId = g.rows[0].id;
+    for (const { input, m } of priced) {
+      await db.query(
+        `INSERT INTO cic_pkg_bookings
+          (organization_id, token, join_token, club_name, team_name, manager_name, manager_email, manager_phone,
+           origin, package_id, age_group, players, staff, adults, input, lines, prices_checked_at,
+           total_cents, flights_cents, invoice_cents, deposit_cents, per_player_cents, player_share_cents, per_adult_cents,
+           terms_accepted_at, expires_at, source, quarantined, group_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),$25,$26,$27,$28)`,
+        [CIC_ORG_ID, token(), token(), clubName, `${clubName} ${input.age}`, managerName, managerEmail, managerPhone,
+         input.origin, input.pkg, input.age, input.players, input.staff, input.adults,
+         JSON.stringify(input), JSON.stringify(m.quote.lines), tp.checkedAt ?? null,
+         m.totalCents, m.flightsCents, m.invoiceCents, m.depositCents, m.perPlayerCents, m.playerShareCents, m.perAdultCents,
+         g.rows[0].expires_at, clean(body.source, 500) || null, quarantined, groupId],
+      );
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+  return { url: `${PUBLIC_BASE}/cic-package-group/${gt}` };
+}
+
+async function groupByToken(t: string) {
+  if (!isToken(t)) return null;
+  const r = await q(`SELECT * FROM cic_pkg_groups WHERE token=$1`, [t]);
+  return r.rows[0] ?? null;
+}
+async function groupTeams(groupId: number) {
+  return (await q(`SELECT * FROM cic_pkg_bookings WHERE group_id=$1 ORDER BY age_group`, [groupId])).rows;
+}
+function groupStatus(g: any, teams: any[]): "held" | "expired" | "booked" | "cancelled" {
+  if (g.deposit_paid_at) return "booked";
+  if (teams.some((b) => b.cancelled_at)) return "cancelled";
+  return new Date(g.expires_at).getTime() < Date.now() ? "expired" : "held";
+}
+
+export async function getGroup(t: string) {
+  const g = await groupByToken(t);
+  if (!g) return null;
+  const teams = await groupTeams(g.id);
+  const out = [];
+  for (const b of teams) {
+    const m = money(b, await paidToward(b.id));
+    out.push({
+      ...publicBooking(b, m),
+      teamUrl: `${PUBLIC_BASE}/cic-package/${b.token}`,
+      joinUrl: b.deposit_paid_at ? `${PUBLIC_BASE}/cic-join/${b.join_token}` : null,
+    });
+  }
+  return {
+    clubName: g.club_name, managerName: g.manager_name,
+    depositCents: g.deposit_cents, expiresAt: g.expires_at, depositPaidAt: g.deposit_paid_at,
+    status: groupStatus(g, teams),
+    totalCents: teams.reduce((s, b) => s + b.total_cents, 0),
+    flightsCents: teams.reduce((s, b) => s + b.flights_cents, 0),
+    invoiceCents: teams.reduce((s, b) => s + b.invoice_cents, 0),
+    teams: out,
+  };
+}
+
+/** The one deposit for every team in the group. */
+export async function startGroupDeposit(t: string) {
+  const g = await groupByToken(t);
+  if (!g) return { error: "not_found" as const };
+  const teams = await groupTeams(g.id);
+  const st = groupStatus(g, teams);
+  if (st === "booked") return { error: "Your deposit is already paid." };
+  if (st === "cancelled") return { error: "One of these teams was cancelled. Email info@cicyouth.com and we'll sort it." };
+  if (st === "expired") return { error: `This quote's ${QUOTE_HOLD_DAYS}-day hold has ended. Build it again on packages.cicyouth.com to get today's price.` };
+  if (teams.some((b) => b.deposit_paid_at)) return { error: "One of these teams already has a deposit. Email info@cicyouth.com and we'll sort it." };
+  const amount = teams.reduce((s, b) => s + b.deposit_cents, 0);
+  if (amount !== g.deposit_cents) throw new Error(`group ${g.id}: deposit ${g.deposit_cents} ≠ teams ${amount}`);
+
+  // A double tap or reload in the last half hour reuses the same charge.
+  const prev = await q(
+    `SELECT id, stripe_payment_intent_id FROM cic_pkg_group_payments
+      WHERE group_id=$1 AND paid_at IS NULL AND stripe_payment_intent_id IS NOT NULL AND created_at > now() - interval '30 minutes'
+      ORDER BY id DESC LIMIT 1`, [g.id],
+  );
+  if (prev.rows[0]) {
+    const pi = await retrievePaymentIntent(prev.rows[0].stripe_payment_intent_id);
+    if (pi.status !== "canceled" && pi.status !== "succeeded" && pi.client_secret) {
+      return { clientSecret: pi.client_secret, amountCents: amount, paymentId: prev.rows[0].id as number };
+    }
+  }
+  // The group charge and a deposit row on every team, written together, so the
+  // database's own checks (10% each, inside the hold) run before any card is asked.
+  const db = await pool.connect();
+  let gpId: number;
+  try {
+    await db.query("BEGIN");
+    gpId = (await db.query(
+      `INSERT INTO cic_pkg_group_payments (group_id, amount_cents) VALUES ($1,$2) RETURNING id`, [g.id, amount],
+    )).rows[0].id;
+    for (const b of teams) {
+      await db.query(
+        `INSERT INTO cic_pkg_payments (booking_id, kind, amount_cents, group_payment_id) VALUES ($1,'deposit',$2,$3)`,
+        [b.id, b.deposit_cents, gpId],
+      );
+    }
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+  let customerId: string | undefined;
+  try { customerId = (await getOrCreateCustomer({ email: g.manager_email, name: g.manager_name, phone: g.manager_phone })).id; }
+  catch (e) { console.error("[cic-packages] customer failed:", e); }
+  const pi = await createCardPaymentIntent({
+    amountCents: amount, currency: "NZD", receiptEmail: g.manager_email,
+    description: `CIC 2027 — ${g.club_name} ${teams.map((b) => b.age_group).join(" + ")} — 10% deposit`,
+    metadata: {
+      // 🔴 `kind` is what the webhook branches on. Never `registrationId`.
+      kind: "cic_package_group", cicPkgGroupPaymentId: String(gpId), cicPkgGroupId: String(g.id),
+    },
+    customerId,
+    idempotencyKey: `cic-pkg-group-payment-${gpId}`,
+  });
+  await q(`UPDATE cic_pkg_group_payments SET stripe_payment_intent_id=$1 WHERE id=$2`, [pi.id, gpId]);
+  return { clientSecret: pi.client_secret, amountCents: amount, paymentId: gpId };
+}
+
+export async function confirmGroupPayment(t: string, paymentId: number) {
+  const g = await groupByToken(t);
+  if (!g) return { error: "not_found" as const };
+  const p = (await q(`SELECT * FROM cic_pkg_group_payments WHERE id=$1 AND group_id=$2`, [paymentId, g.id])).rows[0];
+  if (!p) return { error: "not_found" as const };
+  if (p.paid_at) return { paid: true };
+  if (!p.stripe_payment_intent_id) return { paid: false };
+  const pi = await retrievePaymentIntent(p.stripe_payment_intent_id);
+  if (pi.status !== "succeeded") return { paid: false };
+  await markGroupPaid(p.id, pi.id);
+  return { paid: true };
+}
+
+/** The atomic flip for a group: the charge, every team's deposit row, every team. */
+async function markGroupPaid(gpId: number, piId: string): Promise<boolean> {
+  const db = await pool.connect();
+  let groupId: number | null = null;
+  try {
+    await db.query("BEGIN");
+    const r = await db.query(
+      `UPDATE cic_pkg_group_payments SET paid_at=now() WHERE id=$1 AND stripe_payment_intent_id=$2 AND paid_at IS NULL RETURNING group_id`,
+      [gpId, piId],
+    );
+    if (!r.rows[0]) { await db.query("ROLLBACK"); return false; }
+    groupId = r.rows[0].group_id;
+    await db.query(`UPDATE cic_pkg_payments SET paid_at=now() WHERE group_payment_id=$1 AND paid_at IS NULL`, [gpId]);
+    await db.query(`UPDATE cic_pkg_bookings SET deposit_paid_at=now(), updated_at=now() WHERE group_id=$1 AND deposit_paid_at IS NULL`, [groupId]);
+    await db.query(`UPDATE cic_pkg_groups SET deposit_paid_at=now() WHERE id=$1 AND deposit_paid_at IS NULL`, [groupId]);
+    await db.query("COMMIT");
+  } catch (e) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    db.release();
+  }
+  const g = (await q(`SELECT * FROM cic_pkg_groups WHERE id=$1`, [groupId])).rows[0];
+  await groupDepositEmails(g, await groupTeams(g.id)).catch((e) => console.error("[cic-packages] group deposit email:", e));
+  return true;
+}
+
+export async function markGroupPaidByPaymentIntent(pi: any): Promise<boolean> {
+  const id = Number(pi?.metadata?.cicPkgGroupPaymentId);
+  if (!Number.isInteger(id)) return false;
+  return markGroupPaid(id, pi.id);
+}
+
+async function groupDepositEmails(g: any, teams: any[]) {
+  const page = `${PUBLIC_BASE}/cic-package-group/${g.token}`;
+  const ages = teams.map((b) => b.age_group).join(" + ");
+  const rows = teams.map((b) => {
+    const pkg = PACKAGES[b.package_id as keyof typeof PACKAGES]?.name ?? b.package_id;
+    const team = `${PUBLIC_BASE}/cic-package/${b.token}`;
+    const join = `${PUBLIC_BASE}/cic-join/${b.join_token}`;
+    return `<p><b>${b.age_group}</b> (${pkg}, ${AGE_GROUPS.find((a) => a.id === b.age_group)?.dates ?? ""}) · invoice ${nzd(b.invoice_cents)}<br>
+      Team page (pay instalments, see who has registered): <a href="${team}">${team}</a><br>
+      Players' link (send to this squad): <a href="${join}">${join}</a></p>`;
+  }).join("");
+  await sendEmail({
+    to: g.manager_email, from: FROM, replyTo: STAFF_TO,
+    subject: `You're booked: CIC 2027 ${ages}`,
+    html: `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">
+      <p>Kia ora ${esc(g.manager_name.split(" ")[0])},</p>
+      <p>Your ${nzd(g.deposit_cents)} deposit is in, so ${esc(g.club_name)}'s ${teams.length} places at CIC 2027 are held.</p>
+      ${rows}
+      <p>Each team's balance is due in three parts: ${INSTALMENTS.join(", ")}. Whatever a team's players pay comes off that team's balance.</p>
+      <p>All your teams in one place: <a href="${page}">${page}</a></p>
+      <p>The deposit is non-refundable unless CIC cancels the tournament.</p>
+      <p>Questions? Just reply to this email.</p>
+      <p>Christchurch International Cup</p></div>`,
+  });
+  await sendEmail({
+    to: STAFF_TO, from: FROM,
+    subject: `New CIC 2027 package booking: ${g.club_name} ${ages} — deposit ${nzd(g.deposit_cents)}`,
+    html: `<p>${esc(g.club_name)} · ${teams.length} teams: ${teams.map((b) => `${b.age_group} (${b.players} players, ${b.staff} staff, invoice ${nzd(b.invoice_cents)})`).join(" · ")}.</p>
+      <p>Deposit ${nzd(g.deposit_cents)} paid in one payment.</p>
+      <p>Manager ${esc(g.manager_name)} · ${esc(g.manager_email)} · ${esc(g.manager_phone)}</p>
+      <p>ClubOS → CIC → Packages.</p>`,
+  });
 }

@@ -239,6 +239,7 @@ const FootballFest = lazy(() => import("@/pages/football-fest"));
 const TeamEntries = lazy(() => import("@/pages/team-entries"));
 const CicPackagesAdmin = lazy(() => import("@/pages/cic-packages-admin"));
 const CicPackageTeamPage = lazy(() => import("@/pages/cic-packages/team"));
+const CicPackageGroupPage = lazy(() => import("@/pages/cic-packages/group"));
 const CicPackageJoinPage = lazy(() => import("@/pages/cic-packages/join"));
 const CicPackagePlayerPage = lazy(() => import("@/pages/cic-packages/player"));
 const TeampayEnterPage = lazy(() => import("@/pages/teampay/enter"));
@@ -1101,6 +1102,7 @@ function App() {
             <Route path="/pay/:token" component={TeampayPlayerPage} />
             {/* CIC 2027 packages (join.cicyouth.com) — token-addressed, no login. */}
             <Route path="/cic-package/:token" component={CicPackageTeamPage} />
+            <Route path="/cic-package-group/:token" component={CicPackageGroupPage} />
             <Route path="/cic-join/:token" component={CicPackageJoinPage} />
             <Route path="/cic-player/:token" component={CicPackagePlayerPage} />
             <Route path="/fill-in/reply/:token" component={TeampayHoldPage} />

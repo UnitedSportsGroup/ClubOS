@@ -20113,6 +20113,11 @@ export async function registerRoutes(
           // registrationId branch below.
           const { markPaidByPaymentIntent } = await import("./cic-packages");
           await markPaidByPaymentIntent(paymentIntent);
+        } else if (paymentIntent.metadata?.kind === "cic_package_group" && paymentIntent.metadata?.cicPkgGroupPaymentId) {
+          // CIC 2027 packages: ONE deposit for several teams. Same atomic flip,
+          // marking every team's deposit row paid in one transaction.
+          const { markGroupPaidByPaymentIntent } = await import("./cic-packages");
+          await markGroupPaidByPaymentIntent(paymentIntent);
         } else if (paymentIntent.metadata?.kind === "teampay" && paymentIntent.metadata?.teampayPlayerId) {
           // Team Pay: one squad member's share cleared. Idempotent — the flip is
           // an atomic UPDATE ... WHERE paid_at IS NULL, so a webhook retry racing
