@@ -121,11 +121,26 @@ export const RATES = {
     note: "Per person per night. Based on $160–250 a room in July, two to three to a room. Partner rates not yet agreed.",
   } as Money,
   breakfast: { amount: 18, basis: "est", note: "Per person. Victoria Foods to quote. Skipped if your accommodation includes breakfast." } as Money,
-  lunch: { amount: 18, basis: "est", note: "Per person, delivered to the ground on game days. Victoria Foods to quote." } as Money,
-  dinner: { amount: 28, basis: "est", note: "Per person. Victoria Foods to quote." } as Money,
+  // Victoria Foods, chef-confirmed (Jon Wild to Ryan, 24 Nov 2026), GST incl. The
+  // U12–U15 portion; U9–U11 is in MEALS below. Adults are priced at this portion.
+  lunch: { amount: 28, basis: "quoted", note: "Victoria Foods packed lunch, U12–U15 portion, free delivery to the ground." } as Money,
+  dinner: { amount: 32.25, basis: "quoted", note: "Victoria Foods dinner, U12–U15 portion (main, side, bread, dessert). Delivery to your accommodation is extra, by distance." } as Money,
   van: { amount: 160, basis: "est", note: "Per 12-seat van per day. Rental partner to quote." } as Money,
   marquee: { amount: 100, basis: "meeting", note: "Per day in the tournament village (Happy Hire)." } as Money,
 };
+
+// Victoria Foods by age band (Jon Wild, 24 Nov 2026, chef-confirmed, GST incl).
+// Dietary extras: Veg/Vegan/GF +2 lunch, +4 dinner; allergy +4 / +6 (not in the total).
+export const MEALS: { ages: string[]; lunch: Money; dinner: Money }[] = [
+  { ages: ["U9", "U10", "U11"],
+    lunch: { amount: 23, basis: "quoted", note: "Victoria Foods packed lunch, U9–U11, free delivery to the ground about 12pm." },
+    dinner: { amount: 27.5, basis: "quoted", note: "Victoria Foods dinner, U9–U11 (about 120g protein, main, side, dessert). Delivery to your accommodation is extra." } },
+  { ages: ["U12", "U13", "U14", "U15"], lunch: RATES.lunch, dinner: RATES.dinner },
+];
+/** A player's lunch and dinner for their age group; adults always get RATES (the larger portion). */
+export function mealsFor(age: string): { lunch: Money; dinner: Money } {
+  return MEALS.find((m) => m.ages.includes(age)) ?? { lunch: RATES.lunch, dinner: RATES.dinner };
+}
 
 // Add-ons. `child` is a player's price, `adult` is staff and other adults.
 // null = price on request (shown, not totalled).
@@ -300,11 +315,15 @@ export function quote(q: QuoteInput, tp: TripPrices): Quote {
       : `${people} people × ${nights} nights`;
     lines.push({ label: "Accommodation", detail: accDetail, amount: accom * people, basis: accRate.basis });
 
-    const meals = (q.breakfast ? n(bfRate) * nights : 0) + n(RATES.lunch) * TOURNAMENT_DAYS + n(RATES.dinner) * nights;
-    mark(RATES.lunch);
-    perChild += meals; perGrown += meals;
-    const mealDetail = `Victoria Foods · ${q.breakfast ? `${nights} breakfasts, ` : ""}${TOURNAMENT_DAYS} lunches, ${nights} dinners each`;
-    lines.push({ label: "Meals", detail: mealDetail, amount: meals * people, basis: RATES.lunch.basis });
+    const kid = mealsFor(age.id);
+    const bf = q.breakfast ? n(bfRate) * nights : 0;
+    const mealsChild = bf + n(kid.lunch) * TOURNAMENT_DAYS + n(kid.dinner) * nights;
+    const mealsGrown = bf + n(RATES.lunch) * TOURNAMENT_DAYS + n(RATES.dinner) * nights;
+    mark(kid.lunch); mark(RATES.lunch);
+    perChild += mealsChild; perGrown += mealsGrown;
+    const mealDetail = `Victoria Foods · ${q.breakfast ? `${nights} breakfasts, ` : ""}${TOURNAMENT_DAYS} lunches, ${nights} dinners each` +
+      ` · players ${nzd(n(kid.lunch))} lunch, ${nzd(n(kid.dinner), true)} dinner${grownUps ? `; adults ${nzd(n(RATES.lunch))}, ${nzd(n(RATES.dinner), true)}` : ""} · dinner delivery to your accommodation extra`;
+    lines.push({ label: "Meals", detail: mealDetail, amount: mealsChild * players + mealsGrown * grownUps, basis: kid.lunch.basis });
 
     if (q.vans > 0) {
       const days = nights + 1;
@@ -344,10 +363,11 @@ export function quote(q: QuoteInput, tp: TripPrices): Quote {
       lines.push({ label: "Village marquee", detail: `${TOURNAMENT_DAYS} days`, amount: marquee, basis: RATES.marquee.basis });
     }
     if (q.entryLunch) {
-      const lunch = n(RATES.lunch) * TOURNAMENT_DAYS;
-      mark(RATES.lunch);
-      perChild += lunch; perGrown += lunch;
-      lines.push({ label: "Lunch at the ground", detail: `Victoria Foods · ${people} people × ${TOURNAMENT_DAYS} game days`, amount: lunch * people, basis: RATES.lunch.basis });
+      const kid = mealsFor(age.id);
+      const lunchChild = n(kid.lunch) * TOURNAMENT_DAYS, lunchGrown = n(RATES.lunch) * TOURNAMENT_DAYS;
+      mark(kid.lunch);
+      perChild += lunchChild; perGrown += lunchGrown;
+      lines.push({ label: "Lunch at the ground", detail: `Victoria Foods · ${people} people × ${TOURNAMENT_DAYS} game days · players ${nzd(n(kid.lunch))}${grownUps ? `, adults ${nzd(n(RATES.lunch))}` : ""}`, amount: lunchChild * players + lunchGrown * grownUps, basis: kid.lunch.basis });
     }
   }
 
