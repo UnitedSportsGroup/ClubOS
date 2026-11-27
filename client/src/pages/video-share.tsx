@@ -3,6 +3,7 @@
 // reactions, comments, view tracking (view on open, play once, milestones at
 // 25/50/75/95% — staff sessions flagged and excluded from headline counts).
 import { useEffect, useRef, useState } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useRoute } from "wouter";
 import Hls from "hls.js";
 import { Loader2, Lock, VideoOff, Download, Eye } from "lucide-react";
@@ -246,7 +247,7 @@ export default function VideoShare() {
         {/* Player */}
         {data.status === "ready" ? (
           <div className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
-            <video ref={videoRef} controls playsInline crossOrigin="anonymous" poster={data.thumbnailUrl || undefined} className="w-full" />
+            <ClubVideoPlayer ref={videoRef} crossOrigin="anonymous" poster={data.thumbnailUrl || undefined} accent="#F59E0B" onAccent="#0B0B0B" speeds={[0.5, 1, 1.25, 1.5, 2]} frameStyle={{ aspectRatio: "16 / 9" }} label={data.title || "Video"} />
           </div>
         ) : (
           <div className="aspect-video rounded-2xl border border-white/10 bg-black/50 flex flex-col items-center justify-center gap-3 text-white/50">

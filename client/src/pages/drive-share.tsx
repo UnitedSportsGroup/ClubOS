@@ -2,6 +2,7 @@
 // Read-only: look, open, download one file, download everything. The token in
 // the address is the whole key; there is no sign-in. Light page, not indexed.
 import { useEffect, useMemo, useState } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useRoute } from "wouter";
 import { Download, FileText, Loader2, X, ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { ShareReport } from "./drive-share-report";
@@ -189,7 +190,7 @@ export default function DriveShare() {
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 py-3" onClick={() => setOpen(null)}>
             {current.kind === "video" ? (
-              <video key={current.id} src={`${base}/file/${current.id}`} controls autoPlay playsInline className="max-h-full max-w-full" style={{ background: "#000" }} onClick={(e) => e.stopPropagation()} data-testid="share-viewer-video" />
+              <div onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full"><ClubVideoPlayer key={current.id} src={`${base}/file/${current.id}`} autoPlay frameClassName="rounded-lg" style={{ width: "auto", height: "auto", maxWidth: "100%", maxHeight: "calc(100dvh - 140px)" }} label={current.name} data-testid="share-viewer-video" /></div>
             ) : (
               <img src={`${base}/file/${current.id}`} alt={current.name} className="max-h-full max-w-full object-contain" onClick={(e) => e.stopPropagation()} />
             )}

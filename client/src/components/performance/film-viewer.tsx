@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Trash2 } from "lucide-react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 
 // The film player shared by the staff page (Performance → Video) and the
 // share-link page (/film/<token>). Colours come in as a palette so the same
@@ -48,6 +49,12 @@ export function FilmViewer({ files, notes, palette: P, clip, onClip, startAt, on
   const current = clips.includes(clip) ? clip : clips[0];
   const playing = files.find((f) => f.clip === current && f.role === "watch") ?? files.find((f) => f.clip === current);
   const clipNotes = notes.filter((n) => n.clip === current);
+  // A clip is called by its watching copy's label ("Training drill"), else "Clip n".
+  const nameOf = (c: number) => {
+    const f = files.find((x) => x.clip === c && x.role === "watch") ?? files.find((x) => x.clip === c);
+    const l = f?.label?.replace(/\s*·\s*original.*$/i, "").trim();
+    return l || `Clip ${c}`;
+  };
 
   useEffect(() => { if (video.current) video.current.playbackRate = speed; }, [speed, playing?.id]);
 
@@ -75,20 +82,19 @@ export function FilmViewer({ files, notes, palette: P, clip, onClip, startAt, on
             return (
               <button key={c} type="button" role="tab" aria-selected={c === current} data-testid={`film-clip-${c}`} className={btn} style={c === current ? solid : ghost}
                 onClick={() => { pending.current = null; setNow(0); onClip(c); }}>
-                Clip {c}{f.seconds ? ` · ${clock(f.seconds)}` : ""}
+                {nameOf(c)}{f.seconds ? ` · ${clock(f.seconds)}` : ""}
               </button>
             );
           })}
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg" style={{ background: "#000", border: `1px solid ${P.line}` }}>
-        <video key={playing.id} ref={video} src={playing.videoUrl} poster={playing.posterUrl ?? undefined} controls playsInline preload="metadata"
-          className="block w-full" style={{ aspectRatio: playing.width && playing.height ? `${playing.width} / ${playing.height}` : "16 / 9", background: "#000" }}
-          data-testid="film-video"
-          onLoadedMetadata={(e) => { e.currentTarget.playbackRate = speed; if (pending.current != null) { e.currentTarget.currentTime = pending.current; pending.current = null; } }}
-          onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} />
-      </div>
+      <ClubVideoPlayer key={playing.id} ref={video} src={playing.videoUrl} poster={playing.posterUrl ?? undefined} preload="metadata"
+        accent={P.accent} onAccent={P.onAccent} label={nameOf(current)}
+        frameClassName="rounded-lg" frameStyle={{ border: `1px solid ${P.line}`, aspectRatio: playing.width && playing.height ? `${playing.width} / ${playing.height}` : "16 / 9" }}
+        data-testid="film-video"
+        onLoadedMetadata={(e) => { e.currentTarget.playbackRate = speed; if (pending.current != null) { e.currentTarget.currentTime = pending.current; pending.current = null; } }}
+        onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} />
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs" style={{ color: P.mute }}>Speed</span>
@@ -122,7 +128,7 @@ export function FilmViewer({ files, notes, palette: P, clip, onClip, startAt, on
 
       {(clipNotes.length > 0 || onAddNote) && (
         <section className="rounded-lg p-3" style={{ background: P.card, border: `1px solid ${P.line}` }}>
-          <h3 className="text-sm font-semibold" style={{ color: P.ink }}>Notes{clips.length > 1 ? ` · clip ${current}` : ""}</h3>
+          <h3 className="text-sm font-semibold" style={{ color: P.ink }}>Notes{clips.length > 1 ? ` · ${nameOf(current)}` : ""}</h3>
           {clipNotes.length === 0 ? <p className="mt-1 text-sm" style={{ color: P.mute }}>No notes on this clip yet.</p> : (
             <ul className="mt-2 divide-y" style={{ borderColor: P.line }} data-testid="film-notes">
               {clipNotes.map((n) => (

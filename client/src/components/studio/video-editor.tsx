@@ -5,6 +5,7 @@
 // the finished video plays back through ClubOS (private files).
 
 import { useEffect, useRef, useState } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { upload } from "@vercel/blob/client";
 import { Download, Film, Loader2, RotateCcw, Trash2, Upload, Wand2 } from "lucide-react";
@@ -102,7 +103,7 @@ export function VideoEditor({ pieceId, video, canEdit, wordsDirty }: { pieceId: 
       {video.videoUrl ? (
         <div className="space-y-2">
           <DarkChip className="flex justify-center rounded-xl p-2">
-            <video key={data?.version} controls playsInline preload="metadata" poster={video.posterUrl ? media("poster") : undefined} src={media("video")} className="max-h-[70vh] max-w-full rounded-lg" data-testid="studio-video-player" />
+            <ClubVideoPlayer key={data?.version} preload="metadata" poster={video.posterUrl ? media("poster") : undefined} src={media("video")} frameClassName="rounded-lg" style={{ width: "auto", height: "auto", maxWidth: "100%", maxHeight: "70vh" }} speeds={[0.5, 1, 1.5, 2]} data-testid="studio-video-player" />
           </DarkChip>
           <div className="flex flex-wrap items-center gap-2">
             <a href={media("video", true)} className="inline-flex items-center gap-2 rounded-md border border-border px-3 min-h-11 md:min-h-9 text-xs font-medium hover:bg-muted" data-testid="studio-video-download"><Download className="w-4 h-4" />Download MP4</a>

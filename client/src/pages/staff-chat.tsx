@@ -10,6 +10,7 @@
 // Transport is react-query polling: sidebar sync 6s, open conversation 3.5s.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useMemo, useRef, useState, useCallback, Fragment } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1515,7 +1516,7 @@ function AttachmentLightbox({ a, onClose }: { a: Attachment; onClose: () => void
               data-testid="lightbox-image"
             />
           ) : isVideo ? (
-            <video src={a.url} controls autoPlay className="max-w-full max-h-full" />
+            <div onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full"><ClubVideoPlayer src={a.url} autoPlay frameClassName="rounded-lg" style={{ width: "auto", height: "auto", maxWidth: "100%", maxHeight: "calc(100dvh - 160px)" }} label={a.name} /></div>
           ) : (
             <iframe src={a.url} title={a.name} className="w-full h-full bg-white" />
           )}

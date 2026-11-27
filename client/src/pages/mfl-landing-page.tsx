@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { shortCompetitionName, termLabelFromSlug, mflPixelContent } from "@shared/league-captain";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useRoute, Link, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
@@ -730,24 +731,12 @@ export default function MflLandingPage() {
  * sense muted, so it never autoplays.
  */
 function HeroVideo({ src, poster, seconds }: { src: string; poster: string; seconds: number }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
   return (
-    <div className="relative mx-auto mt-8 overflow-hidden rounded-2xl" data-testid="hero-video"
-         style={{ maxWidth: 300, aspectRatio: "9 / 16", background: BRAND.card, border: `1px solid ${BRAND.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
-      <video ref={ref} src={src} poster={poster} playsInline preload="metadata" controls={playing}
-             className="h-full w-full object-cover" onPlay={() => setPlaying(true)} onEnded={() => setPlaying(false)} />
-      {!playing && (
-        <button type="button" onClick={() => { ref.current?.play().catch(() => {}); }}
-                className="absolute inset-0 flex items-center justify-center" aria-label="Play the Summer Leagues video" data-testid="hero-video-play">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: BRAND.gold, color: BRAND.black, boxShadow: "0 8px 30px rgba(209,185,110,0.45)" }}>
-            <Play className="w-7 h-7 ml-1" fill="currentColor" />
-          </span>
-          <span className="absolute bottom-4 left-0 right-0 text-center text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: BRAND.white, textShadow: "0 1px 8px rgba(0,0,0,0.8)" }}>
-            Watch · {seconds} sec
-          </span>
-        </button>
-      )}
+    <div className="relative mx-auto mt-8" data-testid="hero-video" style={{ maxWidth: 300 }}>
+      <ClubVideoPlayer src={src} poster={poster} preload="metadata" accent={BRAND.gold} onAccent={BRAND.black}
+        label={`Summer Leagues video, ${seconds} seconds`}
+        frameClassName="rounded-2xl" frameStyle={{ aspectRatio: "9 / 16", border: `1px solid ${BRAND.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}
+        style={{ objectFit: "cover" }} />
     </div>
   );
 }

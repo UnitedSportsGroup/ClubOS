@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -958,7 +959,7 @@ function ApplicantCard({ app, job, expanded, onToggle, onUpdate, onDelete }: {
                   {app.auditionMime?.startsWith("audio/") ? (
                     <audio controls src={`/api/admin/hiring/applications/${app.id}/audition`} className="w-full" />
                   ) : (
-                    <video controls src={`/api/admin/hiring/applications/${app.id}/audition`} className="w-full max-h-72 rounded-lg bg-black" />
+                    <ClubVideoPlayer src={`/api/admin/hiring/applications/${app.id}/audition`} preload="metadata" frameClassName="w-full max-h-72 rounded-lg" frameStyle={{ aspectRatio: "16 / 9" }} label="Audition" />
                   )}
                   <a
                     href={`/api/admin/hiring/applications/${app.id}/audition?download=1`}

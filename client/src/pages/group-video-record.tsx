@@ -4,6 +4,7 @@
 // bakes a circular webcam bubble into the file (canvas composite) so the
 // output is one flat video that plays anywhere. Engine: lib/screen-recorder.ts.
 import { useEffect, useRef, useState } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -415,7 +416,7 @@ export default function GroupVideoRecord() {
       {(phase === "review" || phase === "uploading") && result && (
         <div>
           <h1 className="text-xl font-bold text-white/95 mb-4">Review your recording</h1>
-          <video ref={reviewRef} controls playsInline className="w-full rounded-xl border border-white/10 bg-black mb-4" />
+          <ClubVideoPlayer ref={reviewRef} accent="#F59E0B" onAccent="#0B0B0B" frameClassName="w-full rounded-xl border border-white/10 mb-4" frameStyle={{ aspectRatio: "16 / 9" }} label="Your recording" />
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/40 mb-4">
             <span>{formatClock(result.durationSeconds)}</span>·<span>{formatBytes(result.blob.size)}</span>
           </div>

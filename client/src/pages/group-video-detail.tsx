@@ -3,6 +3,7 @@
 // share link keeps working after a trim (better than Loom, which paywalled
 // trim entirely). Insights exclude staff opens — the house analytics rule.
 import { useEffect, useRef, useState } from "react";
+import { ClubVideoPlayer } from "@/components/ui/club-video-player";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import Hls from "hls.js";
@@ -201,7 +202,7 @@ export default function GroupVideoDetail() {
           </div>
 
           {v.status === "ready" ? (
-            <video ref={videoRef} controls playsInline poster={v.thumbnailUrl || undefined} className="w-full rounded-xl border border-white/10 bg-black" />
+            <ClubVideoPlayer ref={videoRef} poster={v.thumbnailUrl || undefined} accent="#F59E0B" onAccent="#0B0B0B" speeds={[0.5, 1, 1.25, 1.5, 2]} frameClassName="w-full rounded-xl border border-white/10" frameStyle={{ aspectRatio: "16 / 9" }} />
           ) : v.status === "error" ? (
             <div className="aspect-video rounded-xl border border-red-500/30 bg-red-500/5 flex flex-col items-center justify-center gap-2 text-red-300">
               <AlertTriangle className="w-8 h-8" />
