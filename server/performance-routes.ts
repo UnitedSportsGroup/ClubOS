@@ -44,6 +44,7 @@ import { registerPerformanceFormRoutes, todaysCheckIns } from "./performance-for
 import { answerText, formReport, isShown, liveQuestions, regionLabel, type FormDef } from "@shared/perf-forms";
 import { PLAYER_MEASURES, NO_MEASURES, ktwDifference, massChangePct, type Measures, type Reading, type SquadBody, type SquadTest } from "@shared/perf-squad";
 import { registerPerformanceAppRoutes } from "./performance-app";
+import { registerPerformanceFilmRoutes } from "./performance-film";
 
 const BASE = "/api/admin/performance";
 const PUB = "/api/public/athlete";
@@ -498,6 +499,8 @@ export function registerPerformanceRoutes(app: Express) {
   registerPerformanceFormRoutes(app, { gate, viewer, roster, onRoster, requireAthlete, requirePlayer, athleteOf, siuOrg, handle });
   // The app's own additions: the player's weights and knee to wall, the staff squad board, staff logins.
   registerPerformanceAppRoutes(app, { gate, viewer, requireAthlete, requirePlayer, requireStaff, athleteOf, buildBoard, todaysMeasures, sendLink, handle });
+  // Session film the club hosts itself: upload, watch, notes, download, one share link per film.
+  registerPerformanceFilmRoutes(app, { gate, viewer, siuOrg, handle });
 
   // ── catalogue ──────────────────────────────────────────────────────────────
   app.get(`${BASE}/catalogue`, ...gate, handle(async (req, res) => {

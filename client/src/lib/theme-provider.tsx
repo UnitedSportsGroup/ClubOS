@@ -77,6 +77,8 @@ function isPublicDarkSurface(): boolean {
     path.startsWith("/game/") ||
     // SIU player check-in (Performance Hub) — Unity Black + gold, on the phone.
     startsWithAny("/athlete") ||
+    // SIU session film by share link (Performance → Video) — the same black + gold.
+    startsWithAny("/film") ||
     // e-Sign: the signing page and the payables declaration.
     startsWithAny("/sign", "/declaration", "/agree") ||
     // The members' booking page and the membership purchase page.

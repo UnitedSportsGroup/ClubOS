@@ -43,6 +43,8 @@ const SRC = join(ROOT, "client/src");
  * checks that the reason was written down, not that it is a good one.
  */
 const DECLARED_DARK = {
+  "components/performance/film-viewer.tsx": "the black box behind a video (letterbox), never behind text; colours otherwise come from the page's palette",
+  "pages/film-share.tsx": "SIU session film by share link — /film/<token>, matched by isPublicDarkSurface()",
   "pages/agree.tsx": "e-Sign open link — wears the template's own dark brand (renders <ForceDarkSurface />).",
   "components/studio/dark-chip.tsx": "a dark tile to judge a partner logo on; holds only an image, never text",
   "pages/venue-book.tsx": "USC venue booking — /book, matched by isPublicDarkSurface()",

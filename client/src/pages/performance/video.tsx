@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   DateField, Empty, Field, FormError, Loading, LoadError, PageHead, Panel, Pill, SaveButton, ToggleChip, niceDay, send, usePerfQuery, useOverview, useSaver, control,
 } from "./ui";
+import { FilmList, FilmPage, useOpenFilm } from "./film";
 
 interface Clip { id: number; title: string; url: string; source: string; clipDate: string | null; contactIds: number[]; tags: string[]; startSeconds: number | null; note: string | null }
 
@@ -18,14 +19,19 @@ export default function Video() {
   const add = useSaver(); const del = useSaver();
   const d = q.data;
   const nameOf = (id: number) => squad.find((p) => p.contactId === id)?.name ?? "Player";
+  const film = useOpenFilm();
+
+  // One film open: its own screen (the player, the share link, adding clips).
+  if (film.film) return <FilmPage id={film.film} clip={film.clip} onClip={film.setClip} onBack={film.close} />;
 
   return (
     <div className="space-y-5 min-w-0">
-      <PageHead title="Video" blurb="Link clips from Spiideo, Veo, Hudl, Wyscout or YouTube and tag the players in them. The video stays where it is hosted." />
+      <PageHead title="Video" blurb="Session film the club hosts itself, and links to clips hosted elsewhere (Spiideo, Veo, Hudl, Wyscout, YouTube)." />
+      <FilmList onOpen={film.open} />
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
       {d && (
-        <Panel title="Clips">
+        <Panel title="Linked clips" note="Clips hosted somewhere else. The video stays where it is.">
           {d.media.length === 0 ? <Empty>No clips yet. Paste a link below.</Empty> : (
             <ul className="divide-y divide-border" data-testid="perf-clips">
               {d.media.map((m) => (
@@ -47,7 +53,7 @@ export default function Video() {
           <FormError error={del.error} />
         </Panel>
       )}
-      <Panel title="Add a clip">
+      <Panel title="Link a clip">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="Link (https://…)" className="md:col-span-2"><Input className={control} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" /></Field>
           <Field label="Title"><Input className={control} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
