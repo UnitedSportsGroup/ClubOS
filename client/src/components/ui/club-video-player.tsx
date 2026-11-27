@@ -112,6 +112,11 @@ export const ClubVideoPlayer = forwardRef<HTMLVideoElement, ClubVideoPlayerProps
   }, []);
   useEffect(() => () => window.clearTimeout(idle.current), []);
   const visible = show || !playing || scrubbing != null || speedOpen;
+  const lastPointer = useRef<string>("mouse");
+  // What was on screen BEFORE this tap's own pointerdown re-showed the controls.
+  const visibleRef = useRef(visible);
+  const wasVisible = useRef(true);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
 
   const toggle = useCallback(() => {
     if (!el) return;
@@ -185,7 +190,14 @@ export const ClubVideoPlayer = forwardRef<HTMLVideoElement, ClubVideoPlayerProps
         playsInline
         className={`block ${className ?? ""}`}
         style={{ objectFit: "contain", width: "100%", height: "100%", ...style, ...(full ? { width: "100%", height: "100%", maxHeight: "100%", maxWidth: "100%" } : {}) }}
-        onClick={(e) => { videoProps.onClick?.(e); toggle(); }}
+        onPointerDown={(e) => { lastPointer.current = e.pointerType; wasVisible.current = visibleRef.current; videoProps.onPointerDown?.(e); }}
+        onClick={(e) => {
+          videoProps.onClick?.(e);
+          // A finger on a playing video brings the controls back first (as on a
+          // phone's own player); a mouse click, or a tap with them showing, plays/pauses.
+          if (lastPointer.current === "touch" && playing && !wasVisible.current) { poke(); return; }
+          toggle();
+        }}
         onDoubleClick={(e) => { videoProps.onDoubleClick?.(e); toggleFull(); }}
       />
 
