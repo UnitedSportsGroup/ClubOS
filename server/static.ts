@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
+import { applyLinkPreview, linkPreviewFor } from "./link-preview";
 
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");
@@ -36,8 +37,16 @@ export function serveStatic(app: Express) {
 
   // fall through to index.html if the file doesn't exist. The shell is
   // tiny and must always be the newest one (it names the current chunks).
-  app.use("/{*path}", (_req, res) => {
+  // Each link previews as what it is (a film, the film library, a programme,
+  // the brand of its host) — server/link-preview.ts writes it into the shell.
+  const shell = fs.readFileSync(path.resolve(distPath, "index.html"), "utf8");
+  app.use("/{*path}", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
-    res.sendFile(path.resolve(distPath, "index.html"));
+    try {
+      const p = await linkPreviewFor(String(req.headers["x-forwarded-host"] || req.headers.host || ""), req.originalUrl || "/");
+      res.type("html").send(applyLinkPreview(shell, p));
+    } catch {
+      res.sendFile(path.resolve(distPath, "index.html"));
+    }
   });
 }
