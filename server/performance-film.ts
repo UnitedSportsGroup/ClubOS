@@ -32,6 +32,7 @@ import { requireAuth } from "./auth";
 
 const BASE = "/api/admin/performance";
 const PUB = "/api/public/film";
+const LIB = "/api/public/film-library";
 const STORE_RE = /^https:\/\/[a-z0-9]+\.private\.blob\.vercel-storage\.com\//;
 const MAX_FILE_BYTES = 40 * 1024 * 1024 * 1024; // 40 GB: a long 4K camera file
 const SIGN_HOURS = 12;
@@ -121,10 +122,34 @@ export function registerPerformanceFilmRoutes(app: Express, d: FilmDeps) {
     return {
       id: f.id, title: f.title, filmDate: isoOf(f.film_date), kind: f.kind, note: f.note,
       share: { on: !!f.share_enabled, url: shareUrl(f), createdAt: f.share_created_at ? new Date(f.share_created_at).toISOString() : null },
+      inLibrary: !!f.in_library,
       files: files.map((x) => fileOut(x, staffUrls(e))),
       notes: notes.map((n) => ({ id: n.id, clip: n.clip, atSeconds: Number(n.at_seconds), body: n.body, author: n.author, createdAt: new Date(n.created_at).toISOString() })),
     };
   }
+
+  // ── the club's film library: ONE standing link that shows every film in it ──
+  const libraryUrl = (token: string) => `${shareBase()}/films/${token}`;
+  async function libraryOut(org: number) {
+    const l = await one(`select * from perf_film_libraries where organization_id = $1`, [org]);
+    return { on: !!l?.enabled, url: l ? libraryUrl(l.token) : null };
+  }
+  app.post(`${BASE}/films/library`, ...gate, handle(async (req, res) => {
+    const v = viewer(req);
+    const b = req.body ?? {};
+    const l = await one(`select * from perf_film_libraries where organization_id = $1`, [v.org]);
+    if (b.on === false) {
+      if (l) await pool.query(`update perf_film_libraries set enabled = false where id = $1`, [l.id]);
+    } else if (!l) {
+      await pool.query(`insert into perf_film_libraries (organization_id, token, enabled, created_by) values ($1,$2,true,$3)`, [v.org, randomBytes(16).toString("base64url"), v.userId]);
+    } else if (b.renew === true) {
+      // A new link: the old one is dead from now on.
+      await pool.query(`update perf_film_libraries set token = $1, enabled = true, created_by = $2, created_at = now() where id = $3`, [randomBytes(16).toString("base64url"), v.userId, l.id]);
+    } else {
+      await pool.query(`update perf_film_libraries set enabled = true where id = $1`, [l.id]);
+    }
+    res.json({ ok: true, library: await libraryOut(v.org) });
+  }));
 
   // ── staff: the list ──────────────────────────────────────────────────────
   app.get(`${BASE}/films`, ...gate, handle(async (req, res) => {
@@ -141,9 +166,10 @@ export function registerPerformanceFilmRoutes(app: Express, d: FilmDeps) {
       order by f.film_date desc nulls last, f.id desc limit 200`, [v.org]);
     res.json({
       storageOn: !!blobToken(),
+      library: await libraryOut(v.org),
       films: rows.map((f) => ({
         id: f.id, title: f.title, filmDate: isoOf(f.film_date), kind: f.kind, note: f.note, clips: f.clips, seconds: f.seconds, bytes: f.bytes, notes: f.notes,
-        shared: !!f.share_enabled, posterUrl: f.poster_file ? staffUrls(e)(f.poster_file, "poster") : null,
+        shared: !!f.share_enabled, inLibrary: !!f.in_library, posterUrl: f.poster_file ? staffUrls(e)(f.poster_file, "poster") : null,
       })),
     });
   }));
@@ -175,7 +201,8 @@ export function registerPerformanceFilmRoutes(app: Express, d: FilmDeps) {
     const filmDate = b.filmDate === undefined ? isoOf(f.film_date) : isIso(b.filmDate) ? b.filmDate : null;
     const kind = (KINDS as readonly string[]).includes(b.kind) ? b.kind : f.kind;
     const note = b.note === undefined ? f.note : String(b.note || "").trim().slice(0, 1000) || null;
-    await pool.query(`update perf_films set title = $1, film_date = $2, kind = $3, note = $4 where id = $5`, [title, filmDate, kind, note, f.id]);
+    const inLibrary = typeof b.inLibrary === "boolean" ? b.inLibrary : !!f.in_library;
+    await pool.query(`update perf_films set title = $1, film_date = $2, kind = $3, note = $4, in_library = $5 where id = $6`, [title, filmDate, kind, note, inLibrary, f.id]);
     res.json({ ok: true });
   }));
 
@@ -324,5 +351,67 @@ export function registerPerformanceFilmRoutes(app: Express, d: FilmDeps) {
       if (req.params.which === "poster") return x.poster_url ? streamBlob(req, res, x.poster_url, {}) : res.status(404).end();
       return streamBlob(req, res, x.blob_url, { downloadName: req.query.download === "1" ? x.download_name : undefined });
     } catch (e) { console.error("[Performance film] share file failed:", e); if (!res.headersSent) res.status(500).end(); }
+  });
+
+  // ── the library link (no login): every film in the library, newest first ──
+  const libraryFor = (token: string) => (/^[A-Za-z0-9_-]{16,64}$/.test(token)
+    ? one(`select * from perf_film_libraries where token = $1 and enabled`, [token]) : Promise.resolve(undefined));
+  const libraryFilm = (orgId: number, filmId: number) => (Number.isInteger(filmId)
+    ? one(`select * from perf_films where id = $1 and organization_id = $2 and in_library and archived_at is null`, [filmId, orgId]) : Promise.resolve(undefined));
+
+  app.get(`${LIB}/:token`, async (req: Request, res: Response) => {
+    try {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      res.setHeader("Cache-Control", "no-store");
+      const l = await libraryFor(String(req.params.token));
+      if (!l) return res.status(404).json({ message: "This link isn't active." });
+      const rows = await q(`
+        select f.id, f.title, f.film_date, f.kind, f.note,
+          (select count(distinct x.clip)::int from perf_film_files x where x.film_id = f.id and x.archived_at is null) clips,
+          (select coalesce(sum(x.seconds), 0)::float from perf_film_files x where x.film_id = f.id and x.archived_at is null and x.role = 'watch') seconds,
+          (select x.id from perf_film_files x where x.film_id = f.id and x.archived_at is null and x.poster_url is not null order by x.clip, x.role desc limit 1) poster_file
+        from perf_films f
+        where f.organization_id = $1 and f.in_library and f.archived_at is null
+          and exists (select 1 from perf_film_files x where x.film_id = f.id and x.archived_at is null)
+        order by f.film_date desc nulls last, f.id desc limit 500`, [l.organization_id]);
+      res.json({
+        films: rows.map((f) => ({
+          id: f.id, title: f.title, filmDate: isoOf(f.film_date), kind: f.kind, note: f.note, clips: f.clips, seconds: f.seconds,
+          posterUrl: f.poster_file ? `${LIB}/${l.token}/films/${f.id}/file/${f.poster_file}/poster` : null,
+        })),
+      });
+    } catch (e) { console.error("[Performance film] library failed:", e); res.status(500).json({ message: "Something went wrong." }); }
+  });
+
+  app.get(`${LIB}/:token/films/:filmId`, async (req: Request, res: Response) => {
+    try {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      res.setHeader("Cache-Control", "no-store");
+      const l = await libraryFor(String(req.params.token));
+      const f = l ? await libraryFilm(l.organization_id, Number(req.params.filmId)) : undefined;
+      if (!l || !f) return res.status(404).json({ message: "This film isn't in the library." });
+      const urls = (id: number, which: "video" | "poster", download?: boolean) => `${LIB}/${l.token}/films/${f.id}/file/${id}/${which}${download ? "?download=1" : ""}`;
+      const [files, notes] = await Promise.all([filesOf(f.id), notesOf(f.id)]);
+      res.json({
+        film: {
+          id: f.id, title: f.title, filmDate: isoOf(f.film_date), kind: f.kind, note: f.note,
+          files: files.map((x) => fileOut(x, urls)),
+          notes: notes.map((n) => ({ id: n.id, clip: n.clip, atSeconds: Number(n.at_seconds), body: n.body })),
+        },
+      });
+    } catch (e) { console.error("[Performance film] library film failed:", e); res.status(500).json({ message: "Something went wrong." }); }
+  });
+
+  app.get(`${LIB}/:token/films/:filmId/file/:fileId/:which`, async (req: Request, res: Response) => {
+    try {
+      const l = await libraryFor(String(req.params.token));
+      const f = l ? await libraryFilm(l.organization_id, Number(req.params.filmId)) : undefined;
+      const id = Number(req.params.fileId);
+      if (!f || !Number.isInteger(id)) return res.status(404).end();
+      const x = await one(`select * from perf_film_files where id = $1 and film_id = $2 and archived_at is null`, [id, f.id]);
+      if (!x) return res.status(404).end();
+      if (req.params.which === "poster") return x.poster_url ? streamBlob(req, res, x.poster_url, {}) : res.status(404).end();
+      return streamBlob(req, res, x.blob_url, { downloadName: req.query.download === "1" ? x.download_name : undefined });
+    } catch (e) { console.error("[Performance film] library file failed:", e); if (!res.headersSent) res.status(500).end(); }
   });
 }

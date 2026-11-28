@@ -171,6 +171,7 @@ const CANARIES: Canary[] = [
   { feature: "siu app squad (staff)",  path: "/api/public/athlete/squad",                 expect: [401] },
   { feature: "siu app staff logins",   path: "/api/admin/performance/app-staff",          expect: [401] },
   { feature: "siu film",               path: "/api/admin/performance/films",              expect: [401] },
+  { feature: "siu film library",       path: "/api/public/film-library/not-a-real-token-0000", expect: [404] },
   { feature: "siu film share link",    path: "/api/public/film/not-a-real-token-0000",    expect: [404] },
   { feature: "website analytics",    path: "/api/admin/web-analytics/report",           expect: [401] },
   { feature: "marketing channels",   path: "/api/admin/email-stats/report",             expect: [401] },

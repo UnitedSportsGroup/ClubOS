@@ -4,6 +4,7 @@ import { upload } from "@vercel/blob/client";
 import { ArrowLeft, Copy, Film, Link2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getActiveWorkspaceSlug } from "@/lib/workspace-slug";
 import { FilmViewer, LIGHT_FILM, clock, size, type FilmFile, type FilmNote } from "@/components/performance/film-viewer";
 import {
@@ -13,10 +14,11 @@ import {
 // Performance → Video → session film the club hosts itself.
 // The open film and clip live in the URL (?film=3&clip=2) so Back and a pasted link both work.
 
-interface FilmRow { id: number; title: string; filmDate: string | null; kind: string; note: string | null; clips: number; seconds: number; bytes: number; notes: number; shared: boolean; posterUrl: string | null }
+interface FilmRow { id: number; title: string; filmDate: string | null; kind: string; note: string | null; clips: number; seconds: number; bytes: number; notes: number; shared: boolean; inLibrary: boolean; posterUrl: string | null }
+interface Library { on: boolean; url: string | null }
 interface FilmDetail {
   id: number; title: string; filmDate: string | null; kind: string; note: string | null;
-  share: { on: boolean; url: string | null; createdAt: string | null }; files: FilmFile[]; notes: FilmNote[];
+  share: { on: boolean; url: string | null; createdAt: string | null }; inLibrary: boolean; files: FilmFile[]; notes: FilmNote[];
 }
 const KINDS = [{ value: "training", label: "Training" }, { value: "match", label: "Match" }, { value: "other", label: "Other" }];
 const kindWord = (k: string) => KINDS.find((x) => x.value === k)?.label ?? "Film";
@@ -36,9 +38,35 @@ export function useOpenFilm() {
   };
 }
 
+/** ONE standing link for the coaching staff: every film in the library, newest first. */
+function LibraryPanel({ library, count }: { library: Library; count: number }) {
+  const s = useSaver();
+  const [copied, setCopied] = useState(false);
+  return (
+    <Panel title="Film library" note={`One link for the coaches that always shows every film in the library, training and matches, newest first. A film you add later appears on it by itself. ${count} film${count === 1 ? "" : "s"} in it now.`}>
+      {library.on && library.url ? (
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <Input readOnly value={library.url} className={`${control} flex-1 font-mono text-xs`} onFocus={(e) => e.currentTarget.select()} data-testid="film-library-url" />
+          <Button className={control} onClick={async () => { await navigator.clipboard.writeText(library.url!); setCopied(true); setTimeout(() => setCopied(false), 1800); }}>
+            <Copy className="mr-2 h-4 w-4" aria-hidden />{copied ? "Copied" : "Copy link"}
+          </Button>
+          <Button variant="outline" className={control} disabled={s.busy} onClick={() => s.run(async () => { await send("POST", "/films/library", { on: false }); })}>Turn off</Button>
+          <Button variant="ghost" className={control} disabled={s.busy}
+            onClick={() => { if (window.confirm("Make a new library link? The old one stops working for everyone who has it.")) s.run(async () => { await send("POST", "/films/library", { renew: true }); }); }}>New link</Button>
+        </div>
+      ) : (
+        <Button className={control} disabled={s.busy} onClick={() => s.run(async () => { await send("POST", "/films/library", { on: true }); })} data-testid="film-library-on">
+          <Link2 className="mr-2 h-4 w-4" aria-hidden />{library.url ? "Turn the library link back on" : "Create the library link"}
+        </Button>
+      )}
+      <FormError error={s.error} />
+    </Panel>
+  );
+}
+
 /** The list of films and the "add a film" form. */
 export function FilmList({ onOpen }: { onOpen: (id: number) => void }) {
-  const q = usePerfQuery<{ films: FilmRow[]; storageOn: boolean }>("films", "/films");
+  const q = usePerfQuery<{ films: FilmRow[]; storageOn: boolean; library: Library }>("films", "/films");
   const [title, setTitle] = useState(""); const [date, setDate] = useState(""); const [kind, setKind] = useState("training");
   const add = useSaver();
   const d = q.data;
@@ -46,6 +74,7 @@ export function FilmList({ onOpen }: { onOpen: (id: number) => void }) {
     <>
       {q.isLoading && <Loading />}
       {q.isError && <LoadError error={q.error} onRetry={() => q.refetch()} />}
+      {d && <LibraryPanel library={d.library} count={d.films.filter((f) => f.inLibrary && f.clips > 0).length} />}
       {d && (
         <Panel title="Session film" note="Film the club hosts itself: watch it here, add notes at a moment, download it, and share it by link with a coach who has no ClubOS login.">
           {!d.storageOn && <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">Film storage isn't switched on yet, so films can't be played or uploaded.</p>}
@@ -65,6 +94,7 @@ export function FilmList({ onOpen }: { onOpen: (id: number) => void }) {
                         {[niceDay(f.filmDate, true) || "Date not recorded", kindWord(f.kind), `${f.clips} clip${f.clips === 1 ? "" : "s"}`, f.seconds ? clock(f.seconds) : null, f.bytes ? size(f.bytes) : null].filter(Boolean).join(" · ")}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
+                        {f.inLibrary ? <Pill tone="blue">In the library</Pill> : <Pill>Not in the library</Pill>}
                         {f.shared && <Pill tone="green">Shared by link</Pill>}
                         {f.notes > 0 && <Pill>{f.notes} note{f.notes === 1 ? "" : "s"}</Pill>}
                       </div>
@@ -170,6 +200,11 @@ export function FilmPage({ id, clip, onClip, onBack }: { id: number; clip: numbe
                 <Link2 className="mr-2 h-4 w-4" aria-hidden />{film.share.url ? "Turn the link back on" : "Create a share link"}
               </Button>
             )}
+            <label className="mt-4 flex min-h-[44px] cursor-pointer items-center gap-3 text-sm md:min-h-0">
+              <Checkbox checked={film.inLibrary} disabled={share.busy} className="h-5 w-5"
+                onCheckedChange={(v) => { const on = v === true; share.run(async () => { await send("PATCH", `/films/${id}`, { inLibrary: on }); }); }} data-testid="film-in-library" />
+              <span>Show this film in the club's film library <span className="text-muted-foreground">(the one link the coaches keep)</span></span>
+            </label>
             <FormError error={share.error} />
           </Panel>
 

@@ -83,6 +83,7 @@ const GroupPayouts = lazy(() => import("@/pages/payouts"));
 const AdminLicensing = lazy(() => import("@/pages/admin-licensing"));
 const AdminPerformance = lazy(() => import("@/pages/performance"));
 const FilmShare = lazy(() => import("@/pages/film-share"));
+const FilmLibrary = lazy(() => import("@/pages/film-library"));
 const AthleteCheckIn = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteCheckIn })));
 const AthleteSetPassword = lazy(() => import("@/pages/athlete").then((m) => ({ default: m.AthleteSetPassword })));
 const AdminEvents = lazy(() => import("@/pages/admin-events"));
@@ -1093,6 +1094,7 @@ function App() {
             {/* SIU Performance Hub — the player's phone check-in (join.southislandunited.com/athlete).
                 🔴 /athlete/set-password MUST precede /athlete. */}
             <Route path="/film/:token" component={FilmShare} />
+            <Route path="/films/:token" component={FilmLibrary} />
             <Route path="/athlete/set-password" component={AthleteSetPassword} />
             <Route path="/athlete" component={AthleteCheckIn} />
             <Route path="/captain/set-password" component={CaptainSetPasswordPage} />
